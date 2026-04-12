@@ -10,14 +10,15 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app import tile_generator
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def _slide_response(slide_id: str, info, filename: str):
