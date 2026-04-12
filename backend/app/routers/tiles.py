@@ -6,14 +6,15 @@
 import io
 import hashlib
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
+from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.tile_generator import get_tiles_dir
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 TILE_SIZE = settings.TILE_SIZE
 
