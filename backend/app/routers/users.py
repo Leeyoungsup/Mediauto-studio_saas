@@ -92,7 +92,7 @@ async def update_user_role(
     await log_audit_event(
         str_action="admin.role_changed",
         str_user_id=dict_current_user["_id"],
-        str_user_email=dict_current_user.get("str_email", ""),
+        str_user_email=dict_current_user.get("str_login_id", ""),
         str_resource_type="user",
         str_resource_id=body.str_user_id,
         str_detail=f"Role changed to: {body.str_new_role}",
@@ -144,7 +144,7 @@ async def toggle_user_active(
     await log_audit_event(
         str_action=f"admin.user_{str_action}",
         str_user_id=dict_current_user["_id"],
-        str_user_email=dict_current_user.get("str_email", ""),
+        str_user_email=dict_current_user.get("str_login_id", ""),
         str_resource_type="user",
         str_resource_id=body.str_user_id,
         str_detail=f"Account {str_action}",
@@ -186,7 +186,7 @@ async def unlock_user(
     await log_audit_event(
         str_action="admin.user_unlocked",
         str_user_id=dict_current_user["_id"],
-        str_user_email=dict_current_user.get("str_email", ""),
+        str_user_email=dict_current_user.get("str_login_id", ""),
         str_resource_type="user",
         str_resource_id=str_user_id,
         str_detail="Account unlocked by admin",
