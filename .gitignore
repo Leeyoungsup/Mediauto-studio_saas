@@ -1,2 +1,6 @@
 /backend/tiles/*
 /backend/ai_results/*
+/.claude/*
+/backend/uploads/*
+*.pyc
+__pycache__/
