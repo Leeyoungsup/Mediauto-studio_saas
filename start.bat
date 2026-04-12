@@ -9,7 +9,7 @@ cd /d "%~dp0backend"
 
 set ENV_NAME=yslee
 set HOST=0.0.0.0
-set PORT=8091
+set PORT=27070
 
 where conda >nul 2>&1
 if errorlevel 1 (
