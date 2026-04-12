@@ -25,7 +25,7 @@ async def connect_db():
         await _client.admin.command("ping")
 
         # ── 인덱스 생성 (멱등) ──
-        await _db.users.create_index("str_email", unique=True)
+        await _db.users.create_index("str_login_id", unique=True)
         await _db.sessions.create_index("str_refresh_token", unique=True)
         await _db.sessions.create_index("dt_expires_at", expireAfterSeconds=0)
         await _db.audit_logs.create_index("dt_created_at")
