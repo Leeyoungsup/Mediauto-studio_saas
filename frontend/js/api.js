@@ -1,15 +1,90 @@
 /**
  * API 클라이언트 — FastAPI 백엔드와 통신
+ * JWT 인증 토큰 자동 첨부 + 자동 갱신
  */
 
 const API_BASE = '/api';
+
+// ── 인증 토큰 관리 ──
+function _getAccessToken() {
+    return localStorage.getItem('access_token') || '';
+}
+
+function _getRefreshToken() {
+    return localStorage.getItem('refresh_token') || '';
+}
+
+function _setTokens(accessToken, refreshToken, expiresIn) {
+    localStorage.setItem('access_token', accessToken);
+    localStorage.setItem('refresh_token', refreshToken);
+    localStorage.setItem('token_expires', Date.now() + expiresIn * 1000);
+}
+
+function _clearTokens() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('token_expires');
+    localStorage.removeItem('user');
+}
+
+function _isTokenExpiringSoon() {
+    const expires = parseInt(localStorage.getItem('token_expires') || '0', 10);
+    // 2분 전에 갱신
+    return Date.now() > expires - 120000;
+}
+
+async function _refreshTokenIfNeeded() {
+    if (!_isTokenExpiringSoon()) return;
+    const refreshToken = _getRefreshToken();
+    if (!refreshToken) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ str_refresh_token: refreshToken }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            _setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
+            if (data.dict_user) {
+                localStorage.setItem('user', JSON.stringify(data.dict_user));
+            }
+        } else {
+            // Refresh 실패 → 로그인 페이지로
+            _clearTokens();
+            window.location.href = '/login.html';
+        }
+    } catch (e) {
+        console.error('Token refresh failed:', e);
+    }
+}
+
+function _authHeaders() {
+    return { 'Authorization': `Bearer ${_getAccessToken()}` };
+}
+
+async function _authFetch(url, options = {}) {
+    await _refreshTokenIfNeeded();
+
+    const headers = { ...(options.headers || {}), ..._authHeaders() };
+    const res = await fetch(url, { ...options, headers });
+
+    if (res.status === 401) {
+        _clearTokens();
+        window.location.href = '/login.html';
+        throw new Error('Authentication required');
+    }
+
+    return res;
+}
 
 export const api = {
     // ── 슬라이드 ──
 
     /** 폴더 탐색 (하위 폴더 + 슬라이드 목록) */
     async browse(path = '') {
-        const res = await fetch(`${API_BASE}/slides/browse?path=${encodeURIComponent(path)}`);
+        const res = await _authFetch(`${API_BASE}/slides/browse?path=${encodeURIComponent(path)}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -19,7 +94,7 @@ export const api = {
         const form = new FormData();
         form.append('filename', filename);
         form.append('path', path);
-        const res = await fetch(`${API_BASE}/slides/open`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/open`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -29,7 +104,7 @@ export const api = {
         const form = new FormData();
         form.append('path', path);
         form.append('name', name);
-        const res = await fetch(`${API_BASE}/slides/folder/create`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/folder/create`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -39,7 +114,7 @@ export const api = {
         const form = new FormData();
         form.append('path', path);
         form.append('new_name', newName);
-        const res = await fetch(`${API_BASE}/slides/folder/rename`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/folder/rename`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -48,7 +123,7 @@ export const api = {
     async deleteFolder(path) {
         const form = new FormData();
         form.append('path', path);
-        const res = await fetch(`${API_BASE}/slides/folder/delete`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/folder/delete`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -59,7 +134,7 @@ export const api = {
         form.append('filename', filename);
         form.append('src_path', srcPath);
         form.append('dst_path', dstPath);
-        const res = await fetch(`${API_BASE}/slides/file/move`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/file/move`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -68,7 +143,7 @@ export const api = {
     async uploadStart(filename) {
         const form = new FormData();
         form.append('filename', filename);
-        const res = await fetch(`${API_BASE}/slides/upload/start`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/upload/start`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -79,7 +154,7 @@ export const api = {
         form.append('upload_id', uploadId);
         form.append('chunk_index', chunkIndex.toString());
         form.append('chunk', blob);
-        const res = await fetch(`${API_BASE}/slides/upload/chunk`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/upload/chunk`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -91,43 +166,43 @@ export const api = {
         form.append('filename', filename);
         form.append('total_chunks', totalChunks.toString());
         form.append('path', path);
-        const res = await fetch(`${API_BASE}/slides/upload/complete`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/upload/complete`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /** 슬라이드 정보 */
     async getSlideInfo(slideId) {
-        const res = await fetch(`${API_BASE}/slides/${slideId}/info`);
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/info`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후) */
     thumbnailUrl(slideId, size = 300) {
-        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}`;
+        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
     },
 
     /** 고해상도 프리뷰 URL (PDF 리포트용) */
     previewUrl(slideId, size = 2048) {
-        return `${API_BASE}/slides/${slideId}/preview?size=${size}`;
+        return `${API_BASE}/slides/${slideId}/preview?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
     thumbnailUrlByName(filename, path = '', size = 300) {
-        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}`;
+        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
     },
 
     // ── 타일 ──
 
     /** 타일 이미지 URL (프리제네레이트된 정적 타일) */
     tileUrl(slideId, level, tileX, tileY) {
-        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg`;
+        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?token=${encodeURIComponent(_getAccessToken())}`;
     },
 
     /** stage level 조회 */
     async getStageLevel(slideId, effectiveMpp) {
-        const res = await fetch(`${API_BASE}/tiles/${slideId}/stage-level?effective_mpp=${effectiveMpp}`);
+        const res = await _authFetch(`${API_BASE}/tiles/${slideId}/stage-level?effective_mpp=${effectiveMpp}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -136,7 +211,7 @@ export const api = {
 
     /** 타일 프리제네레이션 진행 상태 */
     async getTileProgress(slideId) {
-        const res = await fetch(`${API_BASE}/slides/tile-progress/${slideId}`);
+        const res = await _authFetch(`${API_BASE}/slides/tile-progress/${slideId}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -147,14 +222,14 @@ export const api = {
     async saveAnnotations(slideId, annotations) {
         const form = new FormData();
         form.append('data', JSON.stringify(annotations));
-        const res = await fetch(`${API_BASE}/slides/${slideId}/annotations/save`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/annotations/save`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /** annotation 불러오기 */
     async loadAnnotations(slideId) {
-        const res = await fetch(`${API_BASE}/slides/${slideId}/annotations/load`);
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/annotations/load`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -167,7 +242,7 @@ export const api = {
         form.append('slide_id', slideId);
         if (roiPolygons) form.append('roi_polygons', JSON.stringify(roiPolygons));
         form.append('tissue_type', tissueType);
-        const res = await fetch(`${API_BASE}/ai/detect`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/ai/detect`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -178,14 +253,14 @@ export const api = {
         form.append('slide_id', slideId);
         form.append('tissue_type', tissueType);
         form.append('result', JSON.stringify(result));
-        const res = await fetch(`${API_BASE}/ai/save-result`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/ai/save-result`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /** 작업 상태 조회 */
     async getTaskStatus(taskId) {
-        const res = await fetch(`${API_BASE}/ai/task/${taskId}`);
+        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -197,7 +272,7 @@ export const api = {
         form.append('stain_type', stainType);
         form.append('target_mpp', String(targetMpp));
         if (roiPolygons) form.append('roi_polygons', JSON.stringify(roiPolygons));
-        const res = await fetch(`${API_BASE}/ai/virtual-stain`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/ai/virtual-stain`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -209,6 +284,26 @@ export const api = {
 
     /** Virtual Stain 피라미드 타일 URL (뷰어 렌더용) */
     virtualStainTileUrl(slideId, stainType, targetMpp, level, tx, ty) {
-        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}`;
+        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&token=${encodeURIComponent(_getAccessToken())}`;
+    },
+
+    // ── 인증 ──
+
+    /** 로그아웃 (서버 세션 폐기 + 로컬 토큰 삭제) */
+    async logout() {
+        try {
+            await _authFetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+        } catch (_) {
+            // 서버 에러 시에도 로컬 토큰은 삭제
+        }
+        _clearTokens();
+        window.location.href = '/login.html';
+    },
+
+    /** 현재 로그인 사용자 정보 조회 */
+    async me() {
+        const res = await _authFetch(`${API_BASE}/auth/me`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
     },
 };
