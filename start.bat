@@ -1,15 +1,15 @@
 @echo off
 REM ============================================================
-REM  MeDICus Studio SaaS — 서버 실행 스크립트
-REM  - conda env "medicus-saas" 활성화
-REM  - uvicorn 으로 FastAPI 실행
+REM  MeDICus Studio SaaS - Server Start Script
+REM  - conda env "yslee" activate
+REM  - uvicorn FastAPI start
 REM ============================================================
 setlocal
 cd /d "%~dp0backend"
 
 set ENV_NAME=yslee
 set HOST=0.0.0.0
-set PORT=8080
+set PORT=8091
 
 where conda >nul 2>&1
 if errorlevel 1 (
