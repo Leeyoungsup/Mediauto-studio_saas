@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import (
@@ -37,15 +37,18 @@ PASSWORD_PATTERN = re.compile(
 
 
 # ── 요청/응답 스키마 ──
+LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
+
+
 class RegisterRequest(BaseModel):
-    str_email: EmailStr
+    str_login_id: str = Field(..., min_length=4, max_length=30)
     str_password: str = Field(..., min_length=8, max_length=128)
     str_name: str = Field(..., min_length=1, max_length=100)
     str_department: str = Field(default="", max_length=100)
 
 
 class LoginRequest(BaseModel):
-    str_email: EmailStr
+    str_login_id: str = Field(..., min_length=1, max_length=30)
     str_password: str = Field(..., min_length=1, max_length=128)
 
 
@@ -65,23 +68,30 @@ class RefreshRequest(BaseModel):
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, request: Request):
     """신규 사용자 등록 (기본 역할: viewer)"""
+    # 아이디 형식 검증 (4~30자, 영문/숫자/언더스코어)
+    if not LOGIN_ID_PATTERN.match(body.str_login_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="아이디는 4~30자 영문/숫자/언더스코어만 가능합니다.",
+        )
+
     # 비밀번호 강도 검증
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must contain uppercase, lowercase, number, and special character",
+            detail="비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
         )
 
     db = get_db()
 
-    # 이메일 중복 검사
+    # 아이디 중복 검사
     dict_existing = await db.users.find_one(
-        {"str_email": body.str_email.strip().lower()}
+        {"str_login_id": body.str_login_id.strip().lower()}
     )
     if dict_existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+            detail="이미 사용 중인 아이디입니다.",
         )
 
     # 첫 번째 사용자는 admin으로 설정
@@ -90,7 +100,7 @@ async def register(body: RegisterRequest, request: Request):
 
     str_hashed = hash_password(body.str_password)
     dict_user_doc = create_user_document(
-        str_email=body.str_email,
+        str_login_id=body.str_login_id,
         str_hashed_password=str_hashed,
         str_name=body.str_name,
         str_role=str_role,
@@ -104,7 +114,7 @@ async def register(body: RegisterRequest, request: Request):
     await log_audit_event(
         str_action="user.register",
         str_user_id=str_user_id,
-        str_user_email=body.str_email,
+        str_user_email=body.str_login_id,
         str_resource_type="user",
         str_resource_id=str_user_id,
         str_detail=f"New user registered with role: {str_role}",
@@ -122,15 +132,15 @@ async def register(body: RegisterRequest, request: Request):
 # ── 로그인 ──
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request):
-    """이메일/비밀번호 로그인 → Access + Refresh Token 발급"""
+    """아이디/비밀번호 로그인 → Access + Refresh Token 발급"""
     db = get_db()
-    str_email_lower = body.str_email.strip().lower()
+    str_login_id_lower = body.str_login_id.strip().lower()
 
-    dict_user = await db.users.find_one({"str_email": str_email_lower})
+    dict_user = await db.users.find_one({"str_login_id": str_login_id_lower})
     if not dict_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="아이디 또는 비밀번호가 올바르지 않습니다.",
         )
 
     str_user_id = str(dict_user["_id"])
@@ -145,7 +155,7 @@ async def login(body: LoginRequest, request: Request):
             await log_audit_event(
                 str_action="user.login_locked",
                 str_user_id=str_user_id,
-                str_user_email=str_email_lower,
+                str_user_email=str_login_id_lower,
                 str_detail=f"Login attempt while locked ({int_remaining_minutes}min remaining)",
                 str_ip_address=get_client_ip(request),
                 str_user_agent=request.headers.get("User-Agent", ""),
@@ -185,7 +195,7 @@ async def login(body: LoginRequest, request: Request):
         await log_audit_event(
             str_action="user.login_failed",
             str_user_id=str_user_id,
-            str_user_email=str_email_lower,
+            str_user_email=str_login_id_lower,
             str_detail=f"Failed attempt #{int_attempts}"
             + (" → LOCKED" if int_attempts >= settings.MAX_LOGIN_ATTEMPTS else ""),
             str_ip_address=get_client_ip(request),
@@ -194,7 +204,7 @@ async def login(body: LoginRequest, request: Request):
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="아이디 또는 비밀번호가 올바르지 않습니다.",
         )
 
     # 로그인 성공 → 실패 카운터 초기화
@@ -227,7 +237,7 @@ async def login(body: LoginRequest, request: Request):
     await log_audit_event(
         str_action="user.login_success",
         str_user_id=str_user_id,
-        str_user_email=str_email_lower,
+        str_user_email=str_login_id_lower,
         str_detail="Login successful",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
@@ -239,7 +249,7 @@ async def login(body: LoginRequest, request: Request):
         int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         dict_user={
             "str_id": str_user_id,
-            "str_email": dict_user["str_email"],
+            "str_login_id": dict_user["str_login_id"],
             "str_name": dict_user["str_name"],
             "str_role": dict_user["str_role"],
             "str_department": dict_user.get("str_department", ""),
@@ -321,7 +331,7 @@ async def refresh_token(body: RefreshRequest, request: Request):
         int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         dict_user={
             "str_id": str_user_id,
-            "str_email": dict_user["str_email"],
+            "str_login_id": dict_user["str_login_id"],
             "str_name": dict_user["str_name"],
             "str_role": dict_user["str_role"],
             "str_department": dict_user.get("str_department", ""),
@@ -345,7 +355,7 @@ async def logout(request: Request, dict_current_user: dict = Depends(get_current
     await log_audit_event(
         str_action="user.logout",
         str_user_id=str_user_id,
-        str_user_email=dict_current_user.get("str_email", ""),
+        str_user_email=dict_current_user.get("str_login_id", ""),
         str_detail=f"Logged out — {result.modified_count} sessions revoked",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
@@ -360,7 +370,7 @@ async def get_me(dict_current_user: dict = Depends(get_current_user)):
     """현재 로그인된 사용자 정보"""
     return {
         "str_id": dict_current_user["_id"],
-        "str_email": dict_current_user["str_email"],
+        "str_login_id": dict_current_user["str_login_id"],
         "str_name": dict_current_user["str_name"],
         "str_role": dict_current_user["str_role"],
         "str_department": dict_current_user.get("str_department", ""),
@@ -416,7 +426,7 @@ async def change_password(
     await log_audit_event(
         str_action="user.password_changed",
         str_user_id=dict_current_user["_id"],
-        str_user_email=dict_current_user.get("str_email", ""),
+        str_user_email=dict_current_user.get("str_login_id", ""),
         str_detail="Password changed — all sessions revoked",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
