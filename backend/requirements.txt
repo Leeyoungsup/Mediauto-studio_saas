@@ -20,6 +20,12 @@ torch>=2.0.0
 torchvision>=0.15.0
 segmentation-models-pytorch>=0.3.3
 
+# ── 인증/보안 ──
+motor>=3.3.0
+bcrypt>=4.1.0
+python-jose[cryptography]>=3.3.0
+cryptography>=42.0.0
+
 # ── 레거시 호환 (ai/virtual_stain.py, ai/segmentation.py 가 QThread/pyqtSignal 을
 #    모듈 레벨에서 import 하므로 SaaS 환경에서도 필요) ──
 PyQt5>=5.15.0
