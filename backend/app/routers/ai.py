@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, HTTPException, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from fastapi.responses import JSONResponse, FileResponse
 
+from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
 
@@ -24,7 +25,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # AI 작업 상태 추적
 _tasks = {}
