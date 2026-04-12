@@ -26,6 +26,10 @@ const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
 
+// 사용자 메뉴
+const $userName = $('#user-name');
+const $btnLogout = $('#btn-logout');
+
 // 툴바 버튼
 const $btnOpen = $('#btn-open');
 const $btnSave = $('#btn-save');
@@ -79,6 +83,22 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         $(`#${btn.dataset.tab}`).classList.add('active');
     });
 });
+
+// ═══════════════════════════
+// 사용자 인증 UI
+// ═══════════════════════════
+if ($btnLogout) {
+    $btnLogout.addEventListener('click', () => api.logout());
+}
+// 사용자 이름 표시
+(async () => {
+    try {
+        const dict_me = await api.me();
+        if ($userName && dict_me.str_name) {
+            $userName.textContent = dict_me.str_name;
+        }
+    } catch (_) { /* 무시 — 인증 실패 시 api.js가 리다이렉트 처리 */ }
+})();
 
 // ═══════════════════════════
 // 파일 열기 + 업로드
