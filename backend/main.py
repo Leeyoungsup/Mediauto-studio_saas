@@ -56,12 +56,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import slides, tiles, ai
+from app.database import connect_db, disconnect_db
+from app.routers import slides, tiles, ai, auth, users
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 리소스 관리"""
+    # MongoDB 연결
+    await connect_db()
+
     # 디렉토리 생성
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.TILES_DIR, exist_ok=True)
@@ -72,6 +76,8 @@ async def lifespan(app: FastAPI):
     # 종료 시 열린 슬라이드 정리
     from app.slide_manager import slide_manager
     slide_manager.close_all()
+    # MongoDB 연결 해제
+    await disconnect_db()
     print("[MeDICus SaaS] Shutdown complete")
 
 
@@ -92,6 +98,8 @@ app.add_middleware(
 )
 
 # 라우터 등록
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
 app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
