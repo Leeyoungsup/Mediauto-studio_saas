@@ -46,7 +46,7 @@ def verify_password(str_plain_password: str, str_hashed_password: str) -> bool:
 
 # ── 사용자 문서 생성 ──
 def create_user_document(
-    str_email: str,
+    str_login_id: str,
     str_hashed_password: str,
     str_name: str,
     str_role: str = UserRole.VIEWER,
@@ -55,7 +55,7 @@ def create_user_document(
     """MongoDB에 삽입할 사용자 문서 생성"""
     dt_now = datetime.now(timezone.utc)
     return {
-        "str_email": str_email.strip().lower(),
+        "str_login_id": str_login_id.strip().lower(),
         "str_hashed_password": str_hashed_password,
         "str_name": str_name.strip(),
         "str_role": str_role,
