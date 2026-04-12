@@ -111,7 +111,7 @@
                 <!-- Register only fields -->
                 <div class="register-fields" id="register-fields">
                     <div class="form-group">
-                        <label for="name">이름</label>
+                        <label for="name">이름 <span style="color:#d93025">*</span></label>
                         <input type="text" id="name" placeholder="홍길동" maxlength="100" autocomplete="name">
                     </div>
                     <div class="form-group">
@@ -143,6 +143,7 @@
 
     <script>
         const API_BASE = '/api/auth';
+        const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
         let isRegisterMode = false;
 
         const $form = document.getElementById('auth-form');
@@ -164,6 +165,14 @@
         }
 
         function showAlert(message, type = 'error') {
+            // FastAPI validation error detail은 배열일 수 있음
+            if (typeof message === 'object') {
+                if (Array.isArray(message)) {
+                    message = message.map(e => e.msg || JSON.stringify(e)).join(', ');
+                } else {
+                    message = message.msg || JSON.stringify(message);
+                }
+            }
             $alertBox.textContent = message;
             $alertBox.className = `alert-box ${type}`;
         }
@@ -181,9 +190,6 @@
                 $pageTitle.textContent = 'Sign Up';
                 $pageSubtitle.textContent = '새 계정을 생성하세요';
                 $btnSubmit.textContent = '회원가입';
-                $toggleLink.textContent = '로그인';
-                document.getElementById('mode-toggle').querySelector('span, #mode-toggle')
-                    .textContent = '';
                 document.getElementById('mode-toggle').innerHTML =
                     '이미 계정이 있으신가요? <a id="toggle-link" href="#">로그인</a>';
                 $registerFields.classList.add('visible');
@@ -243,7 +249,11 @@
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.detail || 'Login failed');
+                const detail = data.detail;
+                const msg = typeof detail === 'string' ? detail
+                    : Array.isArray(detail) ? detail.map(e => e.msg || JSON.stringify(e)).join(', ')
+                    : JSON.stringify(detail) || 'Login failed';
+                throw new Error(msg);
             }
 
             // 토큰 저장
@@ -256,6 +266,12 @@
         }
 
         async function doRegister() {
+            if (!$name.value.trim()) {
+                throw new Error('이름을 입력해주세요.');
+            }
+            if (!PASSWORD_PATTERN.test($password.value)) {
+                throw new Error('비밀번호: 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상');
+            }
             const res = await fetch(`${API_BASE}/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -270,7 +286,11 @@
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.detail || 'Registration failed');
+                const detail = data.detail;
+                const msg = typeof detail === 'string' ? detail
+                    : Array.isArray(detail) ? detail.map(e => e.msg || JSON.stringify(e)).join(', ')
+                    : JSON.stringify(detail) || 'Registration failed';
+                throw new Error(msg);
             }
 
             showAlert('회원가입 성공! 로그인해주세요.', 'success');
