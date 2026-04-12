@@ -1,6 +1,7 @@
 """앱 설정"""
 
 import os
+import secrets
 from pathlib import Path
 
 
@@ -39,6 +40,33 @@ class Settings:
         ".svs", ".ndpi", ".vms", ".vmu", ".scn",
         ".mrxs", ".tiff", ".tif", ".png", ".jpg", ".jpeg",
     }
+
+    # ── MongoDB 설정 (On-Premise) ──
+    MONGO_URI: str = os.environ.get(
+        "MONGO_URI",
+        "mongodb://localhost:27017"
+    )
+    MONGO_DB_NAME: str = os.environ.get("MONGO_DB_NAME", "medicus_studio")
+
+    # ── JWT 설정 ──
+    JWT_SECRET_KEY: str = os.environ.get(
+        "JWT_SECRET_KEY",
+        secrets.token_urlsafe(64)
+    )
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # ── 보안 설정 ──
+    MAX_LOGIN_ATTEMPTS: int = 5
+    ACCOUNT_LOCK_MINUTES: int = 30
+    SESSION_INACTIVE_MINUTES: int = 30
+
+    # ── 민감 필드 암호화 키 (AES-256-GCM) ──
+    FIELD_ENCRYPTION_KEY: str = os.environ.get(
+        "FIELD_ENCRYPTION_KEY",
+        secrets.token_urlsafe(32)
+    )
 
 
 settings = Settings()
