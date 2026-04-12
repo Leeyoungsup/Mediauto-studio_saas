@@ -30,9 +30,35 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', 'Malgun Go
     height: 48px; padding: 0 16px;
     background: var(--bg-white); border-bottom: 1px solid var(--border);
 }
+.menu-left { display: flex; align-items: center; flex-shrink: 0; }
+.menu-center {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    min-width: 0; overflow: hidden;
+}
+.menu-right {
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
 .header-logo { height: 36px; }
-.slide-name { font-size: 13px; color: var(--text-dim); font-weight: 500; }
-.status-text { font-size: 11px; color: var(--text-dim); }
+.slide-name {
+    font-size: 13px; color: var(--text-dim); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.user-name-text {
+    font-size: 12px; color: var(--text-bright); font-weight: 600;
+    white-space: nowrap;
+}
+.btn-logout {
+    font-size: 11px; color: var(--text-dim); background: transparent;
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 3px 10px; cursor: pointer; white-space: nowrap;
+    transition: all 0.15s;
+}
+.btn-logout:hover { background: var(--bg-hover); color: var(--danger); border-color: var(--danger); }
+.status-text {
+    font-size: 11px; color: var(--text-dim);
+    white-space: nowrap; max-width: 260px;
+    overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ═══ 툴바 ═══ */
 #toolbar {
@@ -57,8 +83,10 @@ html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', 'Malgun Go
 .toolbar-btn.toggle-btn.active { background: var(--accent-light); }
 
 .zoom-info-text {
-    font-size: 11px; color: var(--text-dim); font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px; color: var(--text-bright); font-family: 'Consolas', 'Courier New', monospace;
     white-space: nowrap;
+    background: var(--bg-white); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 8px;
 }
 
 /* ═══ 메인 레이아웃 ═══ */
