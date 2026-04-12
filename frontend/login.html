@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDICus Studio — Login</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100%; font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+            background: #f5f6f8; color: #3c4043;
+        }
+        .login-wrapper {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; padding: 20px;
+        }
+        .login-card {
+            background: #fff; border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+            padding: 40px; width: 100%; max-width: 420px;
+        }
+        .login-logo {
+            display: block; margin: 0 auto 24px; height: 48px;
+        }
+        .login-title {
+            text-align: center; font-size: 20px; font-weight: 700;
+            color: #202124; margin-bottom: 8px;
+        }
+        .login-subtitle {
+            text-align: center; font-size: 13px; color: #5f6368;
+            margin-bottom: 28px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: #3c4043; margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%; padding: 10px 14px;
+            border: 1px solid #dadce0; border-radius: 8px;
+            font-size: 14px; color: #202124; background: #fff;
+            transition: border-color 0.15s;
+            outline: none;
+        }
+        .form-group input:focus {
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+        }
+        .form-group input::placeholder { color: #9aa0a6; }
+        .form-error {
+            color: #d93025; font-size: 12px; margin-top: 4px;
+            display: none;
+        }
+        .form-error.visible { display: block; }
+        .btn-primary {
+            width: 100%; padding: 12px; margin-top: 8px;
+            background: #1a73e8; color: #fff; border: none;
+            border-radius: 8px; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .btn-primary:hover { background: #1765cc; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary {
+            width: 100%; padding: 10px; margin-top: 12px;
+            background: transparent; color: #1a73e8; border: 1px solid #dadce0;
+            border-radius: 8px; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .btn-secondary:hover { background: #f0f6ff; border-color: #1a73e8; }
+        .alert-box {
+            padding: 10px 14px; border-radius: 8px;
+            font-size: 12px; margin-bottom: 16px;
+            display: none;
+        }
+        .alert-box.error {
+            background: #fce8e6; color: #c5221f; border: 1px solid #f5c6cb;
+            display: block;
+        }
+        .alert-box.success {
+            background: #e6f4ea; color: #137333; border: 1px solid #c3e6cb;
+            display: block;
+        }
+        .mode-toggle {
+            text-align: center; margin-top: 20px; font-size: 12px; color: #5f6368;
+        }
+        .mode-toggle a {
+            color: #1a73e8; cursor: pointer; text-decoration: none; font-weight: 500;
+        }
+        .mode-toggle a:hover { text-decoration: underline; }
+        .register-fields { display: none; }
+        .register-fields.visible { display: block; }
+        .password-rules {
+            font-size: 11px; color: #5f6368; margin-top: 4px; line-height: 1.5;
+        }
+        .password-rules.visible { display: block; }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <img src="assets/logo.png" alt="MeDICus Studio" class="login-logo">
+            <h1 class="login-title" id="page-title">Sign In</h1>
+            <p class="login-subtitle" id="page-subtitle">병리 AI 분석 플랫폼에 로그인하세요</p>
+
+            <div id="alert-box" class="alert-box"></div>
+
+            <form id="auth-form" autocomplete="on">
+                <!-- Register only fields -->
+                <div class="register-fields" id="register-fields">
+                    <div class="form-group">
+                        <label for="name">이름</label>
+                        <input type="text" id="name" placeholder="홍길동" maxlength="100" autocomplete="name">
+                    </div>
+                    <div class="form-group">
+                        <label for="department">부서</label>
+                        <input type="text" id="department" placeholder="병리과" maxlength="100" autocomplete="organization">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">이메일</label>
+                    <input type="email" id="email" placeholder="user@hospital.kr" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" placeholder="••••••••" required minlength="8" autocomplete="current-password">
+                    <div class="password-rules" id="password-rules" style="display:none;">
+                        영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary" id="btn-submit">로그인</button>
+            </form>
+
+            <div class="mode-toggle" id="mode-toggle">
+                계정이 없으신가요? <a id="toggle-link" href="#">회원가입</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/auth';
+        let isRegisterMode = false;
+
+        const $form = document.getElementById('auth-form');
+        const $email = document.getElementById('email');
+        const $password = document.getElementById('password');
+        const $name = document.getElementById('name');
+        const $department = document.getElementById('department');
+        const $btnSubmit = document.getElementById('btn-submit');
+        const $alertBox = document.getElementById('alert-box');
+        const $toggleLink = document.getElementById('toggle-link');
+        const $registerFields = document.getElementById('register-fields');
+        const $pageTitle = document.getElementById('page-title');
+        const $pageSubtitle = document.getElementById('page-subtitle');
+        const $passwordRules = document.getElementById('password-rules');
+
+        // 이미 로그인 되어있으면 메인으로
+        if (localStorage.getItem('access_token')) {
+            window.location.href = '/app.html';
+        }
+
+        function showAlert(message, type = 'error') {
+            $alertBox.textContent = message;
+            $alertBox.className = `alert-box ${type}`;
+        }
+
+        function hideAlert() {
+            $alertBox.className = 'alert-box';
+            $alertBox.textContent = '';
+        }
+
+        function toggleMode() {
+            isRegisterMode = !isRegisterMode;
+            hideAlert();
+
+            if (isRegisterMode) {
+                $pageTitle.textContent = 'Sign Up';
+                $pageSubtitle.textContent = '새 계정을 생성하세요';
+                $btnSubmit.textContent = '회원가입';
+                $toggleLink.textContent = '로그인';
+                document.getElementById('mode-toggle').querySelector('span, #mode-toggle')
+                    .textContent = '';
+                document.getElementById('mode-toggle').innerHTML =
+                    '이미 계정이 있으신가요? <a id="toggle-link" href="#">로그인</a>';
+                $registerFields.classList.add('visible');
+                $passwordRules.style.display = 'block';
+                $password.autocomplete = 'new-password';
+            } else {
+                $pageTitle.textContent = 'Sign In';
+                $pageSubtitle.textContent = '병리 AI 분석 플랫폼에 로그인하세요';
+                $btnSubmit.textContent = '로그인';
+                document.getElementById('mode-toggle').innerHTML =
+                    '계정이 없으신가요? <a id="toggle-link" href="#">회원가입</a>';
+                $registerFields.classList.remove('visible');
+                $passwordRules.style.display = 'none';
+                $password.autocomplete = 'current-password';
+            }
+
+            // Re-bind toggle link
+            document.getElementById('toggle-link').addEventListener('click', (e) => {
+                e.preventDefault();
+                toggleMode();
+            });
+        }
+
+        $toggleLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleMode();
+        });
+
+        $form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+            $btnSubmit.disabled = true;
+
+            try {
+                if (isRegisterMode) {
+                    await doRegister();
+                } else {
+                    await doLogin();
+                }
+            } catch (err) {
+                showAlert(err.message, 'error');
+            } finally {
+                $btnSubmit.disabled = false;
+            }
+        });
+
+        async function doLogin() {
+            const res = await fetch(`${API_BASE}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    str_email: $email.value.trim(),
+                    str_password: $password.value,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.detail || 'Login failed');
+            }
+
+            // 토큰 저장
+            localStorage.setItem('access_token', data.str_access_token);
+            localStorage.setItem('refresh_token', data.str_refresh_token);
+            localStorage.setItem('user', JSON.stringify(data.dict_user));
+            localStorage.setItem('token_expires', Date.now() + data.int_expires_in * 1000);
+
+            window.location.href = '/app.html';
+        }
+
+        async function doRegister() {
+            const res = await fetch(`${API_BASE}/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    str_email: $email.value.trim(),
+                    str_password: $password.value,
+                    str_name: $name.value.trim(),
+                    str_department: $department.value.trim(),
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.detail || 'Registration failed');
+            }
+
+            showAlert('회원가입 성공! 로그인해주세요.', 'success');
+            // 로그인 모드로 전환
+            setTimeout(() => {
+                isRegisterMode = true; // toggleMode will flip it
+                toggleMode();
+            }, 1500);
+        }
+    </script>
+</body>
+</html>
