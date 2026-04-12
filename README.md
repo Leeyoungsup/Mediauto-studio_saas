@@ -17,8 +17,8 @@
 
 - **Backend**: Python 3.12, FastAPI, Uvicorn
 - **Frontend**: Vanilla JS (ES Modules), HTML5 Canvas
-- **Database**: MongoDB (motor async driver)
-- **인증**: JWT (HS256) — Access Token 15분 / Refresh Token 7일
+- **Database**: MongoDB 8.x (motor async driver)
+- **인증**: JWT (HS256) — Access Token 15분 / Refresh Token 7일, 아이디 기반 로그인
 - **암호화**: bcrypt (cost=12 + pepper), AES-256-GCM, python-jose
 - **슬라이드**: OpenSlide, Pillow
 
@@ -26,7 +26,7 @@
 
 ```
 ├── backend/
-│   ├── main.py                # FastAPI 진입점 (Uvicorn, port 8080)
+│   ├── main.py                # FastAPI 진입점 (Uvicorn, port 8091)
 │   ├── requirements.txt       # Python 의존성
 │   ├── app/
 │   │   ├── config.py          # 설정 (DB, JWT, 보안, 타일)
@@ -89,7 +89,7 @@ set FIELD_ENCRYPTION_KEY=<운영 시 반드시 고정 값 설정>
 ### 4. 서버 시작
 ```bash
 cd backend
-uvicorn main:app --host 0.0.0.0 --port 8080
+uvicorn main:app --host 0.0.0.0 --port 8091
 ```
 또는 `start.bat` 실행
 
@@ -106,8 +106,8 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 ### API 엔드포인트
 | Method | Path | 설명 |
 |--------|------|------|
-| POST | `/api/auth/register` | 회원가입 (최초 가입자 = admin) |
-| POST | `/api/auth/login` | 로그인 |
+| POST | `/api/auth/register` | 회원가입 — 아이디/비밀번호/이름/부서 (최초 가입자 = admin) |
+| POST | `/api/auth/login` | 아이디/비밀번호 로그인 |
 | POST | `/api/auth/refresh` | 토큰 갱신 |
 | POST | `/api/auth/logout` | 로그아웃 (모든 세션 폐기) |
 | GET | `/api/auth/me` | 현재 사용자 정보 |
@@ -115,8 +115,9 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 | GET | `/api/users/list` | 사용자 목록 (admin) |
 | POST | `/api/users/role` | 역할 변경 (admin) |
 
-### 보안 정책
-- 비밀번호: bcrypt cost=12 + pepper, 8자 이상 (대/소/숫/특수)
+### 로그인 정책
+- **로그인 ID**: 4~30자, 영문/숫자/언더스코어만 허용 (`^[a-zA-Z0-9_]{4,30}$`)
+- **비밀번호**: bcrypt cost=12 + pepper, 8자 이상 (대/소/숫/특수)
 - 로그인 실패: 5회 초과 시 30분 계정 잠금
 - Refresh Token: 1회 사용 후 교체 (rotation), 재사용 시 모든 세션 폐기 (reuse detection)
 - 이미지 URL: query parameter token 인증 (img.src 호환)
