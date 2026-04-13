@@ -1171,20 +1171,43 @@ async function _exportPDF(state) {
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = 297, pageH = 210;
 
-    const pages = [
-        _pdfDrawCover(state),
-        _pdfDrawClassDist(state),
-        _pdfDrawTumorAnalysis(state),
-        _pdfDrawSpatialHeatmap(state),
-        _pdfDrawConfidence(state),
-    ];
+    const str_model_type = state.modelType || 'HE-Fit';
+    let list_pages;
+    if (str_model_type === 'PD-Score') {
+        list_pages = [
+            _pdfDrawCover(state),
+            _pdfDrawClassDist(state),
+            _pdfDrawPdScoreAnalysis(state),
+            _pdfDrawConfidence(state),
+        ];
+    } else if (str_model_type === 'Precise-IHC') {
+        list_pages = [
+            _pdfDrawCover(state),
+            _pdfDrawClassDist(state),
+            _pdfDrawHer2Analysis(state),
+            _pdfDrawConfidence(state),
+        ];
+    } else {
+        list_pages = [
+            _pdfDrawCover(state),
+            _pdfDrawClassDist(state),
+            _pdfDrawTumorAnalysis(state),
+            _pdfDrawSpatialHeatmap(state),
+            _pdfDrawConfidence(state),
+        ];
+    }
+    const pages = list_pages;
     pages.forEach((canvas, i) => {
         if (i > 0) pdf.addPage();
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageH);
     });
 
     const safeName = (state.slideName || 'slide').replace(/[\\/:*?"<>|]/g, '_');
-    const filename = `${safeName}_HE-Fit_${state.tissue || 'Stomach'}_report.pdf`;
+    const str_model_part = (state.modelType || 'HE-Fit').replace(/[\\/:*?"<>|]/g, '_');
+    const str_variant_part = (state.tissue || '').replace(/[\\/:*?"<>|]/g, '_');
+    const filename = str_variant_part
+        ? `${safeName}_${str_model_part}_${str_variant_part}_report.pdf`
+        : `${safeName}_${str_model_part}_report.pdf`;
 
     // File System Access API 사용 가능 시 저장 위치 선택창
     const blob = pdf.output('blob');
@@ -1265,9 +1288,16 @@ function _pdfHeader(ctx, title) {
 
 function _pdfDrawCover(state) {
     const { cells, countsByClass } = state;
+    const str_model_type = state.modelType || 'HE-Fit';
+    const str_tissue = state.tissue || '';
     const c = _pdfNewCanvas();
     const ctx = c.getContext('2d');
-    _pdfHeader(ctx, 'AI Detection Result Report');
+
+    let str_title = 'AI Detection Result Report';
+    if (str_model_type === 'PD-Score') str_title = `PD-L1 Analysis Report (${str_tissue || 'PD-Score'})`;
+    else if (str_model_type === 'Precise-IHC') str_title = `HER2 Analysis Report (${str_tissue || 'Precise-IHC'})`;
+    else str_title = `H&E Detection Report (${str_tissue || 'HE-Fit'})`;
+    _pdfHeader(ctx, str_title);
 
     // Top stat panel
     const px = 100, py = 200, pw = PDF_W - 200, ph = 300;
@@ -1282,16 +1312,65 @@ function _pdfDrawCover(state) {
     ctx.font = 'bold 140px Segoe UI, Arial, sans-serif';
     ctx.fillText(cells.length.toLocaleString(), px + 60, py + 100);
 
-    const tumor = countsByClass[6] || 0;
-    const benign = countsByClass[7] || 0;
-    const denom = tumor + benign;
-    const ratio = denom > 0 ? (tumor / denom * 100) : 0;
+    // Model-specific headline metric
+    let str_metric_label = '';
+    let str_metric_value = 'N/A';
+    let str_metric_color = PDF_COL.subtext;
+
+    if (str_model_type === 'PD-Score') {
+        if (str_tissue === 'Stomach') {
+            const int_pos_tumor = countsByClass[3] || 0;
+            const int_pos_immune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
+            const int_viable_tumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+            const float_cps = int_viable_tumor === 0 ? null
+                : Math.min(100, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100);
+            str_metric_label = 'CPS (Combined Positive Score)';
+            if (float_cps !== null) {
+                str_metric_value = float_cps.toFixed(1);
+                str_metric_color = _scoreColor(float_cps);
+            }
+        } else {
+            const int_neg = countsByClass[0] || 0;
+            const int_pos = countsByClass[1] || 0;
+            const int_total = int_neg + int_pos;
+            const float_tps = int_total === 0 ? null : (int_pos / int_total * 100);
+            str_metric_label = 'TPS (Tumor Proportion Score)';
+            if (float_tps !== null) {
+                str_metric_value = float_tps.toFixed(1) + '%';
+                str_metric_color = _scoreColor(float_tps);
+            }
+        }
+    } else if (str_model_type === 'Precise-IHC') {
+        const int_n0 = countsByClass[0] || 0;
+        const int_n1 = countsByClass[1] || 0;
+        const int_n2 = countsByClass[2] || 0;
+        const int_n3 = countsByClass[3] || 0;
+        const int_total = int_n0 + int_n1 + int_n2 + int_n3;
+        str_metric_label = 'HER2 Score (dominant / weighted)';
+        if (int_total > 0) {
+            const float_weighted = (0 * int_n0 + 1 * int_n1 + 2 * int_n2 + 3 * int_n3) / int_total;
+            const int_dominant = [int_n0, int_n1, int_n2, int_n3].indexOf(Math.max(int_n0, int_n1, int_n2, int_n3));
+            str_metric_value = `${int_dominant}+ / ${float_weighted.toFixed(2)}`;
+            str_metric_color = _getColor(Math.round(float_weighted));
+        }
+    } else {
+        // HE-Fit
+        const int_tumor = countsByClass[6] || 0;
+        const int_benign = countsByClass[7] || 0;
+        const int_denom = int_tumor + int_benign;
+        str_metric_label = 'Tumor Proportion (Tumor / Tumor+Benign)';
+        if (int_denom > 0) {
+            str_metric_value = (int_tumor / int_denom * 100).toFixed(1) + '%';
+            str_metric_color = PDF_COL.tumor;
+        }
+    }
+
     ctx.fillStyle = PDF_COL.subtext;
-    ctx.font = '32px Segoe UI, Arial, sans-serif';
-    ctx.fillText('Tumor Proportion (Tumor / Tumor+Benign)', px + 1050, py + 50);
-    ctx.fillStyle = denom > 0 ? PDF_COL.tumor : PDF_COL.subtext;
-    ctx.font = 'bold 140px Segoe UI, Arial, sans-serif';
-    ctx.fillText(denom > 0 ? ratio.toFixed(1) + '%' : 'N/A', px + 1050, py + 100);
+    ctx.font = '30px Segoe UI, Arial, sans-serif';
+    ctx.fillText(str_metric_label, px + 1050, py + 50);
+    ctx.fillStyle = str_metric_color;
+    ctx.font = 'bold 130px Segoe UI, Arial, sans-serif';
+    ctx.fillText(str_metric_value, px + 1050, py + 105);
 
     // Class breakdown panel
     const tx = 100, ty = 560, tw = PDF_W - 200, th = 760;
@@ -1575,6 +1654,265 @@ function _pdfDrawTumorAnalysis(state) {
     ctx.fillText(`Tumor:  ${tumor.toLocaleString()}`, gx + 60, gy + 880);
     ctx.fillText(`Benign: ${benign.toLocaleString()}`, gx + 60, gy + 930);
     ctx.fillText(`Total:  ${total.toLocaleString()}`, gx + 60, gy + 980);
+
+    return c;
+}
+
+function _pdfDrawPdScoreAnalysis(state) {
+    const { countsByClass } = state;
+    const str_tissue = state.tissue || 'Stomach';
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, str_tissue === 'Stomach' ? 'PD-L1 Analysis — CPS & TPS' : 'PD-L1 Analysis — TPS');
+
+    const list_scores = [];
+    if (str_tissue === 'Stomach') {
+        const int_pos_tumor = countsByClass[3] || 0;
+        const int_pos_immune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
+        const int_viable_tumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+        const float_cps = int_viable_tumor === 0 ? 0
+            : Math.min(100, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100);
+        list_scores.push({
+            label: 'CPS',
+            value: float_cps,
+            unit: '',
+            valid: int_viable_tumor > 0,
+            formula: '(Pos Tumor + Pos Immune) / Viable Tumor × 100',
+            rows: [
+                ['Positive Tumor', int_pos_tumor, _getColor(3)],
+                ['Positive Immune', int_pos_immune, _getColor(4)],
+                ['Viable Tumor', int_viable_tumor, _getColor(0)],
+            ],
+        });
+        const int_neg_epi = countsByClass[0] || 0;
+        const int_denom_tps = int_neg_epi + int_pos_tumor;
+        const float_tps_stomach = int_denom_tps === 0 ? 0 : int_pos_tumor / int_denom_tps * 100;
+        list_scores.push({
+            label: 'TPS',
+            value: float_tps_stomach,
+            unit: '%',
+            valid: int_denom_tps > 0,
+            formula: 'Pos Epithelial / (Pos + Neg Epithelial) × 100',
+            rows: [
+                ['Positive Epithelial', int_pos_tumor, _getColor(3)],
+                ['Negative Epithelial', int_neg_epi, _getColor(0)],
+            ],
+        });
+    } else {
+        const int_neg_tumor = countsByClass[0] || 0;
+        const int_pos_tumor = countsByClass[1] || 0;
+        const int_total = int_neg_tumor + int_pos_tumor;
+        const float_tps = int_total === 0 ? 0 : int_pos_tumor / int_total * 100;
+        list_scores.push({
+            label: 'TPS',
+            value: float_tps,
+            unit: '%',
+            valid: int_total > 0,
+            formula: 'Positive Tumor / (Pos + Neg Tumor) × 100',
+            rows: [
+                ['Positive Tumor', int_pos_tumor, _getColor(1)],
+                ['Negative Tumor', int_neg_tumor, _getColor(0)],
+            ],
+        });
+    }
+
+    const int_card_count = list_scores.length;
+    const int_gap = 80;
+    const int_card_w = Math.floor((PDF_W - 200 - int_gap * (int_card_count - 1)) / int_card_count);
+    const int_card_h = 1170;
+    const int_top = 200;
+
+    list_scores.forEach((s, idx) => {
+        const int_card_x = 100 + idx * (int_card_w + int_gap);
+        _pdfPanel(ctx, int_card_x, int_top, int_card_w, int_card_h);
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`${s.label} Score`, int_card_x + 40, int_top + 30);
+
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.font = '24px Segoe UI, Arial, sans-serif';
+        ctx.fillText(s.formula, int_card_x + 40, int_top + 90);
+
+        // Big number
+        const str_value_text = s.valid ? s.value.toFixed(1) + s.unit : 'N/A';
+        ctx.fillStyle = s.valid ? _scoreColor(s.value) : PDF_COL.subtext;
+        ctx.font = 'bold 220px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(str_value_text, int_card_x + int_card_w / 2, int_top + 320);
+
+        // Gauge bar
+        const int_bar_y = int_top + 540, int_bar_h = 70;
+        const int_bar_x = int_card_x + 60, int_bar_w = int_card_w - 120;
+        _roundRect(ctx, int_bar_x, int_bar_y, int_bar_w, int_bar_h, 35);
+        ctx.fillStyle = '#E5E7EB';
+        ctx.fill();
+        if (s.valid) {
+            const float_ratio = Math.max(0, Math.min(1, s.value / 100));
+            ctx.save();
+            _roundRect(ctx, int_bar_x, int_bar_y, int_bar_w, int_bar_h, 35);
+            ctx.clip();
+            const grad = ctx.createLinearGradient(int_bar_x, 0, int_bar_x + int_bar_w, 0);
+            grad.addColorStop(0, PDF_COL.benign);
+            grad.addColorStop(0.5, '#FBBF24');
+            grad.addColorStop(1, PDF_COL.tumor);
+            ctx.fillStyle = grad;
+            ctx.fillRect(int_bar_x, int_bar_y, int_bar_w * float_ratio, int_bar_h);
+            ctx.restore();
+        }
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.font = '22px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('0', int_bar_x, int_bar_y + int_bar_h + 14);
+        ctx.textAlign = 'center';
+        ctx.fillText('50', int_bar_x + int_bar_w / 2, int_bar_y + int_bar_h + 14);
+        ctx.textAlign = 'right';
+        ctx.fillText('100', int_bar_x + int_bar_w, int_bar_y + int_bar_h + 14);
+
+        // Breakdown rows
+        let int_row_y = int_top + 720;
+        ctx.font = '28px Segoe UI, Arial, sans-serif';
+        ctx.textBaseline = 'middle';
+        for (const [name, val, color] of s.rows) {
+            ctx.fillStyle = color;
+            ctx.fillRect(int_card_x + 60, int_row_y - 16, 32, 32);
+            ctx.fillStyle = PDF_COL.text;
+            ctx.textAlign = 'left';
+            ctx.fillText(name, int_card_x + 110, int_row_y);
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+            ctx.fillText(val.toLocaleString(), int_card_x + int_card_w - 60, int_row_y);
+            ctx.font = '28px Segoe UI, Arial, sans-serif';
+            int_row_y += 58;
+        }
+    });
+
+    return c;
+}
+
+function _pdfDrawHer2Analysis(state) {
+    const { countsByClass } = state;
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, 'HER2 Analysis');
+
+    const int_n0 = countsByClass[0] || 0;
+    const int_n1 = countsByClass[1] || 0;
+    const int_n2 = countsByClass[2] || 0;
+    const int_n3 = countsByClass[3] || 0;
+    const list_bins = [int_n0, int_n1, int_n2, int_n3];
+    const int_total = int_n0 + int_n1 + int_n2 + int_n3;
+    const float_weighted = int_total === 0 ? 0
+        : (0 * int_n0 + 1 * int_n1 + 2 * int_n2 + 3 * int_n3) / int_total;
+    const int_dominant = int_total === 0 ? 0 : list_bins.indexOf(Math.max(...list_bins));
+    const str_bar_color = _getColor(Math.round(float_weighted));
+
+    // Left card — HER2 gauge
+    const gx = 100, gy = 200, gw = 950, gh = 1170;
+    _pdfPanel(ctx, gx, gy, gw, gh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('HER2 Score', gx + 40, gy + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '24px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Weighted mean of intensity (0+ / 1+ / 2+ / 3+)', gx + 40, gy + 90);
+
+    // Dominant big label
+    ctx.fillStyle = int_total > 0 ? str_bar_color : PDF_COL.subtext;
+    ctx.font = 'bold 260px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(int_total > 0 ? `${int_dominant}+` : 'N/A', gx + gw / 2, gy + 380);
+
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = '32px Segoe UI, Arial, sans-serif';
+    ctx.fillText(int_total > 0 ? `weighted mean ${float_weighted.toFixed(2)}` : '—', gx + gw / 2, gy + 560);
+
+    // 0~3 gauge bar
+    const int_bar_y = gy + 700, int_bar_h = 80;
+    const int_bar_x = gx + 60, int_bar_w = gw - 120;
+    _roundRect(ctx, int_bar_x, int_bar_y, int_bar_w, int_bar_h, 40);
+    ctx.fillStyle = '#E5E7EB';
+    ctx.fill();
+    if (int_total > 0) {
+        ctx.save();
+        _roundRect(ctx, int_bar_x, int_bar_y, int_bar_w, int_bar_h, 40);
+        ctx.clip();
+        const grad = ctx.createLinearGradient(int_bar_x, 0, int_bar_x + int_bar_w, 0);
+        grad.addColorStop(0, _getColor(0));
+        grad.addColorStop(1 / 3, _getColor(1));
+        grad.addColorStop(2 / 3, _getColor(2));
+        grad.addColorStop(1, _getColor(3));
+        ctx.fillStyle = grad;
+        ctx.fillRect(int_bar_x, int_bar_y, int_bar_w * (float_weighted / 3), int_bar_h);
+        ctx.restore();
+        const int_marker = int_bar_x + int_bar_w * (float_weighted / 3);
+        ctx.strokeStyle = PDF_COL.text;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(int_marker, int_bar_y - 10);
+        ctx.lineTo(int_marker, int_bar_y + int_bar_h + 10);
+        ctx.stroke();
+    }
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '22px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'top';
+    ['0+', '1+', '2+', '3+'].forEach((lbl, i) => {
+        ctx.textAlign = i === 0 ? 'left' : (i === 3 ? 'right' : 'center');
+        const int_lx = int_bar_x + (int_bar_w * i / 3);
+        ctx.fillText(lbl, int_lx, int_bar_y + int_bar_h + 14);
+    });
+
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = '28px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Total: ${int_total.toLocaleString()}`, gx + 60, gy + 920);
+
+    // Right card — intensity distribution bars
+    const bx = 1100, by = 200, bw = 900, bh = 1170;
+    _pdfPanel(ctx, bx, by, bw, bh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Intensity Distribution', bx + 40, by + 30);
+
+    const int_max = Math.max(...list_bins, 1);
+    const int_chart_x = bx + 160;
+    const int_chart_y = by + 150;
+    const int_chart_w = bw - 240;
+    const int_chart_h = bh - 260;
+    const int_row_h = int_chart_h / 4;
+
+    ['0+', '1+', '2+', '3+'].forEach((lbl, i) => {
+        const int_yc = int_chart_y + i * int_row_h + int_row_h / 2;
+        const int_bar_local_h = Math.min(int_row_h * 0.6, 90);
+        const int_local_w = (list_bins[i] / int_max) * int_chart_w;
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 32px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, int_chart_x - 20, int_yc);
+
+        ctx.fillStyle = _getColor(i);
+        ctx.fillRect(int_chart_x, int_yc - int_bar_local_h / 2, int_local_w, int_bar_local_h);
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        const int_pct = int_total > 0 ? (list_bins[i] / int_total * 100) : 0;
+        ctx.fillText(
+            `${list_bins[i].toLocaleString()} (${int_pct.toFixed(1)}%)`,
+            int_chart_x + int_local_w + 14, int_yc
+        );
+    });
 
     return c;
 }

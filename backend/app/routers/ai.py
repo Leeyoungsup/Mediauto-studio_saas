@@ -1287,11 +1287,14 @@ async def start_detection(
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
+    str_filename = Path(info.file_path).name
 
     with _tasks_lock:
         _tasks[task_id] = {
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
+            "slide_filename": str_filename,
+            "model": "HE-Fit", "variant": tissue_type,
         }
 
     t = threading.Thread(
@@ -1319,11 +1322,14 @@ async def start_pd_score(
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
+    str_filename = Path(info.file_path).name
 
     with _tasks_lock:
         _tasks[task_id] = {
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
+            "slide_filename": str_filename,
+            "model": "PD-Score", "variant": tissue_type,
         }
 
     t = threading.Thread(
@@ -1351,11 +1357,14 @@ async def start_precise_ihc(
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
+    str_filename = Path(info.file_path).name
 
     with _tasks_lock:
         _tasks[task_id] = {
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
+            "slide_filename": str_filename,
+            "model": "Precise-IHC", "variant": marker,
         }
 
     t = threading.Thread(
@@ -1366,6 +1375,29 @@ async def start_precise_ihc(
     t.start()
 
     return {"task_id": task_id, "status": "queued"}
+
+
+@router.get("/active-tasks")
+async def get_active_tasks():
+    """현재 queued/running 상태인 AI 작업을 슬라이드 파일명 기준으로 그룹화하여 반환.
+
+    응답 형식:
+        {"active": {filename: [{"model": ..., "variant": ..., "status": ...}, ...], ...}}
+    """
+    dict_active: dict[str, list] = {}
+    with _tasks_lock:
+        for _, dict_task in _tasks.items():
+            if dict_task.get("status") not in ("queued", "running"):
+                continue
+            str_fn = dict_task.get("slide_filename")
+            if not str_fn:
+                continue
+            dict_active.setdefault(str_fn, []).append({
+                "model": dict_task.get("model") or "",
+                "variant": dict_task.get("variant") or "",
+                "status": dict_task.get("status"),
+            })
+    return {"active": dict_active}
 
 
 @router.get("/task/{task_id}")
@@ -1947,11 +1979,14 @@ async def start_virtual_stain(
 
     polygons = json.loads(roi_polygons) if roi_polygons else None
     task_id = uuid.uuid4().hex[:12]
+    str_filename = Path(info.file_path).name
 
     with _tasks_lock:
         _tasks[task_id] = {
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
+            "slide_filename": str_filename,
+            "model": "VS-IHC", "variant": stain_type,
         }
 
     t = threading.Thread(

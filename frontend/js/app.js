@@ -1470,31 +1470,6 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
-            // AI 결과 배지 — 완료된 모델만 컬러 닷으로 표시
-            if (s.ai_results) {
-                const badges = document.createElement('div');
-                badges.className = 'slide-ai-badges';
-                const modelMeta = {
-                    'HE-Fit':      { label: 'H', color: '#6c5ce7' },
-                    'PD-Score':    { label: 'P', color: '#e67e22' },
-                    'Precise-IHC': { label: 'I', color: '#c0392b' },
-                    'VS-IHC':      { label: 'V', color: '#27ae60' },
-                };
-                for (const [key, meta] of Object.entries(modelMeta)) {
-                    const r = s.ai_results[key];
-                    if (r && r.has_result) {
-                        const dot = document.createElement('span');
-                        dot.className = 'slide-ai-dot';
-                        dot.style.background = meta.color;
-                        dot.textContent = meta.label;
-                        const variants = (r.variants || []).join(', ');
-                        dot.title = variants ? `${key}: ${variants}` : key;
-                        badges.appendChild(dot);
-                    }
-                }
-                if (badges.children.length > 0) item.appendChild(badges);
-            }
-
             // 리뷰 상태 배지
             if (s.status) {
                 const statusMeta = {
@@ -1574,9 +1549,47 @@ async function loadSlideList() {
         }
 
         updateBreadcrumb();
+        _refreshAiActiveBadges();
+        _startAiActivePolling();
     } catch (err) {
         console.error('슬라이드 목록 로드 실패:', err);
     }
+}
+
+// ── AI 진행 중 배지 (auto/manual 공통) ──
+let _aiActivePollTimer = null;
+function _startAiActivePolling() {
+    if (_aiActivePollTimer) return;
+    _aiActivePollTimer = setInterval(_refreshAiActiveBadges, 4000);
+}
+async function _refreshAiActiveBadges() {
+    let dict_active = {};
+    try {
+        const data = await api.getActiveAiTasks();
+        dict_active = data.active || {};
+    } catch (_) { return; }
+
+    const items = $slideList.querySelectorAll('.slide-list-item[data-filename]');
+    items.forEach((item) => {
+        const fn = item.dataset.filename;
+        const list_running = dict_active[fn];
+        const existing = item.querySelector('.slide-ai-active');
+        if (list_running && list_running.length > 0) {
+            const str_title = list_running
+                .map(t => `${t.model}${t.variant ? '/' + t.variant : ''} · ${t.status}`)
+                .join(', ');
+            if (existing) {
+                existing.title = str_title;
+            } else {
+                const badge = document.createElement('span');
+                badge.className = 'slide-ai-active';
+                badge.title = str_title;
+                item.appendChild(badge);
+            }
+        } else if (existing) {
+            existing.remove();
+        }
+    });
 }
 
 function navigateToFolder(path) {
@@ -1956,6 +1969,8 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
+    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)' },
+    { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)' },
 ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {

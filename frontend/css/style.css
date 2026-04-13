@@ -301,6 +301,22 @@ html, body {
     position: absolute; top: 4px; right: 4px; margin-left: 0;
 }
 
+/* AI 진행 중 배지 — queued/running 상태일 때만 표시 */
+.slide-ai-active {
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    margin-left: 4px; flex-shrink: 0;
+    border: 2px solid rgba(52, 152, 219, 0.25);
+    border-top-color: #3498db;
+    animation: slide-ai-active-spin 0.9s linear infinite;
+    box-sizing: border-box;
+}
+.slide-list.grid-view .slide-ai-active {
+    position: absolute; top: 4px; right: 4px; margin-left: 0;
+}
+@keyframes slide-ai-active-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* ── 폴더 AI 자동 분석 설정 다이얼로그 ── */
 .ai-cfg-backdrop {
     position: fixed; inset: 0; z-index: 9999;

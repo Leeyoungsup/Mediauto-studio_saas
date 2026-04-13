@@ -328,6 +328,13 @@ export const api = {
         return res.json();
     },
 
+    /** 현재 큐/실행중인 AI 작업 (슬라이드 파일명 기준) */
+    async getActiveAiTasks() {
+        const res = await _authFetch(`${API_BASE}/ai/active-tasks`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 작업 상태 조회 */
     async getTaskStatus(taskId) {
         const res = await _authFetch(`${API_BASE}/ai/task/${taskId}`);

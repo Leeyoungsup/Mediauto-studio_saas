@@ -642,13 +642,16 @@ async def get_folder_config(path: str = Query("")):
     dict_doc = await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
     if not dict_doc:
         return {"path": path, "enabled": False, "tasks": []}
+    list_out = []
+    for t in (dict_doc.get("list_tasks") or []):
+        dict_task = {"model": t.get("model", ""), "variant": t.get("variant", "")}
+        if t.get("target_mpp") is not None:
+            dict_task["target_mpp"] = float(t.get("target_mpp"))
+        list_out.append(dict_task)
     return {
         "path": str_norm,
         "enabled": bool(dict_doc.get("bool_enabled", False)),
-        "tasks": [
-            {"model": t.get("model", ""), "variant": t.get("variant", "")}
-            for t in (dict_doc.get("list_tasks") or [])
-        ],
+        "tasks": list_out,
     }
 
 
@@ -673,16 +676,23 @@ async def save_folder_config(
     except Exception as e:
         raise HTTPException(400, f"잘못된 tasks_json: {e}")
 
-    list_allowed_models = {"HE-Fit", "PD-Score", "Precise-IHC"}
+    set_allowed_models = {"HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"}
     list_clean = []
     for dict_t in list_raw:
         if not isinstance(dict_t, dict):
             continue
         str_model = str(dict_t.get("model", "")).strip()
         str_variant = str(dict_t.get("variant", "")).strip()
-        if str_model not in list_allowed_models or not str_variant:
+        if str_model not in set_allowed_models or not str_variant:
             continue
-        list_clean.append({"model": str_model, "variant": str_variant})
+        dict_entry = {"model": str_model, "variant": str_variant}
+        if str_model == "VS-IHC":
+            try:
+                float_mpp = float(dict_t.get("target_mpp", 2.0))
+            except (TypeError, ValueError):
+                float_mpp = 2.0
+            dict_entry["target_mpp"] = float_mpp
+        list_clean.append(dict_entry)
 
     db = get_db()
     str_norm = _norm_folder_path(path)

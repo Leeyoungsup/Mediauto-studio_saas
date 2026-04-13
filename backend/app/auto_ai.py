@@ -88,6 +88,7 @@ async def _run_auto_inference(
     str_full_path: str,
     str_model: str,
     str_variant: str,
+    float_target_mpp: float = 2.0,
 ) -> None:
     """한 슬라이드/모델/variant 에 대한 추론을 스레드풀에서 실행."""
     from app.slide_manager import slide_manager
@@ -112,6 +113,9 @@ async def _run_auto_inference(
             "result": None,
             "error": None,
             "status_msg": "",
+            "slide_filename": str_filename,
+            "model": str_model,
+            "variant": str_variant,
         }
 
     def _dispatch() -> None:
@@ -121,6 +125,9 @@ async def _run_auto_inference(
             ai_router._run_pd_score(str_task_id, str_slide_id, None, str_variant)
         elif str_model == "Precise-IHC":
             ai_router._run_precise_ihc(str_task_id, str_slide_id, None, str_variant)
+        elif str_model == "VS-IHC":
+            # variant = stain_type (e.g. "ihc_membrane"), target_mpp 는 task 설정값
+            ai_router._run_virtual_stain(str_task_id, str_slide_id, None, str_variant, float_target_mpp)
         else:
             print(f"[auto_ai] unsupported model: {str_model}")
 
@@ -164,10 +171,22 @@ async def _scan_and_infer_once() -> None:
                 if not str_model or not str_variant:
                     continue
 
-                # 이미 해당 variant 결과가 있으면 스킵
-                dict_mr = dict_ai.get(str_model) or {}
-                if dict_mr.get("bool_has_result") and str_variant in (dict_mr.get("list_variants") or []):
-                    continue
+                float_target_mpp = 2.0
+                if str_model == "VS-IHC":
+                    try:
+                        float_target_mpp = float(dict_task.get("target_mpp", 2.0))
+                    except (TypeError, ValueError):
+                        float_target_mpp = 2.0
+                    # VS-IHC 는 per-mpp 캐시 존재 여부로 스킵 판단
+                    from app.routers.ai import _get_vs_cache_paths
+                    png_path, _ = _get_vs_cache_paths(str_full_path, str_variant, float_target_mpp)
+                    if png_path.exists():
+                        continue
+                else:
+                    # 다른 모델: DB 의 variant 목록으로 중복 스킵
+                    dict_mr = dict_ai.get(str_model) or {}
+                    if dict_mr.get("bool_has_result") and str_variant in (dict_mr.get("list_variants") or []):
+                        continue
 
                 # 매 추론 전 idle 재확인 — 사용자 활동 / 업로드 끼어들면 중단
                 if not is_system_idle():
@@ -175,7 +194,7 @@ async def _scan_and_infer_once() -> None:
                     return
 
                 try:
-                    await _run_auto_inference(str_full_path, str_model, str_variant)
+                    await _run_auto_inference(str_full_path, str_model, str_variant, float_target_mpp)
                 except Exception as e:
                     print(f"[auto_ai] inference error: {e}")
 
