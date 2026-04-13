@@ -94,25 +94,65 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     });
 });
 
+// ── AI Analysis 도움말 (현재 탭의 모델 설명) ──
+const AI_MODEL_HELP = {
+    'hne-tab': {
+        title: 'HE-Fit — H&E Cell Detection',
+        body: 'H&E 염색 슬라이드에서 개별 세포를 검출하고 8가지 클래스로 분류합니다 (Neutrophil, Epithelial, Lymphocyte, Plasma, Eosinophil, Connective tissue, Tumor Epithelial, Benign Epithelial). Tumor Proportion (Tumor/(Tumor+Benign)) 을 자동 계산합니다. 조직 타입 (Breast/Stomach/Other) 에 따라 전용 가중치를 사용합니다.',
+    },
+    'vs-tab': {
+        title: 'VS-IHC — Virtual Staining',
+        body: 'IHC 슬라이드를 입력으로 가상의 H&E 이미지를 생성합니다 (Membrane/Nucleus 모델). Target Resolution (µm/px) 가 낮을수록 고배율 상세 이미지이지만 연산 비용이 큽니다 (기본 2.0 µm/px ≈ x5). 결과는 뷰어 오버레이 및 Split view 로 원본과 비교할 수 있습니다.',
+    },
+    'pd-tab': {
+        title: 'PD-Score — PD-L1 Scoring',
+        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 기본 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다.',
+    },
+    'ihc-tab': {
+        title: 'Precise-IHC — HER2 Scoring',
+        body: 'Precise-IHC 모델은 HER2 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 을 동시에 표시하여 HER2 Score 를 정량적으로 판독합니다. ER/PR, KI-67 은 준비 중입니다.',
+    },
+};
+const $aiHelpIcon = document.querySelector('#ai-help-icon');
+let _aiHelpTooltip = null;
+function _showAiHelpTooltip() {
+    if (!$aiHelpIcon) return;
+    const activeBtn = document.querySelector('.tab-btn.active');
+    const key = activeBtn ? activeBtn.dataset.tab : 'hne-tab';
+    const info = AI_MODEL_HELP[key] || AI_MODEL_HELP['hne-tab'];
+    if (!_aiHelpTooltip) {
+        _aiHelpTooltip = document.createElement('div');
+        _aiHelpTooltip.className = 'ai-help-tooltip';
+        document.body.appendChild(_aiHelpTooltip);
+    }
+    _aiHelpTooltip.innerHTML = `
+        <div class="ai-help-title">${info.title}</div>
+        <div class="ai-help-body">${info.body}</div>
+    `;
+    const rect = $aiHelpIcon.getBoundingClientRect();
+    _aiHelpTooltip.style.top = `${rect.bottom + 6}px`;
+    _aiHelpTooltip.style.left = `${Math.max(8, rect.right - 320)}px`;
+    _aiHelpTooltip.classList.add('visible');
+}
+function _hideAiHelpTooltip() {
+    if (_aiHelpTooltip) _aiHelpTooltip.classList.remove('visible');
+}
+if ($aiHelpIcon) {
+    $aiHelpIcon.addEventListener('mouseenter', _showAiHelpTooltip);
+    $aiHelpIcon.addEventListener('mouseleave', _hideAiHelpTooltip);
+    $aiHelpIcon.addEventListener('focus', _showAiHelpTooltip);
+    $aiHelpIcon.addEventListener('blur', _hideAiHelpTooltip);
+}
+
 // ═══════════════════════════
 // 사용자 인증 UI
 // ═══════════════════════════
 if ($btnLogout) {
-    $btnLogout.addEventListener('click', () => api.logout());
+    $btnLogout.addEventListener('click', () => {
+        _stopAiActivePolling();
+        api.logout();
+    });
 }
-// 사용자 이름 표시 + 관리자 링크 노출
-(async () => {
-    try {
-        const dict_me = await api.me();
-        if ($userName && dict_me.str_name) {
-            $userName.textContent = dict_me.str_name;
-        }
-        if (dict_me.str_role === 'admin') {
-            const $linkAdmin = document.getElementById('link-admin');
-            if ($linkAdmin) $linkAdmin.hidden = false;
-        }
-    } catch (_) { /* 무시 — 인증 실패 시 api.js가 리다이렉트 처리 */ }
-})();
 
 // ═══════════════════════════
 // 파일 열기 + 업로드
@@ -185,11 +225,100 @@ async function uploadOneFile(file, targetPath, prefix = '') {
     return info;
 }
 
+// ── Scanner/Vendor 배지 ──
+// openslide vendor string 은 소문자 키워드 형태. 인라인 SVG 로고로 매핑.
+const SCANNER_META = {
+    'hamamatsu': {
+        label: 'Hamamatsu',
+        color: '#ee7800',
+        svg: `<svg viewBox="0 0 80 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="15" font-weight="800" fill="#ee7800" letter-spacing="-0.5">HAMAMATSU</text></svg>`,
+    },
+    'aperio': {
+        label: 'Aperio (Leica)',
+        color: '#d41e26',
+        svg: `<svg viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Georgia,serif" font-size="15" font-weight="700" fill="#d41e26" font-style="italic">Aperio</text></svg>`,
+    },
+    'leica': {
+        label: 'Leica',
+        color: '#e20025',
+        svg: `<svg viewBox="0 0 50 20" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="2" width="50" height="16" rx="2" fill="#e20025"/><text x="25" y="14" font-family="Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" text-anchor="middle" letter-spacing="1">LEICA</text></svg>`,
+    },
+    'mirax': {
+        label: '3DHistech MIRAX',
+        color: '#00529c',
+        svg: `<svg viewBox="0 0 90 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#00529c">3DHISTECH</text></svg>`,
+    },
+    '3dhistech': {
+        label: '3DHistech',
+        color: '#00529c',
+        svg: `<svg viewBox="0 0 90 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#00529c">3DHISTECH</text></svg>`,
+    },
+    'philips': {
+        label: 'Philips',
+        color: '#0b5ed7',
+        svg: `<svg viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#0b5ed7" font-style="italic">PHILIPS</text></svg>`,
+    },
+    'ventana': {
+        label: 'Ventana (Roche)',
+        color: '#0066b3',
+        svg: `<svg viewBox="0 0 70 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#0066b3">VENTANA</text></svg>`,
+    },
+    'sakura': {
+        label: 'Sakura',
+        color: '#0062a7',
+        svg: `<svg viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#0062a7">SAKURA</text></svg>`,
+    },
+    'olympus': {
+        label: 'Olympus',
+        color: '#004098',
+        svg: `<svg viewBox="0 0 70 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#004098">OLYMPUS</text></svg>`,
+    },
+};
+const $slideScanner = document.querySelector('#slide-scanner');
+function _updateScannerBadge(slideInfo) {
+    if (!$slideScanner) return;
+    const str_vendor = String(slideInfo?.vendor || '').toLowerCase();
+    if (!str_vendor || str_vendor === 'unknown') {
+        $slideScanner.hidden = true;
+        $slideScanner.innerHTML = '';
+        return;
+    }
+
+    // 키워드 매칭 (openslide 의 vendor 값은 'hamamatsu', 'aperio', 'mirax', ... 등)
+    let meta = null;
+    for (const [key, m] of Object.entries(SCANNER_META)) {
+        if (str_vendor.includes(key)) { meta = m; break; }
+    }
+
+    const int_mag = slideInfo.objective_power && slideInfo.objective_power !== 'Unknown'
+        ? `${slideInfo.objective_power}x` : '';
+    const str_mpp = slideInfo.mpp_x ? `${slideInfo.mpp_x.toFixed(3)} µm/px` : '';
+    const list_details = [int_mag, str_mpp].filter(Boolean);
+    const str_info = list_details.join(' · ');
+
+    if (meta) {
+        $slideScanner.innerHTML = `
+            <span class="scanner-logo" title="${meta.label}">${meta.svg}</span>
+            ${str_info ? `<span class="scanner-info">${str_info}</span>` : ''}
+        `;
+        $slideScanner.style.borderLeftColor = meta.color;
+    } else {
+        // 알려지지 않은 vendor: 원본 문자열을 그대로 표시
+        $slideScanner.innerHTML = `
+            <span class="scanner-logo scanner-logo-text">${slideInfo.vendor}</span>
+            ${str_info ? `<span class="scanner-info">${str_info}</span>` : ''}
+        `;
+        $slideScanner.style.borderLeftColor = '#6c5ce7';
+    }
+    $slideScanner.hidden = false;
+}
+
 function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
 
     $slideName.textContent = filename;
+    _updateScannerBadge(slideInfo);
     setStatus(`Loaded: ${slideInfo.dimensions[0]}x${slideInfo.dimensions[1]} (${slideInfo.level_count} levels)`);
 
     // 버튼 활성화
@@ -1562,6 +1691,12 @@ function _startAiActivePolling() {
     if (_aiActivePollTimer) return;
     _aiActivePollTimer = setInterval(_refreshAiActiveBadges, 4000);
 }
+function _stopAiActivePolling() {
+    if (_aiActivePollTimer) {
+        clearInterval(_aiActivePollTimer);
+        _aiActivePollTimer = null;
+    }
+}
 async function _refreshAiActiveBadges() {
     let dict_active = {};
     try {
@@ -2462,5 +2597,20 @@ $btnVsSplit?.addEventListener('click', () => {
     viewer.setVirtualStainSplitMode(next);
 });
 
-// 페이지 로드 시 슬라이드 목록 가져오기
-loadSlideList();
+// 페이지 로드 시 인증 확인 후 슬라이드 목록 가져오기
+(async () => {
+    try {
+        const dict_me = await api.me();
+        if ($userName && dict_me.str_name) {
+            $userName.textContent = dict_me.str_name;
+        }
+        if (dict_me.str_role === 'admin') {
+            const $linkAdmin = document.getElementById('link-admin');
+            if ($linkAdmin) $linkAdmin.hidden = false;
+        }
+    } catch (_) {
+        // 인증 실패 — api.js 가 리다이렉트 처리. 슬라이드/폴링 시작 생략.
+        return;
+    }
+    loadSlideList();
+})();

@@ -60,6 +60,7 @@
         </div>
         <div class="toolbar-spacer"></div>
         <div class="toolbar-group">
+            <span id="slide-scanner" class="slide-scanner" hidden></span>
             <span id="zoom-info" class="zoom-info-text"></span>
         </div>
     </nav>
@@ -108,7 +109,10 @@
         <aside id="right-panel">
             <!-- AI Analysis 그룹 -->
             <div class="panel-group">
-                <div class="panel-header">AI Analysis</div>
+                <div class="panel-header">
+                    <span>AI Analysis</span>
+                    <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="모델 설명">?</span>
+                </div>
 
                 <!-- 탭 바 -->
                 <div class="tab-bar">
