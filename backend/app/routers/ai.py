@@ -765,7 +765,7 @@ async def save_detection_result(
 
 VS_MODEL_FILES = {
     "ihc_membrane": "IHC_HnE_virtual_stain_membrane.pth",
-    # nucleus 모델은 아직 학습 안 됨 — 추가 시 여기에 등록
+    "ihc_nucleus": "IHC_HnE_virtual_stain_nucleus.pth",
 }
 
 

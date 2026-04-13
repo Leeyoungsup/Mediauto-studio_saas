@@ -4,3 +4,4 @@
 /backend/uploads/*
 *.pyc
 __pycache__/
+/backend/model/*

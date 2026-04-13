@@ -32,8 +32,8 @@ class Settings:
     # 청크 업로드 설정
     CHUNK_SIZE: int = 5 * 1024 * 1024  # 5MB
 
-    # AI 모델 경로 (기존 프로젝트의 model/ 디렉토리)
-    MODEL_DIR: str = str(Path(__file__).parent.parent.parent.parent / "model")
+    # AI 모델 경로 (backend/model/)
+    MODEL_DIR: str = str(Path(__file__).parent.parent / "model")
 
     # 지원 확장자
     SUPPORTED_EXTENSIONS: set = {

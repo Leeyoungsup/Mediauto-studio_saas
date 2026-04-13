@@ -158,6 +158,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // 버튼 활성화
     $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
+    $btnVsNucleus.disabled = false;
     $btnInfo.disabled = false;
     $btnSave.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
@@ -1378,6 +1379,7 @@ async function startVirtualStain(stainType) {
     if (!currentSlideId || _vsRunning) return;
     _vsRunning = true;
     $btnVsMembrane.disabled = true;
+    $btnVsNucleus.disabled = true;
     $progressLabel.textContent = 'Virtual Staining...';
     setProgress(0);
     setStatus('Virtual staining 시작...');
@@ -1416,6 +1418,7 @@ async function startVirtualStain(stainType) {
     } finally {
         _vsRunning = false;
         $btnVsMembrane.disabled = false;
+        $btnVsNucleus.disabled = false;
     }
 }
 
@@ -1470,6 +1473,7 @@ $vsMppSlider?.addEventListener('input', () => {
 });
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
+$btnVsNucleus?.addEventListener('click', () => startVirtualStain('ihc_nucleus'));
 // ─── VS toggle 헬퍼 ───
 function _setVsToggleState(visible, disabled) {
     if (!$btnVsToggle) return;
