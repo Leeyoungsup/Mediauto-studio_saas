@@ -32,7 +32,6 @@ const $btnLogout = $('#btn-logout');
 
 // 툴바 버튼
 const $btnOpen = $('#btn-open');
-const $btnSave = $('#btn-save');
 const $btnInfo = $('#btn-info');
 const $btnFit = $('#btn-fit');
 const $btnZoomIn = $('#btn-zoom-in');
@@ -328,7 +327,6 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
     $btnInfo.disabled = false;
-    $btnSave.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
 
     // 뷰어 로드 (타일은 요청 시 즉석 생성 + 백그라운드 프리제네레이션)
@@ -1082,7 +1080,6 @@ function _uploadAnnotations() {
 }
 
 $btnAnnSave?.addEventListener('click', _downloadAnnotations);
-$btnSave.addEventListener('click', _downloadAnnotations);
 $btnAnnLoad?.addEventListener('click', _uploadAnnotations);
 
 // ═══════════════════════════
@@ -1498,6 +1495,28 @@ function sleep(ms) {
 const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
 
+// Ctrl + 휠로 슬라이드 리스트 썸네일 크기 조정 (리스트/그리드 각각)
+const THUMB_RANGE_LIST = { min: 28, max: 96, step: 6, key: '--slide-thumb-list', storage: 'thumbSizeList' };
+const THUMB_RANGE_GRID = { min: 60, max: 200, step: 10, key: '--slide-thumb-grid', storage: 'thumbSizeGrid' };
+function _restoreThumbSizes() {
+    for (const r of [THUMB_RANGE_LIST, THUMB_RANGE_GRID]) {
+        const v = parseFloat(localStorage.getItem(r.storage));
+        if (!isNaN(v) && v >= r.min && v <= r.max) {
+            document.documentElement.style.setProperty(r.key, `${v}px`);
+        }
+    }
+}
+_restoreThumbSizes();
+$slideList.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const r = $slideList.classList.contains('grid-view') ? THUMB_RANGE_GRID : THUMB_RANGE_LIST;
+    const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(r.key)) || r.min;
+    const next = Math.max(r.min, Math.min(r.max, cur + (e.deltaY < 0 ? r.step : -r.step)));
+    document.documentElement.style.setProperty(r.key, `${next}px`);
+    localStorage.setItem(r.storage, String(next));
+}, { passive: false });
+
 $resizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
     $resizer.classList.add('dragging');
@@ -1505,8 +1524,8 @@ $resizer.addEventListener('mousedown', (e) => {
     const startW = $leftPanel.offsetWidth;
 
     function onMove(ev) {
-        const w = Math.max(140, Math.min(500, startW + ev.clientX - startX));
-        $leftPanel.style.width = `${w}px`;
+        const w = Math.max(160, Math.min(500, startW + ev.clientX - startX));
+        document.documentElement.style.setProperty('--left-panel-w', `${w}px`);
         viewer._resizeCanvas();
     }
     function onUp() {

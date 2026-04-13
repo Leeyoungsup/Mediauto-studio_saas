@@ -34,6 +34,9 @@ html, body {
     --card-shadow-lg: 0 4px 16px rgba(45, 45, 95, 0.10);
     --danger: #e53935;
     --success: #1e8e3e;
+    --left-panel-w: 240px;
+    --slide-thumb-list: 40px;
+    --slide-thumb-grid: 80px;
 }
 
 /* ═══ 메뉴바 ═══ */
@@ -44,12 +47,12 @@ html, body {
     position: relative; z-index: 20;
 }
 #menubar::after {
-    content: ''; position: absolute; left: 240px; right: 0; bottom: 0;
+    content: ''; position: absolute; left: var(--left-panel-w); right: 0; bottom: 0;
     height: 1px; background: var(--border-light);
 }
 .menu-left {
     display: flex; align-items: center; flex-shrink: 0;
-    width: 240px; height: 100%; padding: 0 20px;
+    width: var(--left-panel-w); height: 100%; padding: 0 20px;
     background: var(--sidebar-dark-2);
 }
 .menu-center {
@@ -142,17 +145,17 @@ html, body {
 /* ═══ 툴바 ═══ */
 #toolbar {
     display: flex; align-items: center; gap: 2px;
-    height: 42px; padding: 0 14px 0 254px;
+    height: 42px; padding: 0 14px 0 calc(var(--left-panel-w) + 14px);
     background: #efecfb;
     position: relative; z-index: 15;
 }
 #toolbar::before {
     content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-    width: 240px;
+    width: var(--left-panel-w);
     background: var(--sidebar-dark-2);
 }
 #toolbar::after {
-    content: ''; position: absolute; left: 240px; right: 0; bottom: 0;
+    content: ''; position: absolute; left: var(--left-panel-w); right: 0; bottom: 0;
     height: 1px; background: var(--border-light);
 }
 .toolbar-group { display: flex; align-items: center; gap: 2px; }
@@ -186,7 +189,7 @@ html, body {
 
 /* ═══ 좌측 슬라이드 패널 (다크 퍼플 사이드바) ═══ */
 #left-panel {
-    width: 240px; min-width: 160px; max-width: 500px;
+    width: var(--left-panel-w); min-width: 160px; max-width: 500px;
     background: var(--sidebar-dark-2);
     color: var(--sidebar-text);
     border-right: none;
@@ -456,7 +459,7 @@ html, body {
     gap: 8px; padding: 5px 8px; margin-bottom: 2px;
 }
 .slide-list:not(.grid-view) .slide-thumb {
-    width: 40px; height: 40px;
+    width: var(--slide-thumb-list); height: var(--slide-thumb-list);
 }
 .slide-list:not(.grid-view) .slide-list-name {
     -webkit-line-clamp: 2; font-size: 11px;
@@ -465,7 +468,7 @@ html, body {
 /* ── 그리드 모드 — 동적 열 수, 큰 썸네일 + 이름 아래 ── */
 .slide-list.grid-view {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--slide-thumb-grid) + 10px), 1fr));
     gap: 6px;
     align-content: flex-start;
 }
@@ -474,13 +477,13 @@ html, body {
     padding: 6px; text-align: center;
 }
 .slide-list.grid-view .slide-thumb {
-    width: 100%; height: 80px;
+    width: 100%; height: var(--slide-thumb-grid);
 }
 .slide-list.grid-view .slide-list-name {
     font-size: 10px; -webkit-line-clamp: 2;
 }
 .slide-list.grid-view .folder-item .folder-icon {
-    font-size: 32px; width: 100%; height: 80px;
+    font-size: 32px; width: 100%; height: var(--slide-thumb-grid);
     display: flex; align-items: center; justify-content: center;
 }
 
