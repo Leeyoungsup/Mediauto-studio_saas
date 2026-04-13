@@ -434,6 +434,8 @@ function _closeCellEditPopup() {
         _cellEditPopupEl = null;
     }
     viewer.clearCellHighlight();
+    viewer.clearMultiCellHighlight();
+    _cellEditCtx = null;
     document.removeEventListener('mousedown', _outsideCellEditClick, true);
     document.removeEventListener('keydown', _cellEditKeydown, true);
 }
@@ -472,14 +474,22 @@ function _cellEditKeydown(e) {
 
 function _doDeleteCell() {
     if (!_cellEditCtx) return;
-    viewer.deleteCell(_cellEditCtx.idx);
+    if (_cellEditCtx.multi) {
+        viewer.deleteCells(_cellEditCtx.indices);
+    } else {
+        viewer.deleteCell(_cellEditCtx.idx);
+    }
     _closeCellEditPopup();
 }
 
 function _doChangeClass(newClsId) {
     if (!_cellEditCtx) return;
     const name = _cellEditCtx.classNames[String(newClsId)] || `Class ${newClsId}`;
-    viewer.changeCellClass(_cellEditCtx.idx, newClsId, name);
+    if (_cellEditCtx.multi) {
+        viewer.changeCellsClass(_cellEditCtx.indices, newClsId, name);
+    } else {
+        viewer.changeCellClass(_cellEditCtx.idx, newClsId, name);
+    }
     _closeCellEditPopup();
 }
 
@@ -623,6 +633,149 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 }
 
 viewer.onCellEditRequested = _showCellEditPopup;
+
+function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
+    _closeCellEditPopup();
+    if (!_lastDetectionResult || !listIndices || listIndices.length === 0) return;
+
+    const classNames = _lastDetectionResult.class_names || {};
+    const classColors = _lastDetectionResult.class_colors || {};
+
+    // 선택된 셀들의 클래스별 개수 집계
+    const dict_counts = {};
+    for (const c of listCells) {
+        const k = String(c.class_id);
+        dict_counts[k] = (dict_counts[k] || 0) + 1;
+    }
+
+    const popup = document.createElement('div');
+    popup.className = 'cell-edit-popup';
+    popup.style.cssText = `
+        position: fixed; z-index: 9999;
+        background: #ffffff; color: #222;
+        border: 1px solid #ccc; border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        padding: 10px 12px; min-width: 220px;
+        font-family: sans-serif; font-size: 12px;
+        user-select: none;
+    `;
+
+    // 헤더
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    const headerLabel = document.createElement('span');
+    headerLabel.innerHTML = `<b>${listIndices.length} cells selected</b>`;
+    header.appendChild(headerLabel);
+    popup.appendChild(header);
+
+    // 클래스별 집계 표시
+    const breakdown = document.createElement('div');
+    breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;';
+    const list_breakdownLines = [];
+    for (const k of Object.keys(dict_counts).sort((a, b) => parseInt(a) - parseInt(b))) {
+        const name = classNames[k] || `Class ${k}`;
+        list_breakdownLines.push(`${name}: ${dict_counts[k]}`);
+    }
+    breakdown.textContent = list_breakdownLines.join(' · ');
+    popup.appendChild(breakdown);
+
+    const sep1 = document.createElement('div');
+    sep1.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep1);
+
+    const labelChange = document.createElement('div');
+    labelChange.textContent = 'Change All To:';
+    labelChange.style.cssText = 'margin-bottom:4px;';
+    popup.appendChild(labelChange);
+
+    // 모든 클래스 버튼
+    const list_classButtonOrder = [];
+    const list_sortedClsIds = Object.keys(classNames)
+        .map(k => parseInt(k, 10))
+        .sort((a, b) => a - b);
+
+    let int_keyIdx = 0;
+    for (const cid of list_sortedClsIds) {
+        const name = classNames[String(cid)];
+        const str_colorCss = _toCssColor(classColors[String(cid)]);
+        const str_keyLabel = int_keyIdx < 10 ? String((int_keyIdx + 1) % 10) : '';
+
+        const btn = document.createElement('button');
+        btn.style.cssText = `
+            display:flex;align-items:center;gap:0;
+            width:100%;margin:3px 0;padding:0;
+            background:#f0f0f0;color:#222;
+            border:1px solid #ccc;border-radius:4px;
+            font-size:12px;cursor:pointer;text-align:left;
+            box-sizing:border-box;overflow:hidden;
+            min-height:30px;
+        `;
+        btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
+        btn.onmouseout = () => { btn.style.background = '#f0f0f0'; btn.style.color = '#222'; };
+
+        const stripe = document.createElement('span');
+        stripe.style.cssText = `flex:0 0 12px;align-self:stretch;background:${str_colorCss};display:block;`;
+        const sw = document.createElement('span');
+        sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;
+            background:${str_colorCss};border:1px solid #333;
+            display:inline-block;margin-left:8px;`;
+        const text = document.createElement('span');
+        text.textContent = str_keyLabel ? `[${str_keyLabel}] ${name}` : name;
+        text.style.cssText = 'flex:1;padding:6px 10px;';
+
+        btn.append(stripe, sw, text);
+        btn.addEventListener('click', () => _doChangeClass(cid));
+        popup.appendChild(btn);
+
+        list_classButtonOrder.push(cid);
+        int_keyIdx++;
+    }
+
+    const sep2 = document.createElement('div');
+    sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep2);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = `Delete ${listIndices.length} Cells  (Del / D)`;
+    delBtn.style.cssText = `
+        display:block;width:100%;padding:7px 10px;
+        background:#fdecea;color:#c0392b;
+        border:1px solid #e74c3c;border-radius:4px;
+        font-size:12px;cursor:pointer;font-weight:600;
+    `;
+    delBtn.onmouseover = () => { delBtn.style.background = '#e74c3c'; delBtn.style.color = '#fff'; };
+    delBtn.onmouseout = () => { delBtn.style.background = '#fdecea'; delBtn.style.color = '#c0392b'; };
+    delBtn.addEventListener('click', _doDeleteCell);
+    popup.appendChild(delBtn);
+
+    document.body.appendChild(popup);
+
+    const pw = popup.offsetWidth;
+    const ph = popup.offsetHeight;
+    let px = screenX;
+    let py = screenY;
+    if (px + pw > window.innerWidth) px = window.innerWidth - pw - 8;
+    if (py + ph > window.innerHeight) py = window.innerHeight - ph - 8;
+    popup.style.left = `${Math.max(4, px)}px`;
+    popup.style.top = `${Math.max(4, py)}px`;
+
+    _cellEditPopupEl = popup;
+    _cellEditCtx = {
+        multi: true,
+        indices: [...listIndices],
+        classNames,
+        classColors,
+        classButtonOrder: list_classButtonOrder,
+    };
+
+    setTimeout(() => {
+        document.addEventListener('mousedown', _outsideCellEditClick, true);
+        document.addEventListener('keydown', _cellEditKeydown, true);
+    }, 0);
+}
+
+viewer.onCellsMultiEditRequested = _showMultiCellEditPopup;
+
 viewer.onCellEdited = () => {
     // 결과 리스트 카운트 갱신
     if (_lastDetectionResult) {
@@ -632,6 +785,32 @@ viewer.onCellEdited = () => {
     }
     setStatus(`Cell edited — ${viewer.detectionCells.length} cells`);
 };
+
+// ── Cell edit Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ──
+window.addEventListener('keydown', (e) => {
+    // 입력 위젯 포커스 중이면 무시
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (!viewer || !viewer.detectionCells || viewer.detectionCells.length === 0 && !viewer.canUndoCellEdit?.()) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'z' && !e.shiftKey) {
+        if (viewer.canUndoCellEdit && viewer.canUndoCellEdit()) {
+            _closeCellEditPopup();
+            viewer.undoCellEdit();
+            setStatus(`Undo — ${viewer.detectionCells.length} cells`);
+            e.preventDefault();
+        }
+    } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        if (viewer.canRedoCellEdit && viewer.canRedoCellEdit()) {
+            _closeCellEditPopup();
+            viewer.redoCellEdit();
+            setStatus(`Redo — ${viewer.detectionCells.length} cells`);
+            e.preventDefault();
+        }
+    }
+}, true);
 
 // Clear All
 $btnAnnClear?.addEventListener('click', () => {

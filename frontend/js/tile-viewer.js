@@ -98,8 +98,18 @@ export class TileViewer {
         this.defaultConfidence = 0.01;  // 현재 활성 모델의 초기 임계값 (PD-L1/HER2 는 0.1)
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._highlightedCellIdx = -1; // Alt+Click 편집 대상 셀
+        this._highlightedCellIdxSet = null; // Alt+Drag 다중 선택 셀 Set
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
+        this.onCellsMultiEditRequested = null; // (indices, cells, screenX, screenY) callback
         this.onCellEdited = null;        // 편집 후 콜백
+        // Alt+Drag 라쏘 상태
+        this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
+        this._lassoActive = false;
+        this._lassoPoints = [];    // [[sx, sy], ...] scene 좌표
+        // Undo/Redo (셀 편집)
+        this._undoStack = [];
+        this._redoStack = [];
+        this._maxUndo = 200;
 
         // Segmentation 오버레이
         this._segOverlay = null;     // {image, sceneX, sceneY, sceneW, sceneH}
@@ -317,18 +327,15 @@ export class TileViewer {
                 }
             }
 
-            // Alt + 좌클릭: 셀 편집 팝업 (검출 결과가 있을 때)
+            // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
+            // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
             if (e.altKey && e.button === 0 && this.detectionCells.length > 0) {
-                const hit = this._findNearestCell(sx, sy, 30);
-                if (hit) {
-                    // 먼저 팝업을 열고 (이전 하이라이트가 _closeCellEditPopup에서 제거됨)
-                    if (this.onCellEditRequested) {
-                        this.onCellEditRequested(hit.index, hit.cell, e.clientX, e.clientY);
-                    }
-                    // 그 다음에 새 하이라이트 설정 + 즉시 렌더
-                    this._highlightedCellIdx = hit.index;
-                    this.requestRender();
-                }
+                this._altPending = {
+                    sx, sy, cx, cy,
+                    clientX: e.clientX, clientY: e.clientY,
+                };
+                this._lassoActive = false;
+                this._lassoPoints = [];
                 e.preventDefault();
                 return;
             }
@@ -377,6 +384,23 @@ export class TileViewer {
             const cx = e.clientX - rect.left;
             const cy = e.clientY - rect.top;
             const [sx, sy] = this.canvasToScene(cx, cy);
+
+            // Alt+드래그 라쏘 진행
+            if (this._altPending) {
+                if (!this._lassoActive) {
+                    const dx = cx - this._altPending.cx;
+                    const dy = cy - this._altPending.cy;
+                    if (Math.hypot(dx, dy) > 4) {
+                        this._lassoActive = true;
+                        this._lassoPoints = [[this._altPending.sx, this._altPending.sy]];
+                    }
+                }
+                if (this._lassoActive) {
+                    this._lassoPoints.push([sx, sy]);
+                    this.requestRender();
+                }
+                return;
+            }
 
             // VS Split 분할선 드래그
             if (this._vsSplitDragging) {
@@ -447,6 +471,43 @@ export class TileViewer {
         });
 
         window.addEventListener('mouseup', (e) => {
+            // Alt+드래그/클릭 종료 처리
+            if (this._altPending) {
+                const pending = this._altPending;
+                this._altPending = null;
+                if (this._lassoActive) {
+                    this._lassoActive = false;
+                    const pts = this._lassoPoints;
+                    this._lassoPoints = [];
+                    if (pts.length >= 3) {
+                        const list_indices = this._findCellsInPolygon(pts);
+                        if (list_indices.length > 0) {
+                            // 콜백 내부에서 기존 팝업 close가 highlight를 초기화하므로
+                            // 팝업을 먼저 연 뒤 새 highlight Set을 설정한다
+                            if (this.onCellsMultiEditRequested) {
+                                const list_cells = list_indices.map(i => this.detectionCells[i]);
+                                this.onCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
+                            }
+                            this._highlightedCellIdx = -1;
+                            this._highlightedCellIdxSet = new Set(list_indices);
+                        }
+                    }
+                    this.requestRender();
+                } else {
+                    // 단일 Alt+클릭: 가장 가까운 셀 편집
+                    const hit = this._findNearestCell(pending.sx, pending.sy, 30);
+                    if (hit) {
+                        if (this.onCellEditRequested) {
+                            this.onCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
+                        }
+                        this._highlightedCellIdxSet = null;
+                        this._highlightedCellIdx = hit.index;
+                        this.requestRender();
+                    }
+                }
+                return;
+            }
+
             if (this._vsSplitDragging) {
                 this._vsSplitDragging = false;
                 this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
@@ -494,6 +555,12 @@ export class TileViewer {
         // ── 키보드 ──
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (this._altPending) {
+                    this._altPending = null;
+                    this._lassoActive = false;
+                    this._lassoPoints = [];
+                    this.requestRender();
+                }
                 if (this.drawMode) {
                     this.setDrawMode(null); // 모드 해제
                 }
@@ -1050,6 +1117,9 @@ export class TileViewer {
         }
 
         this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
+        this._undoStack = [];
+        this._redoStack = [];
         this.detectionCells = filtered;
         this.classVisibility = {};
         this.classConfidence = {};
@@ -1119,8 +1189,63 @@ export class TileViewer {
         return null;
     }
 
+    /** Ray-casting point-in-polygon (scene 좌표) */
+    _pointInPolygon(x, y, poly) {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i][0], yi = poly[i][1];
+            const xj = poly[j][0], yj = poly[j][1];
+            const intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    /** 라쏘 폴리곤 내부에 포함되는 셀들의 인덱스 리스트 (visibility/confidence 필터 적용) */
+    _findCellsInPolygon(poly) {
+        if (!this.detectionCells.length || poly.length < 3) return [];
+        let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+        for (const [x, y] of poly) {
+            if (x < xMin) xMin = x;
+            if (x > xMax) xMax = x;
+            if (y < yMin) yMin = y;
+            if (y > yMax) yMax = y;
+        }
+
+        let candidates;
+        if (this._spatialGrid) {
+            const cellsInBox = this._spatialGrid.query(xMin, yMin, xMax, yMax);
+            candidates = cellsInBox.map(c => ({ cell: c, index: this.detectionCells.indexOf(c) }));
+        } else {
+            candidates = this.detectionCells.map((c, i) => ({ cell: c, index: i }));
+        }
+
+        const list_result = [];
+        for (const { cell, index } of candidates) {
+            if (index < 0) continue;
+            if (this.classVisibility[cell.class_id] === false) continue;
+            const thresh = this.classConfidence[cell.class_id] ?? 0.01;
+            if ((cell.confidence ?? 1.0) < thresh) continue;
+            if (this._pointInPolygon(cell.x, cell.y, poly)) {
+                list_result.push(index);
+            }
+        }
+        return list_result;
+    }
+
+    _pushUndoOp(op) {
+        this._undoStack.push(op);
+        if (this._undoStack.length > this._maxUndo) this._undoStack.shift();
+        this._redoStack = [];
+    }
+
     deleteCell(cellIdx) {
         if (cellIdx < 0 || cellIdx >= this.detectionCells.length) return;
+        this._pushUndoOp({
+            type: 'delete',
+            items: [{ index: cellIdx, cell: this.detectionCells[cellIdx] }],
+        });
         this.detectionCells.splice(cellIdx, 1);
         this._highlightedCellIdx = -1;
         this._refreshAfterCellEdit();
@@ -1129,9 +1254,123 @@ export class TileViewer {
     changeCellClass(cellIdx, newClassId, newClassName = null) {
         if (cellIdx < 0 || cellIdx >= this.detectionCells.length) return;
         const c = this.detectionCells[cellIdx];
+        this._pushUndoOp({
+            type: 'changeClass',
+            items: [{
+                index: cellIdx,
+                oldClassId: c.class_id,
+                oldClassName: c.class_name,
+                newClassId,
+                newClassName,
+            }],
+        });
         c.class_id = newClassId;
         if (newClassName) c.class_name = newClassName;
         this._refreshAfterCellEdit();
+    }
+
+    /** 여러 셀 일괄 삭제 */
+    deleteCells(listIndices) {
+        if (!listIndices || listIndices.length === 0) return;
+        const list_valid = listIndices
+            .filter(i => i >= 0 && i < this.detectionCells.length)
+            .sort((a, b) => a - b);
+        if (list_valid.length === 0) return;
+        this._pushUndoOp({
+            type: 'delete',
+            items: list_valid.map(i => ({ index: i, cell: this.detectionCells[i] })),
+        });
+        const set_remove = new Set(list_valid);
+        this.detectionCells = this.detectionCells.filter((_, i) => !set_remove.has(i));
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
+        this._refreshAfterCellEdit();
+    }
+
+    /** 여러 셀 일괄 클래스 변경 */
+    changeCellsClass(listIndices, newClassId, newClassName = null) {
+        if (!listIndices || listIndices.length === 0) return;
+        const list_items = [];
+        for (const i of listIndices) {
+            if (i < 0 || i >= this.detectionCells.length) continue;
+            const c = this.detectionCells[i];
+            list_items.push({
+                index: i,
+                oldClassId: c.class_id,
+                oldClassName: c.class_name,
+                newClassId,
+                newClassName,
+            });
+        }
+        if (list_items.length === 0) return;
+        this._pushUndoOp({ type: 'changeClass', items: list_items });
+        for (const it of list_items) {
+            const c = this.detectionCells[it.index];
+            c.class_id = newClassId;
+            if (newClassName) c.class_name = newClassName;
+        }
+        this._highlightedCellIdxSet = null;
+        this._refreshAfterCellEdit();
+    }
+
+    /** 직전 셀 편집 되돌리기 */
+    undoCellEdit() {
+        const op = this._undoStack.pop();
+        if (!op) return false;
+        if (op.type === 'delete') {
+            const sorted = [...op.items].sort((a, b) => a.index - b.index);
+            for (const { index, cell } of sorted) {
+                const clamped = Math.max(0, Math.min(index, this.detectionCells.length));
+                this.detectionCells.splice(clamped, 0, cell);
+            }
+        } else if (op.type === 'changeClass') {
+            for (const it of op.items) {
+                if (it.index < 0 || it.index >= this.detectionCells.length) continue;
+                const c = this.detectionCells[it.index];
+                c.class_id = it.oldClassId;
+                c.class_name = it.oldClassName;
+            }
+        }
+        this._redoStack.push(op);
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
+        this._refreshAfterCellEdit();
+        return true;
+    }
+
+    /** 직전 undo 복구 */
+    redoCellEdit() {
+        const op = this._redoStack.pop();
+        if (!op) return false;
+        if (op.type === 'delete') {
+            const sortedDesc = [...op.items].sort((a, b) => b.index - a.index);
+            for (const { index } of sortedDesc) {
+                if (index < 0 || index >= this.detectionCells.length) continue;
+                this.detectionCells.splice(index, 1);
+            }
+        } else if (op.type === 'changeClass') {
+            for (const it of op.items) {
+                if (it.index < 0 || it.index >= this.detectionCells.length) continue;
+                const c = this.detectionCells[it.index];
+                c.class_id = it.newClassId;
+                c.class_name = it.newClassName;
+            }
+        }
+        this._undoStack.push(op);
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
+        this._refreshAfterCellEdit();
+        return true;
+    }
+
+    canUndoCellEdit() { return this._undoStack.length > 0; }
+    canRedoCellEdit() { return this._redoStack.length > 0; }
+
+    clearMultiCellHighlight() {
+        if (this._highlightedCellIdxSet) {
+            this._highlightedCellIdxSet = null;
+            this.requestRender();
+        }
     }
 
     clearCellHighlight() {
@@ -1425,6 +1664,66 @@ export class TileViewer {
 
         // 편집 대상 셀 하이라이트는 어떤 모드든 항상 표시
         this._renderCellHighlight(octx);
+        this._renderMultiCellHighlight(octx);
+        this._renderLasso(octx);
+    }
+
+    _renderMultiCellHighlight(octx) {
+        if (!this._highlightedCellIdxSet || this._highlightedCellIdxSet.size === 0) return;
+        const CLASS_COLORS = {
+            0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
+            4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
+        };
+        const baseR = Math.max(10, 6 * this.zoom);
+        octx.save();
+        for (const idx of this._highlightedCellIdxSet) {
+            if (idx < 0 || idx >= this.detectionCells.length) continue;
+            const c = this.detectionCells[idx];
+            const [hx, hy] = this.sceneToCanvas(c.x, c.y);
+            const hex = (this.classColorOverride && this.classColorOverride[c.class_id])
+                        || CLASS_COLORS[c.class_id] || '#FFFF00';
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+
+            octx.strokeStyle = 'rgba(0,0,0,0.85)';
+            octx.lineWidth = 4;
+            octx.beginPath();
+            octx.arc(hx, hy, baseR + 1, 0, Math.PI * 2);
+            octx.stroke();
+
+            octx.fillStyle = `rgba(${r},${g},${b},0.30)`;
+            octx.beginPath();
+            octx.arc(hx, hy, baseR, 0, Math.PI * 2);
+            octx.fill();
+
+            octx.strokeStyle = `rgb(${r},${g},${b})`;
+            octx.lineWidth = 2;
+            octx.beginPath();
+            octx.arc(hx, hy, baseR, 0, Math.PI * 2);
+            octx.stroke();
+        }
+        octx.restore();
+    }
+
+    _renderLasso(octx) {
+        if (!this._lassoActive || this._lassoPoints.length < 2) return;
+        octx.save();
+        octx.fillStyle = 'rgba(0,255,255,0.12)';
+        octx.strokeStyle = '#00FFFF';
+        octx.lineWidth = 2;
+        octx.setLineDash([6, 4]);
+        octx.beginPath();
+        const [x0, y0] = this.sceneToCanvas(this._lassoPoints[0][0], this._lassoPoints[0][1]);
+        octx.moveTo(x0, y0);
+        for (let i = 1; i < this._lassoPoints.length; i++) {
+            const [x, y] = this.sceneToCanvas(this._lassoPoints[i][0], this._lassoPoints[i][1]);
+            octx.lineTo(x, y);
+        }
+        octx.closePath();
+        octx.fill();
+        octx.stroke();
+        octx.restore();
     }
 
     _renderCellHighlight(octx) {
