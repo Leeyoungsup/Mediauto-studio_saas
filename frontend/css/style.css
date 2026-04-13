@@ -366,6 +366,22 @@ html, body {
     transition: background 0.1s;
 }
 .ai-cfg-row:hover { background: rgba(108,92,231,0.08); }
+.ai-cfg-item { display: flex; flex-direction: column; }
+.ai-cfg-sub {
+    display: flex; flex-direction: column; gap: 2px;
+    margin-left: 24px; padding: 4px 0 6px 8px;
+    border-left: 2px solid rgba(108,92,231,0.25);
+}
+.ai-cfg-sub[hidden] { display: none; }
+.ai-cfg-sub-title {
+    font-size: 11px; color: #666; margin-bottom: 2px;
+}
+.ai-cfg-sub-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 6px; border-radius: 3px;
+    font-size: 11px; cursor: pointer;
+}
+.ai-cfg-sub-row:hover { background: rgba(108,92,231,0.08); }
 .ai-cfg-footer {
     padding: 12px 18px;
     display: flex; justify-content: flex-end; gap: 8px;

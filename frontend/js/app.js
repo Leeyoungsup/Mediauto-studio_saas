@@ -1969,8 +1969,14 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
-    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)' },
-    { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)' },
+    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)', mpp: true },
+    { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)',  mpp: true },
+];
+const VS_MPP_CHOICES = [
+    { value: 4.0, label: '4.0 µm/px (x2.5)' },
+    { value: 2.0, label: '2.0 µm/px (x5)' },
+    { value: 1.0, label: '1.0 µm/px (x10)' },
+    { value: 0.5, label: '0.5 µm/px (x20)' },
 ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {
@@ -1979,7 +1985,18 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     try { cfg = await api.getFolderAiConfig(folderPath); }
     catch (err) { console.warn('folder config 로드 실패:', err); }
 
-    const selected = new Set((cfg.tasks || []).map(t => `${t.model}::${t.variant}`));
+    // 일반 모델: model::variant key 로 선택 여부 판단
+    // VS-IHC: variant 별 선택된 mpp set 을 따로 관리
+    const set_selected = new Set();
+    const dict_vs_mpps = {};  // { variant: Set<number> }
+    for (const t of (cfg.tasks || [])) {
+        if (t.model === 'VS-IHC') {
+            if (!dict_vs_mpps[t.variant]) dict_vs_mpps[t.variant] = new Set();
+            dict_vs_mpps[t.variant].add(Number(t.target_mpp ?? 2.0));
+        } else {
+            set_selected.add(`${t.model}::${t.variant}`);
+        }
+    }
 
     // 백드롭 + 카드
     const backdrop = document.createElement('div');
@@ -2012,13 +2029,55 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     const $list = backdrop.querySelector('#ai-cfg-list');
     for (const opt of AUTO_AI_TASK_OPTIONS) {
         const key = `${opt.model}::${opt.variant}`;
-        const row = document.createElement('label');
-        row.className = 'ai-cfg-row';
-        row.innerHTML = `
-            <input type="checkbox" data-key="${key}"${selected.has(key) ? ' checked' : ''}>
-            <span>${opt.label}</span>
-        `;
-        $list.appendChild(row);
+        const wrap = document.createElement('div');
+        wrap.className = 'ai-cfg-item';
+        wrap.dataset.model = opt.model;
+        wrap.dataset.variant = opt.variant;
+
+        if (opt.mpp) {
+            // VS-IHC: 상위 체크박스 = 선택된 mpp 가 하나라도 있으면 checked
+            const set_current = dict_vs_mpps[opt.variant] || new Set();
+            const bool_parent_checked = set_current.size > 0;
+            wrap.innerHTML = `
+                <label class="ai-cfg-row">
+                    <input type="checkbox" class="ai-cfg-parent"${bool_parent_checked ? ' checked' : ''}>
+                    <span>${opt.label}</span>
+                </label>
+                <div class="ai-cfg-sub"${bool_parent_checked ? '' : ' hidden'}>
+                    <div class="ai-cfg-sub-title">배율 선택:</div>
+                    ${VS_MPP_CHOICES.map(m => `
+                        <label class="ai-cfg-sub-row">
+                            <input type="checkbox" class="ai-cfg-mpp" data-mpp="${m.value}"${set_current.has(m.value) ? ' checked' : ''}>
+                            <span>${m.label}</span>
+                        </label>
+                    `).join('')}
+                </div>
+            `;
+            const $parent = wrap.querySelector('.ai-cfg-parent');
+            const $sub = wrap.querySelector('.ai-cfg-sub');
+            $parent.addEventListener('change', () => {
+                if ($parent.checked) {
+                    $sub.hidden = false;
+                    // 아무것도 체크 안 되어 있으면 기본 2.0 체크
+                    const checked = wrap.querySelectorAll('.ai-cfg-mpp:checked');
+                    if (checked.length === 0) {
+                        const $def = wrap.querySelector('.ai-cfg-mpp[data-mpp="2"]');
+                        if ($def) $def.checked = true;
+                    }
+                } else {
+                    $sub.hidden = true;
+                    wrap.querySelectorAll('.ai-cfg-mpp').forEach(cb => { cb.checked = false; });
+                }
+            });
+        } else {
+            wrap.innerHTML = `
+                <label class="ai-cfg-row">
+                    <input type="checkbox" data-key="${key}"${set_selected.has(key) ? ' checked' : ''}>
+                    <span>${opt.label}</span>
+                </label>
+            `;
+        }
+        $list.appendChild(wrap);
     }
 
     const close = () => backdrop.remove();
@@ -2029,9 +2088,24 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     backdrop.querySelector('.ai-cfg-save').addEventListener('click', async () => {
         const enabled = backdrop.querySelector('#ai-cfg-enabled').checked;
         const tasks = [];
-        backdrop.querySelectorAll('.ai-cfg-list input[type="checkbox"]:checked').forEach(cb => {
-            const [model, variant] = cb.dataset.key.split('::');
-            tasks.push({ model, variant });
+        backdrop.querySelectorAll('.ai-cfg-item').forEach((wrap) => {
+            const str_model = wrap.dataset.model;
+            const str_variant = wrap.dataset.variant;
+            if (str_model === 'VS-IHC') {
+                const $parent = wrap.querySelector('.ai-cfg-parent');
+                if (!$parent || !$parent.checked) return;
+                const list_mpps = [...wrap.querySelectorAll('.ai-cfg-mpp:checked')]
+                    .map(cb => parseFloat(cb.dataset.mpp));
+                if (list_mpps.length === 0) return;
+                list_mpps.forEach(mpp => {
+                    tasks.push({ model: str_model, variant: str_variant, target_mpp: mpp });
+                });
+            } else {
+                const $cb = wrap.querySelector('input[type="checkbox"]');
+                if ($cb && $cb.checked) {
+                    tasks.push({ model: str_model, variant: str_variant });
+                }
+            }
         });
         try {
             await api.saveFolderAiConfig(folderPath, enabled, tasks);
