@@ -59,7 +59,8 @@ html, body {
 }
 .slide-scanner {
     display: inline-flex; align-items: center; gap: 8px;
-    padding: 5px 12px; background: var(--bg-light);
+    margin-right: 10px;
+    padding: 4px 10px; background: var(--bg-light);
     border-radius: 999px;
     border-left: 3px solid #6c5ce7;
     font-size: 11px; color: var(--text-dim);
