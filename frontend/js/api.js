@@ -155,6 +155,27 @@ export const api = {
         return res.json();
     },
 
+    /** 파일들 + AI 결과/타일 캐시 일괄 삭제 */
+    async deleteFiles(filenames, path = '') {
+        const form = new FormData();
+        form.append('filenames_json', JSON.stringify(filenames || []));
+        form.append('path', path || '');
+        const res = await _authFetch(`${API_BASE}/slides/file/delete`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 슬라이드 리뷰 상태 설정 ("", pending, in_progress, done, flagged) */
+    async setFileStatus(filenames, status, path = '') {
+        const form = new FormData();
+        form.append('filenames_json', JSON.stringify(filenames || []));
+        form.append('status', status || '');
+        form.append('path', path || '');
+        const res = await _authFetch(`${API_BASE}/slides/file/status`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 파일 이동 */
     async moveFile(filename, srcPath, dstPath) {
         const form = new FormData();

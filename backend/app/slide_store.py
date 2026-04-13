@@ -18,6 +18,9 @@ from app.database import get_db, is_db_connected, get_main_loop
 # AI 모델 종류 (dict_ai_results 의 key)
 LIST_AI_MODEL_KEYS = ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]
 
+# 슬라이드 리뷰 상태 (str_status). "" = none.
+SET_SLIDE_STATUSES = {"", "pending", "in_progress", "done", "flagged"}
+
 
 def _empty_ai_results() -> dict:
     """dict_ai_results 기본값 — 모델별 bool/list/dt 플레이스홀더."""
@@ -186,6 +189,28 @@ async def delete_slide(str_rel_path: str, str_filename: str) -> None:
     str_rel_path = _norm_rel_path(str_rel_path)
     await db.slides.delete_one(
         {"str_rel_path": str_rel_path, "str_filename": str_filename}
+    )
+
+
+async def set_slide_status(
+    str_rel_path: str,
+    str_filename: str,
+    str_status: str,
+) -> None:
+    """슬라이드 리뷰 상태 설정 — "" 는 상태 제거."""
+    if not is_db_connected():
+        return
+    if str_status not in SET_SLIDE_STATUSES:
+        return
+    db = get_db()
+    str_rel_path = _norm_rel_path(str_rel_path)
+    await db.slides.update_one(
+        {"str_rel_path": str_rel_path, "str_filename": str_filename},
+        {"$set": {
+            "str_status": str_status,
+            "dt_status_updated_at": datetime.now(timezone.utc),
+            "dt_updated_at": datetime.now(timezone.utc),
+        }},
     )
 
 

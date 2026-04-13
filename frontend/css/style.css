@@ -237,6 +237,44 @@ html, body {
 }
 .ctx-menu-item:hover { background: var(--bg-hover); }
 .ctx-menu-item.danger { color: var(--danger); }
+.ctx-menu-header {
+    padding: 6px 14px 4px; font-size: 11px; font-weight: 600;
+    color: var(--text-dim); border-bottom: 1px solid var(--border-light);
+    margin-bottom: 4px; max-width: 240px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ctx-menu-label {
+    padding: 4px 14px 2px; font-size: 10px; font-weight: 600;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;
+}
+.ctx-menu-sep {
+    height: 1px; background: var(--border-light); margin: 4px 0;
+}
+.ctx-menu-status { display: flex; align-items: center; gap: 8px; }
+.ctx-menu-status-dot {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* 슬라이드 리뷰 상태 배지 */
+.slide-status-dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    color: #fff; font-size: 9px; font-weight: 700; line-height: 1;
+    margin-left: 4px; flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+}
+.slide-list.grid-view .slide-status-dot {
+    position: absolute; top: 4px; left: 4px; margin-left: 0;
+}
+
+/* 슬라이드 리스트 마키(러버밴드) 선택 사각형 */
+.slide-marquee-rect {
+    position: fixed; z-index: 9998; pointer-events: none;
+    background: rgba(108, 92, 231, 0.15);
+    border: 1px solid var(--accent, #6c5ce7);
+    border-radius: 2px;
+}
 
 /* 드래그 오버 강조 */
 .slide-list-item.drag-over {

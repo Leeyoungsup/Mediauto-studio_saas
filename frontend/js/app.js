@@ -1450,8 +1450,10 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
+            if (s.status) item.classList.add(`status-${s.status}`);
             item.dataset.filename = s.filename;
             item.dataset.slideId = s.slide_id;
+            item.dataset.status = s.status || '';
             item.draggable = true;
 
             const thumb = document.createElement('img');
@@ -1492,6 +1494,37 @@ async function loadSlideList() {
                 }
                 if (badges.children.length > 0) item.appendChild(badges);
             }
+
+            // 리뷰 상태 배지
+            if (s.status) {
+                const statusMeta = {
+                    pending:     { label: '⋯', color: '#95a5a6', title: 'Pending' },
+                    in_progress: { label: '▶', color: '#3498db', title: 'In Progress' },
+                    done:        { label: '✓', color: '#27ae60', title: 'Done' },
+                    flagged:     { label: '⚑', color: '#e74c3c', title: 'Flagged' },
+                };
+                const m = statusMeta[s.status];
+                if (m) {
+                    const dot = document.createElement('span');
+                    dot.className = 'slide-status-dot';
+                    dot.textContent = m.label;
+                    dot.style.background = m.color;
+                    dot.title = m.title;
+                    item.appendChild(dot);
+                }
+            }
+
+            // 우클릭: 컨텍스트 메뉴 (상태 설정 / 삭제)
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // 현재 아이템이 선택되어 있지 않다면 단독 선택으로 전환
+                if (!item.classList.contains('selected')) {
+                    $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
+                    item.classList.add('selected');
+                }
+                showSlideContextMenu(e);
+            });
 
             // 클릭: Ctrl/Shift 다중 선택, 일반 클릭은 단일 선택+열기
             item.addEventListener('click', (e) => {
@@ -1710,6 +1743,210 @@ function showFolderContextMenu(e, folderPath, folderName) {
     document.body.appendChild(menu);
     _ctxMenu = menu;
 }
+
+// ── 슬라이드 우클릭 컨텍스트 메뉴 ──
+function _getSelectedSlideFilenames() {
+    return [...$slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)')]
+        .map(el => el.dataset.filename)
+        .filter(Boolean);
+}
+
+const SLIDE_STATUS_OPTIONS = [
+    { value: 'pending',     label: 'Pending',     color: '#95a5a6' },
+    { value: 'in_progress', label: 'In Progress', color: '#3498db' },
+    { value: 'done',        label: 'Done',        color: '#27ae60' },
+    { value: 'flagged',     label: 'Flagged',     color: '#e74c3c' },
+    { value: '',            label: 'Clear Status', color: '' },
+];
+
+async function _applyStatusToSelected(strStatus) {
+    const list_filenames = _getSelectedSlideFilenames();
+    if (list_filenames.length === 0) return;
+    try {
+        await api.setFileStatus(list_filenames, strStatus, currentBrowsePath);
+        setStatus(`Status updated: ${list_filenames.length} slide(s)`);
+        loadSlideList();
+    } catch (err) {
+        alert(`Failed to update status: ${err.message}`);
+    }
+}
+
+async function _deleteSelectedSlides() {
+    const list_filenames = _getSelectedSlideFilenames();
+    if (list_filenames.length === 0) return;
+
+    const int_count = list_filenames.length;
+    const str_msg = int_count === 1
+        ? `Delete "${list_filenames[0]}"?\n\nAll AI analysis results for this slide will also be permanently deleted.\n\nThis action cannot be undone.`
+        : `Delete ${int_count} selected slides?\n\nAll AI analysis results for these slides will also be permanently deleted.\n\nThis action cannot be undone.`;
+
+    if (!confirm(str_msg)) return;
+
+    try {
+        setStatus(`Deleting ${int_count} slide(s)...`);
+        const res = await api.deleteFiles(list_filenames, currentBrowsePath);
+        const int_done = (res.deleted || []).length;
+        const int_err = (res.errors || []).length;
+        if (int_err > 0) {
+            alert(`${int_done} deleted, ${int_err} failed:\n${(res.errors || []).map(e => `${e.filename}: ${e.error}`).join('\n')}`);
+        } else {
+            setStatus(`Deleted ${int_done} slide(s)`);
+        }
+        loadSlideList();
+    } catch (err) {
+        alert(`Failed to delete: ${err.message}`);
+    }
+}
+
+function showSlideContextMenu(e) {
+    removeCtxMenu();
+    const list_filenames = _getSelectedSlideFilenames();
+    if (list_filenames.length === 0) return;
+
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+
+    // 헤더 (선택 개수)
+    const header = document.createElement('div');
+    header.className = 'ctx-menu-header';
+    header.textContent = list_filenames.length === 1
+        ? list_filenames[0]
+        : `${list_filenames.length} slides selected`;
+    menu.appendChild(header);
+
+    // Set Status 하위 항목
+    const labelStatus = document.createElement('div');
+    labelStatus.className = 'ctx-menu-label';
+    labelStatus.textContent = 'Set Status';
+    menu.appendChild(labelStatus);
+
+    for (const opt of SLIDE_STATUS_OPTIONS) {
+        const btn = document.createElement('div');
+        btn.className = 'ctx-menu-item ctx-menu-status';
+        if (opt.color) {
+            const dot = document.createElement('span');
+            dot.className = 'ctx-menu-status-dot';
+            dot.style.background = opt.color;
+            btn.appendChild(dot);
+        } else {
+            const dot = document.createElement('span');
+            dot.className = 'ctx-menu-status-dot';
+            dot.style.background = 'transparent';
+            dot.style.border = '1px dashed #999';
+            btn.appendChild(dot);
+        }
+        const span = document.createElement('span');
+        span.textContent = opt.label;
+        btn.appendChild(span);
+        btn.addEventListener('click', () => {
+            removeCtxMenu();
+            _applyStatusToSelected(opt.value);
+        });
+        menu.appendChild(btn);
+    }
+
+    const sep = document.createElement('div');
+    sep.className = 'ctx-menu-sep';
+    menu.appendChild(sep);
+
+    const deleteBtn = document.createElement('div');
+    deleteBtn.className = 'ctx-menu-item danger';
+    deleteBtn.textContent = list_filenames.length === 1 ? 'Delete' : `Delete ${list_filenames.length} slides`;
+    deleteBtn.addEventListener('click', () => {
+        removeCtxMenu();
+        _deleteSelectedSlides();
+    });
+    menu.appendChild(deleteBtn);
+
+    document.body.appendChild(menu);
+    _ctxMenu = menu;
+}
+
+// ── 슬라이드 리스트 마키(러버밴드) 드래그 선택 ──
+(function _initMarqueeSelection() {
+    let bool_active = false;
+    let int_startX = 0;
+    let int_startY = 0;
+    let el_rect = null;
+    let list_baseline = []; // Ctrl/Shift 시 기존 선택 유지
+
+    $slideList.addEventListener('mousedown', (e) => {
+        // 왼쪽 버튼만, 스크롤바/아이템 위 아님
+        if (e.button !== 0) return;
+        // 슬라이드 아이템/폴더 아이템 내부 클릭은 무시 (기존 동작 유지)
+        if (e.target.closest('.slide-list-item')) return;
+        // 썸네일 drag 중에는 브라우저 기본 drag 가 걸릴 수 있어 여기서만 처리
+        const rect_panel = $slideList.getBoundingClientRect();
+        if (e.clientX < rect_panel.left || e.clientX > rect_panel.right) return;
+
+        bool_active = true;
+        int_startX = e.clientX;
+        int_startY = e.clientY;
+
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            list_baseline = [...$slideList.querySelectorAll('.slide-list-item.selected')];
+        } else {
+            list_baseline = [];
+            $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
+        }
+
+        el_rect = document.createElement('div');
+        el_rect.className = 'slide-marquee-rect';
+        el_rect.style.left = `${int_startX}px`;
+        el_rect.style.top = `${int_startY}px`;
+        el_rect.style.width = '0px';
+        el_rect.style.height = '0px';
+        document.body.appendChild(el_rect);
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!bool_active || !el_rect) return;
+        const x = Math.min(e.clientX, int_startX);
+        const y = Math.min(e.clientY, int_startY);
+        const w = Math.abs(e.clientX - int_startX);
+        const h = Math.abs(e.clientY - int_startY);
+        el_rect.style.left = `${x}px`;
+        el_rect.style.top = `${y}px`;
+        el_rect.style.width = `${w}px`;
+        el_rect.style.height = `${h}px`;
+
+        // 교차 판정: 각 슬라이드 아이템 rect 와 교차하면 selected
+        const rectBox = { left: x, top: y, right: x + w, bottom: y + h };
+        const list_items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
+        const set_base = new Set(list_baseline);
+        for (const el of list_items) {
+            const r = el.getBoundingClientRect();
+            const bool_intersect = !(r.right < rectBox.left || r.left > rectBox.right ||
+                                     r.bottom < rectBox.top || r.top > rectBox.bottom);
+            if (bool_intersect || set_base.has(el)) {
+                el.classList.add('selected');
+            } else {
+                el.classList.remove('selected');
+            }
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (!bool_active) return;
+        bool_active = false;
+        if (el_rect) { el_rect.remove(); el_rect = null; }
+    });
+})();
+
+// 슬라이드 리스트 빈 영역 우클릭은 컨텍스트 메뉴 숨김 (기본 방지는 불필요)
+$slideList.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('.slide-list-item')) {
+        // 선택된 슬라이드가 있으면 메뉴 표시
+        const list_sel = $slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)');
+        if (list_sel.length > 0) {
+            e.preventDefault();
+            showSlideContextMenu(e);
+        }
+    }
+});
 
 // ── 폴더 AI 자동 분석 설정 다이얼로그 ──
 const AUTO_AI_TASK_OPTIONS = [

@@ -166,8 +166,10 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["uploaded_by"] = dict_db.get("str_uploaded_by") or ""
                 dt_opened = dict_db.get("dt_last_opened_at")
                 dict_item["last_opened_at"] = dt_opened.isoformat() if dt_opened else None
+                dict_item["status"] = dict_db.get("str_status") or ""
             else:
                 dict_item["ai_results"] = None
+                dict_item["status"] = ""
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
@@ -214,6 +216,152 @@ async def delete_folder(path: str = Form(...)):
         raise HTTPException(400, "폴더가 비어있지 않습니다")
     target.rmdir()
     return {"status": "deleted"}
+
+
+def _cleanup_ai_caches_for_stem(str_stem: str) -> list:
+    """주어진 slide stem 에 속한 AI 결과 캐시/타일 피라미드 제거.
+
+    파일/폴더 명명 규칙:
+        - ai_results/HE-Fit/{stem}_HE-Fit_*.json
+        - ai_results/PD-Score/{stem}_PD-Score_*.json
+        - ai_results/Precise-IHC/{stem}_Precise-IHC_*.json
+        - ai_results/VS-IHC/{stem}_VS-IHC_*.(png|json)
+        - ai_results/VS-IHC/{stem}_VS-IHC_*_tile/  (피라미드 폴더)
+        - ai_results/{stem}_*  (레거시 루트)
+    """
+    list_removed = []
+    try:
+        ai_dir = Path(settings.AI_RESULTS_DIR)
+    except Exception:
+        return list_removed
+    if not ai_dir.exists():
+        return list_removed
+    list_sub_dirs = [ai_dir] + [ai_dir / s for s in ("HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC")]
+    for d in list_sub_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+        for p in d.glob(f"{str_stem}_*"):
+            try:
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink()
+                list_removed.append(str(p))
+            except Exception as e:
+                print(f"[slides] AI cache cleanup failed ({p}): {e}")
+    return list_removed
+
+
+async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
+    """파일 + 타일 디렉토리 + AI 결과 캐시 + DB 문서를 모두 제거.
+
+    열려있는 슬라이드면 먼저 close.
+    """
+    target = _safe_subpath(str_path) / str_filename
+    if not target.exists():
+        raise HTTPException(404, f"파일을 찾을 수 없습니다: {str_filename}")
+
+    # 열려있는 슬라이드는 먼저 닫기
+    str_slide_id = hashlib.md5(str_filename.encode()).hexdigest()[:12]
+    if slide_manager.get(str_slide_id) is not None:
+        try:
+            slide_manager.close(str_slide_id)
+        except Exception as e:
+            print(f"[slides] close before delete failed ({str_filename}): {e}")
+
+    str_stem = Path(str_filename).stem
+
+    # 1) 원본 파일 삭제
+    try:
+        target.unlink()
+    except Exception as e:
+        raise HTTPException(500, f"파일 삭제 실패: {e}")
+
+    # 2) 타일 피라미드 폴더 삭제
+    try:
+        tiles_dir = tile_generator.get_tiles_dir(str_filename)
+        if tiles_dir.exists():
+            shutil.rmtree(tiles_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"[slides] tiles dir cleanup failed ({str_filename}): {e}")
+
+    # 3) AI 결과 캐시 + VS 타일 피라미드 삭제
+    list_removed_ai = _cleanup_ai_caches_for_stem(str_stem)
+
+    # 4) DB 문서 제거
+    try:
+        await slide_store.delete_slide(str_path, str_filename)
+    except Exception as e:
+        print(f"[slides] DB delete failed ({str_filename}): {e}")
+
+    return {"filename": str_filename, "ai_files_removed": len(list_removed_ai)}
+
+
+@router.post("/file/delete")
+async def delete_slide_files(
+    filenames_json: str = Form(...),
+    path: str = Form(""),
+):
+    """슬라이드 파일들 + AI 결과/타일 캐시 + DB 문서 일괄 삭제.
+
+    filenames_json: JSON list (예: ["a.svs","b.ndpi"])
+    """
+    try:
+        list_filenames = json.loads(filenames_json)
+        if not isinstance(list_filenames, list):
+            raise ValueError("filenames_json must be a JSON list")
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 filenames_json: {e}")
+
+    list_results = []
+    list_errors = []
+    for str_fn in list_filenames:
+        if not isinstance(str_fn, str) or not str_fn:
+            continue
+        try:
+            dict_res = await _delete_slide_file(path, str_fn)
+            list_results.append(dict_res)
+        except HTTPException as he:
+            list_errors.append({"filename": str_fn, "error": he.detail})
+        except Exception as e:
+            list_errors.append({"filename": str_fn, "error": str(e)})
+
+    return {
+        "status": "ok",
+        "deleted": list_results,
+        "errors": list_errors,
+    }
+
+
+@router.post("/file/status")
+async def set_file_status(
+    filenames_json: str = Form(...),
+    path: str = Form(""),
+    status: str = Form(""),
+):
+    """슬라이드 리뷰 상태 일괄 설정.
+
+    status: "" | "pending" | "in_progress" | "done" | "flagged"
+    """
+    if status not in slide_store.SET_SLIDE_STATUSES:
+        raise HTTPException(400, f"잘못된 status: {status}")
+    try:
+        list_filenames = json.loads(filenames_json)
+        if not isinstance(list_filenames, list):
+            raise ValueError("filenames_json must be a JSON list")
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 filenames_json: {e}")
+
+    int_updated = 0
+    for str_fn in list_filenames:
+        if not isinstance(str_fn, str) or not str_fn:
+            continue
+        try:
+            await slide_store.set_slide_status(path, str_fn, status)
+            int_updated += 1
+        except Exception as e:
+            print(f"[slides] set_slide_status failed ({str_fn}): {e}")
+    return {"status": "ok", "updated": int_updated}
 
 
 @router.post("/file/move")
