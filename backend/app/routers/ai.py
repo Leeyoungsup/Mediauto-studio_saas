@@ -812,6 +812,33 @@ def _run_marker_detection_pipeline(
                              status_msg=f"Loading cached {log_label}: {cache_path.name}")
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
+
+                # 레거시 캐시(score_conf_threshold 필드 없음 또는 값이 다른 경우)는
+                # cells 로부터 현재 임계값으로 score 재계산.
+                float_cached_thr = cached.get("score_conf_threshold")
+                if float_cached_thr != float_score_conf_threshold:
+                    list_cached_cells = cached.get("cells") or []
+                    if list_cached_cells:
+                        arr_cls = np.array(
+                            [c.get("class_id", 0) for c in list_cached_cells],
+                            dtype=np.int32,
+                        )
+                        arr_conf = np.array(
+                            [c.get("confidence", 0.0) for c in list_cached_cells],
+                            dtype=np.float32,
+                        )
+                        cls_for_score = arr_cls[arr_conf >= float_score_conf_threshold]
+                    else:
+                        cls_for_score = np.empty(0, dtype=np.int32)
+                    cached[score_key] = score_fn(cls_for_score)
+                    cached["score_conf_threshold"] = float_score_conf_threshold
+                    try:
+                        with open(cache_path, 'w', encoding='utf-8') as f:
+                            json.dump(cached, f)
+                        print(f"{log_label} cached score recomputed @ conf>={float_score_conf_threshold}")
+                    except Exception as e:
+                        print(f"{log_label} cache rewrite failed: {e}")
+
                 _update_task(task_id, status="completed", progress=100,
                              status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                              result=cached)
@@ -911,6 +938,7 @@ def _run_marker_detection_pipeline(
                 "total_cells": 0, "cells": [],
                 "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
                 "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
+                "score_conf_threshold": float_score_conf_threshold,
                 score_key: empty_score,
                 **(extra_fields or {}),
             }
