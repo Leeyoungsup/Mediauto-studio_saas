@@ -1552,7 +1552,7 @@ async function loadSlideList() {
             item.append(icon, name);
 
             // 더블클릭 → 폴더 진입
-            item.addEventListener('dblclick', () => navigateToFolder(folderPath));
+            item.addEventListener('click', () => navigateToFolder(folderPath));
             // 우클릭 → 컨텍스트 메뉴
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
