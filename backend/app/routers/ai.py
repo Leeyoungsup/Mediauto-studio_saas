@@ -784,6 +784,7 @@ def _run_marker_detection_pipeline(
     score_fn, score_key,
     extra_fields, log_label,
     str_variant: str = "",
+    float_score_conf_threshold: float = 0.1,
 ):
     """
     YOLOv11m 기반 marker detection 공용 파이프라인.
@@ -1078,13 +1079,23 @@ def _run_marker_detection_pipeline(
             for i in range(n_cells)
         ]
 
-        score_dict = score_fn(all_cls)
+        # Score 는 프론트엔드 기본 confidence 필터(0.1)와 동일한 임계값으로 계산.
+        # PD-Score/Precise-IHC 모델은 표시 시 conf < 0.1 셀을 숨기므로,
+        # 초기 노출되는 CPS/TPS/HER2 점수도 같은 필터를 거친 cells 로부터 구해야 일관적이다.
+        # (cells 리스트 전체는 그대로 저장 — 사용자가 임계값을 낮추면 셀은 더 표시됨)
+        if len(all_conf) > 0:
+            mask_score = all_conf >= float_score_conf_threshold
+            cls_for_score = all_cls[mask_score]
+        else:
+            cls_for_score = all_cls
+        score_dict = score_fn(cls_for_score)
 
         result = {
             "total_cells": n_cells,
             "cells": all_cells,
             "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
             "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
+            "score_conf_threshold": float_score_conf_threshold,
             score_key: score_dict,
             **(extra_fields or {}),
         }
