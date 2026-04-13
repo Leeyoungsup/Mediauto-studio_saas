@@ -491,6 +491,42 @@ html, body {
     box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4);
 }
 
+/* ═══ PD-Score 결과 디스플레이 ═══ */
+.pd-score-result {
+    margin: 10px 14px 14px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, var(--sidebar-dark), var(--accent));
+    border-radius: 12px;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(108, 92, 231, 0.3);
+    text-align: center;
+}
+.pd-score-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    opacity: 0.9; text-transform: uppercase;
+}
+.pd-score-value {
+    font-size: 36px; font-weight: 800; line-height: 1.1;
+    margin: 4px 0 6px;
+}
+.pd-score-detail {
+    font-size: 11px; opacity: 0.85; line-height: 1.5;
+}
+
+/* ═══ Precise-IHC marker 버튼 행 ═══ */
+.ihc-marker-row {
+    display: flex;
+    gap: 6px;
+    padding: 0 14px 8px;
+}
+.ihc-marker-row .action-btn {
+    flex: 1;
+    width: auto;
+    margin-bottom: 0;
+    padding: 8px 0;
+    font-size: 12px;
+}
+
 .btn-row { padding: 0 14px 8px; }
 .btn-row.compact { display: flex; gap: 6px; padding-bottom: 12px; }
 .small-btn {

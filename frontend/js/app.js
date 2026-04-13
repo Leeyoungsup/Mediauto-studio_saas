@@ -50,6 +50,16 @@ const $btnDrawPoint = $('#btn-draw-point');
 // VS-IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
 const $btnVsNucleus = $('#btn-vs-nucleus');
+const $btnPdScore = $('#btn-pd-score');
+const $pdScoreResult = $('#pd-score-result');
+const $pdScoreLabel = $('#pd-score-label');
+const $pdScoreValue = $('#pd-score-value');
+const $pdScoreDetail = $('#pd-score-detail');
+const $btnIhcHer2 = $('#btn-ihc-her2');
+const $ihcScoreResult = $('#ihc-score-result');
+const $ihcScoreLabel = $('#ihc-score-label');
+const $ihcScoreValue = $('#ihc-score-value');
+const $ihcScoreDetail = $('#ihc-score-detail');
 const $btnVsToggle = $('#btn-vs-toggle');
 const $btnVsSplit = $('#btn-vs-split');
 let _vsRunning = false;
@@ -159,6 +169,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
     $btnVsNucleus.disabled = false;
+    if ($btnPdScore) $btnPdScore.disabled = false;
+    if ($btnIhcHer2) $btnIhcHer2.disabled = false;
     $btnInfo.disabled = false;
     $btnSave.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
@@ -831,6 +843,9 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     // segmentation 데이터 저장 (Spatial Heatmap 시각화용)
     lastSegData = result.seg_data || null;
 
+    // HE-Fit 은 기본 CLASS_COLORS 사용 (override 해제)
+    viewer.classColorOverride = null;
+
     // ROI 폴리곤 내부 셀만 필터링하여 표시
     viewer.setDetectionResults(result.cells, roiPolygons);
 
@@ -885,6 +900,59 @@ function _updateResultCounts() {
         const id = parseInt(idStr);
         el.textContent = (counts[id] || 0).toLocaleString();
     }
+    _updatePdScoreDisplay(counts);
+    _updateHer2ScoreDisplay(counts);
+}
+
+// Confidence 필터가 반영된 카운트로 CPS/TPS 재계산하여 스코어 카드 갱신
+function _updatePdScoreDisplay(counts) {
+    if (!$pdScoreResult || $pdScoreResult.hidden) return;
+    if (!_lastDetectionResult || !_lastDetectionResult.pd_score) return;
+
+    const scoreType = _lastDetectionResult.pd_score.score_type;
+    const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+
+    if (scoreType === 'CPS') {
+        const posTumor = c[3] || 0;
+        const posImmune = (c[4] || 0) + (c[5] || 0);
+        const viableTumor = (c[0] || 0) + (c[3] || 0);
+        const score = viableTumor === 0
+            ? 0
+            : Math.min(100, (posTumor + posImmune) / viableTumor * 100);
+        $pdScoreLabel.textContent = 'CPS';
+        $pdScoreValue.textContent = `${score.toFixed(1)}%`;
+        $pdScoreDetail.innerHTML =
+            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
+            `Positive Immune: ${posImmune}<br>` +
+            `Viable Tumor: ${viableTumor}`;
+    } else if (scoreType === 'TPS') {
+        const posTumor = c[1] || 0;
+        const negTumor = c[0] || 0;
+        const totalTumor = posTumor + negTumor;
+        const score = totalTumor === 0 ? 0 : posTumor / totalTumor * 100;
+        $pdScoreLabel.textContent = 'TPS';
+        $pdScoreValue.textContent = `${score.toFixed(1)}%`;
+        $pdScoreDetail.innerHTML =
+            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
+            `Negative Tumor: ${negTumor}<br>` +
+            `Total Tumor: ${totalTumor}`;
+    }
+}
+
+function _updateHer2ScoreDisplay(counts) {
+    if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
+    if (!_lastDetectionResult || !_lastDetectionResult.her2_score) return;
+    const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const weighted = total === 0 ? 0 : (0 * n0 + 1 * n1 + 2 * n2 + 3 * n3) / total;
+    const dominant = total === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
+    $ihcScoreLabel.textContent = 'HER2';
+    $ihcScoreValue.textContent = `${dominant}+ (${weighted.toFixed(2)})`;
+    $ihcScoreDetail.innerHTML =
+        `0+: ${n0} &nbsp;·&nbsp; 1+: ${n1}<br>` +
+        `2+: ${n2} &nbsp;·&nbsp; 3+: ${n3}<br>` +
+        `Total: ${total}`;
 }
 
 function buildResultList(result) {
@@ -934,7 +1002,8 @@ function buildResultList(result) {
         const count = counts[id] || 0;
         if (count === 0) continue;
 
-        const color = CLASS_COLORS[id] || '#fff';
+        const color = (_lastDetectionResult.class_colors && _lastDetectionResult.class_colors[idStr])
+                      || CLASS_COLORS[id] || '#fff';
 
         const item = document.createElement('div');
         item.className = 'result-item';
@@ -1026,7 +1095,21 @@ $btnVisualize.addEventListener('click', () => {
     const slideName = ($slideName.textContent || '').replace(/\.[^.]+$/, '') || 'slide';
     const tissue = _lastDetectionTissue || 'Stomach';
     const slideDims = currentSlideInfo?.dimensions || null;  // [w, h] level-0
-    showVisualization(filtered, lastSegData, thumbUrl, { slideName, tissue, slideDims });
+
+    // 모델 타입 / 클래스 메타
+    const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
+    const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
+    const modelType = isHer2 ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
+    const scoreType = isHer2
+        ? 'HER2'
+        : (isPdScore ? _lastDetectionResult.pd_score.score_type : null);
+    const classNames = _lastDetectionResult?.class_names || null;
+    const classColors = _lastDetectionResult?.class_colors || null;
+
+    showVisualization(filtered, lastSegData, thumbUrl, {
+        slideName, tissue, slideDims,
+        modelType, scoreType, classNames, classColors,
+    });
 });
 
 // Detection Result 내부 저장 (서버 AI 결과 폴더로) — 다운로드 X
@@ -1474,6 +1557,190 @@ $vsMppSlider?.addEventListener('input', () => {
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 $btnVsNucleus?.addEventListener('click', () => startVirtualStain('ihc_nucleus'));
+
+// ═══════════════════════════
+// PD-Score (PD-L1) — CPS / TPS
+// ═══════════════════════════
+$btnPdScore?.addEventListener('click', startPdScore);
+
+async function startPdScore() {
+    if (!currentSlideId) return;
+    $btnPdScore.disabled = true;
+    if ($pdScoreResult) $pdScoreResult.hidden = true;
+    $progressLabel.textContent = 'PD-L1 Detection...';
+    setProgress(0);
+    setStatus('PD-Score 시작...');
+
+    viewer.setDrawMode(null);
+
+    try {
+        const tissueType = document.querySelector('input[name="pd-tissue-type"]:checked')?.value || 'Stomach';
+        const roiAnnotations = viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
+        const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
+
+        const { task_id } = await api.startPdScore(currentSlideId, roiPolygons, tissueType);
+
+        while (true) {
+            await sleep(1000);
+            const st = await api.getTaskStatus(task_id);
+            const msg = st.status_msg || `${st.progress}%`;
+            setProgress(st.progress, msg);
+            setStatus(msg);
+            $progressLabel.textContent = 'PD-L1 Detection';
+
+            if (st.status === 'completed') {
+                onPdScoreComplete(st.result, roiPolygons, tissueType);
+                return;
+            } else if (st.status === 'error') {
+                throw new Error(st.error);
+            }
+        }
+    } catch (err) {
+        setStatus(`PD-Score 실패: ${err.message}`);
+    } finally {
+        $btnPdScore.disabled = false;
+        $progressLabel.textContent = 'AI Progress';
+    }
+}
+
+function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
+    $progressLabel.textContent = 'PD-Score Complete';
+
+    viewer.clearAnnotations();
+    renderAnnotationPanel();
+
+    _lastDetectionResult = result;
+    _lastDetectionTissue = tissueType;
+    lastSegData = null;
+
+    // PD-Score 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
+    const colorMap = {};
+    if (result.class_colors) {
+        for (const [k, v] of Object.entries(result.class_colors)) {
+            colorMap[parseInt(k)] = v;
+        }
+    }
+    viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
+
+    viewer.setDetectionResults(result.cells, roiPolygons);
+
+    const displayCount = viewer.detectionCells.length;
+    setProgress(100);
+    const score = result.pd_score || {};
+    const scoreLabel = score.score_type || 'Score';
+    const scoreValue = (score.score ?? 0).toFixed(1);
+    setStatus(`${scoreLabel}: ${scoreValue}% | ${displayCount.toLocaleString()} cells`);
+
+    if ($pdScoreResult) {
+        $pdScoreResult.hidden = false;
+        $pdScoreLabel.textContent = scoreLabel;
+        $pdScoreValue.textContent = `${scoreValue}%`;
+        if (score.score_type === 'CPS') {
+            $pdScoreDetail.innerHTML =
+                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
+                `Positive Immune: ${score.positive_immune}<br>` +
+                `Viable Tumor: ${score.viable_tumor}`;
+        } else {
+            $pdScoreDetail.innerHTML =
+                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
+                `Negative Tumor: ${score.negative_tumor}<br>` +
+                `Total Tumor: ${score.total_tumor}`;
+        }
+    }
+
+    buildResultList(result);
+    $btnVisualize.disabled = false;
+    $btnClearResults.disabled = false;
+    $btnSaveResults.disabled = false;
+}
+
+$btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
+
+async function startPreciseIhc(marker) {
+    if (!currentSlideId) return;
+    if ($btnIhcHer2) $btnIhcHer2.disabled = true;
+    if ($ihcScoreResult) $ihcScoreResult.hidden = true;
+    $progressLabel.textContent = `${marker} Detection...`;
+    setProgress(0);
+    setStatus(`${marker} 시작...`);
+
+    viewer.setDrawMode(null);
+
+    try {
+        const roiAnnotations = viewer.annotations.filter(
+            a => a.visible && a.type !== 'point' && a.coordinates.length >= 3
+        );
+        const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
+
+        const { task_id } = await api.startPreciseIhc(currentSlideId, roiPolygons, marker);
+
+        while (true) {
+            await sleep(1000);
+            const st = await api.getTaskStatus(task_id);
+            const msg = st.status_msg || `${st.progress}%`;
+            setProgress(st.progress, msg);
+            setStatus(msg);
+            $progressLabel.textContent = `${marker} Detection`;
+
+            if (st.status === 'completed') {
+                onPreciseIhcComplete(st.result, roiPolygons, marker);
+                return;
+            } else if (st.status === 'error') {
+                throw new Error(st.error);
+            }
+        }
+    } catch (err) {
+        setStatus(`${marker} 실패: ${err.message}`);
+    } finally {
+        if ($btnIhcHer2) $btnIhcHer2.disabled = false;
+        $progressLabel.textContent = 'AI Progress';
+    }
+}
+
+function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
+    $progressLabel.textContent = `${marker} Complete`;
+
+    viewer.clearAnnotations();
+    renderAnnotationPanel();
+
+    _lastDetectionResult = result;
+    _lastDetectionTissue = marker;
+    lastSegData = null;
+
+    const colorMap = {};
+    if (result.class_colors) {
+        for (const [k, v] of Object.entries(result.class_colors)) {
+            colorMap[parseInt(k)] = v;
+        }
+    }
+    viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
+
+    viewer.setDetectionResults(result.cells, roiPolygons);
+
+    const displayCount = viewer.detectionCells.length;
+    setProgress(100);
+    const score = result.her2_score || {};
+    const dominant = score.dominant_class ?? 0;
+    const weighted = (score.score ?? 0).toFixed(2);
+    setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
+
+    if ($ihcScoreResult) {
+        $ihcScoreResult.hidden = false;
+        $ihcScoreLabel.textContent = 'HER2';
+        $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
+        const cc = score.class_counts || {};
+        $ihcScoreDetail.innerHTML =
+            `0+: ${cc[0] || 0} &nbsp;·&nbsp; 1+: ${cc[1] || 0}<br>` +
+            `2+: ${cc[2] || 0} &nbsp;·&nbsp; 3+: ${cc[3] || 0}<br>` +
+            `Total: ${score.total_tumor || 0}`;
+    }
+
+    buildResultList(result);
+    $btnVisualize.disabled = false;
+    $btnClearResults.disabled = false;
+    $btnSaveResults.disabled = false;
+}
+
 // ─── VS toggle 헬퍼 ───
 function _setVsToggleState(visible, disabled) {
     if (!$btnVsToggle) return;

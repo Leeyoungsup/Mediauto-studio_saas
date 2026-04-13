@@ -93,6 +93,7 @@ export class TileViewer {
         // 검출 결과
         this.detectionCells = [];
         this.classVisibility = {};   // {class_id: bool}
+        this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
         this.classConfidence = {};   // {class_id: float} 클래스별 threshold (기본 0.01)
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._highlightedCellIdx = -1; // Alt+Click 편집 대상 셀
@@ -1434,7 +1435,8 @@ export class TileViewer {
             0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
             4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
         };
-        const hexColor = CLASS_COLORS[hc.class_id] || '#FFFF00';
+        const hexColor = (this.classColorOverride && this.classColorOverride[hc.class_id])
+                         || CLASS_COLORS[hc.class_id] || '#FFFF00';
         const r = parseInt(hexColor.slice(1, 3), 16);
         const g = parseInt(hexColor.slice(3, 5), 16);
         const b = parseInt(hexColor.slice(5, 7), 16);
@@ -1633,6 +1635,7 @@ export class TileViewer {
             0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
             4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
         };
+        const override = this.classColorOverride;
 
         octx.lineWidth = lineW;
         for (const cell of visible) {
@@ -1641,7 +1644,7 @@ export class TileViewer {
             if (this.classVisibility[cell.class_id] === false) continue;
 
             const [cx, cy] = this.sceneToCanvas(cell.x, cell.y);
-            const color = CLASS_COLORS[cell.class_id] || '#FFFFFF';
+            const color = (override && override[cell.class_id]) || CLASS_COLORS[cell.class_id] || '#FFFFFF';
 
             octx.beginPath();
             octx.arc(cx, cy, cellRadius, 0, Math.PI * 2);

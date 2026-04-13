@@ -113,7 +113,8 @@
                 <div class="tab-bar">
                     <button class="tab-btn active" data-tab="hne-tab">HE-Fit</button>
                     <button class="tab-btn" data-tab="vs-tab">VS-IHC</button>
-                    <button class="tab-btn" data-tab="pd-tab" disabled>PD-Score</button>
+                    <button class="tab-btn" data-tab="pd-tab">PD-Score</button>
+                    <button class="tab-btn" data-tab="ihc-tab">Precise-IHC</button>
                 </div>
 
                 <!-- HE-Fit 탭 -->
@@ -157,7 +158,34 @@
 
                 <!-- PD-Score 탭 -->
                 <div id="pd-tab" class="tab-content">
-                    <button class="action-btn" disabled>PD-L1 Detection</button>
+                    <div class="sub-group">
+                        <div class="sub-header">Tissue Type</div>
+                        <label class="radio-item"><input type="radio" name="pd-tissue-type" value="Stomach" checked> Stomach (CPS)</label>
+                        <label class="radio-item"><input type="radio" name="pd-tissue-type" value="Lung"> Lung (TPS)</label>
+                    </div>
+                    <button id="btn-pd-score" class="action-btn primary" disabled>PD-L1 Detection</button>
+                    <div id="pd-score-result" class="pd-score-result" hidden>
+                        <div class="pd-score-label" id="pd-score-label">CPS</div>
+                        <div class="pd-score-value" id="pd-score-value">--</div>
+                        <div class="pd-score-detail" id="pd-score-detail"></div>
+                    </div>
+                </div>
+
+                <!-- Precise-IHC 탭 -->
+                <div id="ihc-tab" class="tab-content">
+                    <div class="sub-group">
+                        <div class="sub-header">Marker</div>
+                        <div class="ihc-marker-row">
+                            <button id="btn-ihc-her2" class="action-btn primary" disabled>HER2</button>
+                            <button id="btn-ihc-erpr" class="action-btn primary" disabled title="Coming soon">ER/PR</button>
+                            <button id="btn-ihc-ki67" class="action-btn primary" disabled title="Coming soon">KI-67</button>
+                        </div>
+                    </div>
+                    <div id="ihc-score-result" class="pd-score-result" hidden>
+                        <div class="pd-score-label" id="ihc-score-label">HER2</div>
+                        <div class="pd-score-value" id="ihc-score-value">--</div>
+                        <div class="pd-score-detail" id="ihc-score-detail"></div>
+                    </div>
                 </div>
             </div>
 

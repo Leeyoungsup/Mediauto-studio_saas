@@ -4,14 +4,27 @@
  * 4개 탭: Class Distribution, Tumor Analysis, Spatial Heatmap, Confidence Distribution
  */
 
-const CLASS_NAMES = {
+const DEFAULT_CLASS_NAMES = {
     0: 'Neutrophil', 1: 'Epithelial', 2: 'Lymphocyte', 3: 'Plasma',
     4: 'Eosinophil', 5: 'Connective tissue', 6: 'Tumor Epithelial', 7: 'Benign Epithelial',
 };
-const CLASS_COLORS = {
+const DEFAULT_CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
+// 모델별 동적 클래스 메타 (showVisualization 호출 시 주입)
+let _activeNames = DEFAULT_CLASS_NAMES;
+let _activeColors = DEFAULT_CLASS_COLORS;
+let _activeModelType = 'HE-Fit';  // 'HE-Fit' | 'PD-Score' | 'Precise-IHC'
+let _activeScoreType = null;      // 'CPS' | 'TPS' | 'HER2' | null
+let _activeTissue = null;
+
+function _getName(id) { return _activeNames[id] || DEFAULT_CLASS_NAMES[id] || `Class ${id}`; }
+function _getColor(id) { return _activeColors[id] || DEFAULT_CLASS_COLORS[id] || '#888'; }
+
+// 레거시 참조 호환 (일부 오래된 로직이 남아있을 경우를 위함)
+const CLASS_NAMES = new Proxy({}, { get: (_, k) => _getName(k) });
+const CLASS_COLORS = new Proxy({}, { get: (_, k) => _getColor(k) });
 
 const $vizDialog = document.querySelector('#viz-dialog');
 const $closeViz = document.querySelector('#close-viz');
@@ -38,6 +51,15 @@ let _vizState = null;
 export function showVisualization(cells, segData = null, thumbnailUrl = null, meta = {}) {
     if (!$vizDialog || !cells || cells.length === 0) return;
 
+    // 모델별 메타 주입 (클래스명/색상/점수타입)
+    _activeNames = (meta.classNames && Object.keys(meta.classNames).length > 0)
+        ? _normalizeKeys(meta.classNames) : DEFAULT_CLASS_NAMES;
+    _activeColors = (meta.classColors && Object.keys(meta.classColors).length > 0)
+        ? _normalizeKeys(meta.classColors) : DEFAULT_CLASS_COLORS;
+    _activeModelType = meta.modelType || 'HE-Fit';
+    _activeScoreType = meta.scoreType || null;
+    _activeTissue = meta.tissue || 'Stomach';
+
     // 클래스별 데이터 수집
     const countsByClass = {};
     const confsByClass = {};
@@ -52,8 +74,11 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         cells, countsByClass, confsByClass, segData,
         thumbnailUrl, thumbnailImg: null,
         slideName: meta.slideName || 'slide',
-        tissue: meta.tissue || 'Stomach',
+        tissue: _activeTissue,
         slideDims: meta.slideDims || null,
+        modelType: _activeModelType,
+        classNames: _activeNames,
+        classColors: _activeColors,
     };
 
     // 썸네일 비동기 프리로드 (PDF용) — same-origin이므로 crossOrigin 불필요
@@ -64,16 +89,65 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         img.src = thumbnailUrl;
     }
 
+    // 모델 타입에 따라 탭 구성 조정
+    _configureTabs(_activeModelType);
+
     _renderClassDistribution(cells, countsByClass);
-    _renderTumorAnalysis(countsByClass);
-    _renderSpatialHeatmap(cells, countsByClass, segData);
+    if (_activeModelType === 'PD-Score') {
+        _renderPdScoreAnalysis(countsByClass);
+    } else if (_activeModelType === 'Precise-IHC') {
+        _renderHer2Analysis(countsByClass);
+    } else {
+        _renderTumorAnalysis(countsByClass);
+    }
+    if (_activeModelType !== 'PD-Score' && _activeModelType !== 'Precise-IHC') {
+        _renderSpatialHeatmap(cells, countsByClass, segData);
+    }
     _renderConfidenceDistribution(confsByClass);
 
-    // 첫 번째 탭 활성화
-    $vizDialog.querySelectorAll('.viz-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
-    $vizDialog.querySelectorAll('.viz-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
+    // 첫 번째 활성 탭으로 리셋
+    const tabs = Array.from($vizDialog.querySelectorAll('.viz-tab')).filter(t => !t.hidden);
+    const panels = Array.from($vizDialog.querySelectorAll('.viz-panel'));
+    $vizDialog.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
+    panels.forEach(p => p.classList.remove('active'));
+    if (tabs.length > 0) {
+        tabs[0].classList.add('active');
+        document.getElementById(tabs[0].dataset.tab)?.classList.add('active');
+    }
 
     $vizDialog.showModal();
+}
+
+function _normalizeKeys(obj) {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) out[parseInt(k)] = v;
+    return out;
+}
+
+function _configureTabs(modelType) {
+    const isPdScore = modelType === 'PD-Score';
+    const isIhc = modelType === 'Precise-IHC';
+    const hideHeatmap = isPdScore || isIhc;
+    let tumorLabel = 'Tumor Analysis';
+    if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
+    else if (isIhc) tumorLabel = 'HER2 Analysis';
+
+    const tabButtons = $vizDialog.querySelectorAll('.viz-tab');
+    tabButtons.forEach(tab => {
+        const name = tab.dataset.tab;
+        if (name === 'viz-tumor') {
+            tab.textContent = tumorLabel;
+        }
+        if (name === 'viz-heatmap') {
+            tab.hidden = hideHeatmap;
+            tab.style.display = hideHeatmap ? 'none' : '';
+        }
+    });
+    const heatmapPanel = document.getElementById('viz-heatmap');
+    if (heatmapPanel) {
+        heatmapPanel.style.display = hideHeatmap ? 'none' : '';
+        if (hideHeatmap) heatmapPanel.classList.remove('active');
+    }
 }
 
 // Export PDF 버튼
@@ -474,6 +548,310 @@ function _renderTumorAnalysis(countsByClass) {
         summary.style.animation = 'fadeIn 0.3s ease';
     });
 }
+
+// ── CPS / TPS Analysis 탭 (PD-L1 전용) ──
+function _renderPdScoreAnalysis(countsByClass) {
+    const panel = document.getElementById('viz-tumor');
+    panel.innerHTML = '';
+
+    const tissue = _activeTissue;
+    const scores = [];
+
+    if (tissue === 'Stomach') {
+        // CPS: (pos_tumor + pos_immune) / viable_tumor × 100, cap 100
+        const posTumor = countsByClass[3] || 0;
+        const posImmune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
+        const viableTumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+        const cps = viableTumor === 0 ? 0 : Math.min(100, (posTumor + posImmune) / viableTumor * 100);
+        scores.push({
+            label: 'CPS',
+            value: cps,
+            formula: '(Positive Tumor + Positive Immune) / Viable Tumor × 100',
+            detail: [
+                { name: 'Positive Tumor', value: posTumor, color: _getColor(3) },
+                { name: 'Positive Immune', value: posImmune, color: _getColor(4) },
+                { name: 'Viable Tumor', value: viableTumor, color: _getColor(0) },
+            ],
+        });
+        // Stomach TPS: 양성 상피 / (양성 + 음성 상피) × 100
+        const negEpi = countsByClass[0] || 0;
+        const tpsStomach = (negEpi + posTumor) === 0 ? 0 : posTumor / (negEpi + posTumor) * 100;
+        scores.push({
+            label: 'TPS',
+            value: tpsStomach,
+            formula: 'Positive Epithelial / (Positive + Negative Epithelial) × 100',
+            detail: [
+                { name: 'Positive Epithelial', value: posTumor, color: _getColor(3) },
+                { name: 'Negative Epithelial', value: negEpi, color: _getColor(0) },
+            ],
+        });
+    } else {
+        // Lung TPS: cls1 / (cls0 + cls1) × 100
+        const negTumor = countsByClass[0] || 0;
+        const posTumor = countsByClass[1] || 0;
+        const total = negTumor + posTumor;
+        const tps = total === 0 ? 0 : posTumor / total * 100;
+        scores.push({
+            label: 'TPS',
+            value: tps,
+            formula: 'Positive Tumor / (Positive + Negative Tumor) × 100',
+            detail: [
+                { name: 'Positive Tumor', value: posTumor, color: _getColor(1) },
+                { name: 'Negative Tumor', value: negTumor, color: _getColor(0) },
+            ],
+        });
+    }
+
+    const row = document.createElement('div');
+    row.className = 'viz-chart-row';
+    panel.appendChild(row);
+
+    const summary = document.createElement('div');
+    summary.className = 'viz-summary';
+    panel.appendChild(summary);
+
+    const panelW = panel.clientWidth || 780;
+    const gap = 16;
+    const cardW = Math.floor((panelW - gap * (scores.length - 1)) / scores.length);
+    const cardH = 320;
+
+    const canvases = scores.map(() => _createHiDPICanvas(cardW, cardH));
+    canvases.forEach(c => row.appendChild(c));
+
+    _animate(900, (t) => {
+        const ease = _easeOutCubic(t);
+        const elastic = t < 0.5 ? _easeOutCubic(t * 2) : _easeOutElastic((t - 0.5) * 2) * 0.5 + 0.5;
+
+        scores.forEach((s, i) => {
+            const ctx = canvases[i].getContext('2d');
+            _drawScoreCard(ctx, cardW, cardH, s, ease, elastic);
+        });
+    }, () => {
+        summary.innerHTML = scores.map(s =>
+            `<strong>${s.label}:</strong> <span style="color:${_scoreColor(s.value)};font-weight:700">${s.value.toFixed(1)}%</span>`
+        ).join(' &nbsp;|&nbsp; ');
+        summary.style.animation = 'fadeIn 0.3s ease';
+    });
+}
+
+function _scoreColor(v) {
+    return v >= 50 ? '#E84040' : v >= 20 ? '#FF8C00' : '#2E7D32';
+}
+
+// ── HER2 Analysis 탭 (Precise-IHC 전용) ──
+function _renderHer2Analysis(countsByClass) {
+    const panel = document.getElementById('viz-tumor');
+    panel.innerHTML = '';
+
+    const n0 = countsByClass[0] || 0;
+    const n1 = countsByClass[1] || 0;
+    const n2 = countsByClass[2] || 0;
+    const n3 = countsByClass[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const weighted = total === 0 ? 0 : (0 * n0 + 1 * n1 + 2 * n2 + 3 * n3) / total;
+    const dominant = total === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
+    // 0~3 범위를 0~100 게이지로 매핑
+    const gaugePct = (weighted / 3) * 100;
+    const barColor = _getColor(Math.round(weighted));
+
+    const row = document.createElement('div');
+    row.className = 'viz-chart-row';
+    panel.appendChild(row);
+
+    const summary = document.createElement('div');
+    summary.className = 'viz-summary';
+    panel.appendChild(summary);
+
+    const panelW = panel.clientWidth || 780;
+    const cardH = 320;
+
+    // 1) 가중 평균 반원 게이지
+    const cardW1 = Math.floor(panelW * 0.5 - 8);
+    const cv1 = _createHiDPICanvas(cardW1, cardH);
+    row.appendChild(cv1);
+
+    // 2) intensity 분포 바
+    const cardW2 = Math.floor(panelW * 0.5 - 8);
+    const cv2 = _createHiDPICanvas(cardW2, cardH);
+    row.appendChild(cv2);
+
+    _animate(900, (t) => {
+        const ease = _easeOutCubic(t);
+        const elastic = t < 0.5 ? _easeOutCubic(t * 2) : _easeOutElastic((t - 0.5) * 2) * 0.5 + 0.5;
+
+        // 게이지: 라벨을 HER2로, 값은 weighted(0~3)를 표시하되 내부 elastic은 gaugePct 사용
+        const ctx1 = cv1.getContext('2d');
+        _drawHer2Gauge(ctx1, cardW1, cardH, weighted, dominant, gaugePct, barColor, ease, elastic);
+
+        // 분포 바
+        const ctx2 = cv2.getContext('2d');
+        _drawHer2Bars(ctx2, cardW2, cardH, [n0, n1, n2, n3], ease);
+    }, () => {
+        summary.innerHTML =
+            `<strong>HER2:</strong> <span style="color:${barColor};font-weight:700">${dominant}+ ` +
+            `(weighted ${weighted.toFixed(2)})</span> &nbsp;|&nbsp; ` +
+            `Total: ${total.toLocaleString()}`;
+        summary.style.animation = 'fadeIn 0.3s ease';
+    });
+}
+
+function _drawHer2Gauge(ctx, w, h, weighted, dominant, gaugePct, barColor, ease, elastic) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HER2 Score', cx, 24);
+
+    ctx.fillStyle = '#666';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Weighted mean of intensity (0+ / 1+ / 2+ / 3+)', cx, 42);
+
+    const gaugeCy = 150;
+    const radius = Math.min(w * 0.35, 100);
+
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#eee';
+    ctx.beginPath();
+    ctx.arc(cx, gaugeCy, radius, Math.PI, Math.PI * 2);
+    ctx.stroke();
+
+    const animVal = gaugePct * elastic;
+    const angle = Math.PI + Math.PI * (animVal / 100);
+    const grad = ctx.createLinearGradient(cx - radius, gaugeCy, cx + radius, gaugeCy);
+    grad.addColorStop(0, _lightenColor(barColor, 0.15));
+    grad.addColorStop(1, barColor);
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, gaugeCy, radius, Math.PI, angle);
+    ctx.stroke();
+
+    const animWeighted = weighted * elastic;
+    ctx.fillStyle = barColor;
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(animWeighted.toFixed(2), cx, gaugeCy + 8);
+
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(`Dominant: ${dominant}+`, cx, gaugeCy + 28);
+}
+
+function _drawHer2Bars(ctx, w, h, counts, ease) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Intensity Distribution', cx, 24);
+
+    const labels = ['0+', '1+', '2+', '3+'];
+    const max = Math.max(1, ...counts);
+    const padL = 50, padR = 20, padT = 50, padB = 40;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const bw = plotW / counts.length * 0.6;
+    const gap = plotW / counts.length * 0.4;
+
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    counts.forEach((cnt, i) => {
+        const x = padL + i * (bw + gap) + gap / 2;
+        const targetH = (cnt / max) * plotH * ease;
+        const y = padT + plotH - targetH;
+        ctx.fillStyle = _getColor(i);
+        ctx.fillRect(x, y, bw, targetH);
+
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(labels[i], x + bw / 2, padT + plotH + 18);
+
+        ctx.fillStyle = '#222';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(cnt.toLocaleString(), x + bw / 2, y - 4);
+    });
+}
+
+function _drawScoreCard(ctx, w, h, score, ease, elastic) {
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+
+    // 타이틀
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${score.label} Score`, cx, 24);
+
+    ctx.fillStyle = '#666';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(score.formula, cx, 42);
+
+    // 메인 원형 게이지 (반원)
+    const gaugeCy = 140;
+    const radius = Math.min(w * 0.35, 95);
+    const barColor = _scoreColor(score.value);
+
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+
+    // 배경 트랙
+    ctx.strokeStyle = '#eee';
+    ctx.beginPath();
+    ctx.arc(cx, gaugeCy, radius, Math.PI, Math.PI * 2);
+    ctx.stroke();
+
+    // 값
+    const animVal = score.value * elastic;
+    const angle = Math.PI + Math.PI * (animVal / 100);
+    const grad = ctx.createLinearGradient(cx - radius, gaugeCy, cx + radius, gaugeCy);
+    grad.addColorStop(0, _lightenColor(barColor, 0.15));
+    grad.addColorStop(1, barColor);
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, gaugeCy, radius, Math.PI, angle);
+    ctx.stroke();
+
+    // 중앙 숫자
+    ctx.fillStyle = barColor;
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${animVal.toFixed(1)}%`, cx, gaugeCy + 8);
+
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(score.label, cx, gaugeCy + 26);
+
+    // 디테일 (하단)
+    if (ease > 0.4) {
+        const la = Math.min(1, (ease - 0.4) / 0.4);
+        ctx.globalAlpha = la;
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'left';
+        let dy = 210;
+        for (const d of score.detail) {
+            ctx.fillStyle = d.color;
+            _roundRect(ctx, 24, dy - 10, 12, 12, 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillText(d.name, 42, dy);
+            ctx.textAlign = 'right';
+            ctx.fillText(d.value.toLocaleString(), w - 24, dy);
+            ctx.textAlign = 'left';
+            dy += 22;
+        }
+        ctx.globalAlpha = 1;
+    }
+}
+
 
 // ── Spatial Heatmap 탭 ──
 function _renderSpatialHeatmap(cells, countsByClass, segData) {

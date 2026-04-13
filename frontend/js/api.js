@@ -247,6 +247,28 @@ export const api = {
         return res.json();
     },
 
+    /** PD-Score 시작 (Stomach → CPS, Lung → TPS) */
+    async startPdScore(slideId, roiPolygons = null, tissueType = 'Stomach') {
+        const form = new FormData();
+        form.append('slide_id', slideId);
+        if (roiPolygons) form.append('roi_polygons', JSON.stringify(roiPolygons));
+        form.append('tissue_type', tissueType);
+        const res = await _authFetch(`${API_BASE}/ai/pd-score`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** Precise-IHC 시작 (현재 HER2 만 지원) */
+    async startPreciseIhc(slideId, roiPolygons = null, marker = 'HER2') {
+        const form = new FormData();
+        form.append('slide_id', slideId);
+        if (roiPolygons) form.append('roi_polygons', JSON.stringify(roiPolygons));
+        form.append('marker', marker);
+        const res = await _authFetch(`${API_BASE}/ai/precise-ihc`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 검출 결과 내부 저장 */
     async saveDetectionResult(slideId, tissueType, result) {
         const form = new FormData();

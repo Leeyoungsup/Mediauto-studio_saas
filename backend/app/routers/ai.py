@@ -660,6 +660,562 @@ def _build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bound
         return None
 
 
+# ═══════════════════════════════════════════════════════════════════
+# PD-Score (PD-L1) — Stomach: CPS / Lung: TPS
+# ═══════════════════════════════════════════════════════════════════
+
+PD_SCORE_CONFIG = {
+    "Stomach": {
+        "model_file": "PDL1_ST_CPS_detection.pt",
+        "num_classes": 7,
+        "class_names": {
+            0: "Negative Epithelial",
+            1: "Negative Lymphocyte",
+            2: "Negative Macrophage",
+            3: "Positive Epithelial",
+            4: "Positive Lymphocyte",
+            5: "Positive Macrophage",
+            6: "Other",
+        },
+        "class_colors": {
+            0: "#1e8449",
+            1: "#27ae60",
+            2: "#16a085",
+            3: "#922b21",
+            4: "#e74c3c",
+            5: "#ec7063",
+            6: "#95a5a6",
+        },
+        "score_type": "CPS",
+        "exclude_classes": [6],
+    },
+    "Lung": {
+        "model_file": "PDL1_TPS_detection.pt",
+        "num_classes": 3,
+        "class_names": {
+            0: "PD-L1 Negative Tumor",
+            1: "PD-L1 Positive Tumor",
+            2: "Non-Tumor Cell",
+        },
+        "class_colors": {
+            0: "#3498db",
+            1: "#e74c3c",
+            2: "#95a5a6",
+        },
+        "score_type": "TPS",
+        "exclude_classes": [],
+    },
+}
+
+
+def _get_pd_score_cache_path(slide_path: str, tissue_type: str) -> Path:
+    """PD-Score 결과 캐시: ai_results/PD-Score/{slide_stem}_PD-Score_{tissue_type}.json"""
+    p = Path(slide_path)
+    cache_dir = Path(settings.AI_RESULTS_DIR) / "PD-Score"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return cache_dir / f"{p.stem}_PD-Score_{tissue_type}.json"
+
+
+def _compute_pd_score(all_cls, tissue_type: str) -> dict:
+    """
+    CPS (Stomach): (positive tumor + positive immune) / viable tumor * 100, capped at 100
+                   - positive tumor = cls 3 (positive Epithelial)
+                   - positive immune = cls 4 + cls 5 (positive lymphocyte/macrophage)
+                   - viable tumor = cls 0 + cls 3 (all epithelial)
+    TPS  (Lung):   positive tumor / (positive + negative tumor) * 100
+                   - positive tumor = cls 1
+                   - negative tumor = cls 0
+    """
+    import numpy as np
+
+    score_type = PD_SCORE_CONFIG[tissue_type]["score_type"]
+    int_counts = {int(c): int((all_cls == c).sum()) for c in range(PD_SCORE_CONFIG[tissue_type]["num_classes"])}
+
+    if score_type == "CPS":
+        int_pos_tumor = int_counts.get(3, 0)
+        int_pos_immune = int_counts.get(4, 0) + int_counts.get(5, 0)
+        int_viable_tumor = int_counts.get(0, 0) + int_counts.get(3, 0)
+        if int_viable_tumor == 0:
+            float_score = 0.0
+        else:
+            float_score = min(100.0, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100.0)
+        return {
+            "score_type": "CPS",
+            "score": round(float_score, 2),
+            "positive_tumor": int_pos_tumor,
+            "positive_immune": int_pos_immune,
+            "viable_tumor": int_viable_tumor,
+            "class_counts": int_counts,
+        }
+    else:  # TPS
+        int_pos_tumor = int_counts.get(1, 0)
+        int_neg_tumor = int_counts.get(0, 0)
+        int_total_tumor = int_pos_tumor + int_neg_tumor
+        if int_total_tumor == 0:
+            float_score = 0.0
+        else:
+            float_score = int_pos_tumor / int_total_tumor * 100.0
+        return {
+            "score_type": "TPS",
+            "score": round(float_score, 2),
+            "positive_tumor": int_pos_tumor,
+            "negative_tumor": int_neg_tumor,
+            "total_tumor": int_total_tumor,
+            "class_counts": int_counts,
+        }
+
+
+def _run_marker_detection_pipeline(
+    task_id, slide_id, roi_polygons,
+    dict_config, cache_path,
+    score_fn, score_key,
+    extra_fields, log_label,
+):
+    """
+    YOLOv11m 기반 marker detection 공용 파이프라인.
+    PD-Score / Precise-IHC 가 공유.
+    """
+    try:
+        import torch
+        import numpy as np
+        import cv2
+
+        info = slide_manager.get(slide_id)
+        if not info:
+            _update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+            return
+
+        dict_class_names = dict_config["class_names"]
+        dict_class_colors = dict_config["class_colors"]
+        int_num_classes = dict_config["num_classes"]
+        list_exclude = dict_config.get("exclude_classes") or []
+
+        # ── 캐시 확인 ──
+        if cache_path.exists():
+            try:
+                _update_task(task_id, status="running", progress=10,
+                             status_msg=f"Loading cached {log_label}: {cache_path.name}")
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                _update_task(task_id, status="completed", progress=100,
+                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
+                             result=cached)
+                return
+            except Exception as e:
+                import traceback
+                print(f"{log_label} cache load failed: {e}\n{traceback.format_exc()}")
+
+        _update_task(task_id, status="running", progress=1,
+                     status_msg=f"Starting {log_label} detection...")
+
+        # ── 모델 로드 ──
+        from ai.detection import non_max_suppression
+        from ai.nets import nn as yolo_nn
+
+        model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
+        if not model_path.exists():
+            _update_task(task_id, status="error", error=f"모델 파일 없음: {model_path}")
+            return
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = yolo_nn.yolo_v11_m(int_num_classes).to(device)
+        checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
+
+        # PDL1 체크포인트는 DFL 채널수가 4 (기본 16 대신). head 를 재구성하여 shape 맞춤.
+        state_dict = checkpoint['model_state_dict']
+        dfl_weight = state_dict.get('head.dfl.conv.weight')
+        if dfl_weight is not None and dfl_weight.shape[1] != model.head.ch:
+            int_ch_ckpt = int(dfl_weight.shape[1])
+            _update_task(task_id, status_msg=f"Rebuilding head with DFL ch={int_ch_ckpt}")
+            head = model.head
+            head.ch = int_ch_ckpt
+            head.no = head.nc + head.ch * 4
+            head.dfl = yolo_nn.DFL(head.ch).to(device)
+            # box 브랜치의 마지막 Conv2d 만 out_channels 교체
+            for seq in head.box:
+                old = seq[-1]
+                new_conv = torch.nn.Conv2d(
+                    old.in_channels,
+                    out_channels=4 * head.ch,
+                    kernel_size=old.kernel_size,
+                    stride=old.stride,
+                    padding=old.padding,
+                ).to(device)
+                seq[-1] = new_conv
+
+        model.load_state_dict(state_dict)
+        model.eval()
+
+        _update_task(task_id, progress=3, status_msg=f"{log_label} model loaded")
+
+        slide = info.slide
+        slide_path = info.file_path
+        width, height = info.dimensions
+        image_size = 1024
+        output_mpp = 0.5
+        origin_mpp = info.mpp
+
+        BATCH_SIZE = 8
+        IO_WORKERS = min(max(2, os.cpu_count() or 4), 8)
+        PREFETCH_BATCHES = 3
+
+        class_thresholds = {i: 0.01 for i in range(int_num_classes)}
+
+        # ── 조직 마스크 ──
+        _update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
+        thumb_mask = _create_tissue_mask(slide)
+        _update_task(task_id, progress=5)
+
+        # ── 유효 패치 수집 ──
+        valid_patch_list = []
+        for pr in range(width // image_size - 1):
+            for pc in range(height // image_size - 1):
+                mx = (pr * image_size) // 64
+                my = (pc * image_size) // 64
+                if np.sum(thumb_mask[my:my + image_size // 64,
+                                     mx:mx + image_size // 64]) == 0:
+                    continue
+                px, py = pr * image_size, pc * image_size
+                if roi_polygons:
+                    cx, cy = px + image_size // 2, py + image_size // 2
+                    in_roi = any(
+                        min(p[0] for p in poly) <= cx <= max(p[0] for p in poly) and
+                        min(p[1] for p in poly) <= cy <= max(p[1] for p in poly)
+                        for poly in roi_polygons
+                    )
+                    if not in_roi:
+                        continue
+                valid_patch_list.append((px, py))
+
+        n_valid = len(valid_patch_list)
+        _update_task(task_id, progress=6, status_msg=f"유효 패치 {n_valid}개 발견")
+
+        if n_valid == 0:
+            empty_score = score_fn(np.empty(0, dtype=np.int32))
+            empty_result = {
+                "total_cells": 0, "cells": [],
+                "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
+                "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
+                score_key: empty_score,
+                **(extra_fields or {}),
+            }
+            _update_task(task_id, status="completed", progress=100, result=empty_result)
+            return
+
+        chunks_x, chunks_y, chunks_cls, chunks_conf = [], [], [], []
+        detected_count = 0
+        processed_valid = 0
+
+        def _read_patch_tensor(patch_x, patch_y):
+            try:
+                if (not hasattr(_patch_thread_local, 'slide') or
+                        _patch_thread_local.slide_path != slide_path):
+                    import openslide
+                    _patch_thread_local.slide = openslide.OpenSlide(slide_path)
+                    _patch_thread_local.slide_path = slide_path
+                local_slide = _patch_thread_local.slide
+
+                patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
+                patch_rgb = patch.convert('RGB')
+                patch_np = np.asarray(patch_rgb)
+                patch_resized = cv2.resize(patch_np, (512, 512))
+                return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
+            except Exception:
+                return None
+
+        def _infer_batch(batch_coords, batch_tensors):
+            bx, by, bcls, bconf = [], [], [], []
+            try:
+                batch = torch.stack(batch_tensors).to(device)
+                with torch.no_grad():
+                    if device == "cuda":
+                        with torch.amp.autocast('cuda'):
+                            preds = model(batch)
+                    else:
+                        preds = model(batch)
+
+                results = non_max_suppression(
+                    preds, confidence_threshold=0.01,
+                    iou_threshold=0.3, class_thresholds=class_thresholds,
+                )
+
+                coord_scale = image_size / 512  # = 2.0
+                for i, (sx, sy) in enumerate(batch_coords):
+                    if i >= len(results) or len(results[i]) == 0:
+                        continue
+                    det = results[i]
+                    xyxy = det[:, :4]
+                    cx_np = ((xyxy[:, 0] + xyxy[:, 2]) / 2 * coord_scale + sx).cpu().numpy().astype(np.float32)
+                    cy_np = ((xyxy[:, 1] + xyxy[:, 3]) / 2 * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    cls_np = det[:, 5].cpu().numpy().astype(np.int32)
+                    conf_np = det[:, 4].cpu().numpy().astype(np.float32)
+                    if len(cx_np) > 0:
+                        bx.append(cx_np)
+                        by.append(cy_np)
+                        bcls.append(cls_np)
+                        bconf.append(conf_np)
+            except Exception as e:
+                import traceback
+                print(f"{log_label} batch inference error: {e}\n{traceback.format_exc()}")
+
+            if not bx:
+                ef = np.empty(0, dtype=np.float32)
+                ei = np.empty(0, dtype=np.int32)
+                return ef, ef.copy(), ei, ef.copy()
+            return np.concatenate(bx), np.concatenate(by), np.concatenate(bcls), np.concatenate(bconf)
+
+        prefetch_q = queue.Queue(maxsize=PREFETCH_BATCHES)
+        producer_done = threading.Event()
+
+        def _io_producer():
+            try:
+                with ThreadPoolExecutor(max_workers=IO_WORKERS) as pool:
+                    pending = []
+                    for px, py in valid_patch_list:
+                        future = pool.submit(_read_patch_tensor, px, py)
+                        pending.append((px, py, future))
+
+                        if len(pending) >= BATCH_SIZE:
+                            coords, tensors = [], []
+                            for bpx, bpy, f in pending:
+                                t = f.result(timeout=60)
+                                if t is not None:
+                                    coords.append((bpx, bpy))
+                                    tensors.append(t)
+                            if coords:
+                                prefetch_q.put((coords, tensors, len(pending)), timeout=30)
+                            pending.clear()
+
+                    if pending:
+                        coords, tensors = [], []
+                        for bpx, bpy, f in pending:
+                            t = f.result(timeout=60)
+                            if t is not None:
+                                coords.append((bpx, bpy))
+                                tensors.append(t)
+                        if coords:
+                            prefetch_q.put((coords, tensors, len(pending)), timeout=30)
+            except Exception as e:
+                print(f"{log_label} I/O producer error: {e}")
+            finally:
+                producer_done.set()
+                prefetch_q.put(None)
+
+        producer_thread = threading.Thread(target=_io_producer, daemon=True)
+        producer_thread.start()
+
+        while True:
+            try:
+                item = prefetch_q.get(timeout=120)
+            except queue.Empty:
+                if producer_done.is_set():
+                    break
+                continue
+
+            if item is None:
+                break
+
+            batch_coords, batch_tensors, patch_count = item
+            bx, by, bcls, bconf = _infer_batch(batch_coords, batch_tensors)
+            k = len(bx)
+            if k > 0:
+                chunks_x.append(bx)
+                chunks_y.append(by)
+                chunks_cls.append(bcls)
+                chunks_conf.append(bconf)
+                detected_count += k
+
+            processed_valid += patch_count
+            pct = int(5 + (processed_valid / n_valid) * 90)  # 5~95%
+            _update_task(task_id, progress=min(pct, 95),
+                         status_msg=f"{log_label}: Patch {processed_valid}/{n_valid} | Cells: {detected_count}")
+
+        producer_thread.join(timeout=10)
+
+        if chunks_x:
+            all_x = np.concatenate(chunks_x)
+            all_y = np.concatenate(chunks_y)
+            all_cls = np.concatenate(chunks_cls)
+            all_conf = np.concatenate(chunks_conf)
+        else:
+            all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
+            all_cls = np.empty(0, dtype=np.int32)
+
+        # ── 표시 제외 클래스 필터링 (e.g. 'Other' 클래스) ──
+        if list_exclude and len(all_cls) > 0:
+            keep_mask = ~np.isin(all_cls, list_exclude)
+            all_x = all_x[keep_mask]
+            all_y = all_y[keep_mask]
+            all_cls = all_cls[keep_mask]
+            all_conf = all_conf[keep_mask]
+
+        n_cells = len(all_x)
+        _update_task(task_id, progress=97,
+                     status_msg=f"Computing {dict_config['score_type']} score...")
+
+        all_cells = [
+            {
+                "x": float(all_x[i]),
+                "y": float(all_y[i]),
+                "confidence": float(all_conf[i]),
+                "class_id": int(all_cls[i]),
+                "class_name": dict_class_names.get(int(all_cls[i]), "Unknown"),
+            }
+            for i in range(n_cells)
+        ]
+
+        score_dict = score_fn(all_cls)
+
+        result = {
+            "total_cells": n_cells,
+            "cells": all_cells,
+            "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
+            "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
+            score_key: score_dict,
+            **(extra_fields or {}),
+        }
+
+        if roi_polygons is None:
+            try:
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f)
+                print(f"{log_label} result cached: {cache_path}")
+            except Exception as e:
+                import traceback
+                print(f"{log_label} cache save failed: {e}\n{traceback.format_exc()}")
+
+        _update_task(task_id, status="completed", progress=100, result=result)
+
+    except Exception as e:
+        import traceback
+        _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
+
+
+def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
+    """PD-Score 파이프라인 wrapper (공용 marker pipeline 호출)."""
+    dict_config = PD_SCORE_CONFIG[tissue_type]
+    info = slide_manager.get(slide_id)
+    if not info:
+        _update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+        return
+    cache_path = _get_pd_score_cache_path(info.file_path, tissue_type)
+    _run_marker_detection_pipeline(
+        task_id=task_id,
+        slide_id=slide_id,
+        roi_polygons=roi_polygons,
+        dict_config=dict_config,
+        cache_path=cache_path,
+        score_fn=lambda all_cls: _compute_pd_score(all_cls, tissue_type),
+        score_key="pd_score",
+        extra_fields={"tissue_type": tissue_type},
+        log_label="PD-Score",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Precise-IHC — HER2 / ER-PR / KI-67 (현재 HER2 만 활성화)
+# ═══════════════════════════════════════════════════════════════════
+
+PRECISE_IHC_CONFIG = {
+    "HER2": {
+        "model_file": "Precise_IHC_HER2_detection.pt",
+        "num_classes": 5,
+        "class_names": {
+            0: "HER2 0+",
+            1: "HER2 1+",
+            2: "HER2 2+",
+            3: "HER2 3+",
+            4: "Other",
+        },
+        # class0 (0+) 초록 → class3 (3+) 새빨강. class 숫자 ↑ → red ↑
+        "class_colors": {
+            0: "#27ae60",  # green (0+)
+            1: "#f1c40f",  # yellow (1+)
+            2: "#e67e22",  # orange (2+)
+            3: "#c0392b",  # deep red (3+)
+            4: "#95a5a6",  # other (hidden)
+        },
+        "score_type": "HER2",
+        "exclude_classes": [4],
+    },
+}
+
+
+def _get_precise_ihc_cache_path(slide_path: str, marker: str) -> Path:
+    """Precise-IHC 결과 캐시: ai_results/Precise-IHC/{slide_stem}_Precise-IHC_{marker}.json"""
+    p = Path(slide_path)
+    cache_dir = Path(settings.AI_RESULTS_DIR) / "Precise-IHC"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return cache_dir / f"{p.stem}_Precise-IHC_{marker}.json"
+
+
+def _compute_her2_score(all_cls) -> dict:
+    """
+    HER2 score:
+      - 클래스 0~3 은 intensity 0+/1+/2+/3+
+      - 가중 평균 = Σ(i * n_i) / Σ(n_i)  (i = 0..3)
+      - dominant_class = 가장 많은 intensity
+    """
+    import numpy as np
+    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
+    int_total = sum(int_counts.values())
+    if int_total == 0:
+        return {
+            "score_type": "HER2",
+            "score": 0.0,
+            "dominant_class": 0,
+            "total_tumor": 0,
+            "class_counts": int_counts,
+        }
+    float_weighted = sum(i * int_counts[i] for i in range(4)) / int_total
+    int_dominant = max(int_counts, key=lambda k: int_counts[k])
+    return {
+        "score_type": "HER2",
+        "score": round(float_weighted, 3),
+        "dominant_class": int_dominant,
+        "total_tumor": int_total,
+        "class_counts": int_counts,
+    }
+
+
+def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
+    """Precise-IHC 파이프라인 wrapper. 현재 HER2 만 지원."""
+    if marker not in PRECISE_IHC_CONFIG:
+        _update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
+        return
+    dict_config = PRECISE_IHC_CONFIG[marker]
+    info = slide_manager.get(slide_id)
+    if not info:
+        _update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+        return
+    cache_path = _get_precise_ihc_cache_path(info.file_path, marker)
+
+    if marker == "HER2":
+        score_fn = _compute_her2_score
+        score_key = "her2_score"
+    else:
+        score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
+        score_key = f"{marker.lower()}_score"
+
+    _run_marker_detection_pipeline(
+        task_id=task_id,
+        slide_id=slide_id,
+        roi_polygons=roi_polygons,
+        dict_config=dict_config,
+        cache_path=cache_path,
+        score_fn=score_fn,
+        score_key=score_key,
+        extra_fields={"marker": marker},
+        log_label=f"Precise-IHC/{marker}",
+    )
+
+
 # ═══ API 엔드포인트 ═══
 
 @router.post("/detect")
@@ -685,6 +1241,70 @@ async def start_detection(
     t = threading.Thread(
         target=_run_detection,
         args=(task_id, slide_id, polygons, tissue_type),
+        daemon=True,
+    )
+    t.start()
+
+    return {"task_id": task_id, "status": "queued"}
+
+
+@router.post("/pd-score")
+async def start_pd_score(
+    slide_id: str = Form(...),
+    roi_polygons: Optional[str] = Form(None),
+    tissue_type: str = Form("Stomach"),
+):
+    """PD-Score 추론 시작 (Stomach → CPS, Lung → TPS)"""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+    if tissue_type not in PD_SCORE_CONFIG:
+        raise HTTPException(400, f"지원하지 않는 조직 타입: {tissue_type}")
+
+    task_id = uuid.uuid4().hex[:12]
+    polygons = json.loads(roi_polygons) if roi_polygons else None
+
+    with _tasks_lock:
+        _tasks[task_id] = {
+            "status": "queued", "progress": 0,
+            "result": None, "error": None, "status_msg": "",
+        }
+
+    t = threading.Thread(
+        target=_run_pd_score,
+        args=(task_id, slide_id, polygons, tissue_type),
+        daemon=True,
+    )
+    t.start()
+
+    return {"task_id": task_id, "status": "queued"}
+
+
+@router.post("/precise-ihc")
+async def start_precise_ihc(
+    slide_id: str = Form(...),
+    roi_polygons: Optional[str] = Form(None),
+    marker: str = Form("HER2"),
+):
+    """Precise-IHC 추론 시작 (현재 HER2 만 지원)"""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+    if marker not in PRECISE_IHC_CONFIG:
+        raise HTTPException(400, f"지원하지 않는 marker: {marker}")
+
+    task_id = uuid.uuid4().hex[:12]
+    polygons = json.loads(roi_polygons) if roi_polygons else None
+
+    with _tasks_lock:
+        _tasks[task_id] = {
+            "status": "queued", "progress": 0,
+            "result": None, "error": None, "status_msg": "",
+        }
+
+    t = threading.Thread(
+        target=_run_precise_ihc,
+        args=(task_id, slide_id, polygons, marker),
         daemon=True,
     )
     t.start()
