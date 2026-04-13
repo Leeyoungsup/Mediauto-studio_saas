@@ -26,10 +26,47 @@ async def connect_db():
 
         # ── 인덱스 생성 (멱등) ──
         await _db.users.create_index("str_login_id", unique=True)
+        await _db.users.create_index("str_approval_status")
         await _db.sessions.create_index("str_refresh_token", unique=True)
         await _db.sessions.create_index("dt_expires_at", expireAfterSeconds=0)
         await _db.audit_logs.create_index("dt_created_at")
         await _db.audit_logs.create_index("str_user_id")
+
+        # ── 승인 상태 마이그레이션 ──
+        # str_approval_status 필드 없는 기존 사용자 처리:
+        #   - admin → approved + is_active=True 유지
+        #   - 그 외 → pending + is_active=False (재승인 필요)
+        int_migrated_admin = (await _db.users.update_many(
+            {
+                "str_approval_status": {"$exists": False},
+                "str_role": "admin",
+            },
+            {
+                "$set": {
+                    "str_approval_status": "approved",
+                    "str_approved_by": "system",
+                    "bool_is_active": True,
+                }
+            },
+        )).modified_count
+        int_migrated_pending = (await _db.users.update_many(
+            {
+                "str_approval_status": {"$exists": False},
+                "str_role": {"$ne": "admin"},
+            },
+            {
+                "$set": {
+                    "str_approval_status": "pending",
+                    "str_approved_by": "",
+                    "bool_is_active": False,
+                }
+            },
+        )).modified_count
+        if int_migrated_admin or int_migrated_pending:
+            print(
+                f"[MeDICus SaaS] Approval migration — "
+                f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
+            )
 
         _connected = True
         print(f"[MeDICus SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")

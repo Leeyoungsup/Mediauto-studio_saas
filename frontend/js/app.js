@@ -100,12 +100,16 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 if ($btnLogout) {
     $btnLogout.addEventListener('click', () => api.logout());
 }
-// 사용자 이름 표시
+// 사용자 이름 표시 + 관리자 링크 노출
 (async () => {
     try {
         const dict_me = await api.me();
         if ($userName && dict_me.str_name) {
             $userName.textContent = dict_me.str_name;
+        }
+        if (dict_me.str_role === 'admin') {
+            const $linkAdmin = document.getElementById('link-admin');
+            if ($linkAdmin) $linkAdmin.hidden = false;
         }
     } catch (_) { /* 무시 — 인증 실패 시 api.js가 리다이렉트 처리 */ }
 })();
@@ -115,47 +119,70 @@ if ($btnLogout) {
 // ═══════════════════════════
 $btnOpen.addEventListener('click', () => $fileInput.click());
 $fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) uploadFile(e.target.files[0]);
+    if (e.target.files.length > 0) uploadFiles(e.target.files, currentBrowsePath);
     e.target.value = '';  // 같은 파일 재선택 가능하도록
 });
 
-async function uploadFile(file) {
-    $slideName.textContent = file.name;
-    setStatus('확인 중...');
+const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 
-    try {
-        // 1) 현재 폴더에서 이미 있는지 확인
-        const check = await api.openSlide(file.name, currentBrowsePath);
-        if (check.exists) {
-            onSlideLoaded(check.slide_id, check, file.name);
-            return;
-        }
-
-        // 2) 없으면 현재 폴더에 업로드
-        const CHUNK_SIZE = 5 * 1024 * 1024;
-        setStatus('업로드 중...');
-        setProgress(0);
-
-        const { upload_id } = await api.uploadStart(file.name);
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-        for (let i = 0; i < totalChunks; i++) {
-            const start = i * CHUNK_SIZE;
-            const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
-            await api.uploadChunk(upload_id, i, blob);
-            setProgress(Math.round(((i + 1) / totalChunks) * 90), `Uploading... ${i + 1}/${totalChunks} chunks`);
-        }
-
-        setStatus('슬라이드 열는 중...');
-        setProgress(95);
-        const info = await api.uploadComplete(upload_id, file.name, totalChunks, currentBrowsePath);
-        setProgress(100);
-
-        onSlideLoaded(info.slide_id, info, file.name);
-        loadSlideList();  // 리스트 갱신
-    } catch (err) {
-        setStatus(`실패: ${err.message}`);
+async function uploadFiles(fileList, targetPath = currentBrowsePath) {
+    const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
+    if (!files.length) {
+        setStatus('지원하는 슬라이드 파일이 없습니다');
+        return;
     }
+
+    const total = files.length;
+    let firstOpened = false;
+
+    for (let idx = 0; idx < total; idx++) {
+        const file = files[idx];
+        const prefix = total > 1 ? `[${idx + 1}/${total}] ` : '';
+        try {
+            const info = await uploadOneFile(file, targetPath, prefix);
+            // 첫 파일만 자동으로 열기 (현재 폴더에 업로드된 경우)
+            if (!firstOpened && info && targetPath === currentBrowsePath) {
+                onSlideLoaded(info.slide_id, info, file.name);
+                firstOpened = true;
+            }
+        } catch (err) {
+            setStatus(`${prefix}${file.name} 실패: ${err.message}`);
+        }
+    }
+
+    loadSlideList();
+    if (total > 1) setStatus(`${total}개 파일 업로드 완료`);
+    setProgress(0);
+}
+
+async function uploadOneFile(file, targetPath, prefix = '') {
+    $slideName.textContent = file.name;
+    setStatus(`${prefix}확인 중...`);
+
+    // 1) 대상 폴더에서 이미 있는지 확인
+    const check = await api.openSlide(file.name, targetPath);
+    if (check.exists) return check;
+
+    // 2) 없으면 대상 폴더에 업로드
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    setStatus(`${prefix}업로드 중...`);
+    setProgress(0);
+
+    const { upload_id } = await api.uploadStart(file.name);
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+        await api.uploadChunk(upload_id, i, blob);
+        setProgress(Math.round(((i + 1) / totalChunks) * 90), `${prefix}Uploading... ${i + 1}/${totalChunks} chunks`);
+    }
+
+    setStatus(`${prefix}슬라이드 등록 중...`);
+    setProgress(95);
+    const info = await api.uploadComplete(upload_id, file.name, totalChunks, targetPath);
+    setProgress(100);
+    return info;
 }
 
 function onSlideLoaded(slideId, slideInfo, filename) {
@@ -223,7 +250,7 @@ $viewerContainer.addEventListener('drop', (e) => {
     if (!_isFileDrag(e)) return;
     e.preventDefault();
     $dropOverlay.classList.remove('visible');
-    if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files, currentBrowsePath);
 });
 
 // ═══════════════════════════
@@ -845,6 +872,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
 
     // HE-Fit 은 기본 CLASS_COLORS 사용 (override 해제)
     viewer.classColorOverride = null;
+    viewer.defaultConfidence = 0.01;
 
     // ROI 폴리곤 내부 셀만 필터링하여 표시
     viewer.setDetectionResults(result.cells, roiPolygons);
@@ -1042,16 +1070,19 @@ function buildResultList(result) {
         const sliderRow = document.createElement('div');
         sliderRow.className = 'class-conf-slider';
 
+        const initConf = viewer.classConfidence[id] ?? viewer.defaultConfidence ?? 0.01;
+        const initConfStr = initConf.toFixed(2);
+
         const sliderLabel = document.createElement('span');
         sliderLabel.className = 'conf-label';
-        sliderLabel.textContent = '0.01';
+        sliderLabel.textContent = initConfStr;
 
         const slider = document.createElement('input');
         slider.type = 'range';
         slider.min = '0';
         slider.max = '1';
         slider.step = '0.01';
-        slider.value = '0.01';
+        slider.value = initConfStr;
         slider.addEventListener('input', () => {
             const val = parseFloat(slider.value);
             sliderLabel.textContent = val.toFixed(2);
@@ -1219,13 +1250,18 @@ async function loadSlideList() {
                 e.preventDefault();
                 showFolderContextMenu(e, folderPath, f.name);
             });
-            // 드래그 대상 (파일을 폴더에 드롭)
+            // 드래그 대상 (파일을 폴더에 드롭) — OS 파일 + 내부 이동 모두 지원
             item.addEventListener('dragover', (e) => { e.preventDefault(); item.classList.add('drag-over'); });
             item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
             item.addEventListener('drop', async (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 item.classList.remove('drag-over');
-                await _dropMoveFiles(e, folderPath);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    await uploadFiles(e.dataTransfer.files, folderPath);
+                } else {
+                    await _dropMoveFiles(e, folderPath);
+                }
             });
 
             $slideList.appendChild(item);
@@ -1334,10 +1370,33 @@ function _makeBreadcrumbDroppable(el, targetPath) {
     el.addEventListener('dragleave', () => { el.style.background = ''; });
     el.addEventListener('drop', async (e) => {
         e.preventDefault();
+        e.stopPropagation();
         el.style.background = '';
-        await _dropMoveFiles(e, targetPath);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            await uploadFiles(e.dataTransfer.files, targetPath);
+        } else {
+            await _dropMoveFiles(e, targetPath);
+        }
     });
 }
+
+// 좌측 슬라이드 리스트 빈 영역에 OS 파일 드롭 → 현재 폴더로 업로드
+(function _initSlideListOsDrop() {
+    $slideList.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+        e.preventDefault();
+        $slideList.classList.add('drag-over-panel');
+    });
+    $slideList.addEventListener('dragleave', (e) => {
+        if (e.target === $slideList) $slideList.classList.remove('drag-over-panel');
+    });
+    $slideList.addEventListener('drop', async (e) => {
+        if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+        e.preventDefault();
+        $slideList.classList.remove('drag-over-panel');
+        await uploadFiles(e.dataTransfer.files, currentBrowsePath);
+    });
+})();
 
 function updateBreadcrumb() {
     $breadcrumb.innerHTML = '';
@@ -1621,6 +1680,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
+    viewer.defaultConfidence = 0.1;
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
@@ -1714,6 +1774,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
+    viewer.defaultConfidence = 0.1;
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 

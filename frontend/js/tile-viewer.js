@@ -94,7 +94,8 @@ export class TileViewer {
         this.detectionCells = [];
         this.classVisibility = {};   // {class_id: bool}
         this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
-        this.classConfidence = {};   // {class_id: float} 클래스별 threshold (기본 0.01)
+        this.classConfidence = {};   // {class_id: float} 클래스별 threshold (기본 defaultConfidence)
+        this.defaultConfidence = 0.01;  // 현재 활성 모델의 초기 임계값 (PD-L1/HER2 는 0.1)
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._highlightedCellIdx = -1; // Alt+Click 편집 대상 셀
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
@@ -1052,10 +1053,11 @@ export class TileViewer {
         this.detectionCells = filtered;
         this.classVisibility = {};
         this.classConfidence = {};
+        const defConf = this.defaultConfidence ?? 0.01;
         const classIds = new Set(filtered.map(c => c.class_id));
         classIds.forEach(id => {
             this.classVisibility[id] = true;
-            this.classConfidence[id] = 0.01;
+            this.classConfidence[id] = defConf;
         });
 
         // 공간 인덱스 구축 (뷰포트 영역만 O(1) 조회용)
@@ -1144,7 +1146,7 @@ export class TileViewer {
         const cls = new Set(this.detectionCells.map(c => c.class_id));
         cls.forEach(id => {
             if (this.classVisibility[id] === undefined) this.classVisibility[id] = true;
-            if (this.classConfidence[id] === undefined) this.classConfidence[id] = 0.01;
+            if (this.classConfidence[id] === undefined) this.classConfidence[id] = this.defaultConfidence ?? 0.01;
         });
 
         // 공간 인덱스 + 히트맵 캐시 재구축

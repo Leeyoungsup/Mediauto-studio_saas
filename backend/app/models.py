@@ -24,6 +24,12 @@ class UserRole(str, Enum):
     VIEWER = "viewer"
 
 
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 # ── 비밀번호 해싱 ──
 def hash_password(str_plain_password: str) -> str:
     """bcrypt + pepper 해싱"""
@@ -51,8 +57,16 @@ def create_user_document(
     str_name: str,
     str_role: str = UserRole.VIEWER,
     str_department: str = "",
+    str_approval_status: str = ApprovalStatus.PENDING,
+    bool_is_active: bool = False,
+    str_approved_by: str = "",
 ) -> dict:
-    """MongoDB에 삽입할 사용자 문서 생성"""
+    """MongoDB에 삽입할 사용자 문서 생성
+
+    기본값은 `pending` + `is_active=False` — 관리자 승인 후 활성화.
+    첫 admin 가입이나 admin 이 직접 생성한 계정은 호출 측에서
+    `str_approval_status=ApprovalStatus.APPROVED`, `bool_is_active=True` 로 지정.
+    """
     dt_now = datetime.now(timezone.utc)
     return {
         "str_login_id": str_login_id.strip().lower(),
@@ -60,7 +74,10 @@ def create_user_document(
         "str_name": str_name.strip(),
         "str_role": str_role,
         "str_department": str_department.strip(),
-        "bool_is_active": True,
+        "str_approval_status": str_approval_status,
+        "str_approved_by": str_approved_by,
+        "dt_approved_at": dt_now if str_approval_status == ApprovalStatus.APPROVED else None,
+        "bool_is_active": bool_is_active,
         "bool_is_locked": False,
         "int_failed_login_attempts": 0,
         "dt_locked_until": None,

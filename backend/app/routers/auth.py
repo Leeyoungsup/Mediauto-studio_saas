@@ -25,7 +25,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.database import get_db
-from app.models import UserRole, create_user_document, hash_password, verify_password
+from app.models import ApprovalStatus, UserRole, create_user_document, hash_password, verify_password
 
 router = APIRouter()
 
@@ -94,9 +94,12 @@ async def register(body: RegisterRequest, request: Request):
             detail="이미 사용 중인 아이디입니다.",
         )
 
-    # 첫 번째 사용자는 admin으로 설정
+    # 첫 번째 사용자는 admin + 즉시 승인, 이후는 viewer + pending
     int_user_count = await db.users.count_documents({})
-    str_role = UserRole.ADMIN if int_user_count == 0 else UserRole.VIEWER
+    bool_is_first = int_user_count == 0
+    str_role = UserRole.ADMIN if bool_is_first else UserRole.VIEWER
+    str_status = ApprovalStatus.APPROVED if bool_is_first else ApprovalStatus.PENDING
+    bool_is_active = bool_is_first
 
     str_hashed = hash_password(body.str_password)
     dict_user_doc = create_user_document(
@@ -105,6 +108,9 @@ async def register(body: RegisterRequest, request: Request):
         str_name=body.str_name,
         str_role=str_role,
         str_department=body.str_department,
+        str_approval_status=str_status,
+        bool_is_active=bool_is_active,
+        str_approved_by="system" if bool_is_first else "",
     )
 
     result = await db.users.insert_one(dict_user_doc)
@@ -117,15 +123,23 @@ async def register(body: RegisterRequest, request: Request):
         str_user_email=body.str_login_id,
         str_resource_type="user",
         str_resource_id=str_user_id,
-        str_detail=f"New user registered with role: {str_role}",
+        str_detail=f"New user registered with role: {str_role}, status: {str_status}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
     )
 
+    str_message = (
+        "회원가입 성공! 바로 로그인할 수 있습니다."
+        if bool_is_first
+        else "회원가입이 완료되었습니다. 관리자 승인 후 로그인 가능합니다."
+    )
+
     return {
-        "str_message": "Registration successful",
+        "str_message": str_message,
         "str_user_id": str_user_id,
         "str_role": str_role,
+        "str_approval_status": str_status,
+        "bool_requires_approval": not bool_is_first,
     }
 
 
@@ -205,6 +219,35 @@ async def login(body: LoginRequest, request: Request):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="아이디 또는 비밀번호가 올바르지 않습니다.",
+        )
+
+    # 승인 상태 검증 (비밀번호 확인 후 — 계정 열거 방지)
+    str_approval = dict_user.get("str_approval_status", ApprovalStatus.APPROVED)
+    if str_approval == ApprovalStatus.PENDING:
+        await log_audit_event(
+            str_action="user.login_pending",
+            str_user_id=str_user_id,
+            str_user_email=str_login_id_lower,
+            str_detail="Login attempt on pending account",
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 승인 대기 중입니다. 승인 완료 후 로그인 가능합니다.",
+        )
+    if str_approval == ApprovalStatus.REJECTED:
+        await log_audit_event(
+            str_action="user.login_rejected",
+            str_user_id=str_user_id,
+            str_user_email=str_login_id_lower,
+            str_detail="Login attempt on rejected account",
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="가입 요청이 거부된 계정입니다. 관리자에게 문의하세요.",
         )
 
     # 로그인 성공 → 실패 카운터 초기화

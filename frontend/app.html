@@ -20,6 +20,7 @@
             <span id="status-text" class="status-text">Ready</span>
             <span class="toolbar-separator" style="height:20px;"></span>
             <span id="user-name" class="user-name-text"></span>
+            <a id="link-admin" class="btn-admin" href="/admin.html" title="관리자 페이지" hidden>관리자</a>
             <button id="btn-logout" class="btn-logout" title="Logout">Logout</button>
         </div>
     </header>
@@ -227,7 +228,7 @@
     </div>
 
     <!-- 숨겨진 파일 입력 -->
-    <input type="file" id="file-input" accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn" hidden>
+    <input type="file" id="file-input" accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn" multiple hidden>
 
     <!-- 슬라이드 정보 다이얼로그 -->
     <dialog id="slide-info-dialog">

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDICus Studio — 관리자</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <header class="admin-header">
+        <div class="admin-header-inner">
+            <a href="/app.html" class="admin-back" title="메인 앱으로">
+                <img src="assets/logo.png" alt="logo" class="admin-logo">
+                <span class="admin-title">MeDICus Studio · 관리자 페이지</span>
+            </a>
+            <div class="admin-user-info">
+                <span id="current-user-name">—</span>
+                <span class="role-badge" id="current-user-role">admin</span>
+                <button id="btn-logout" class="admin-btn-ghost">로그아웃</button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="admin-tabs">
+        <button class="admin-tab active" data-tab="pending-panel">
+            승인 대기 <span id="pending-badge" class="badge">0</span>
+        </button>
+        <button class="admin-tab" data-tab="users-panel">사용자 관리</button>
+        <button class="admin-tab" data-tab="create-panel">사용자 생성</button>
+    </nav>
+
+    <main class="admin-main">
+        <div id="admin-alert" class="admin-alert" hidden></div>
+
+        <!-- 승인 대기 탭 -->
+        <section id="pending-panel" class="admin-panel active">
+            <div class="panel-toolbar">
+                <h2>승인 대기 중인 사용자</h2>
+                <button id="btn-refresh-pending" class="admin-btn-secondary">새로고침</button>
+            </div>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>아이디</th><th>이름</th><th>부서</th><th>가입일</th>
+                        <th>역할 지정</th><th>작업</th>
+                    </tr>
+                </thead>
+                <tbody id="pending-tbody">
+                    <tr><td colspan="6" class="empty-row">로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- 사용자 관리 탭 -->
+        <section id="users-panel" class="admin-panel">
+            <div class="panel-toolbar">
+                <h2>전체 사용자</h2>
+                <div class="toolbar-group">
+                    <select id="filter-status" class="admin-select">
+                        <option value="">모든 상태</option>
+                        <option value="approved">승인됨</option>
+                        <option value="pending">대기 중</option>
+                        <option value="rejected">거부됨</option>
+                    </select>
+                    <input type="text" id="filter-search" class="admin-input"
+                           placeholder="아이디/이름/부서 검색">
+                    <button id="btn-refresh-users" class="admin-btn-secondary">새로고침</button>
+                </div>
+            </div>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>아이디</th><th>이름</th><th>부서</th><th>역할</th>
+                        <th>상태</th><th>활성</th><th>최종 로그인</th><th>작업</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody">
+                    <tr><td colspan="8" class="empty-row">로딩 중...</td></tr>
+                </tbody>
+            </table>
+            <div class="pager">
+                <button id="btn-prev-page" class="admin-btn-secondary">이전</button>
+                <span id="page-info">1 / 1</span>
+                <button id="btn-next-page" class="admin-btn-secondary">다음</button>
+            </div>
+        </section>
+
+        <!-- 사용자 생성 탭 -->
+        <section id="create-panel" class="admin-panel">
+            <div class="panel-toolbar">
+                <h2>새 사용자 생성</h2>
+            </div>
+            <form id="create-form" class="admin-form">
+                <div class="form-row">
+                    <label>아이디 *</label>
+                    <input type="text" id="new-login-id" required minlength="4" maxlength="30"
+                           pattern="[a-zA-Z0-9_]{4,30}" placeholder="4~30자 영문/숫자/언더스코어">
+                </div>
+                <div class="form-row">
+                    <label>비밀번호 *</label>
+                    <input type="password" id="new-password" required minlength="8"
+                           placeholder="영문 대/소문자 + 숫자 + 특수문자 8자 이상">
+                </div>
+                <div class="form-row">
+                    <label>이름 *</label>
+                    <input type="text" id="new-name" required maxlength="100">
+                </div>
+                <div class="form-row">
+                    <label>부서</label>
+                    <input type="text" id="new-department" maxlength="100">
+                </div>
+                <div class="form-row">
+                    <label>역할 *</label>
+                    <select id="new-role" required>
+                        <option value="viewer">Viewer</option>
+                        <option value="technician">Technician</option>
+                        <option value="doctor">Doctor</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="admin-btn-primary">생성</button>
+                    <button type="reset" class="admin-btn-secondary">초기화</button>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <!-- 사용자 수정 다이얼로그 -->
+    <dialog id="edit-dialog" class="admin-dialog">
+        <form method="dialog" id="edit-form">
+            <h3>사용자 수정</h3>
+            <input type="hidden" id="edit-user-id">
+            <div class="form-row">
+                <label>아이디</label>
+                <input type="text" id="edit-login-id" disabled>
+            </div>
+            <div class="form-row">
+                <label>이름</label>
+                <input type="text" id="edit-name" maxlength="100">
+            </div>
+            <div class="form-row">
+                <label>부서</label>
+                <input type="text" id="edit-department" maxlength="100">
+            </div>
+            <div class="form-row">
+                <label>새 비밀번호</label>
+                <input type="password" id="edit-password" minlength="8"
+                       placeholder="변경하지 않으려면 빈 칸">
+            </div>
+            <div class="form-actions">
+                <button type="button" id="btn-edit-save" class="admin-btn-primary">저장</button>
+                <button type="button" id="btn-edit-cancel" class="admin-btn-secondary">취소</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="js/admin.js"></script>
+</body>
+</html>

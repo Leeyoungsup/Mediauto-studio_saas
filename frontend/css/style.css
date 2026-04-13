@@ -104,6 +104,17 @@ html, body {
 }
 .btn-logout:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 
+.btn-admin {
+    font-size: 11px; color: #fff; background: var(--accent);
+    border: 1px solid var(--accent); border-radius: 999px;
+    padding: 4px 14px; cursor: pointer; white-space: nowrap;
+    font-weight: 600; text-decoration: none;
+    margin-right: 4px;
+    transition: all 0.15s;
+}
+.btn-admin:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-admin[hidden] { display: none; }
+
 /* ═══ 툴바 ═══ */
 #toolbar {
     display: flex; align-items: center; gap: 2px;
@@ -230,6 +241,10 @@ html, body {
 /* 드래그 오버 강조 */
 .slide-list-item.drag-over {
     outline: 2px dashed var(--accent); outline-offset: -2px;
+}
+.slide-list.drag-over-panel {
+    outline: 2px dashed var(--accent); outline-offset: -4px;
+    background: var(--accent-light, rgba(108,92,231,0.08));
 }
 
 /* ── 슬라이드 리스트 공통 ── */

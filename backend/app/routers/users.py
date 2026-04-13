@@ -8,6 +8,7 @@
 - 감사 로그 조회
 """
 
+import re
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -17,7 +18,12 @@ from pydantic import BaseModel, Field
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, require_role
 from app.database import get_db
-from app.models import UserRole
+from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
+
+LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
+PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{8,}$"
+)
 
 router = APIRouter()
 
@@ -27,13 +33,26 @@ router = APIRouter()
 async def list_users(
     int_skip: int = Query(0, ge=0),
     int_limit: int = Query(50, ge=1, le=200),
+    str_approval_status: str = Query(None, pattern="^(pending|approved|rejected)$"),
+    str_search: str = Query(None),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """전체 사용자 목록 (페이지네이션)"""
+    """전체 사용자 목록 (페이지네이션, 승인상태/검색 필터)"""
     db = get_db()
+    dict_filter = {}
+    if str_approval_status:
+        dict_filter["str_approval_status"] = str_approval_status
+    if str_search:
+        str_pat = re.escape(str_search.strip())
+        dict_filter["$or"] = [
+            {"str_login_id": {"$regex": str_pat, "$options": "i"}},
+            {"str_name": {"$regex": str_pat, "$options": "i"}},
+            {"str_department": {"$regex": str_pat, "$options": "i"}},
+        ]
+
     list_users = []
     cursor = db.users.find(
-        {},
+        dict_filter,
         {"str_hashed_password": 0},
     ).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
 
@@ -41,14 +60,289 @@ async def list_users(
         dict_user["_id"] = str(dict_user["_id"])
         list_users.append(dict_user)
 
-    int_total = await db.users.count_documents({})
+    int_total = await db.users.count_documents(dict_filter)
+    int_pending_total = await db.users.count_documents({"str_approval_status": "pending"})
 
     return {
         "list_users": list_users,
         "int_total": int_total,
+        "int_pending_total": int_pending_total,
         "int_skip": int_skip,
         "int_limit": int_limit,
     }
+
+
+# ── 승인 대기 목록 (Admin만) ──
+@router.get("/pending")
+async def list_pending_users(
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """승인 대기 사용자 목록"""
+    db = get_db()
+    list_pending = []
+    cursor = db.users.find(
+        {"str_approval_status": ApprovalStatus.PENDING},
+        {"str_hashed_password": 0},
+    ).sort("dt_created_at", 1)
+    async for dict_user in cursor:
+        dict_user["_id"] = str(dict_user["_id"])
+        list_pending.append(dict_user)
+    return {"list_pending": list_pending, "int_total": len(list_pending)}
+
+
+# ── 승인 / 거부 (Admin만) ──
+class ApprovalRequest(BaseModel):
+    str_user_id: str
+    str_new_role: str = Field(default="viewer", pattern="^(admin|doctor|technician|viewer)$")
+
+
+@router.post("/approve")
+async def approve_user(
+    body: ApprovalRequest,
+    request: Request,
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """승인 대기 사용자 승인 → 활성화 + 역할 지정"""
+    db = get_db()
+    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    if not dict_target:
+        raise HTTPException(404, "User not found")
+    if dict_target.get("str_approval_status") == ApprovalStatus.APPROVED:
+        raise HTTPException(400, "User is already approved")
+
+    dt_now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"_id": ObjectId(body.str_user_id)},
+        {
+            "$set": {
+                "str_approval_status": ApprovalStatus.APPROVED,
+                "str_approved_by": dict_current_user["_id"],
+                "dt_approved_at": dt_now,
+                "str_role": body.str_new_role,
+                "bool_is_active": True,
+                "dt_updated_at": dt_now,
+            }
+        },
+    )
+
+    await log_audit_event(
+        str_action="admin.user_approved",
+        str_user_id=dict_current_user["_id"],
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=body.str_user_id,
+        str_detail=f"Approved with role: {body.str_new_role}",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    return {"str_message": "User approved", "str_role": body.str_new_role}
+
+
+class RejectRequest(BaseModel):
+    str_user_id: str
+    str_reason: str = Field(default="", max_length=200)
+
+
+@router.post("/reject")
+async def reject_user(
+    body: RejectRequest,
+    request: Request,
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """가입 요청 거부"""
+    db = get_db()
+    dt_now = datetime.now(timezone.utc)
+    result = await db.users.update_one(
+        {"_id": ObjectId(body.str_user_id)},
+        {
+            "$set": {
+                "str_approval_status": ApprovalStatus.REJECTED,
+                "bool_is_active": False,
+                "dt_updated_at": dt_now,
+            }
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "User not found")
+
+    await log_audit_event(
+        str_action="admin.user_rejected",
+        str_user_id=dict_current_user["_id"],
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=body.str_user_id,
+        str_detail=f"Rejected. reason: {body.str_reason or '(none)'}",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    return {"str_message": "User rejected"}
+
+
+# ── 사용자 직접 생성 (Admin만) ──
+class CreateUserRequest(BaseModel):
+    str_login_id: str = Field(..., min_length=4, max_length=30)
+    str_password: str = Field(..., min_length=8, max_length=128)
+    str_name: str = Field(..., min_length=1, max_length=100)
+    str_department: str = Field(default="", max_length=100)
+    str_role: str = Field(default="viewer", pattern="^(admin|doctor|technician|viewer)$")
+
+
+@router.post("/create")
+async def create_user(
+    body: CreateUserRequest,
+    request: Request,
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """관리자가 직접 사용자 생성 (즉시 승인 + 활성화)"""
+    if not LOGIN_ID_PATTERN.match(body.str_login_id):
+        raise HTTPException(400, "아이디는 4~30자 영문/숫자/언더스코어만 가능합니다.")
+    if not PASSWORD_PATTERN.match(body.str_password):
+        raise HTTPException(
+            400,
+            "비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
+        )
+
+    db = get_db()
+    dict_existing = await db.users.find_one(
+        {"str_login_id": body.str_login_id.strip().lower()}
+    )
+    if dict_existing:
+        raise HTTPException(409, "이미 사용 중인 아이디입니다.")
+
+    dict_doc = create_user_document(
+        str_login_id=body.str_login_id,
+        str_hashed_password=hash_password(body.str_password),
+        str_name=body.str_name,
+        str_role=body.str_role,
+        str_department=body.str_department,
+        str_approval_status=ApprovalStatus.APPROVED,
+        bool_is_active=True,
+        str_approved_by=dict_current_user["_id"],
+    )
+    result = await db.users.insert_one(dict_doc)
+    str_new_user_id = str(result.inserted_id)
+
+    await log_audit_event(
+        str_action="admin.user_created",
+        str_user_id=dict_current_user["_id"],
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=str_new_user_id,
+        str_detail=f"Created user {body.str_login_id} with role {body.str_role}",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    return {
+        "str_message": "User created",
+        "str_user_id": str_new_user_id,
+        "str_login_id": body.str_login_id.strip().lower(),
+        "str_role": body.str_role,
+    }
+
+
+# ── 사용자 정보 수정 (Admin만) ──
+class UpdateUserRequest(BaseModel):
+    str_user_id: str
+    str_name: str = Field(None, max_length=100)
+    str_department: str = Field(None, max_length=100)
+    str_password: str = Field(None, min_length=8, max_length=128)
+
+
+@router.post("/update")
+async def update_user(
+    body: UpdateUserRequest,
+    request: Request,
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """사용자 프로필 / 비밀번호 업데이트 (역할 변경은 /role 사용)"""
+    db = get_db()
+    dict_updates = {"dt_updated_at": datetime.now(timezone.utc)}
+    list_changed = []
+
+    if body.str_name is not None and body.str_name.strip():
+        dict_updates["str_name"] = body.str_name.strip()
+        list_changed.append("name")
+    if body.str_department is not None:
+        dict_updates["str_department"] = body.str_department.strip()
+        list_changed.append("department")
+    if body.str_password:
+        if not PASSWORD_PATTERN.match(body.str_password):
+            raise HTTPException(
+                400,
+                "비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
+            )
+        dict_updates["str_hashed_password"] = hash_password(body.str_password)
+        list_changed.append("password")
+        # 비밀번호 변경 시 해당 사용자 세션 전부 폐기
+        await db.sessions.update_many(
+            {"str_user_id": body.str_user_id, "bool_is_revoked": False},
+            {"$set": {"bool_is_revoked": True}},
+        )
+
+    if len(dict_updates) <= 1:
+        raise HTTPException(400, "변경할 내용이 없습니다.")
+
+    result = await db.users.update_one(
+        {"_id": ObjectId(body.str_user_id)},
+        {"$set": dict_updates},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "User not found")
+
+    await log_audit_event(
+        str_action="admin.user_updated",
+        str_user_id=dict_current_user["_id"],
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=body.str_user_id,
+        str_detail=f"Updated fields: {', '.join(list_changed)}",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    return {"str_message": "User updated", "list_changed": list_changed}
+
+
+# ── 사용자 삭제 (Admin만) ──
+@router.delete("/delete/{str_user_id}")
+async def delete_user(
+    str_user_id: str,
+    request: Request,
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """사용자 삭제 + 해당 사용자 세션 폐기"""
+    if str_user_id == dict_current_user["_id"]:
+        raise HTTPException(400, "자기 자신의 계정은 삭제할 수 없습니다.")
+
+    db = get_db()
+    dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    if not dict_target:
+        raise HTTPException(404, "User not found")
+
+    # 마지막 admin 이면 삭제 금지
+    if dict_target.get("str_role") == UserRole.ADMIN:
+        int_admin_count = await db.users.count_documents(
+            {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
+        )
+        if int_admin_count <= 1:
+            raise HTTPException(400, "마지막 관리자 계정은 삭제할 수 없습니다.")
+
+    await db.users.delete_one({"_id": ObjectId(str_user_id)})
+    await db.sessions.update_many(
+        {"str_user_id": str_user_id, "bool_is_revoked": False},
+        {"$set": {"bool_is_revoked": True}},
+    )
+
+    await log_audit_event(
+        str_action="admin.user_deleted",
+        str_user_id=dict_current_user["_id"],
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=str_user_id,
+        str_detail=f"Deleted user {dict_target.get('str_login_id', '?')}",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    return {"str_message": "User deleted"}
 
 
 # ── 역할 변경 (Admin만) ──
@@ -72,6 +366,16 @@ async def update_user_role(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot change your own role",
         )
+
+    # 마지막 admin 을 demote 하지 못하도록 방어
+    if body.str_new_role != UserRole.ADMIN:
+        dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+        if dict_target and dict_target.get("str_role") == UserRole.ADMIN:
+            int_admin_count = await db.users.count_documents(
+                {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
+            )
+            if int_admin_count <= 1:
+                raise HTTPException(400, "마지막 관리자의 역할은 변경할 수 없습니다.")
 
     result = await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
