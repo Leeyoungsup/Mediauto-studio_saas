@@ -58,6 +58,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import connect_db, disconnect_db
 from app.routers import slides, tiles, ai, auth, users
+from app import auto_ai
 
 
 @asynccontextmanager
@@ -72,7 +73,13 @@ async def lifespan(app: FastAPI):
     print(f"[MeDICus SaaS] Upload dir: {settings.UPLOAD_DIR}")
     print(f"[MeDICus SaaS] Tiles dir:  {settings.TILES_DIR}")
     print(f"[MeDICus SaaS] Server ready")
+
+    # AI 자동 추론 워커 시작 (1분 스캔, 10분 idle)
+    await auto_ai.start_auto_worker()
+
     yield
+    # 종료 시 워커 중단
+    await auto_ai.stop_auto_worker()
     # 종료 시 열린 슬라이드 정리
     from app.slide_manager import slide_manager
     slide_manager.close_all()

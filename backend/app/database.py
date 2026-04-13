@@ -1,5 +1,6 @@
 """MongoDB 비동기 연결 관리"""
 
+import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
@@ -8,12 +9,14 @@ from app.config import settings
 _client: AsyncIOMotorClient = None
 _db = None
 _connected: bool = False
+_main_loop: asyncio.AbstractEventLoop = None
 
 
 async def connect_db():
     """앱 시작 시 MongoDB 연결 (실패해도 앱은 계속 동작)"""
-    global _client, _db, _connected
+    global _client, _db, _connected, _main_loop
     try:
+        _main_loop = asyncio.get_running_loop()
         _client = AsyncIOMotorClient(
             settings.MONGO_URI,
             serverSelectionTimeoutMS=5000,
@@ -31,6 +34,17 @@ async def connect_db():
         await _db.sessions.create_index("dt_expires_at", expireAfterSeconds=0)
         await _db.audit_logs.create_index("dt_created_at")
         await _db.audit_logs.create_index("str_user_id")
+
+        # ── slides 컬렉션 인덱스 ──
+        await _db.slides.create_index(
+            [("str_rel_path", 1), ("str_filename", 1)], unique=True
+        )
+        await _db.slides.create_index("str_slide_id")
+        await _db.slides.create_index("dt_last_opened_at")
+
+        # ── folder_ai_configs 컬렉션 ──
+        await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
+        await _db.folder_ai_configs.create_index("bool_enabled")
 
         # ── 승인 상태 마이그레이션 ──
         # str_approval_status 필드 없는 기존 사용자 처리:
@@ -91,6 +105,11 @@ async def disconnect_db():
 def is_db_connected() -> bool:
     """MongoDB 연결 여부 확인"""
     return _connected
+
+
+def get_main_loop() -> asyncio.AbstractEventLoop:
+    """메인 이벤트 루프 반환 — 백그라운드 스레드에서 async DB 호출 스케줄용."""
+    return _main_loop
 
 
 def get_db():

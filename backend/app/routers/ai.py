@@ -38,6 +38,14 @@ _patch_thread_local = threading.local()
 def _update_task(task_id, **kwargs):
     with _tasks_lock:
         _tasks[task_id].update(kwargs)
+    # 사용자 AI 진행 업데이트는 idle 타이머를 리셋 (auto_ 접두어 task 는 제외).
+    # → 사용자가 추론 중이면 auto_ai 가 끼어들지 않음.
+    if not task_id.startswith("auto_"):
+        try:
+            from app import auto_ai
+            auto_ai.ping_ai_activity()
+        except Exception:
+            pass
 
 
 def _get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
@@ -371,6 +379,8 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f)
                 print(f"AI result cached: {cache_path}")
+                from app import slide_store
+                slide_store.mark_ai_result_threadsafe(info.file_path, "HE-Fit", tissue_type)
             except Exception as e:
                 import traceback
                 print(f"Cache save failed: {e}\n{traceback.format_exc()}")
@@ -773,6 +783,7 @@ def _run_marker_detection_pipeline(
     dict_config, cache_path,
     score_fn, score_key,
     extra_fields, log_label,
+    str_variant: str = "",
 ):
     """
     YOLOv11m 기반 marker detection 공용 파이프라인.
@@ -1083,6 +1094,10 @@ def _run_marker_detection_pipeline(
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f)
                 print(f"{log_label} result cached: {cache_path}")
+                from app import slide_store
+                # "Precise-IHC/HER2" → "Precise-IHC"
+                str_model_key = log_label.split("/")[0]
+                slide_store.mark_ai_result_threadsafe(info.file_path, str_model_key, str_variant)
             except Exception as e:
                 import traceback
                 print(f"{log_label} cache save failed: {e}\n{traceback.format_exc()}")
@@ -1112,6 +1127,7 @@ def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         score_key="pd_score",
         extra_fields={"tissue_type": tissue_type},
         log_label="PD-Score",
+        str_variant=tissue_type,
     )
 
 
@@ -1213,6 +1229,7 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         score_key=score_key,
         extra_fields={"marker": marker},
         log_label=f"Precise-IHC/{marker}",
+        str_variant=marker,
     )
 
 
@@ -1370,6 +1387,19 @@ async def save_detection_result(
             json.dump(result_obj, f)
     except Exception as e:
         raise HTTPException(500, f"Save failed: {e}")
+
+    # DB 에 AI 결과 플래그 기록 (async 컨텍스트 — 직접 await)
+    from app import slide_store
+    from pathlib import Path as _P
+    try:
+        p = _P(info.file_path).resolve()
+        upload_dir = _P(settings.UPLOAD_DIR).resolve()
+        str_rel_path = str(p.parent.relative_to(upload_dir)).replace("\\", "/")
+        if str_rel_path in (".", ""):
+            str_rel_path = ""
+        await slide_store.mark_ai_result(str_rel_path, p.name, "HE-Fit", tissue_type)
+    except Exception as e:
+        print(f"[ai] mark_ai_result (save-result) failed: {e}")
 
     return {
         "saved": True,
@@ -1826,6 +1856,8 @@ def _run_virtual_stain(task_id: str, slide_id: str,
             with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(meta, f)
             print(f"VS result cached: {png_path} + {len(levels_meta)} pyramid levels")
+            from app import slide_store
+            slide_store.mark_ai_result_threadsafe(info.file_path, "VS-IHC", stain_type)
         except Exception as e:
             import traceback
             print(f"VS cache save failed: {e}\n{traceback.format_exc()}")

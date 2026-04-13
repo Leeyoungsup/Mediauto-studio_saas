@@ -1289,6 +1289,31 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
+            // AI 결과 배지 — 완료된 모델만 컬러 닷으로 표시
+            if (s.ai_results) {
+                const badges = document.createElement('div');
+                badges.className = 'slide-ai-badges';
+                const modelMeta = {
+                    'HE-Fit':      { label: 'H', color: '#6c5ce7' },
+                    'PD-Score':    { label: 'P', color: '#e67e22' },
+                    'Precise-IHC': { label: 'I', color: '#c0392b' },
+                    'VS-IHC':      { label: 'V', color: '#27ae60' },
+                };
+                for (const [key, meta] of Object.entries(modelMeta)) {
+                    const r = s.ai_results[key];
+                    if (r && r.has_result) {
+                        const dot = document.createElement('span');
+                        dot.className = 'slide-ai-dot';
+                        dot.style.background = meta.color;
+                        dot.textContent = meta.label;
+                        const variants = (r.variants || []).join(', ');
+                        dot.title = variants ? `${key}: ${variants}` : key;
+                        badges.appendChild(dot);
+                    }
+                }
+                if (badges.children.length > 0) item.appendChild(badges);
+            }
+
             // 클릭: Ctrl/Shift 다중 선택, 일반 클릭은 단일 선택+열기
             item.addEventListener('click', (e) => {
                 if (e.ctrlKey || e.metaKey) {
@@ -1494,9 +1519,97 @@ function showFolderContextMenu(e, folderPath, folderName) {
         } catch (err) { alert(`삭제 실패: ${err.message}`); }
     });
 
-    menu.append(renameBtn, deleteBtn);
+    const aiCfgBtn = document.createElement('div');
+    aiCfgBtn.className = 'ctx-menu-item';
+    aiCfgBtn.textContent = 'AI 자동 분석 설정...';
+    aiCfgBtn.addEventListener('click', () => {
+        removeCtxMenu();
+        openFolderAiConfigDialog(folderPath, folderName);
+    });
+
+    menu.append(renameBtn, deleteBtn, aiCfgBtn);
     document.body.appendChild(menu);
     _ctxMenu = menu;
+}
+
+// ── 폴더 AI 자동 분석 설정 다이얼로그 ──
+const AUTO_AI_TASK_OPTIONS = [
+    { model: 'HE-Fit',      variant: 'Stomach', label: 'HE-Fit · Stomach' },
+    { model: 'HE-Fit',      variant: 'Breast',  label: 'HE-Fit · Breast' },
+    { model: 'HE-Fit',      variant: 'Other',   label: 'HE-Fit · Other' },
+    { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
+    { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
+    { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
+];
+
+async function openFolderAiConfigDialog(folderPath, folderName) {
+    // 기존 설정 로드
+    let cfg = { enabled: false, tasks: [] };
+    try { cfg = await api.getFolderAiConfig(folderPath); }
+    catch (err) { console.warn('folder config 로드 실패:', err); }
+
+    const selected = new Set((cfg.tasks || []).map(t => `${t.model}::${t.variant}`));
+
+    // 백드롭 + 카드
+    const backdrop = document.createElement('div');
+    backdrop.className = 'ai-cfg-backdrop';
+    backdrop.innerHTML = `
+        <div class="ai-cfg-card">
+            <div class="ai-cfg-header">
+                <span>AI 자동 분석 설정 — ${folderName}</span>
+                <button class="ai-cfg-close" type="button">&times;</button>
+            </div>
+            <div class="ai-cfg-body">
+                <label class="ai-cfg-enable">
+                    <input type="checkbox" id="ai-cfg-enabled"${cfg.enabled ? ' checked' : ''}>
+                    <span>이 폴더에 자동 분석 활성화</span>
+                </label>
+                <div class="ai-cfg-hint">
+                    10분간 AI 사용이 없고 업로드가 없을 때 1분마다 스캔해서
+                    아래 선택한 분석이 없는 슬라이드를 자동 추론합니다.
+                </div>
+                <div class="ai-cfg-list" id="ai-cfg-list"></div>
+            </div>
+            <div class="ai-cfg-footer">
+                <button type="button" class="ai-cfg-btn ai-cfg-cancel">취소</button>
+                <button type="button" class="ai-cfg-btn ai-cfg-save primary">저장</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(backdrop);
+
+    const $list = backdrop.querySelector('#ai-cfg-list');
+    for (const opt of AUTO_AI_TASK_OPTIONS) {
+        const key = `${opt.model}::${opt.variant}`;
+        const row = document.createElement('label');
+        row.className = 'ai-cfg-row';
+        row.innerHTML = `
+            <input type="checkbox" data-key="${key}"${selected.has(key) ? ' checked' : ''}>
+            <span>${opt.label}</span>
+        `;
+        $list.appendChild(row);
+    }
+
+    const close = () => backdrop.remove();
+    backdrop.querySelector('.ai-cfg-close').addEventListener('click', close);
+    backdrop.querySelector('.ai-cfg-cancel').addEventListener('click', close);
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+    backdrop.querySelector('.ai-cfg-save').addEventListener('click', async () => {
+        const enabled = backdrop.querySelector('#ai-cfg-enabled').checked;
+        const tasks = [];
+        backdrop.querySelectorAll('.ai-cfg-list input[type="checkbox"]:checked').forEach(cb => {
+            const [model, variant] = cb.dataset.key.split('::');
+            tasks.push({ model, variant });
+        });
+        try {
+            await api.saveFolderAiConfig(folderPath, enabled, tasks);
+            setStatus(`AI 자동 분석 설정 저장: ${tasks.length}개 작업`);
+            close();
+        } catch (err) {
+            alert(`저장 실패: ${err.message}`);
+        }
+    });
 }
 
 // ── 뷰 토글 (리스트 / 그리드) ──

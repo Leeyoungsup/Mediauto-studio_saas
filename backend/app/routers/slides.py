@@ -4,6 +4,7 @@
 """
 
 import os
+import json
 import uuid
 import hashlib
 import shutil
@@ -17,8 +18,22 @@ from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app import tile_generator
+from app import slide_store
+from app import auto_ai
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+def _rel_path_for(file_path: str) -> str:
+    """uploads/ 기준 상대 폴더 경로 ('' = 루트). 파일명 제외."""
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR).resolve()
+        p = Path(file_path).resolve()
+        rel = p.parent.relative_to(upload_dir)
+        s = str(rel).replace("\\", "/")
+        return "" if s in (".", "") else s
+    except Exception:
+        return ""
 
 
 def _slide_response(slide_id: str, info, filename: str):
@@ -41,13 +56,20 @@ def _slide_response(slide_id: str, info, filename: str):
     }
 
 
-def _open_and_generate(slide_id: str, file_path: str, filename: str):
-    """슬라이드 열기 + 타일 생성 시작 → 응답 반환"""
+async def _open_and_generate(
+    slide_id: str,
+    file_path: str,
+    filename: str,
+    dict_user: Optional[dict] = None,
+):
+    """슬라이드 열기 + 타일 생성 시작 → DB 업서트 후 응답 반환"""
     # 이미 열려있으면 그대로
     existing = slide_manager.get(slide_id)
     if existing:
         tile_generator.start_generation(filename, file_path)
-        return _slide_response(slide_id, existing, filename)
+        resp = _slide_response(slide_id, existing, filename)
+        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user)
+        return resp
 
     try:
         info = slide_manager.open(slide_id, file_path)
@@ -56,7 +78,41 @@ def _open_and_generate(slide_id: str, file_path: str, filename: str):
 
     # 백그라운드 타일 생성 시작
     tile_generator.start_generation(filename, file_path)
-    return _slide_response(slide_id, info, filename)
+    resp = _slide_response(slide_id, info, filename)
+    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user)
+    return resp
+
+
+async def _upsert_and_attach(
+    resp: dict,
+    slide_id: str,
+    file_path: str,
+    filename: str,
+    info,
+    dict_user: Optional[dict],
+):
+    """slides 컬렉션에 upsert + 응답에 ai_results 플래그 부착 (DB 없으면 no-op)."""
+    try:
+        int_size_bytes = os.path.getsize(file_path)
+    except Exception:
+        int_size_bytes = 0
+
+    str_uploaded_by = ""
+    if dict_user:
+        str_uploaded_by = str(dict_user.get("_id") or "")
+
+    dict_doc = await slide_store.upsert_slide(
+        str_slide_id=slide_id,
+        str_filename=filename,
+        str_rel_path=_rel_path_for(file_path),
+        str_full_path=file_path,
+        dict_info=resp,
+        int_size_bytes=int_size_bytes,
+        str_uploaded_by=str_uploaded_by,
+    )
+    if dict_doc:
+        resp["ai_results"] = slide_store.serialize_slide_doc(dict_doc).get("dict_ai_results")
+        resp["uploaded_at"] = dict_doc.get("dt_uploaded_at").isoformat() if dict_doc.get("dt_uploaded_at") else None
 
 
 # ── 저장된 슬라이드/폴더 목록 ──
@@ -72,13 +128,16 @@ def _safe_subpath(subpath: str) -> Path:
 
 @router.get("/browse")
 async def browse(path: str = Query("", description="uploads/ 기준 상대 경로")):
-    """현재 폴더의 하위 폴더 + 슬라이드 파일 목록"""
+    """현재 폴더의 하위 폴더 + 슬라이드 파일 목록 (DB 의 ai_results 플래그 포함)"""
     target = _safe_subpath(path)
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "폴더를 찾을 수 없습니다")
 
     folders = []
     slides = []
+
+    # DB 에서 현재 폴더 슬라이드 문서 한 번에 조회
+    dict_db_slides = await slide_store.list_slides_in_folder(path)
 
     for f in sorted(target.iterdir()):
         if f.name.startswith("_chunks_") or f.name.startswith("."):
@@ -87,12 +146,29 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
             folders.append({"name": f.name, "type": "folder"})
         elif f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS:
             slide_id = hashlib.md5(f.name.encode()).hexdigest()[:12]
-            slides.append({
+            dict_item = {
                 "filename": f.name,
                 "slide_id": slide_id,
                 "size_mb": round(f.stat().st_size / 1024 / 1024, 1),
                 "type": "slide",
-            })
+            }
+            # DB 문서가 있으면 ai_results + 업로드 메타 부착
+            dict_db = dict_db_slides.get(f.name)
+            if dict_db:
+                dict_ai = dict_db.get("dict_ai_results") or slide_store._empty_ai_results()
+                dict_item["ai_results"] = {
+                    str_k: {
+                        "has_result": bool(v.get("bool_has_result")),
+                        "variants": list(v.get("list_variants") or []),
+                    }
+                    for str_k, v in dict_ai.items()
+                }
+                dict_item["uploaded_by"] = dict_db.get("str_uploaded_by") or ""
+                dt_opened = dict_db.get("dt_last_opened_at")
+                dict_item["last_opened_at"] = dt_opened.isoformat() if dt_opened else None
+            else:
+                dict_item["ai_results"] = None
+            slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
 
@@ -117,6 +193,12 @@ async def rename_folder(path: str = Form(...), new_name: str = Form(...)):
     if new_target.exists():
         raise HTTPException(400, "이미 존재하는 이름입니다")
     target.rename(new_target)
+
+    # DB 에 저장된 하위 슬라이드 문서의 rel_path 갱신
+    old_rel = path.replace("\\", "/").strip("/")
+    parent_rel = "/".join(old_rel.split("/")[:-1])
+    new_rel = f"{parent_rel}/{new_name}" if parent_rel else new_name
+    await slide_store.rename_folder_in_db(old_rel, new_rel)
     return {"status": "renamed"}
 
 
@@ -147,20 +229,25 @@ async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_pat
     if dst.exists():
         raise HTTPException(400, "대상 폴더에 같은 이름의 파일이 있습니다")
     shutil.move(str(src), str(dst))
+    await slide_store.move_slide(src_path, filename, dst_path, str(dst))
     return {"status": "moved"}
 
 
 # ── 서버에 파일 존재 확인 후 바로 열기 ──
 
 @router.post("/open")
-async def open_slide(filename: str = Form(...), path: str = Form("")):
+async def open_slide(
+    filename: str = Form(...),
+    path: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
+):
     """파일명으로 서버 디스크에 있는지 확인 → 있으면 바로 열기"""
     final_path = _safe_subpath(path) / filename
     if not final_path.exists():
         return {"exists": False}
 
     slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
-    resp = _open_and_generate(slide_id, str(final_path), filename)
+    resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user)
     resp["exists"] = True
     return resp
 
@@ -191,17 +278,21 @@ async def upload_chunk(
     chunk_index: int = Form(...),
     chunk: UploadFile = File(...),
 ):
-    """청크 업로드 — 개별 청크 저장"""
-    chunk_dir = Path(settings.UPLOAD_DIR) / f"_chunks_{upload_id}"
-    if not chunk_dir.exists():
-        raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
+    """청크 업로드 — 개별 청크 저장. 업로드 카운터로 auto_ai 일시정지."""
+    auto_ai.upload_enter()
+    try:
+        chunk_dir = Path(settings.UPLOAD_DIR) / f"_chunks_{upload_id}"
+        if not chunk_dir.exists():
+            raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
 
-    chunk_path = chunk_dir / f"chunk_{chunk_index:06d}"
-    content = await chunk.read()
-    with open(chunk_path, "wb") as f:
-        f.write(content)
+        chunk_path = chunk_dir / f"chunk_{chunk_index:06d}"
+        content = await chunk.read()
+        with open(chunk_path, "wb") as f:
+            f.write(content)
 
-    return {"chunk_index": chunk_index, "size": len(content)}
+        return {"chunk_index": chunk_index, "size": len(content)}
+    finally:
+        auto_ai.upload_exit()
 
 
 @router.post("/upload/complete")
@@ -210,36 +301,44 @@ async def upload_complete(
     filename: str = Form(...),
     total_chunks: int = Form(...),
     path: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
 ):
     """업로드 완료 — 청크 조립 → 슬라이드 열기 + 타일 생성"""
-    chunk_dir = Path(settings.UPLOAD_DIR) / f"_chunks_{upload_id}"
-    if not chunk_dir.exists():
-        raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
+    auto_ai.upload_enter()
+    try:
+        chunk_dir = Path(settings.UPLOAD_DIR) / f"_chunks_{upload_id}"
+        if not chunk_dir.exists():
+            raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
 
-    save_dir = _safe_subpath(path)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    final_path = save_dir / filename
+        save_dir = _safe_subpath(path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        final_path = save_dir / filename
 
-    if final_path.exists():
-        shutil.rmtree(chunk_dir, ignore_errors=True)
-    else:
-        with open(final_path, "wb") as out:
-            for i in range(total_chunks):
-                chunk_path = chunk_dir / f"chunk_{i:06d}"
-                if not chunk_path.exists():
-                    raise HTTPException(400, f"청크 {i} 누락")
-                with open(chunk_path, "rb") as cf:
-                    shutil.copyfileobj(cf, out)
-        shutil.rmtree(chunk_dir, ignore_errors=True)
+        if final_path.exists():
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+        else:
+            with open(final_path, "wb") as out:
+                for i in range(total_chunks):
+                    chunk_path = chunk_dir / f"chunk_{i:06d}"
+                    if not chunk_path.exists():
+                        raise HTTPException(400, f"청크 {i} 누락")
+                    with open(chunk_path, "rb") as cf:
+                        shutil.copyfileobj(cf, out)
+            shutil.rmtree(chunk_dir, ignore_errors=True)
 
-    slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
-    return _open_and_generate(slide_id, str(final_path), filename)
+        slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
+        return await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+    finally:
+        auto_ai.upload_exit()
 
 
 # ── 서버 로컬 파일 열기 ──
 
 @router.post("/open-local")
-async def open_local_file(file_path: str = Form(...)):
+async def open_local_file(
+    file_path: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """서버 로컬 디스크의 WSI 파일 열기"""
     path = Path(file_path)
     if not path.exists():
@@ -250,7 +349,7 @@ async def open_local_file(file_path: str = Form(...)):
         raise HTTPException(400, f"지원하지 않는 파일 형식: {ext}")
 
     slide_id = hashlib.md5(path.name.encode()).hexdigest()[:12]
-    return _open_and_generate(slide_id, str(path), path.name)
+    return await _open_and_generate(slide_id, str(path), path.name, dict_user)
 
 
 # ── 타일 생성 진행 상태 ──
@@ -371,6 +470,104 @@ async def list_slides():
     return slide_manager.list_slides()
 
 
+# ═══════════════════════════════════════════════════════
+# 폴더별 AI 자동 추론 설정 — folder_ai_configs 컬렉션
+# ═══════════════════════════════════════════════════════
+
+from datetime import datetime, timezone
+from app.database import get_db, is_db_connected
+
+
+def _norm_folder_path(str_path: str) -> str:
+    if not str_path:
+        return ""
+    return str_path.replace("\\", "/").strip("/")
+
+
+@router.get("/folder-config")
+async def get_folder_config(path: str = Query("")):
+    """폴더의 AI 자동 추론 설정 조회 — 없으면 기본값 반환."""
+    if not is_db_connected():
+        return {"path": path, "enabled": False, "tasks": []}
+    db = get_db()
+    str_norm = _norm_folder_path(path)
+    dict_doc = await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
+    if not dict_doc:
+        return {"path": path, "enabled": False, "tasks": []}
+    return {
+        "path": str_norm,
+        "enabled": bool(dict_doc.get("bool_enabled", False)),
+        "tasks": [
+            {"model": t.get("model", ""), "variant": t.get("variant", "")}
+            for t in (dict_doc.get("list_tasks") or [])
+        ],
+    }
+
+
+@router.post("/folder-config")
+async def save_folder_config(
+    path: str = Form(""),
+    enabled: bool = Form(True),
+    tasks_json: str = Form("[]"),
+):
+    """폴더의 AI 자동 추론 설정 저장/업서트.
+
+    tasks_json: JSON array — `[{"model": "HE-Fit", "variant": "Stomach"}, ...]`
+      model 은 {HE-Fit, PD-Score, Precise-IHC} 중 하나, variant 는 tissue_type/marker.
+    """
+    if not is_db_connected():
+        raise HTTPException(503, "DB 연결 필요")
+
+    try:
+        list_raw = json.loads(tasks_json)
+        if not isinstance(list_raw, list):
+            raise ValueError("tasks_json must be a JSON array")
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 tasks_json: {e}")
+
+    list_allowed_models = {"HE-Fit", "PD-Score", "Precise-IHC"}
+    list_clean = []
+    for dict_t in list_raw:
+        if not isinstance(dict_t, dict):
+            continue
+        str_model = str(dict_t.get("model", "")).strip()
+        str_variant = str(dict_t.get("variant", "")).strip()
+        if str_model not in list_allowed_models or not str_variant:
+            continue
+        list_clean.append({"model": str_model, "variant": str_variant})
+
+    db = get_db()
+    str_norm = _norm_folder_path(path)
+    dt_now = datetime.now(timezone.utc)
+    await db.folder_ai_configs.update_one(
+        {"str_rel_path": str_norm},
+        {
+            "$set": {
+                "bool_enabled": bool(enabled),
+                "list_tasks": list_clean,
+                "dt_updated_at": dt_now,
+            },
+            "$setOnInsert": {
+                "str_rel_path": str_norm,
+                "dt_created_at": dt_now,
+            },
+        },
+        upsert=True,
+    )
+    return {"status": "saved", "path": str_norm, "enabled": enabled, "tasks": list_clean}
+
+
+@router.delete("/folder-config")
+async def delete_folder_config(path: str = Query("")):
+    """폴더의 AI 자동 추론 설정 삭제."""
+    if not is_db_connected():
+        raise HTTPException(503, "DB 연결 필요")
+    db = get_db()
+    str_norm = _norm_folder_path(path)
+    await db.folder_ai_configs.delete_one({"str_rel_path": str_norm})
+    return {"status": "deleted", "path": str_norm}
+
+
 @router.delete("/{slide_id}")
 async def close_slide(slide_id: str):
     """슬라이드 닫기"""
@@ -383,8 +580,6 @@ async def close_slide(slide_id: str):
 
 
 # ── Annotation 저장/불러오기 ──
-
-import json
 
 @router.post("/{slide_id}/annotations/save")
 async def save_annotations(slide_id: str, data: str = Form(...)):

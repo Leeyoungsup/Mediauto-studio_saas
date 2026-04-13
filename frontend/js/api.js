@@ -128,6 +128,33 @@ export const api = {
         return res.json();
     },
 
+    /** 폴더 AI 자동 추론 설정 조회 */
+    async getFolderAiConfig(path) {
+        const q = new URLSearchParams({ path: path || '' });
+        const res = await _authFetch(`${API_BASE}/slides/folder-config?${q}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 폴더 AI 자동 추론 설정 저장 */
+    async saveFolderAiConfig(path, enabled, tasks) {
+        const form = new FormData();
+        form.append('path', path || '');
+        form.append('enabled', enabled ? 'true' : 'false');
+        form.append('tasks_json', JSON.stringify(tasks || []));
+        const res = await _authFetch(`${API_BASE}/slides/folder-config`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 폴더 AI 자동 추론 설정 삭제 */
+    async deleteFolderAiConfig(path) {
+        const q = new URLSearchParams({ path: path || '' });
+        const res = await _authFetch(`${API_BASE}/slides/folder-config?${q}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 파일 이동 */
     async moveFile(filename, srcPath, dstPath) {
         const form = new FormData();
