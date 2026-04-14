@@ -85,6 +85,10 @@ export class TileViewer {
         this._maxCacheTiles = 3000;
         this._loadQueue = [];         // 우선순위 로드 큐
         this._activeLoads = 0;
+        // 인플라이트 Image 객체들 — 슬라이드 전환 시 abort 용
+        this._inflightImages = new Set();
+        // 슬라이드 generation — onload 콜백이 자기 generation 을 기억해 stale 방지
+        this._loadGeneration = 0;
 
         // 패닝 상태
         this._isPanning = false;
@@ -165,6 +169,13 @@ export class TileViewer {
     // ── 슬라이드 로드 ──
 
     loadSlide(slideId, slideInfo) {
+        // 인플라이트 Image 들 abort — onload 가 새 슬라이드 cache 에 옛 픽셀 박는 것 차단
+        this._loadGeneration++;
+        for (const img of this._inflightImages) {
+            try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
+        }
+        this._inflightImages.clear();
+
         this.slideId = slideId;
         this.slideInfo = slideInfo;
 
@@ -703,17 +714,16 @@ export class TileViewer {
     }
 
     /**
-     * 특정 scene 영역을 커버하는 fallback 타일을 캐시에서 찾는다.
-     * 뷰어가 실제 사용하는 **stage level** 에서만 탐색한다.
-     * 비-stage 레벨은 디스크/캐시 어디에도 없을 가능성이 높아 검사가 무의미하다.
+     * child scene 영역을 **덮는 모든 fallback 타일** 을 캐시에서 찾아 리스트로 반환.
+     * child 가 parent 격자 경계를 가로지르면 parent 가 최대 2x2 = 4 개 필요.
+     * 각 parent 는 child 와 겹치는 부분만 그려지도록 호출자가 clamp 한다.
      *
-     * 탐색 우선순위: 현재 stage 의 **바로 위 stage** 부터 coarser 방향, 이후
-     * finer 방향. 가장 인접한 해상도의 타일이 우선 fallback 으로 사용되어
-     * 흐림이 최소화된다.
+     * 탐색: **한 level 씩** 차례로 (가까운 stage 먼저), 해당 level 에서 child 를
+     * 덮는 parent 들을 수집. 하나라도 cache 에 있으면 그 level 에서 멈춤.
+     * (모자란 부분은 더 먼 level 로 떨어지면 섞여 지저분해지므로 그냥 그 level 에서 끝냄)
      */
-    _findFallbackTile(sceneX, sceneY, sceneSize, currentLevel) {
+    _findFallbackTiles(sceneX, sceneY, sceneSize, currentLevel) {
         const list_stages = this._getLevelStages();
-        // 중복 제거 후 오름차순 정렬
         const list_unique = Array.from(new Set(list_stages)).sort((a, b) => a - b);
         const int_idx = list_unique.indexOf(currentLevel);
         const levels = [];
@@ -721,32 +731,37 @@ export class TileViewer {
             for (let i = int_idx + 1; i < list_unique.length; i++) levels.push(list_unique[i]);
             for (let i = int_idx - 1; i >= 0; i--) levels.push(list_unique[i]);
         } else {
-            // 안전망 — currentLevel 이 stage 가 아니면 그냥 모든 stage 검사
             for (const l of list_unique) if (l !== currentLevel) levels.push(l);
         }
 
         for (const l of levels) {
             const ds = this.slideInfo.level_downsamples[l];
             const tileScene = TILE_SIZE * ds;
-            // 이 scene 영역의 중심이 속하는 타일
-            const centerX = sceneX + sceneSize / 2;
-            const centerY = sceneY + sceneSize / 2;
-            const ftx = Math.floor(centerX / tileScene);
-            const fty = Math.floor(centerY / tileScene);
-            const key = `${l}/${ftx}/${fty}`;
-            const img = this._tileCache.get(key);
-            if (img && img.complete && img.naturalWidth > 0) {
-                // 이 fallback 타일의 scene 좌표와 크기
-                return {
-                    img,
-                    srcSceneX: ftx * tileScene,
-                    srcSceneY: fty * tileScene,
-                    srcSceneSize: tileScene,
-                    srcPixelSize: TILE_SIZE,
-                };
+            // child 가 걸치는 parent 타일 격자 범위 (좌상 ~ 우하)
+            const int_ptx_min = Math.floor(sceneX / tileScene);
+            const int_pty_min = Math.floor(sceneY / tileScene);
+            // child 끝에서 살짝 (1e-6) 빼 경계에 걸친 경우 한 칸 더 포함 안 되게
+            const int_ptx_max = Math.floor((sceneX + sceneSize - 1e-6) / tileScene);
+            const int_pty_max = Math.floor((sceneY + sceneSize - 1e-6) / tileScene);
+            const list_hits = [];
+            for (let pty = int_pty_min; pty <= int_pty_max; pty++) {
+                for (let ptx = int_ptx_min; ptx <= int_ptx_max; ptx++) {
+                    const key = `${l}/${ptx}/${pty}`;
+                    const img = this._tileCache.get(key);
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        list_hits.push({
+                            img,
+                            srcSceneX: ptx * tileScene,
+                            srcSceneY: pty * tileScene,
+                            srcSceneSize: tileScene,
+                            srcPixelSize: TILE_SIZE,
+                        });
+                    }
+                }
             }
+            if (list_hits.length > 0) return list_hits;
         }
-        return null;
+        return [];
     }
 
     _render() {
@@ -814,25 +829,39 @@ export class TileViewer {
                     this._tileCache.set(key, img);
                     ctx.drawImage(img, canvasX, canvasY, canvasSize, canvasSize);
                 } else {
-                    // ── Fallback: 다른 레벨 캐시 타일을 스케일해서 그리기 ──
-                    const fb = this._findFallbackTile(sceneX, sceneY, tileSceneSize, level);
+                    // ── Fallback: child 를 덮는 모든 parent 들을 각각 그려준다 ──
+                    // OpenSlide 의 level_downsamples 가 비정수라 child 는 2x2 parent 를
+                    // 가로지를 수 있음. 각 parent 의 교차 영역을 clamp 해서 그린다.
+                    const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
                     let bool_drew_fallback = false;
-                    if (fb) {
-                        // fallback 타일 내에서 현재 타일 영역에 해당하는 소스 영역 계산
+                    for (const fb of list_fbs) {
                         const srcScale = fb.srcPixelSize / fb.srcSceneSize;
-                        const srcX = (sceneX - fb.srcSceneX) * srcScale;
-                        const srcY = (sceneY - fb.srcSceneY) * srcScale;
-                        const srcW = tileSceneSize * srcScale;
-                        const srcH = tileSceneSize * srcScale;
-
-                        // 소스 영역이 유효한 범위 내인지 확인
-                        if (srcX >= 0 && srcY >= 0 &&
-                            srcX + srcW <= fb.srcPixelSize + 1 &&
-                            srcY + srcH <= fb.srcPixelSize + 1) {
+                        let srcX = (sceneX - fb.srcSceneX) * srcScale;
+                        let srcY = (sceneY - fb.srcSceneY) * srcScale;
+                        let srcW = tileSceneSize * srcScale;
+                        let srcH = tileSceneSize * srcScale;
+                        // src 를 [0, srcPixelSize] 로 clamp + dest 를 같은 비율로 보정
+                        const float_clip_l = Math.max(0, -srcX);
+                        const float_clip_t = Math.max(0, -srcY);
+                        const float_clip_r = Math.max(0, (srcX + srcW) - fb.srcPixelSize);
+                        const float_clip_b = Math.max(0, (srcY + srcH) - fb.srcPixelSize);
+                        const float_dest_l = canvasX + (float_clip_l / srcW) * canvasSize;
+                        const float_dest_t = canvasY + (float_clip_t / srcH) * canvasSize;
+                        const float_dest_r = canvasX + canvasSize - (float_clip_r / srcW) * canvasSize;
+                        const float_dest_b = canvasY + canvasSize - (float_clip_b / srcH) * canvasSize;
+                        srcX += float_clip_l;
+                        srcY += float_clip_t;
+                        srcW -= (float_clip_l + float_clip_r);
+                        srcH -= (float_clip_t + float_clip_b);
+                        if (srcW > 0.5 && srcH > 0.5 &&
+                            (float_dest_r - float_dest_l) > 0.5 &&
+                            (float_dest_b - float_dest_t) > 0.5) {
                             ctx.drawImage(
                                 fb.img,
                                 srcX, srcY, srcW, srcH,
-                                canvasX, canvasY, canvasSize, canvasSize
+                                float_dest_l, float_dest_t,
+                                float_dest_r - float_dest_l,
+                                float_dest_b - float_dest_t
                             );
                             bool_drew_fallback = true;
                         }
@@ -1201,19 +1230,26 @@ export class TileViewer {
         this._tileLoading.add(key);
         this._activeLoads++;
 
+        // 이 로드가 시작된 시점의 generation — 슬라이드 전환되면 이 콜백 무시
+        const int_gen = this._loadGeneration;
         const img = new Image();
+        this._inflightImages.add(img);
         img.onload = () => {
+            this._inflightImages.delete(img);
+            // 슬라이드가 바뀐 뒤 도착한 응답은 폐기 (이전 슬라이드 픽셀이 새 cache 에
+            // 같은 키로 박히는 contamination 차단)
+            if (int_gen !== this._loadGeneration) return;
             this._tileLoading.delete(key);
             this._activeLoads--;
             this._putCache(key, img);
-            // 다음 큐 처리
             this._processLoadQueue();
             this.requestRender();
         };
         img.onerror = () => {
+            this._inflightImages.delete(img);
+            if (int_gen !== this._loadGeneration) return;
             this._tileLoading.delete(key);
             this._activeLoads--;
-            // 타일이 아직 생성되지 않았을 수 있음 (404) — 나중에 재시도
             this._processLoadQueue();
         };
         img.src = api.tileUrl(this.slideId, level, tx, ty);

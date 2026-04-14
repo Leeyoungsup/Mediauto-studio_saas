@@ -6,9 +6,14 @@
 import io
 import asyncio
 import hashlib
+import os
 import threading
+import time
 from pathlib import Path
 from typing import Dict
+
+# 환경변수 TILE_DEBUG=1 이면 _render_and_save 의 단계별 wall-time 을 출력
+_BOOL_TILE_DEBUG = os.environ.get("TILE_DEBUG", "").lower() in ("1", "true", "yes")
 
 import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -105,13 +110,38 @@ async def get_tile(
     def _render_and_save() -> bytes:
         # thread-local 핸들로 read — 같은 슬라이드를 여러 코어에서 병렬 디코딩 가능
         obj_slide = _get_thread_slide(slide_id, info.file_path)
-        tile = obj_slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
-        tile_rgb = info.apply_icc(tile.convert("RGB"))
-        tile_path.parent.mkdir(parents=True, exist_ok=True)
-        tile_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
-        buf = io.BytesIO()
-        tile_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
-        return buf.getvalue()
+        if _BOOL_TILE_DEBUG:
+            float_t0 = time.perf_counter()
+            tile = obj_slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
+            float_t1 = time.perf_counter()
+            tile_rgb = tile.convert("RGB")
+            float_t2 = time.perf_counter()
+            tile_rgb = info.apply_icc(tile_rgb)
+            float_t3 = time.perf_counter()
+            tile_path.parent.mkdir(parents=True, exist_ok=True)
+            tile_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
+            float_t4 = time.perf_counter()
+            buf = io.BytesIO()
+            tile_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+            float_t5 = time.perf_counter()
+            print(
+                f"[tiles] {threading.current_thread().name} L{level} "
+                f"read={int((float_t1-float_t0)*1000)}ms "
+                f"rgb={int((float_t2-float_t1)*1000)}ms "
+                f"icc={int((float_t3-float_t2)*1000)}ms "
+                f"savedisk={int((float_t4-float_t3)*1000)}ms "
+                f"encode={int((float_t5-float_t4)*1000)}ms "
+                f"total={int((float_t5-float_t0)*1000)}ms"
+            )
+            return buf.getvalue()
+        else:
+            tile = obj_slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
+            tile_rgb = info.apply_icc(tile.convert("RGB"))
+            tile_path.parent.mkdir(parents=True, exist_ok=True)
+            tile_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
+            buf = io.BytesIO()
+            tile_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+            return buf.getvalue()
 
     try:
         # viewer 전용 pool — viewer cores 에 핀닝됨 (cpu_layout)
