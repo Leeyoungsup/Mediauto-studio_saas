@@ -6,6 +6,7 @@
 import os
 import json
 import uuid
+import asyncio
 import hashlib
 import shutil
 from pathlib import Path
@@ -20,6 +21,7 @@ from app.slide_manager import slide_manager
 from app import tile_generator
 from app import slide_store
 from app import auto_ai
+from app.cpu_layout import bg_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -61,12 +63,18 @@ async def _open_and_generate(
     file_path: str,
     filename: str,
     dict_user: Optional[dict] = None,
+    bool_wait_for_tiles: bool = False,
 ):
-    """슬라이드 열기 + 타일 생성 시작 → DB 업서트 후 응답 반환"""
+    """슬라이드 열기 + 타일 생성 → DB 업서트 후 응답 반환.
+
+    `bool_wait_for_tiles=True` 면 업로드 경로에서 호출된 것으로, 타일 프리젠이
+    끝날 때까지 기다린 뒤 응답을 돌려준다. 터널/원격 환경에서 on-demand 타일
+    생성이 느려 사용자 경험이 나빠지는 것을 방지.
+    """
     # 이미 열려있으면 그대로
     existing = slide_manager.get(slide_id)
     if existing:
-        tile_generator.start_generation(filename, file_path)
+        await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
         resp = _slide_response(slide_id, existing, filename)
         await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user)
         return resp
@@ -76,11 +84,31 @@ async def _open_and_generate(
     except Exception as e:
         raise HTTPException(400, f"슬라이드 열기 실패: {e}")
 
-    # 백그라운드 타일 생성 시작
-    tile_generator.start_generation(filename, file_path)
+    await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
     resp = _slide_response(slide_id, info, filename)
     await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user)
     return resp
+
+
+async def _run_tile_gen(filename: str, file_path: str, bool_wait: bool) -> None:
+    """타일 생성 실행. wait 모드에서는 동기 실행 (bg_executor), 아니면 백그라운드 스레드."""
+    if tile_generator.tiles_ready(filename):
+        return
+    if not bool_wait:
+        tile_generator.start_generation(filename, file_path)
+        return
+    # 동기 실행 — bg_executor 에 올려 이벤트 루프는 안 막는다
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        bg_executor, tile_generator._generate_tiles, filename, file_path
+    )
+    # mark_tiles_ready 는 _generate_tiles 가 threadsafe 로 예약하지만,
+    # 업로드 응답 전에 DB 가 확실히 최신이 되도록 한 번 더 동기 마킹.
+    try:
+        str_rel = _rel_path_for(file_path)
+        await slide_store.mark_tiles_ready(str_rel, filename, True)
+    except Exception as e:
+        print(f"[slides] mark_tiles_ready post-upload failed ({filename}): {e}")
 
 
 async def _upsert_and_attach(
@@ -498,7 +526,10 @@ async def upload_complete(
 
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
         try:
-            return await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+            return await _open_and_generate(
+                slide_id, str(final_path), filename, dict_user,
+                bool_wait_for_tiles=True,
+            )
         except HTTPException:
             # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리
             if bool_newly_written and final_path.exists():
