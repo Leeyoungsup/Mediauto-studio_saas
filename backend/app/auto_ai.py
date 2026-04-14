@@ -147,6 +147,11 @@ async def _scan_and_infer_once() -> None:
     if not is_system_idle():
         return
 
+    # 뷰어 타일링이 우선 — 미완료 슬라이드가 있으면 이번 사이클 skip
+    if await slide_store.has_any_pending_tiles():
+        print("[auto_ai] tile generation pending — deferring AI inference")
+        return
+
     db = get_db()
     list_configs = []
     async for dict_cfg in db.folder_ai_configs.find({"bool_enabled": True}):
@@ -193,6 +198,10 @@ async def _scan_and_infer_once() -> None:
                 # 매 추론 전 idle 재확인 — 사용자 활동 / 업로드 끼어들면 중단
                 if not is_system_idle():
                     print("[auto_ai] activity detected — pausing cycle")
+                    return
+                # 새로 업로드된 슬라이드 타일링이 끼어들면 양보
+                if await slide_store.has_any_pending_tiles():
+                    print("[auto_ai] new tile job pending — yielding cycle")
                     return
 
                 try:

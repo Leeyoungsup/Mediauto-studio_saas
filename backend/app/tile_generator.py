@@ -15,6 +15,7 @@ import threading
 import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 import openslide
 
@@ -69,7 +70,7 @@ def tiles_ready(filename: str) -> bool:
     return (get_tiles_dir(filename) / ".complete").exists()
 
 
-def get_progress(filename: str) -> dict | None:
+def get_progress(filename: str) -> Optional[dict]:
     """진행 상태 반환 (없으면 None)"""
     with _progress_lock:
         p = _progress.get(filename)
@@ -131,15 +132,37 @@ def _generate_tiles(filename: str, file_path: str):
             except Exception:
                 return img_rgb
 
-        # level 0만 프리제네레이션 (나머지 레벨은 타일 수가 적어 즉석 생성으로 충분)
-        lw, lh = slide.level_dimensions[0]
-        ds = slide.level_downsamples[0]
-        nx = (lw + TILE_SIZE - 1) // TILE_SIZE
-        ny = (lh + TILE_SIZE - 1) // TILE_SIZE
+        # 뷰어가 실제 사용하는 stage level 만 프리생성 (중복 제거)
+        # SlideInfo._setup_level_stages 와 동일 로직
+        int_total = slide.level_count
+        if int_total == 1:
+            list_stage_levels = [0]
+        elif int_total == 2:
+            list_stage_levels = [0, 1]
+        elif int_total == 3:
+            list_stage_levels = [0, 1, 2]
+        else:
+            float_step = (int_total - 1) / 3.0
+            list_stage_levels = sorted(set([
+                0,
+                int(round(float_step)),
+                int(round(float_step * 2)),
+                min(int_total - 1, int(round(float_step * 3))),
+            ]))
 
-        progress.total_tiles = nx * ny
+        # 각 레벨 타일 수 합산
+        list_level_layout = []
+        int_total_tiles = 0
+        for int_level in list_stage_levels:
+            lw, lh = slide.level_dimensions[int_level]
+            int_nx = (lw + TILE_SIZE - 1) // TILE_SIZE
+            int_ny = (lh + TILE_SIZE - 1) // TILE_SIZE
+            list_level_layout.append((int_level, int_nx, int_ny,
+                                      slide.level_downsamples[int_level]))
+            int_total_tiles += int_nx * int_ny
+
+        progress.total_tiles = int_total_tiles
         progress.status = "generating"
-        progress.current_level = 0
 
         # 썸네일 먼저 생성
         thumb_path = tiles_dir / "thumbnail.jpeg"
@@ -148,27 +171,35 @@ def _generate_tiles(filename: str, file_path: str):
             thumb = slide.get_thumbnail((300, 300))
             _to_srgb(thumb.convert("RGB")).save(str(thumb_path), "JPEG", quality=85)
 
-        # level 0 타일 생성
-        level_dir = tiles_dir / "0"
-        level_dir.mkdir(parents=True, exist_ok=True)
+        # 거친 레벨(높은 인덱스)부터 → 뷰어가 첫 화면을 빠르게 채울 수 있게
+        for int_level, int_nx, int_ny, float_ds in reversed(list_level_layout):
+            progress.current_level = int_level
+            level_dir = tiles_dir / str(int_level)
+            level_dir.mkdir(parents=True, exist_ok=True)
 
-        for ty in range(ny):
-            for tx in range(nx):
-                tile_path = level_dir / f"{tx}_{ty}.jpeg"
-                if not tile_path.exists():
-                    x = int(tx * TILE_SIZE * ds)
-                    y = int(ty * TILE_SIZE * ds)
-                    tile = slide.read_region((x, y), 0, (TILE_SIZE, TILE_SIZE))
-                    _to_srgb(tile.convert("RGB")).save(
-                        str(tile_path), "JPEG", quality=settings.TILE_QUALITY
-                    )
-
-                progress.generated_tiles += 1
+            for ty in range(int_ny):
+                for tx in range(int_nx):
+                    tile_path = level_dir / f"{tx}_{ty}.jpeg"
+                    if not tile_path.exists():
+                        x = int(tx * TILE_SIZE * float_ds)
+                        y = int(ty * TILE_SIZE * float_ds)
+                        tile = slide.read_region((x, y), int_level, (TILE_SIZE, TILE_SIZE))
+                        _to_srgb(tile.convert("RGB")).save(
+                            str(tile_path), "JPEG", quality=settings.TILE_QUALITY
+                        )
+                    progress.generated_tiles += 1
 
         # 완료 마커
         (tiles_dir / ".complete").touch()
         progress.status = "completed"
         slide.close()
+
+        # DB 플래그 마킹 (백그라운드 스레드 → 메인 루프로 스케줄)
+        try:
+            from app import slide_store
+            slide_store.mark_tiles_ready_threadsafe(file_path)
+        except Exception as e:
+            print(f"[tile_generator] mark_tiles_ready failed ({filename}): {e}")
 
     except Exception as e:
         progress.status = "error"

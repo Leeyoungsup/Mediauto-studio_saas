@@ -49,6 +49,41 @@ def _update_task(task_id, **kwargs):
             pass
 
 
+class TaskCancelled(Exception):
+    """사용자가 추론을 중단 요청했을 때 워커가 raise 하는 예외."""
+    pass
+
+
+def _is_cancel_requested(task_id: str) -> bool:
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        return bool(task and task.get("cancel_requested"))
+
+
+def _check_cancel(task_id: str) -> None:
+    """체크포인트 — 취소 요청이 있으면 TaskCancelled 발생."""
+    if _is_cancel_requested(task_id):
+        raise TaskCancelled()
+
+
+def _cleanup_cache_paths(list_paths) -> None:
+    """취소 시 부분 저장된 캐시 파일/폴더 전부 삭제. 충돌 방지용."""
+    import shutil
+    for p in list_paths:
+        if p is None:
+            continue
+        try:
+            path_obj = Path(p)
+            if path_obj.is_file():
+                path_obj.unlink()
+                print(f"[cancel] removed file: {path_obj}")
+            elif path_obj.is_dir():
+                shutil.rmtree(path_obj)
+                print(f"[cancel] removed dir: {path_obj}")
+        except Exception as e:
+            print(f"[cancel] cleanup failed for {p}: {e}")
+
+
 def _get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
     """
     HE-Fit 결과 캐시: ai_results/HE-Fit/{slide_stem}_HE-Fit_{tissue_type}.json
@@ -78,6 +113,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
     2. 멀티스레드 I/O 프리페치 (ThreadPoolExecutor)
     3. 배치 GPU 추론 (8장씩)
     """
+    list_cleanup_on_cancel = []
     try:
         import torch
         import numpy as np
@@ -90,6 +126,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── 캐시된 AI 결과 확인 (전체/ROI 무관 — 있으면 가져와서 표시) ──
         cache_path = _get_ai_cache_path(info.file_path, tissue_type)
+        list_cleanup_on_cancel.append(cache_path)
         if cache_path.exists():
             try:
                 _update_task(task_id, status="running", progress=10,
@@ -147,7 +184,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── 조직 마스크 (배경 스킵) ──
         _update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
-        thumb_mask = _create_tissue_mask(slide)
+        thumb_mask = _create_tissue_mask(slide, icc_transform=info.icc_transform)
         _update_task(task_id, progress=5)
 
         # ── Pre-scan: 유효 패치 수집 ──
@@ -265,6 +302,8 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
                 with ThreadPoolExecutor(max_workers=IO_WORKERS) as pool:
                     pending = []
                     for px, py in valid_patch_list:
+                        if _is_cancel_requested(task_id):
+                            break
                         future = pool.submit(_read_patch_tensor, px, py)
                         pending.append((px, py, future))
 
@@ -280,7 +319,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
                             pending.clear()
 
                     # 남은 패치
-                    if pending:
+                    if pending and not _is_cancel_requested(task_id):
                         coords, tensors = [], []
                         for bpx, bpy, f in pending:
                             t = f.result(timeout=60)
@@ -300,6 +339,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── GPU 추론 루프 ──
         while True:
+            _check_cancel(task_id)
             try:
                 item = prefetch_q.get(timeout=120)
             except queue.Empty:
@@ -337,6 +377,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
             all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
+        _check_cancel(task_id)
         _update_task(task_id, progress=50,
                      status_msg=f"Detection complete: {detected_count} cells")
 
@@ -379,6 +420,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
             "seg_data": seg_data,
         }
 
+        _check_cancel(task_id)
         # ── 전체 추론(폴리곤 없음)인 경우만 캐시 저장 ──
         if roi_polygons is None:
             try:
@@ -393,13 +435,28 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         _update_task(task_id, status="completed", progress=100, result=result)
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] _run_detection cancelled task={task_id}")
     except Exception as e:
         import traceback
         _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
 
 
-def _create_tissue_mask(slide):
-    """조직 마스크 생성 (기존 DetectionWorker._create_tissue_mask와 동일)"""
+def _create_tissue_mask(slide, icc_transform=None):
+    """조직 마스크 생성 — H-DAB 분리 후 (Hem ∪ DAB ∪ 텍스처) − 확실한 배경.
+
+    단일 Hematoxylin Otsu 만으로는 DAB 가 강하게 덮인 영역(H 가 억제됨)이나
+    염색이 거의 없지만 구조가 있는 조직이 빠질 수 있음. 따라서:
+      1) H-DAB color deconvolution (Ruifrok & Johnston 2001) → H / DAB 채널 분리
+      2) 각 채널 Otsu → 염색 영역 검출
+      3) 국소 표준편차(텍스처) Otsu → 무염색 조직 보완
+      4) Union 후, 확실한 유리 배경(그레이 히스토그램 최고 피크의 95% 이상) 강제 제외
+
+    icc_transform 이 주어지면 썸네일에 적용해 다른 AI 경로와 색상 일관성 유지.
+    """
     import numpy as np
     import cv2
 
@@ -409,16 +466,79 @@ def _create_tissue_mask(slide):
             slide.dimensions[0] // downsample,
             slide.dimensions[1] // downsample,
         ))
+        if icc_transform is not None:
+            from PIL import ImageCms
+            thumbnail = thumbnail.convert('RGB')
+            ImageCms.applyTransform(thumbnail, icc_transform, inPlace=True)
         thumbnail = np.array(thumbnail)
-
         if len(thumbnail.shape) == 3:
-            gray = cv2.cvtColor(thumbnail[:, :, :3], cv2.COLOR_RGB2GRAY)
+            rgb = thumbnail[:, :, :3]
         else:
-            gray = thumbnail
+            rgb = cv2.cvtColor(thumbnail, cv2.COLOR_GRAY2RGB)
 
-        mask = cv2.threshold(255 - gray, 30, 255, cv2.THRESH_BINARY)[1]
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        # ── H-DAB color deconvolution (Ruifrok & Johnston, 2001) ──
+        stain_matrix = np.array([
+            [0.650, 0.704, 0.286],   # Hematoxylin
+            [0.268, 0.570, 0.776],   # DAB
+            [0.711, 0.423, 0.500],   # Residual
+        ], dtype=np.float64)
+        stain_matrix = stain_matrix / np.linalg.norm(stain_matrix, axis=1, keepdims=True)
+        deconv_matrix = np.linalg.inv(stain_matrix)
+
+        rgb_f = np.maximum(rgb.astype(np.float64), 1.0)
+        od = -np.log(rgb_f / 255.0)
+        h, w = rgb.shape[:2]
+        stain_od = (od.reshape(-1, 3) @ deconv_matrix.T).reshape(h, w, 3)
+
+        hematoxylin_od = np.clip(stain_od[:, :, 0], 0, None)
+        dab_od = np.clip(stain_od[:, :, 1], 0, None)
+
+        hem_max = max(np.percentile(hematoxylin_od, 99.5), 0.01)
+        dab_max = max(np.percentile(dab_od, 99.5), 0.01)
+        hem_u8 = np.clip(hematoxylin_od / hem_max * 255, 0, 255).astype(np.uint8)
+        dab_u8 = np.clip(dab_od / dab_max * 255, 0, 255).astype(np.uint8)
+
+        _, hem_mask = cv2.threshold(hem_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, dab_mask = cv2.threshold(dab_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # ── 텍스처(국소 std) — 무염색이지만 구조 있는 조직 보완 ──
+        np_gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        gray_f = np_gray.astype(np.float32)
+        ksize = (15, 15)
+        local_mean = cv2.blur(gray_f, ksize)
+        local_sq_mean = cv2.blur(gray_f ** 2, ksize)
+        local_std = np.sqrt(np.maximum(local_sq_mean - local_mean ** 2, 0))
+        std_scaled = np.clip(local_std * 10, 0, 255).astype(np.uint8)
+        _, texture_mask = cv2.threshold(
+            std_scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+
+        # ── 확실한 유리 배경 제거 (히스토그램 상단 피크의 95% 이상) ──
+        hist = cv2.calcHist([np_gray], [0], None, [256], [0, 256]).flatten()
+        bg_peak = int(np.argmax(hist[128:]) + 128)
+        definite_bg = (np_gray >= int(bg_peak * 0.95))
+
+        mask = (hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)
+        mask[definite_bg] = False
+        mask = (mask.astype(np.uint8)) * 255
+
+        # 조각난 마스크를 넓게 CLOSE 해서 인접 조직 조각들을 하나로 묶음
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+        # ── 외곽 컨투어만 뽑아 솔리드로 채움 ──
+        # → 내부 구멍(염색 옅어서 빠진 세포 간극)도 전부 tissue 로 포함
+        # → 작은 면적 컨투어는 노이즈로 간주해 드랍
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        filled = np.zeros_like(mask)
+        int_min_area = max(int(h * w * 0.0005), 50)  # 썸네일 면적의 0.05% 이상
+        for cnt in contours:
+            if cv2.contourArea(cnt) < int_min_area:
+                continue
+            cv2.drawContours(filled, [cnt], -1, 255, thickness=cv2.FILLED)
+        mask = filled
 
         target_w = slide.dimensions[0] // 64
         target_h = slide.dimensions[1] // 64
@@ -802,6 +922,7 @@ def _run_marker_detection_pipeline(
     YOLOv11m 기반 marker detection 공용 파이프라인.
     PD-Score / Precise-IHC 가 공유.
     """
+    list_cleanup_on_cancel = [cache_path]
     try:
         import torch
         import numpy as np
@@ -917,7 +1038,7 @@ def _run_marker_detection_pipeline(
 
         # ── 조직 마스크 ──
         _update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
-        thumb_mask = _create_tissue_mask(slide)
+        thumb_mask = _create_tissue_mask(slide, icc_transform=info.icc_transform)
         _update_task(task_id, progress=5)
 
         # ── 유효 패치 수집 ──
@@ -1032,6 +1153,8 @@ def _run_marker_detection_pipeline(
                 with ThreadPoolExecutor(max_workers=IO_WORKERS) as pool:
                     pending = []
                     for px, py in valid_patch_list:
+                        if _is_cancel_requested(task_id):
+                            break
                         future = pool.submit(_read_patch_tensor, px, py)
                         pending.append((px, py, future))
 
@@ -1046,7 +1169,7 @@ def _run_marker_detection_pipeline(
                                 prefetch_q.put((coords, tensors, len(pending)), timeout=30)
                             pending.clear()
 
-                    if pending:
+                    if pending and not _is_cancel_requested(task_id):
                         coords, tensors = [], []
                         for bpx, bpy, f in pending:
                             t = f.result(timeout=60)
@@ -1065,6 +1188,7 @@ def _run_marker_detection_pipeline(
         producer_thread.start()
 
         while True:
+            _check_cancel(task_id)
             try:
                 item = prefetch_q.get(timeout=120)
             except queue.Empty:
@@ -1145,6 +1269,7 @@ def _run_marker_detection_pipeline(
             **(extra_fields or {}),
         }
 
+        _check_cancel(task_id)
         if roi_polygons is None:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
@@ -1160,6 +1285,11 @@ def _run_marker_detection_pipeline(
 
         _update_task(task_id, status="completed", progress=100, result=result)
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] {log_label} cancelled task={task_id}")
     except Exception as e:
         import traceback
         _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
@@ -1213,36 +1343,16 @@ PRECISE_IHC_CONFIG = {
         "score_type": "HER2",
         "exclude_classes": [4],
     },
-    # ER / PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other)
-    # 동일한 .pt 파일을 공유하지만 cache key (marker) 가 다르므로 별도 캐시.
-    "ER": {
+    # ER/PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other).
+    # ER 과 PR 은 동일 .pt 를 공유하고 추론 결과도 동일하므로 단일 marker("ER_PR") 로 통합.
+    "ER_PR": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
         "num_classes": 5,
         "class_names": {
-            0: "ER 0+",
-            1: "ER 1+",
-            2: "ER 2+",
-            3: "ER 3+",
-            4: "Other",
-        },
-        "class_colors": {
-            0: "#27ae60",
-            1: "#f1c40f",
-            2: "#e67e22",
-            3: "#c0392b",
-            4: "#95a5a6",
-        },
-        "score_type": "Allred",
-        "exclude_classes": [4],
-    },
-    "PR": {
-        "model_file": "Precise_IHC_ER_PR_detection.pt",
-        "num_classes": 5,
-        "class_names": {
-            0: "PR 0+",
-            1: "PR 1+",
-            2: "PR 2+",
-            3: "PR 3+",
+            0: "ER/PR 0+",
+            1: "ER/PR 1+",
+            2: "ER/PR 2+",
+            3: "ER/PR 3+",
             4: "Other",
         },
         "class_colors": {
@@ -1372,7 +1482,7 @@ def _compute_allred_score(all_cls) -> dict:
 
 
 def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Precise-IHC 파이프라인 wrapper — HER2 / ER / PR 지원."""
+    """Precise-IHC 파이프라인 wrapper — HER2 / ER_PR 지원."""
     if marker not in PRECISE_IHC_CONFIG:
         _update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
         return
@@ -1386,7 +1496,7 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
     if marker == "HER2":
         score_fn = _compute_her2_score
         score_key = "her2_score"
-    elif marker in ("ER", "PR"):
+    elif marker == "ER_PR":
         score_fn = _compute_allred_score
         score_key = "allred_score"
     else:
@@ -1483,7 +1593,7 @@ async def start_precise_ihc(
     roi_polygons: Optional[str] = Form(None),
     marker: str = Form("HER2"),
 ):
-    """Precise-IHC 추론 시작 (현재 HER2 만 지원)"""
+    """Precise-IHC 추론 시작 (marker: HER2 / ER_PR)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -1554,6 +1664,26 @@ async def get_task_status(task_id: str):
     elif task["status"] == "error":
         response["error"] = task["error"]
     return response
+
+
+@router.post("/task/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """실행 중인 AI 작업 취소 요청.
+
+    - queued/running 이면 cancel_requested 플래그 세팅 → 워커가 다음 체크포인트에서 중단
+    - 워커는 부분 저장된 캐시(JSON/PNG/타일 폴더)를 삭제해 다음 실행 시 충돌 방지
+    """
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        if not task:
+            raise HTTPException(404, "작업을 찾을 수 없습니다")
+        str_status = task.get("status")
+        if str_status in ("completed", "error", "cancelled"):
+            return {"task_id": task_id, "status": str_status, "msg": "already finished"}
+        task["cancel_requested"] = True
+        task["status_msg"] = "Cancelling..."
+    print(f"[cancel] requested for task {task_id}")
+    return {"task_id": task_id, "status": "cancelling"}
 
 
 @router.get("/task/{task_id}/result")
@@ -1748,6 +1878,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
     desktop ai/virtual_stain.py 의 VirtualStainWorker.run() 로직을 그대로 옮김.
     Qt 시그널 대신 _update_task() 사용.
     """
+    list_cleanup_on_cancel = []
     try:
         import torch
         import numpy as np
@@ -1775,6 +1906,8 @@ def _run_virtual_stain(task_id: str, slide_id: str,
 
         # ── 캐시 확인 ──
         png_path, meta_path = _get_vs_cache_paths(info.file_path, stain_type, target_mpp)
+        # 캐시 hit 경로에서는 cleanup 등록 금지 (기존 멀쩡한 캐시를 지울 수 있음).
+        # 새 추론이 실제로 파일을 쓰기 직전 아래에서만 등록한다.
         if png_path.exists() and meta_path.exists():
             try:
                 _update_task(task_id, status="running", progress=10,
@@ -1966,12 +2099,14 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
             for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:
+                _check_cancel(task_id)
                 wait_if_viewer_busy()
                 f = pool.submit(_read_patch, slide_path, x0, y0,
                                 best_level, level_read, ps, icc_tf, None)
                 futures.append(f)
 
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
+                _check_cancel(task_id)
                 region_np = futures[patch_idx].result()
                 input_acc[py_c:py_c + ps, px:px + ps] += region_np * blend_3ch
 
@@ -2007,6 +2142,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
             tissue_count += len(tissue_batch)
             tissue_batch.clear()
 
+        _check_cancel(task_id)
         _update_task(task_id, progress=96, status_msg="Composing final image...")
 
         # ── Compose ──
@@ -2040,6 +2176,10 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         tile_size_px = 512
         try:
             _update_task(task_id, progress=97, status_msg="Saving composite PNG...")
+            # 여기서 비로소 PNG/meta 가 새로 작성됨 → 취소 시에만 이 파일들 정리.
+            # (타일 디렉터리는 아래 generate_vs_tiles 가 끝난 뒤에만 존재하며,
+            #  그 단계엔 취소 체크포인트가 없으므로 정리 대상에 넣지 않는다.)
+            list_cleanup_on_cancel.extend([png_path, meta_path])
             Image.fromarray(rgba, 'RGBA').save(str(png_path), format='PNG', optimize=False)
 
             _update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
@@ -2094,6 +2234,17 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] _run_virtual_stain cancelled task={task_id}")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
     except Exception as e:
         import traceback
         _update_task(task_id, status="error",

@@ -55,8 +55,7 @@ const $pdScoreLabel = $('#pd-score-label');
 const $pdScoreValue = $('#pd-score-value');
 const $pdScoreDetail = $('#pd-score-detail');
 const $btnIhcHer2 = $('#btn-ihc-her2');
-const $btnIhcEr = $('#btn-ihc-er');
-const $btnIhcPr = $('#btn-ihc-pr');
+const $btnIhcErPr = $('#btn-ihc-erpr');
 const $ihcScoreResult = $('#ihc-score-result');
 const $ihcScoreLabel = $('#ihc-score-label');
 const $ihcScoreValue = $('#ihc-score-value');
@@ -328,8 +327,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     $btnVsNucleus.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
-    if ($btnIhcEr) $btnIhcEr.disabled = false;
-    if ($btnIhcPr) $btnIhcPr.disabled = false;
+    // ER/PR 은 임시 비활성화 — 준비되면 다시 활성화
+    // if ($btnIhcErPr) $btnIhcErPr.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
 
@@ -1112,11 +1111,55 @@ $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close())
 // ═══════════════════════════
 // AI 검출
 // ═══════════════════════════
+
+// 실행 중인 AI task 추적 — key: 버튼 고유 키 ('detect', 'vs-ihc_membrane', 'pd-score', 'ihc-HER2' 등)
+//   value: { task_id, buttonEl }
+// 같은 버튼 재클릭 시 cancelTask 호출.
+const _runningAiTasks = {};
+
+function _setButtonRunning(btnEl, bool_running) {
+    if (!btnEl) return;
+    if (bool_running) {
+        btnEl.classList.add('ai-btn-running');
+        btnEl.dataset.origLabel = btnEl.dataset.origLabel || btnEl.textContent;
+        btnEl.textContent = '■ Stop';
+    } else {
+        btnEl.classList.remove('ai-btn-running');
+        if (btnEl.dataset.origLabel) {
+            btnEl.textContent = btnEl.dataset.origLabel;
+            delete btnEl.dataset.origLabel;
+        }
+    }
+}
+
+async function _maybeCancelRunning(str_key) {
+    const entry = _runningAiTasks[str_key];
+    if (!entry) return false;
+    // task_id 가 아직 서버에서 돌아오지 않았는데 재클릭한 경우:
+    // pending_cancel 플래그만 세팅 → start 핸들러가 task_id 를 받는 즉시 cancelTask 호출.
+    // (null 을 URL 에 박아 쏘면 /task/null/cancel 로 405/404 나므로 금지)
+    if (!entry.task_id) {
+        entry.pending_cancel = true;
+        setStatus('중지 예약 — task 시작 직후 취소합니다...');
+        return true;
+    }
+    try {
+        await api.cancelTask(entry.task_id);
+        setStatus('중지 요청 전송 — 잠시 후 정리됩니다...');
+    } catch (e) {
+        console.warn('[cancel] failed', e);
+    }
+    return true;  // 호출자는 start 로직 건너뛰기
+}
+
 $btnDetect.addEventListener('click', startDetection);
 
 async function startDetection() {
     if (!currentSlideId) return;
-    $btnDetect.disabled = true;
+    if (await _maybeCancelRunning('detect')) return;
+
+    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect };
+    _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
     setStatus('검출 시작...');
@@ -1132,10 +1175,18 @@ async function startDetection() {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startDetection(currentSlideId, roiPolygons, tissueType);
+        if (_runningAiTasks['detect']) {
+            _runningAiTasks['detect'].task_id = task_id;
+            if (_runningAiTasks['detect'].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         // 폴링
         while (true) {
             await sleep(1000);
+            // 다른 코드가 _runningAiTasks 를 지웠으면 (예: 슬라이드 변경) 루프 탈출
+            if (!_runningAiTasks['detect']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -1155,13 +1206,21 @@ async function startDetection() {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('Cell Detection 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`검출 실패: ${err.message}`);
     } finally {
-        $btnDetect.disabled = false;
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks['detect'];
+        _setButtonRunning($btnDetect, false);
+        if ($progressLabel.textContent === 'Cell Detection...') {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
@@ -1323,8 +1382,8 @@ function _updateAllredScoreDisplay(counts) {
     if (!_lastDetectionResult || !_lastDetectionResult.allred_score) return;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
     const a = _computeAllredFromCounts(c);
-    const marker = _lastDetectionTissue || 'ER';
-    $ihcScoreLabel.textContent = `${marker} (Allred)`;
+    const marker = _lastDetectionTissue || 'ER/PR';
+    $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
     $ihcScoreValue.textContent = `${a.ts} / 8`;
     $ihcScoreDetail.innerHTML =
         `PS: ${a.ps} &nbsp;·&nbsp; IS: ${a.is_} &nbsp;·&nbsp; <strong>${a.interpretation}</strong><br>` +
@@ -2170,8 +2229,8 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
-    { model: 'Precise-IHC', variant: 'ER',      label: 'Precise-IHC · ER (Allred)' },
-    { model: 'Precise-IHC', variant: 'PR',      label: 'Precise-IHC · PR (Allred)' },
+    // ER/PR 임시 비활성화 — 준비되면 다시 활성화
+    // { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
     { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)', mpp: true },
     { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)',  mpp: true },
 ];
@@ -2339,10 +2398,14 @@ $btnViewGrid.addEventListener('click', () => {
 // VS-IHC (Virtual Staining)
 // ═══════════════════════════
 async function startVirtualStain(stainType) {
-    if (!currentSlideId || _vsRunning) return;
+    if (!currentSlideId) return;
+    const str_key = 'vs-' + stainType;
+    if (await _maybeCancelRunning(str_key)) return;
+
+    const btnEl = stainType === 'ihc_nucleus' ? $btnVsNucleus : $btnVsMembrane;
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
     _vsRunning = true;
-    $btnVsMembrane.disabled = true;
-    $btnVsNucleus.disabled = true;
+    _setButtonRunning(btnEl, true);
     $progressLabel.textContent = 'Virtual Staining...';
     setProgress(0);
     setStatus('Virtual staining 시작...');
@@ -2358,11 +2421,18 @@ async function startVirtualStain(stainType) {
 
     try {
         const { task_id } = await api.startVirtualStain(currentSlideId, stainType, roiPolygons, targetMpp);
+        if (_runningAiTasks[str_key]) {
+            _runningAiTasks[str_key].task_id = task_id;
+            if (_runningAiTasks[str_key].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
         // 결과 로딩 시 같은 mpp로 PNG 요청
         _vsLastTargetMpp = targetMpp;
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks[str_key]) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -2373,15 +2443,20 @@ async function startVirtualStain(stainType) {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('Virtual staining 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`Virtual staining 실패: ${err.message}`);
         $progressLabel.textContent = 'Virtual staining failed';
     } finally {
+        delete _runningAiTasks[str_key];
         _vsRunning = false;
-        $btnVsMembrane.disabled = false;
-        $btnVsNucleus.disabled = false;
+        _setButtonRunning(btnEl, false);
     }
 }
 
@@ -2445,7 +2520,10 @@ $btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {
     if (!currentSlideId) return;
-    $btnPdScore.disabled = true;
+    if (await _maybeCancelRunning('pd-score')) return;
+
+    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore };
+    _setButtonRunning($btnPdScore, true);
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
     setProgress(0);
@@ -2459,9 +2537,16 @@ async function startPdScore() {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startPdScore(currentSlideId, roiPolygons, tissueType);
+        if (_runningAiTasks['pd-score']) {
+            _runningAiTasks['pd-score'].task_id = task_id;
+            if (_runningAiTasks['pd-score'].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks['pd-score']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -2473,13 +2558,21 @@ async function startPdScore() {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('PD-Score 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`PD-Score 실패: ${err.message}`);
     } finally {
-        $btnPdScore.disabled = false;
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks['pd-score'];
+        _setButtonRunning($btnPdScore, false);
+        if ($progressLabel.textContent === 'PD-L1 Detection...') {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
@@ -2536,22 +2629,26 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
-$btnIhcEr?.addEventListener('click', () => startPreciseIhc('ER'));
-$btnIhcPr?.addEventListener('click', () => startPreciseIhc('PR'));
+$btnIhcErPr?.addEventListener('click', () => startPreciseIhc('ER_PR'));
 
 function _setIhcMarkerButtonsDisabled(disabled) {
     if ($btnIhcHer2) $btnIhcHer2.disabled = disabled;
-    if ($btnIhcEr) $btnIhcEr.disabled = disabled;
-    if ($btnIhcPr) $btnIhcPr.disabled = disabled;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = disabled;
 }
 
 async function startPreciseIhc(marker) {
     if (!currentSlideId) return;
-    _setIhcMarkerButtonsDisabled(true);
+    const str_key = 'ihc-' + marker;
+    if (await _maybeCancelRunning(str_key)) return;
+
+    const btnEl = marker === 'ER_PR' ? $btnIhcErPr : $btnIhcHer2;
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
+    _setButtonRunning(btnEl, true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
-    $progressLabel.textContent = `${marker} Detection...`;
+    $progressLabel.textContent = `${markerLabel} Detection...`;
     setProgress(0);
-    setStatus(`${marker} 시작...`);
+    setStatus(`${markerLabel} 시작...`);
 
     viewer.setDrawMode(null);
 
@@ -2562,32 +2659,48 @@ async function startPreciseIhc(marker) {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startPreciseIhc(currentSlideId, roiPolygons, marker);
+        if (_runningAiTasks[str_key]) {
+            _runningAiTasks[str_key].task_id = task_id;
+            if (_runningAiTasks[str_key].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks[str_key]) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
-            $progressLabel.textContent = `${marker} Detection`;
+            $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
                 onPreciseIhcComplete(st.result, roiPolygons, marker);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus(`${markerLabel} 중지됨 — 부분 결과 정리 완료`);
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
-        setStatus(`${marker} 실패: ${err.message}`);
+        setStatus(`${markerLabel} 실패: ${err.message}`);
     } finally {
-        _setIhcMarkerButtonsDisabled(false);
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks[str_key];
+        _setButtonRunning(btnEl, false);
+        if ($progressLabel.textContent === `${markerLabel} Detection...`) {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
 function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
-    $progressLabel.textContent = `${marker} Complete`;
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
+    $progressLabel.textContent = `${markerLabel} Complete`;
 
     viewer.clearAnnotations();
     renderAnnotationPanel();
@@ -2631,10 +2744,10 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         const ps = score.proportion_score ?? 0;
         const is_ = score.intensity_score ?? 0;
         const interp = score.interpretation || (ts >= 3 ? 'Positive' : 'Negative');
-        setStatus(`${marker} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
+        setStatus(`${markerLabel} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
         if ($ihcScoreResult) {
             $ihcScoreResult.hidden = false;
-            $ihcScoreLabel.textContent = `${marker} (Allred)`;
+            $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
             $ihcScoreValue.textContent = `${ts} / 8`;
             const cc = score.class_counts || {};
             $ihcScoreDetail.innerHTML =

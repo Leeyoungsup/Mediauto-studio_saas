@@ -71,6 +71,8 @@ async def upsert_slide(
         "dt_uploaded_at": dt_now,
         "dt_created_at": dt_now,
         "dict_ai_results": _empty_ai_results(),
+        "bool_tiles_ready": False,
+        "dt_tiles_ready_at": None,
     }
     dict_set = {
         "str_full_path": str_full_path,
@@ -179,6 +181,77 @@ def mark_ai_result_threadsafe(
         )
     except Exception as e:
         print(f"[slide_store] schedule mark_ai_result failed: {e}")
+
+
+async def mark_tiles_ready(
+    str_rel_path: str,
+    str_filename: str,
+    bool_ready: bool = True,
+) -> None:
+    """뷰어 타일 생성 완료 플래그 설정."""
+    if not is_db_connected():
+        return
+    db = get_db()
+    str_rel_path = _norm_rel_path(str_rel_path)
+    dt_now = datetime.now(timezone.utc)
+    result = await db.slides.update_one(
+        {"str_rel_path": str_rel_path, "str_filename": str_filename},
+        {"$set": {
+            "bool_tiles_ready": bool(bool_ready),
+            "dt_tiles_ready_at": dt_now if bool_ready else None,
+            "dt_updated_at": dt_now,
+        }},
+    )
+    if result.matched_count == 0:
+        print(f"[slide_store] mark_tiles_ready: NO MATCH rel='{str_rel_path}' name='{str_filename}'")
+
+
+def mark_tiles_ready_threadsafe(str_full_slide_path: str) -> None:
+    """tile_generator 백그라운드 스레드에서 호출 — 메인 이벤트 루프에 스케줄."""
+    if not is_db_connected():
+        return
+    loop = get_main_loop()
+    if loop is None or not loop.is_running():
+        return
+    try:
+        from app.config import settings
+        p = Path(str_full_slide_path).resolve()
+        upload_dir = Path(settings.UPLOAD_DIR).resolve()
+        str_rel_path = str(p.parent.relative_to(upload_dir)).replace("\\", "/")
+        if str_rel_path in (".", ""):
+            str_rel_path = ""
+        str_filename = p.name
+    except Exception as e:
+        print(f"[slide_store] mark_tiles_ready path resolve failed: {e}")
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            mark_tiles_ready(str_rel_path, str_filename, True),
+            loop,
+        )
+    except Exception as e:
+        print(f"[slide_store] schedule mark_tiles_ready failed: {e}")
+
+
+async def list_slides_missing_tiles() -> list:
+    """뷰어 타일이 아직 준비 안 된 슬라이드 — 오래된 업로드부터."""
+    if not is_db_connected():
+        return []
+    db = get_db()
+    list_out = []
+    async for dict_doc in db.slides.find(
+        {"bool_tiles_ready": {"$ne": True}}
+    ).sort("dt_uploaded_at", 1):
+        list_out.append(dict_doc)
+    return list_out
+
+
+async def has_any_pending_tiles() -> bool:
+    """타일 생성이 끝나지 않은 슬라이드가 하나라도 있는지."""
+    if not is_db_connected():
+        return False
+    db = get_db()
+    return bool(await db.slides.find_one({"bool_tiles_ready": {"$ne": True}}))
 
 
 async def delete_slide(str_rel_path: str, str_filename: str) -> None:

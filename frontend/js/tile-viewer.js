@@ -81,6 +81,7 @@ export class TileViewer {
         // 타일 캐시 — 모든 레벨의 타일을 보관 (fallback용)
         this._tileCache = new Map();  // "level/tx/ty" -> Image
         this._tileLoading = new Set();
+        this._thumbnailBitmap = null;  // 전역 폴백용 고해상도 썸네일 (slide 열 때 1회 로드)
         this._maxCacheTiles = 3000;
         this._loadQueue = [];         // 우선순위 로드 큐
         this._activeLoads = 0;
@@ -172,10 +173,48 @@ export class TileViewer {
         this._loadQueue = [];
         this._activeLoads = 0;
         this.detectionCells = [];
+        this._thumbnailBitmap = null;
 
         this.fitToWindow();
         // 최상위(가장 거친) 레벨 전체 프리로드 — 어디를 확대해도 블러 fallback 보장
         this._preloadCoarsestLevel();
+        // 전역 폴백용 고해상도 썸네일 1회 로드 — 타일/폴백 모두 miss 일 때 최후의 블러 표시
+        this._loadThumbnailFallback();
+    }
+
+    _loadThumbnailFallback() {
+        if (!this.slideId) return;
+        const str_slide_id = this.slideId;
+
+        // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms)
+        const el_sidebar_thumb = document.querySelector(
+            `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
+        );
+        if (el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
+            this._thumbnailBitmap = el_sidebar_thumb;
+        }
+
+        // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드 (사이드바는 96px 이라 좀 더 선명)
+        const img_small = new Image();
+        img_small.onload = () => {
+            if (this.slideId !== str_slide_id) return;
+            if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
+                this._thumbnailBitmap = img_small;
+                this.requestRender();
+            }
+        };
+        img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
+        img_small.src = api.thumbnailUrl(str_slide_id, 300);
+
+        // 2단계 — 2048px 고해상도 preview 로 업그레이드 (on-demand 생성, 수 초 소요 가능)
+        const img_hi = new Image();
+        img_hi.onload = () => {
+            if (this.slideId !== str_slide_id) return;
+            this._thumbnailBitmap = img_hi;
+            this.requestRender();
+        };
+        img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
+        img_hi.src = api.previewUrl(str_slide_id, 2048);
     }
 
     _preloadCoarsestLevel() {
@@ -753,6 +792,7 @@ export class TileViewer {
                 } else {
                     // ── Fallback: 다른 레벨 캐시 타일을 스케일해서 그리기 ──
                     const fb = this._findFallbackTile(sceneX, sceneY, tileSceneSize, level);
+                    let bool_drew_fallback = false;
                     if (fb) {
                         // fallback 타일 내에서 현재 타일 영역에 해당하는 소스 영역 계산
                         const srcScale = fb.srcPixelSize / fb.srcSceneSize;
@@ -768,6 +808,28 @@ export class TileViewer {
                             ctx.drawImage(
                                 fb.img,
                                 srcX, srcY, srcW, srcH,
+                                canvasX, canvasY, canvasSize, canvasSize
+                            );
+                            bool_drew_fallback = true;
+                        }
+                    }
+                    // 최후의 폴백 — 전역 썸네일 이미지의 해당 scene 영역을 스케일해 그림
+                    if (!bool_drew_fallback && this._thumbnailBitmap) {
+                        const tb = this._thumbnailBitmap;
+                        const [int_scene_w, int_scene_h] = this.slideInfo.dimensions;
+                        const float_sx = (sceneX / int_scene_w) * tb.naturalWidth;
+                        const float_sy = (sceneY / int_scene_h) * tb.naturalHeight;
+                        const float_sw = (tileSceneSize / int_scene_w) * tb.naturalWidth;
+                        const float_sh = (tileSceneSize / int_scene_h) * tb.naturalHeight;
+                        // clip 소스 좌표
+                        const float_sx2 = Math.max(0, float_sx);
+                        const float_sy2 = Math.max(0, float_sy);
+                        const float_sw2 = Math.min(tb.naturalWidth - float_sx2, float_sw);
+                        const float_sh2 = Math.min(tb.naturalHeight - float_sy2, float_sh);
+                        if (float_sw2 > 0 && float_sh2 > 0) {
+                            ctx.drawImage(
+                                tb,
+                                float_sx2, float_sy2, float_sw2, float_sh2,
                                 canvasX, canvasY, canvasSize, canvasSize
                             );
                         }

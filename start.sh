@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+# ============================================================
+#  MeDICus Studio SaaS - Server Start Script
+#  - conda env "medicus-saas" activate (via conda run)
+#  - uvicorn FastAPI start
+# ============================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/backend"
+
+ENV_NAME="medicus-saas"
+HOST="0.0.0.0"
+PORT="8092"
+
+if ! command -v conda >/dev/null 2>&1; then
+  echo "[ERROR] conda not found. Install Miniconda/Anaconda first."
+  exit 1
+fi
+
+if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
+  echo "[ERROR] conda env \"$ENV_NAME\" not found."
+  echo "        Run install.bat first."
+  exit 1
+fi
+
+CONDA_BASE="$(conda info --base)"
+ENV_PYTHON="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
+if [[ ! -x "$ENV_PYTHON" ]]; then
+  echo "[ERROR] python not found in conda env: $ENV_PYTHON"
+  exit 1
+fi
+
+# Avoid pollution from any active .venv / user site-packages so the conda env
+# python doesn't accidentally pick up packages from elsewhere.
+unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
+export PYTHONNOUSERSITE=1
+
+echo
+echo "============================================================"
+echo " MeDICus Studio SaaS"
+echo " URL: http://localhost:${PORT}"
+echo " Press Ctrl+C to stop."
+echo "============================================================"
+echo
+exec "$ENV_PYTHON" -m uvicorn main:app --host "$HOST" --port "$PORT"

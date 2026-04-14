@@ -358,6 +358,13 @@ export const api = {
         return res.json();
     },
 
+    /** 실행 중인 AI task 를 취소 요청. 워커는 다음 체크포인트에서 중단하고 부분 캐시를 정리. */
+    async cancelTask(taskId) {
+        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}/cancel`, { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** Virtual Stain (VS-IHC) 시작 */
     async startVirtualStain(slideId, stainType = 'ihc_membrane', roiPolygons = null, targetMpp = 2.0) {
         const form = new FormData();

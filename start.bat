@@ -7,7 +7,7 @@ REM ============================================================
 setlocal
 cd /d "%~dp0backend"
 
-set ENV_NAME=yslee
+set ENV_NAME=medicus-saas
 set HOST=0.0.0.0
 set PORT=8092
 

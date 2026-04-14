@@ -59,6 +59,7 @@ from app.config import settings
 from app.database import connect_db, disconnect_db
 from app.routers import slides, tiles, ai, auth, users
 from app import auto_ai
+from app import tile_worker
 
 
 @asynccontextmanager
@@ -74,12 +75,15 @@ async def lifespan(app: FastAPI):
     print(f"[MeDICus SaaS] Tiles dir:  {settings.TILES_DIR}")
     print(f"[MeDICus SaaS] Server ready")
 
+    # 뷰어 타일 생성 워커 시작 (사용자 활동 무관, 최우선 백그라운드)
+    await tile_worker.start_tile_worker()
     # AI 자동 추론 워커 시작 (1분 스캔, 10분 idle)
     await auto_ai.start_auto_worker()
 
     yield
     # 종료 시 워커 중단
     await auto_ai.stop_auto_worker()
+    await tile_worker.stop_tile_worker()
     # 종료 시 열린 슬라이드 정리
     from app.slide_manager import slide_manager
     slide_manager.close_all()
