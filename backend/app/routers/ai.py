@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends, HTTPException, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, Form, Query, Request
 from fastapi.responses import JSONResponse, FileResponse
 
+from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
@@ -28,6 +29,37 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
 router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
+
+
+async def _log_ai_analyze(
+    request: Request,
+    dict_user: dict,
+    str_model: str,
+    str_variant: str,
+    str_slide_id: str,
+    str_filename: str,
+    str_task_id: str,
+) -> None:
+    """AI 분석 트리거 감사 로그 — 관리자 활동 추적용."""
+    try:
+        await log_audit_event(
+            str_action="ai.analyze",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=str_slide_id,
+            str_detail=f"{str_model}/{str_variant} on {str_filename}",
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={
+                "str_model": str_model,
+                "str_variant": str_variant,
+                "str_task_id": str_task_id,
+                "str_slide_filename": str_filename,
+            },
+        )
+    except Exception:
+        pass
 
 # Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
 # main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
@@ -1517,9 +1549,11 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
 
 @router.post("/detect")
 async def start_detection(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     tissue_type: str = Form("Stomach"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """검출 작업 시작 (비동기)"""
     info = slide_manager.get(slide_id)
@@ -1545,14 +1579,17 @@ async def start_detection(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "HE-Fit", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
 @router.post("/pd-score")
 async def start_pd_score(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     tissue_type: str = Form("Stomach"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """PD-Score 추론 시작 (Stomach → CPS, Lung → TPS)"""
     info = slide_manager.get(slide_id)
@@ -1580,14 +1617,17 @@ async def start_pd_score(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "PD-Score", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
 @router.post("/precise-ihc")
 async def start_precise_ihc(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     marker: str = Form("HER2"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """Precise-IHC 추론 시작 (marker: HER2 / ER_PR)"""
     info = slide_manager.get(slide_id)
@@ -1615,6 +1655,7 @@ async def start_precise_ihc(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "Precise-IHC", marker, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -2249,10 +2290,12 @@ def _run_virtual_stain(task_id: str, slide_id: str,
 
 @router.post("/virtual-stain")
 async def start_virtual_stain(
+    request: Request,
     slide_id: str = Form(...),
     stain_type: str = Form("ihc_membrane"),
     target_mpp: float = Form(2.0),
     roi_polygons: Optional[str] = Form(None),
+    dict_user: dict = Depends(get_current_user),
 ):
     """Virtual stain (VS-IHC) 작업 시작 (비동기)"""
     info = slide_manager.get(slide_id)
@@ -2279,6 +2322,7 @@ async def start_virtual_stain(
         daemon=True,
     )
     t.start()
+    await _log_ai_analyze(request, dict_user, "VS-IHC", stain_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 

@@ -12,9 +12,10 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
@@ -417,6 +418,7 @@ async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_pat
 
 @router.post("/open")
 async def open_slide(
+    request: Request,
     filename: str = Form(...),
     path: str = Form(""),
     dict_user: dict = Depends(get_current_user),
@@ -429,6 +431,22 @@ async def open_slide(
     slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
     resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user)
     resp["exists"] = True
+
+    # 슬라이드 조회 감사 로그 — 활동 분석용
+    try:
+        await log_audit_event(
+            str_action="slide.view",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=slide_id,
+            str_detail=filename,
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={"str_rel_path": path or ""},
+        )
+    except Exception:
+        pass
     return resp
 
 
@@ -550,6 +568,7 @@ async def upload_complete(
 
 @router.post("/open-local")
 async def open_local_file(
+    request: Request,
     file_path: str = Form(...),
     dict_user: dict = Depends(get_current_user),
 ):
@@ -563,7 +582,22 @@ async def open_local_file(
         raise HTTPException(400, f"지원하지 않는 파일 형식: {ext}")
 
     slide_id = hashlib.md5(path.name.encode()).hexdigest()[:12]
-    return await _open_and_generate(slide_id, str(path), path.name, dict_user)
+    resp = await _open_and_generate(slide_id, str(path), path.name, dict_user)
+    try:
+        await log_audit_event(
+            str_action="slide.view",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=slide_id,
+            str_detail=path.name,
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={"str_source": "open-local"},
+        )
+    except Exception:
+        pass
+    return resp
 
 
 # ── 타일 생성 진행 상태 ──

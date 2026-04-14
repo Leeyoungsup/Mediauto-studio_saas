@@ -90,6 +90,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
 
         if (tab.dataset.tab === 'pending-panel') loadPending();
         else if (tab.dataset.tab === 'users-panel') loadUsers();
+        else if (tab.dataset.tab === 'activity-panel') loadActivity();
     });
 });
 
@@ -382,6 +383,221 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
     } catch (err) {
         showAlert(err.message, 'error');
     }
+});
+
+// ═══════════════════════════════════════
+// 활동 로그
+// ═══════════════════════════════════════
+const ACTIVITY_PAGE_LIMIT = 50;
+let _int_activity_skip = 0;
+let _int_activity_total = 0;
+let _str_activity_user_filter = '';
+
+function _parseDevice(strUa) {
+    if (!strUa) return '—';
+    const ua = strUa;
+    if (/Windows NT/.test(ua)) return 'Windows';
+    if (/Mac OS X/.test(ua)) return 'macOS';
+    if (/Android/.test(ua)) return 'Android';
+    if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+    if (/Linux/.test(ua)) return 'Linux';
+    return ua.split(' ')[0] || '—';
+}
+
+function _fmtLocation(log) {
+    const list_parts = [];
+    if (log.str_city) list_parts.push(log.str_city);
+    if (log.str_region && log.str_region !== log.str_city) list_parts.push(log.str_region);
+    if (log.str_country_name) list_parts.push(log.str_country_name);
+    else if (log.str_country) list_parts.push(log.str_country);
+    return list_parts.length ? esc(list_parts.join(', ')) : '—';
+}
+
+async function loadActivity() {
+    const $tbody = document.getElementById('activity-tbody');
+    $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">로딩 중...</td></tr>';
+    try {
+        const params = new URLSearchParams({
+            int_skip: String(_int_activity_skip),
+            int_limit: String(ACTIVITY_PAGE_LIMIT),
+        });
+        const data = await apiGet(`/users/activity/logins?${params}`);
+        if (!data) return;
+        const list = data.list_logs || [];
+        _int_activity_total = data.int_total || 0;
+        if (list.length === 0) {
+            $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">로그인 기록이 없습니다.</td></tr>';
+        } else {
+            let list_filtered = list;
+            if (_str_activity_user_filter) {
+                const q = _str_activity_user_filter.toLowerCase();
+                list_filtered = list.filter(l => {
+                    const u = l.dict_user || {};
+                    return (u.str_login_id || '').toLowerCase().includes(q) ||
+                           (u.str_name || '').toLowerCase().includes(q);
+                });
+            }
+            if (list_filtered.length === 0) {
+                $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">검색 결과가 없습니다.</td></tr>';
+            } else {
+                $tbody.innerHTML = '';
+                for (const log of list_filtered) {
+                    const u = log.dict_user || {};
+                    const tr = document.createElement('tr');
+                    tr.className = 'activity-row';
+                    tr.dataset.userId = log.str_user_id || '';
+                    tr.innerHTML = `
+                        <td>${fmtDate(log.dt_created_at)}</td>
+                        <td><strong>${esc(u.str_login_id || log.str_user_email || '—')}</strong></td>
+                        <td>${esc(u.str_name || '—')} <span class="role-chip">${esc(u.str_role || '')}</span></td>
+                        <td><code>${esc(log.str_ip_address || '—')}</code></td>
+                        <td>${_fmtLocation(log)}</td>
+                        <td>${esc(_parseDevice(log.str_user_agent))}</td>
+                        <td><button class="admin-btn-secondary btn-view-activity" data-user-id="${esc(log.str_user_id || '')}">상세 보기</button></td>
+                    `;
+                    $tbody.appendChild(tr);
+                }
+            }
+        }
+        _updateActivityPager();
+    } catch (err) {
+        $tbody.innerHTML = `<tr><td colspan="7" class="empty-row">오류: ${esc(err.message)}</td></tr>`;
+    }
+}
+
+function _updateActivityPager() {
+    const int_page = Math.floor(_int_activity_skip / ACTIVITY_PAGE_LIMIT) + 1;
+    const int_total_pages = Math.max(1, Math.ceil(_int_activity_total / ACTIVITY_PAGE_LIMIT));
+    document.getElementById('activity-page-info').textContent = `${int_page} / ${int_total_pages}`;
+    document.getElementById('btn-activity-prev').disabled = _int_activity_skip <= 0;
+    document.getElementById('btn-activity-next').disabled =
+        _int_activity_skip + ACTIVITY_PAGE_LIMIT >= _int_activity_total;
+}
+
+document.getElementById('btn-refresh-activity').addEventListener('click', () => {
+    _int_activity_skip = 0;
+    loadActivity();
+});
+document.getElementById('activity-filter-user').addEventListener('input', (e) => {
+    _str_activity_user_filter = e.target.value.trim();
+    loadActivity();
+});
+document.getElementById('btn-activity-prev').addEventListener('click', () => {
+    if (_int_activity_skip <= 0) return;
+    _int_activity_skip = Math.max(0, _int_activity_skip - ACTIVITY_PAGE_LIMIT);
+    loadActivity();
+});
+document.getElementById('btn-activity-next').addEventListener('click', () => {
+    if (_int_activity_skip + ACTIVITY_PAGE_LIMIT >= _int_activity_total) return;
+    _int_activity_skip += ACTIVITY_PAGE_LIMIT;
+    loadActivity();
+});
+
+// 행 클릭 / 버튼 클릭으로 사용자 활동 상세
+document.getElementById('activity-tbody').addEventListener('click', (e) => {
+    const $btn = e.target.closest('.btn-view-activity');
+    const $row = e.target.closest('.activity-row');
+    const str_user_id = ($btn && $btn.dataset.userId) || ($row && $row.dataset.userId);
+    if (str_user_id) openUserActivityDialog(str_user_id);
+});
+
+// ═══════════════════════════════════════
+// 사용자별 활동 상세 다이얼로그
+// ═══════════════════════════════════════
+const $userActivityDialog = document.getElementById('user-activity-dialog');
+const $userActivityTbody = document.getElementById('user-activity-tbody');
+const $userActivityTitle = document.getElementById('user-activity-title');
+let _str_current_activity_user = null;
+let _str_current_activity_cat = 'all';
+
+async function openUserActivityDialog(strUserId) {
+    _str_current_activity_user = strUserId;
+    _str_current_activity_cat = 'all';
+    document.querySelectorAll('.activity-cat-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.cat === 'all')
+    );
+    if (!$userActivityDialog.open) $userActivityDialog.showModal();
+    await _loadUserActivity();
+}
+
+async function _loadUserActivity() {
+    $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">로딩 중...</td></tr>';
+    try {
+        const params = new URLSearchParams({
+            int_limit: '200',
+            str_category: _str_current_activity_cat,
+        });
+        const data = await apiGet(`/users/${encodeURIComponent(_str_current_activity_user)}/activity?${params}`);
+        if (!data) return;
+        const u = data.dict_user || {};
+        $userActivityTitle.textContent =
+            `${u.str_name || '—'} (${u.str_login_id || '—'}) · ${u.str_role || '—'}`;
+
+        // 뱃지 업데이트
+        const dict_counts = data.dict_counts || {};
+        const int_all = (dict_counts.login || 0) + (dict_counts.slide || 0) + (dict_counts.ai || 0);
+        document.querySelector('.cat-badge[data-badge="all"]').textContent = String(int_all);
+        document.querySelector('.cat-badge[data-badge="login"]').textContent = String(dict_counts.login || 0);
+        document.querySelector('.cat-badge[data-badge="slide"]').textContent = String(dict_counts.slide || 0);
+        document.querySelector('.cat-badge[data-badge="ai"]').textContent = String(dict_counts.ai || 0);
+
+        const list = data.list_logs || [];
+        if (list.length === 0) {
+            $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">해당 카테고리의 활동이 없습니다.</td></tr>';
+            return;
+        }
+        $userActivityTbody.innerHTML = '';
+        for (const log of list) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${fmtDate(log.dt_created_at)}</td>
+                <td>${_fmtActionPill(log.str_action)}</td>
+                <td>${_fmtActivityDetail(log)}</td>
+                <td><code>${esc(log.str_ip_address || '—')}</code><br><small>${_fmtLocation(log)}</small></td>
+            `;
+            $userActivityTbody.appendChild(tr);
+        }
+    } catch (err) {
+        $userActivityTbody.innerHTML = `<tr><td colspan="4" class="empty-row">오류: ${esc(err.message)}</td></tr>`;
+    }
+}
+
+function _fmtActionPill(strAction) {
+    const dict_label = {
+        'user.login_success': ['로그인', 'success'],
+        'user.login_failed':  ['로그인 실패', 'error'],
+        'user.logout':        ['로그아웃', 'neutral'],
+        'slide.view':         ['슬라이드 조회', 'info'],
+        'ai.analyze':         ['AI 분석', 'accent'],
+    };
+    const pair = dict_label[strAction] || [strAction, 'neutral'];
+    return `<span class="action-pill ${pair[1]}">${esc(pair[0])}</span>`;
+}
+
+function _fmtActivityDetail(log) {
+    if (log.str_action === 'slide.view') {
+        const str_path = log.str_rel_path ? `${log.str_rel_path}/` : '';
+        return `<strong>${esc(log.str_detail || '—')}</strong>` +
+               (str_path ? `<br><small>${esc(str_path)}</small>` : '');
+    }
+    if (log.str_action === 'ai.analyze') {
+        return `<strong>${esc(log.str_model || '')} · ${esc(log.str_variant || '')}</strong>` +
+               (log.str_slide_filename ? `<br><small>${esc(log.str_slide_filename)}</small>` : '');
+    }
+    return esc(log.str_detail || '—');
+}
+
+document.querySelectorAll('.activity-cat-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.activity-cat-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        _str_current_activity_cat = tab.dataset.cat;
+        _loadUserActivity();
+    });
+});
+
+document.getElementById('btn-user-activity-close').addEventListener('click', () => {
+    $userActivityDialog.close();
 });
 
 // ─── 초기 로드 ───

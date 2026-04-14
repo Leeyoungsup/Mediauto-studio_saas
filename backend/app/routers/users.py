@@ -533,3 +533,147 @@ async def get_audit_logs(
         "int_skip": int_skip,
         "int_limit": int_limit,
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# 활동 로그 (Admin) — 로그인 기록 + 사용자별 활동 내역
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/activity/logins")
+async def get_recent_logins(
+    int_limit: int = Query(100, ge=1, le=500),
+    int_skip: int = Query(0, ge=0),
+    str_user_id: str = Query(None, description="특정 사용자로 필터"),
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """최근 로그인 이벤트 조회 — 활동 로그 관리 UI 메인 목록.
+
+    audit_logs 중 str_action='user.login_success' 를 시간 역순으로 반환.
+    각 항목에 사용자 정보 (이름/역할) 를 함께 붙여서 반환.
+    """
+    db = get_db()
+    dict_filter = {"str_action": "user.login_success"}
+    if str_user_id:
+        dict_filter["str_user_id"] = str_user_id
+
+    list_logs = []
+    cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
+    set_user_ids = set()
+    async for dict_log in cursor:
+        dict_log["_id"] = str(dict_log["_id"])
+        if dict_log.get("str_user_id"):
+            set_user_ids.add(dict_log["str_user_id"])
+        list_logs.append(dict_log)
+
+    # 사용자 정보 조인 — 1 query 로 한꺼번에
+    dict_user_map: dict[str, dict] = {}
+    if set_user_ids:
+        list_object_ids = []
+        for str_uid in set_user_ids:
+            try:
+                list_object_ids.append(ObjectId(str_uid))
+            except Exception:
+                continue
+        if list_object_ids:
+            cursor_users = db.users.find(
+                {"_id": {"$in": list_object_ids}},
+                {"str_login_id": 1, "str_name": 1, "str_role": 1, "str_department": 1},
+            )
+            async for dict_u in cursor_users:
+                dict_user_map[str(dict_u["_id"])] = {
+                    "str_login_id": dict_u.get("str_login_id", ""),
+                    "str_name": dict_u.get("str_name", ""),
+                    "str_role": dict_u.get("str_role", ""),
+                    "str_department": dict_u.get("str_department", ""),
+                }
+
+    for dict_log in list_logs:
+        str_uid = dict_log.get("str_user_id") or ""
+        dict_log["dict_user"] = dict_user_map.get(str_uid, {})
+
+    int_total = await db.audit_logs.count_documents(dict_filter)
+    return {
+        "list_logs": list_logs,
+        "int_total": int_total,
+        "int_skip": int_skip,
+        "int_limit": int_limit,
+    }
+
+
+@router.get("/{user_id}/activity")
+async def get_user_activity(
+    user_id: str,
+    int_limit: int = Query(200, ge=1, le=1000),
+    int_skip: int = Query(0, ge=0),
+    str_category: str = Query(
+        "all",
+        pattern="^(all|login|slide|ai)$",
+        description="활동 카테고리 필터",
+    ),
+    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """특정 사용자의 활동 내역 — 로그인/슬라이드 조회/AI 분석.
+
+    - all: 모든 이벤트
+    - login: user.login_success / user.login_failed / user.logout
+    - slide: slide.view
+    - ai:    ai.analyze
+    """
+    db = get_db()
+
+    # 사용자 존재 여부 확인 (잘못된 user_id 에 대해 403 이 아닌 404 를 주기 위해)
+    try:
+        dict_target = await db.users.find_one(
+            {"_id": ObjectId(user_id)},
+            {"str_login_id": 1, "str_name": 1, "str_role": 1, "str_department": 1},
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if not dict_target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    dict_filter: dict = {"str_user_id": user_id}
+    if str_category == "login":
+        dict_filter["str_action"] = {"$in": ["user.login_success", "user.login_failed", "user.logout"]}
+    elif str_category == "slide":
+        dict_filter["str_action"] = "slide.view"
+    elif str_category == "ai":
+        dict_filter["str_action"] = "ai.analyze"
+
+    list_logs = []
+    cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
+    async for dict_log in cursor:
+        dict_log["_id"] = str(dict_log["_id"])
+        list_logs.append(dict_log)
+
+    int_total = await db.audit_logs.count_documents(dict_filter)
+
+    # 카테고리별 총 카운트 — 뱃지 표시용
+    dict_counts = {
+        "login": await db.audit_logs.count_documents(
+            {"str_user_id": user_id, "str_action": {"$in": [
+                "user.login_success", "user.login_failed", "user.logout",
+            ]}}
+        ),
+        "slide": await db.audit_logs.count_documents(
+            {"str_user_id": user_id, "str_action": "slide.view"}
+        ),
+        "ai": await db.audit_logs.count_documents(
+            {"str_user_id": user_id, "str_action": "ai.analyze"}
+        ),
+    }
+
+    return {
+        "dict_user": {
+            "str_id": str(dict_target["_id"]),
+            "str_login_id": dict_target.get("str_login_id", ""),
+            "str_name": dict_target.get("str_name", ""),
+            "str_role": dict_target.get("str_role", ""),
+            "str_department": dict_target.get("str_department", ""),
+        },
+        "list_logs": list_logs,
+        "int_total": int_total,
+        "int_skip": int_skip,
+        "int_limit": int_limit,
+        "dict_counts": dict_counts,
+    }

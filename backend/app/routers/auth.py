@@ -7,6 +7,7 @@
 - 감사 로그 기록
 """
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 
 from app.audit import get_client_ip, log_audit_event
+from app.geo import enrich_audit_with_geo
 from app.auth import (
     create_access_token,
     create_refresh_token,
@@ -292,14 +294,17 @@ async def login(body: LoginRequest, request: Request):
         "bool_is_revoked": False,
     })
 
-    await log_audit_event(
+    str_client_ip = get_client_ip(request)
+    str_login_log_id = await log_audit_event(
         str_action="user.login_success",
         str_user_id=str_user_id,
         str_user_email=str_login_id_lower,
         str_detail="Login successful",
-        str_ip_address=get_client_ip(request),
+        str_ip_address=str_client_ip,
         str_user_agent=request.headers.get("User-Agent", ""),
     )
+    # 로그 저장 직후 geo 조회 — 응답 경로를 블록하지 않도록 백그라운드로.
+    asyncio.create_task(enrich_audit_with_geo(str_login_log_id, str_client_ip))
 
     return TokenResponse(
         str_access_token=str_access_token,
