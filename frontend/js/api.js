@@ -39,10 +39,12 @@ function _isTokenExpiringSoon() {
 // 나머지는 같은 프라미스를 공유해 한 번만 네트워크 호출이 나가도록 한다.
 let _refreshInFlight = null;
 
-async function _refreshTokenIfNeeded() {
-    // 이미 진행 중인 refresh 가 있으면 그걸 기다린다 (만료 체크 여부 무관).
+// bool_force: 만료 임박 체크를 건너뛰고 무조건 refresh 시도 (_authFetch 재시도용)
+// bool_silent: 실패 시에도 로그아웃 리다이렉트 하지 않음 (_authFetch 재시도 경로 전용;
+//              호출자가 res.status 를 다시 확인해서 처리)
+async function _refreshTokenIfNeeded(bool_force = false, bool_silent = false) {
     if (_refreshInFlight) return _refreshInFlight;
-    if (!_isTokenExpiringSoon()) return;
+    if (!bool_force && !_isTokenExpiringSoon()) return;
     const refreshToken = _getRefreshToken();
     if (!refreshToken) return;
 
@@ -59,13 +61,22 @@ async function _refreshTokenIfNeeded() {
                 if (data.dict_user) {
                     localStorage.setItem('user', JSON.stringify(data.dict_user));
                 }
-            } else {
-                // Refresh 실패 → 로그인 페이지로
-                _clearTokens();
-                window.location.href = '/login.html';
+                return true;
             }
+            // Refresh 실패. silent 경로(_authFetch 재시도) 면 false 만 리턴,
+            // 아니면 여기서 즉시 정리 + 로그인 페이지로. 타이머발 실패가 무한 루프
+            // 되는 걸 막는다.
+            if (!bool_silent) {
+                _clearTokens();
+                _clearMediaTicket();
+                if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login.html')) {
+                    window.location.href = '/login.html';
+                }
+            }
+            return false;
         } catch (e) {
             console.error('Token refresh failed:', e);
+            return false;
         } finally {
             _refreshInFlight = null;
         }
@@ -151,13 +162,26 @@ async function _authFetch(url, options = {}) {
     // 네트워크 호출 없이 즉시 리턴한다.
     await _ensureMediaTicket();
 
-    const headers = { ...(options.headers || {}), ..._authHeaders() };
-    const res = await fetch(url, { ...options, headers });
+    const headers_initial = { ...(options.headers || {}), ..._authHeaders() };
+    let res = await fetch(url, { ...options, headers: headers_initial });
 
-    if (res.status === 401) {
-        _clearTokens();
-        window.location.href = '/login.html';
-        throw new Error('Authentication required');
+    // 401 을 받으면 바로 로그아웃하지 않고, 강제 refresh 후 1회 재시도.
+    // 시나리오:
+    //   - access 토큰이 예상보다 일찍 만료 (clock drift / 탭 suspend)
+    //   - 다른 탭이 rotation 중이라 localStorage 동기화 지연
+    // 재시도까지 실패하면 그때 토큰 정리 + 로그인 페이지.
+    if (res.status === 401 && _getRefreshToken()) {
+        const bool_refreshed = await _refreshTokenIfNeeded(true, true);
+        if (bool_refreshed) {
+            const headers_retry = { ...(options.headers || {}), ..._authHeaders() };
+            res = await fetch(url, { ...options, headers: headers_retry });
+        }
+        if (res.status === 401) {
+            _clearTokens();
+            _clearMediaTicket();
+            window.location.href = '/login.html';
+            throw new Error('Authentication required');
+        }
     }
 
     return res;

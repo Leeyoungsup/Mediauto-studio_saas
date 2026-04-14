@@ -43,7 +43,12 @@ PASSWORD_PATTERN = re.compile(
 # 이 시간 안에 들어오는 "방금 rotated 된" 토큰은 replacement 세션의 토큰을 그대로
 # 돌려주어 정상 동작하게 한다. 이보다 오래된 revoked 토큰으로 오면 실제 reuse 공격으로
 # 간주해 기존 로직대로 사용자 세션을 모두 revoke 한다.
-REFRESH_ROTATION_GRACE_SECONDS = 30
+# Refresh rotation grace window.
+# 구: 30s — 단일 탭 동시 요청만 커버
+# 현: 300s — 모바일/백그라운드 탭이 suspend 후 깨어나 이전 토큰으로 /refresh
+#        를 재시도하는 케이스까지 커버. 더 늘리면 진짜 reuse 공격 탐지 창이
+#        좁아지므로 5분으로 제한.
+REFRESH_ROTATION_GRACE_SECONDS = 300
 
 
 # ── 요청/응답 스키마 ──
@@ -445,21 +450,20 @@ async def refresh_token(body: RefreshRequest, request: Request):
                     "str_department": dict_user.get("str_department", ""),
                 },
             )
-    # 유예 밖 또는 replacement 사라짐 → 진짜 reuse 공격으로 간주.
-    await db.sessions.update_many(
-        {"str_user_id": str_user_id},
-        {"$set": {"bool_is_revoked": True}},
-    )
+    # 유예 밖 또는 replacement 사라짐 → 의심스럽지만 전체 revoke 는 과잉.
+    # 알려진(DB 에 존재하는) 세션이므로 진짜 위조가 아닐 가능성이 높다
+    # (오래 suspended 되었던 탭 등). 이 요청만 401 로 거부하고 다른 세션은 건드리지 않는다.
+    # 감사 로그는 남겨 패턴 분석이 가능하도록 한다.
     await log_audit_event(
-        str_action="security.token_reuse_detected",
+        str_action="security.refresh_stale_rotation",
         str_user_id=str_user_id,
-        str_detail="Refresh token reuse outside rotation grace window",
+        str_detail="Refresh presented outside rotation grace window — single request rejected",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
     )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token reuse detected. All sessions revoked.",
+        detail="Refresh token rotated — re-authenticate",
     )
 
 

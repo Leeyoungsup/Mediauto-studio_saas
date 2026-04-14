@@ -331,6 +331,13 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // if ($btnIhcErPr) $btnIhcErPr.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
+    // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
+    document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
+        el.disabled = false;
+    });
+
+    // 폴더별 AI 자동 분석 설정이 있으면 해당 task 만 활성화, 나머지는 disabled.
+    _applyFolderAiRestrictions(currentBrowsePath);
 
     // 뷰어 로드 (타일은 요청 시 즉석 생성 + 백그라운드 프리제네레이션)
     viewer.loadSlide(slideId, slideInfo);
@@ -349,6 +356,66 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // annotation은 사용자가 Load 버튼으로 파일에서 불러옴 (서버 자동 로드 X)
 
     setProgress(0);
+}
+
+// ═══════════════════════════
+// 폴더별 AI 자동 분석 제한
+// ──
+// 폴더에 자동 분석 설정이 저장돼 있으면 (bool_enabled=true AND tasks 존재),
+// 해당 task(model+variant) 에 속하지 않는 AI 버튼/라디오를 모두 disabled 로 만든다.
+// 설정이 없거나 enabled=false 면 아무것도 제한하지 않는다 (기본 모두 활성).
+// ═══════════════════════════
+
+async function _applyFolderAiRestrictions(strFolderPath) {
+    let cfg = null;
+    try {
+        cfg = await api.getFolderAiConfig(strFolderPath || '');
+    } catch (err) {
+        console.warn('[folder-ai-restrict] load 실패:', err);
+        return;
+    }
+    if (!cfg || !cfg.enabled || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
+        return;
+    }
+
+    const set_allowed = new Set();
+    for (const t of cfg.tasks) {
+        if (t && t.model && t.variant) set_allowed.add(`${t.model}::${t.variant}`);
+    }
+
+    const _restrictRadios = (strName, strModel) => {
+        const list_radios = document.querySelectorAll(`input[name="${strName}"]`);
+        let bool_first_ok = null;
+        let bool_current_ok = false;
+        list_radios.forEach(el => {
+            const bool_ok = set_allowed.has(`${strModel}::${el.value}`);
+            el.disabled = !bool_ok;
+            if (bool_ok && bool_first_ok === null) bool_first_ok = el;
+            if (bool_ok && el.checked) bool_current_ok = true;
+        });
+        // 현재 선택된 것이 허용되지 않으면 첫 허용 옵션으로 자동 전환
+        if (!bool_current_ok && bool_first_ok) {
+            bool_first_ok.checked = true;
+            bool_first_ok.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return bool_first_ok !== null;
+    };
+
+    // HE-Fit
+    const bool_hnf_any = _restrictRadios('tissue-type', 'HE-Fit');
+    $btnDetect.disabled = !bool_hnf_any;
+
+    // PD-Score
+    const bool_pd_any = _restrictRadios('pd-tissue-type', 'PD-Score');
+    if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
+
+    // Precise-IHC — 마커별 버튼 단위
+    if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
+    // ER/PR / KI-67 은 원래 disabled — 건드리지 않는다
+
+    // VS-IHC — variant(ihc_membrane / ihc_nucleus) 단위. target_mpp 는 제한 안 함.
+    $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
+    $btnVsNucleus.disabled = !set_allowed.has('VS-IHC::ihc_nucleus');
 }
 
 // ═══════════════════════════

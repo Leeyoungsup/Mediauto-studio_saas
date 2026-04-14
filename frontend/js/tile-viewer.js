@@ -12,7 +12,7 @@
 
 import { api } from './api.js';
 
-const TILE_SIZE = 512;
+const TILE_SIZE = 1024;
 const MAX_CONCURRENT_LOADS = 12;  // 동시 타일 로딩 수
 
 /**

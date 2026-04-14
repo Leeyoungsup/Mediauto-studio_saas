@@ -123,9 +123,24 @@ app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])
 
 # 프론트엔드 정적 파일 서빙
+# 주의: .js/.html/.css 는 Cache-Control: no-cache 로 강제 재검증.
+# ETag/Last-Modified 기반 304 는 유지되므로 실제 바이트 재전송은 파일이 바뀐 경우에만.
+# 이 설정이 없으면 브라우저가 오래된 JS 를 붙잡고 있어 api 계약이 바뀐 뒤에도
+# 사용자가 "하드 리프레시 해도 안 먹는" 상황이 발생한다.
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        str_lower = path.lower()
+        if str_lower.endswith((".js", ".mjs", ".html", ".css")):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
 if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 
 @app.get("/api/health")
