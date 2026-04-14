@@ -10,50 +10,32 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Dict
 
 # 환경변수 TILE_DEBUG=1 이면 _render_and_save 의 단계별 wall-time 을 출력
 _BOOL_TILE_DEBUG = os.environ.get("TILE_DEBUG", "").lower() in ("1", "true", "yes")
 
-import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_media_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.tile_generator import get_tiles_dir
 from app.priority import notify_viewer_activity
 from app.cpu_layout import viewer_executor
+from app.thread_slide_pool import get_thread_slide
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+# 타일은 <img src> 로 로드되므로 media-ticket(쿼리 ?mt=) 도 허용하는
+# get_media_user 를 쓴다. 그 외 stage-level 같은 일반 API 는 Bearer JWT 만.
+router = APIRouter()
 
 TILE_SIZE = settings.TILE_SIZE
 
 
 # ── Thread-local OpenSlide 핸들 풀 ──
-# OpenSlide 는 thread-safe 라고 명시돼 있지만 내부 mutex 로 read_region 을 직렬화한다.
-# 같은 슬라이드를 동시에 여러 코어에서 디코딩하려면 thread 별 독립 핸들이 필요하다.
-# (AI 모듈 [routers/ai.py] 도 동일 이유로 _patch_thread_local 을 쓴다.)
-#
-# 정책:
-# - thread-local 딕셔너리에 slide_id → OpenSlide 매핑.
-# - 같은 worker thread 가 같은 slide 에 재방문하면 즉시 재사용.
-# - SlideManager.close() 가 호출돼도 worker thread 의 핸들은 leak — 슬라이드 닫는 일이
-#   드물고, worker 는 프로세스 수명 동안 살아 있어 OS 가 정리한다.
-_slide_thread_local = threading.local()
-
-
-def _get_thread_slide(slide_id: str, file_path: str) -> openslide.OpenSlide:
-    dict_pool: Dict[str, openslide.OpenSlide] = getattr(_slide_thread_local, "slides", None)
-    if dict_pool is None:
-        dict_pool = {}
-        _slide_thread_local.slides = dict_pool
-    obj_slide = dict_pool.get(slide_id)
-    if obj_slide is None:
-        obj_slide = openslide.OpenSlide(file_path)
-        dict_pool[slide_id] = obj_slide
-    return obj_slide
+# app.thread_slide_pool.get_thread_slide 을 통해 generation 검증 + LRU eviction
+# 이 적용된 핸들을 얻는다. SlideManager.close() 시 generation 이 bump 되어
+# 모든 워커가 다음 접근 시 자기 stale 핸들을 자동으로 닫는다 (leak 방지).
 
 
 def _find_and_open(slide_id: str):
@@ -77,6 +59,7 @@ async def get_tile(
     level: int,
     tile_x: int,
     tile_y: int,
+    dict_user: dict = Depends(get_media_user),
 ):
     """
     타일 반환: 디스크에 있으면 정적 서빙, 없으면 즉석 생성 + 저장.
@@ -109,7 +92,7 @@ async def get_tile(
 
     def _render_and_save() -> bytes:
         # thread-local 핸들로 read — 같은 슬라이드를 여러 코어에서 병렬 디코딩 가능
-        obj_slide = _get_thread_slide(slide_id, info.file_path)
+        obj_slide = get_thread_slide(slide_id, info.file_path)
         if _BOOL_TILE_DEBUG:
             float_t0 = time.perf_counter()
             tile = obj_slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
@@ -160,6 +143,7 @@ async def get_tile(
 async def get_stage_level(
     slide_id: str,
     effective_mpp: float = Query(..., description="현재 화면의 effective MPP"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """effective MPP 기반 4단계 레벨 반환"""
     info = _find_and_open(slide_id)

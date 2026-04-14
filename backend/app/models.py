@@ -12,9 +12,13 @@ from enum import Enum
 
 import bcrypt
 
+from app.config import settings
+
 # ── 상수 ──
 BCRYPT_COST = 12
-PEPPER = "MeDICus_2024_P3pp3r"  # 운영 시 환경변수로 분리 권장
+# Pepper 는 더 이상 소스에 하드코딩하지 않는다. 환경변수 AUTH_PEPPER 또는
+# backend/.secrets.json 의 'pepper' 키에서 로드된다 (app.config 참조).
+_STR_PEPPER = settings.AUTH_PEPPER
 
 
 class UserRole(str, Enum):

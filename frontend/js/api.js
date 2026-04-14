@@ -82,11 +82,62 @@ function _startBackgroundTokenRefresh() {
     _refreshTimer = setInterval(() => {
         if (_getAccessToken() && _getRefreshToken()) {
             _refreshTokenIfNeeded();
+            _ensureMediaTicket();
         }
     }, 30000);
 }
 if (typeof window !== 'undefined') {
     _startBackgroundTokenRefresh();
+}
+
+// ── 미디어 티켓 (타일/썸네일 <img src> 전용) ──
+// 과거엔 URL 쿼리에 JWT 를 그대로 실어 보내 브라우저 히스토리/프록시 로그에
+// 토큰이 노출되는 문제가 있었다. 이제는 서버의 /auth/media-ticket 엔드포인트로
+// 10분 TTL HMAC 오파크 토큰을 받아 `?mt=<token>` 으로 전달한다. 이 티켓은
+// 미디어 엔드포인트에만 유효하며, 누출되어도 API 호출 권한은 없다.
+let _mediaTicket = null;          // {str_token, int_exp, int_ttl}
+let _mediaTicketInFlight = null;  // 중복 발급 방지용 프라미스
+
+function _isMediaTicketValid() {
+    if (!_mediaTicket || !_mediaTicket.str_token) return false;
+    const int_now = Math.floor(Date.now() / 1000);
+    // 만료 120초 전에 갱신
+    return _mediaTicket.int_exp - int_now > 120;
+}
+
+async function _ensureMediaTicket() {
+    if (_isMediaTicketValid()) return _mediaTicket.str_token;
+    if (_mediaTicketInFlight) return _mediaTicketInFlight;
+    if (!_getAccessToken()) return '';
+
+    _mediaTicketInFlight = (async () => {
+        try {
+            // 주의: _authFetch 는 내부적으로 _ensureMediaTicket 을 호출하므로
+            // 여기서 다시 _authFetch 를 쓰면 무한 루프가 된다. 직접 fetch.
+            const res = await fetch(`${API_BASE}/auth/media-ticket`, {
+                headers: { 'Authorization': `Bearer ${_getAccessToken()}` },
+            });
+            if (res.ok) {
+                _mediaTicket = await res.json();
+                return _mediaTicket.str_token;
+            }
+        } catch (e) {
+            console.error('Media ticket fetch failed:', e);
+        } finally {
+            _mediaTicketInFlight = null;
+        }
+        return '';
+    })();
+    return _mediaTicketInFlight;
+}
+
+function _getMediaTicketSync() {
+    return (_mediaTicket && _mediaTicket.str_token) || '';
+}
+
+function _clearMediaTicket() {
+    _mediaTicket = null;
+    _mediaTicketInFlight = null;
 }
 
 function _authHeaders() {
@@ -95,6 +146,10 @@ function _authHeaders() {
 
 async function _authFetch(url, options = {}) {
     await _refreshTokenIfNeeded();
+    // 미디어 티켓 pre-fetch: 슬라이드 오픈·info 호출 시 자동으로 준비되어
+    // 이후 <img src> 가 즉시 유효한 ?mt= 를 쓸 수 있게 된다. 캐시 히트 시
+    // 네트워크 호출 없이 즉시 리턴한다.
+    await _ensureMediaTicket();
 
     const headers = { ...(options.headers || {}), ..._authHeaders() };
     const res = await fetch(url, { ...options, headers });
@@ -257,24 +312,29 @@ export const api = {
 
     /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후) */
     thumbnailUrl(slideId, size = 300) {
-        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** 고해상도 프리뷰 URL (PDF 리포트용) */
     previewUrl(slideId, size = 2048) {
-        return `${API_BASE}/slides/${slideId}/preview?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/${slideId}/preview?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
     thumbnailUrlByName(filename, path = '', size = 300) {
-        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+    },
+
+    /** 미디어 티켓이 준비되지 않았다면 기다린다. 슬라이드 뷰어 초기 렌더에서 호출. */
+    async ensureMediaReady() {
+        await _ensureMediaTicket();
     },
 
     // ── 타일 ──
 
     /** 타일 이미지 URL (프리제네레이트된 정적 타일) */
     tileUrl(slideId, level, tileX, tileY) {
-        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** stage level 조회 */
@@ -397,7 +457,7 @@ export const api = {
 
     /** Virtual Stain 피라미드 타일 URL (뷰어 렌더용) */
     virtualStainTileUrl(slideId, stainType, targetMpp, level, tx, ty) {
-        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     // ── 인증 ──
@@ -410,6 +470,7 @@ export const api = {
             // 서버 에러 시에도 로컬 토큰은 삭제
         }
         if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+        _clearMediaTicket();
         _clearTokens();
         window.location.href = '/login.html';
     },

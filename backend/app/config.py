@@ -19,7 +19,8 @@ _SECRETS_FILE = Path(__file__).parent.parent / ".secrets.json"
 
 def _load_or_create_secrets() -> dict:
     dict_loaded: dict = {}
-    if _SECRETS_FILE.exists():
+    bool_existed = _SECRETS_FILE.exists()
+    if bool_existed:
         try:
             with open(_SECRETS_FILE, "r", encoding="utf-8") as f:
                 dict_loaded = json.load(f) or {}
@@ -32,6 +33,18 @@ def _load_or_create_secrets() -> dict:
         bool_changed = True
     if not dict_loaded.get("field_encryption_key"):
         dict_loaded["field_encryption_key"] = secrets.token_urlsafe(32)
+        bool_changed = True
+    # Pepper:
+    # - 새 설치(.secrets.json 이 존재하지 않던 경우)는 무작위 pepper 를 생성한다.
+    # - 이전 설치(파일은 있지만 pepper 키가 없는 경우)는 기존 유저 해시와의 호환을
+    #   위해 legacy 하드코딩 값을 그대로 파일로 이관한다 — 소스에서는 지우고
+    #   .secrets.json(0600) 으로만 존재하게 된다.
+    # - 환경변수 AUTH_PEPPER 가 있으면 항상 우선.
+    if not dict_loaded.get("pepper"):
+        if bool_existed:
+            dict_loaded["pepper"] = "MeDICus_2024_P3pp3r"  # legacy 호환
+        else:
+            dict_loaded["pepper"] = secrets.token_urlsafe(32)
         bool_changed = True
 
     if bool_changed:
@@ -120,6 +133,15 @@ class Settings:
     FIELD_ENCRYPTION_KEY: str = os.environ.get(
         "FIELD_ENCRYPTION_KEY",
         _dict_persistent_secrets["field_encryption_key"],
+    )
+
+    # ── 비밀번호 해시용 pepper (bcrypt 입력에 사전 연결) ──
+    # 과거엔 models.py 에 하드코딩 — 소스 노출 위험. 이제는 환경변수 또는
+    # .secrets.json(0600) 에서 읽는다. 기존 배포에서는 legacy 값이 파일로
+    # 이관되어 기존 해시와의 호환이 유지된다.
+    AUTH_PEPPER: str = os.environ.get(
+        "AUTH_PEPPER",
+        _dict_persistent_secrets["pepper"],
     )
 
 

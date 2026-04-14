@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from fastapi.responses import JSONResponse, FileResponse
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_media_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.priority import wait_if_viewer_busy
@@ -28,12 +28,17 @@ if str(PROJECT_ROOT) not in sys.path:
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
+# Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
+# main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
+media_router = APIRouter(dependencies=[Depends(get_media_user)])
+
 # AI 작업 상태 추적
 _tasks = {}
 _tasks_lock = threading.Lock()
 
-# I/O 워커 스레드별 독립 OpenSlide 객체 (thread-safe)
-_patch_thread_local = threading.local()
+# I/O 워커 스레드별 독립 OpenSlide 핸들은 app.thread_slide_pool 이 관리한다.
+# generation 검증 + LRU eviction 포함 (SlideManager.close() 시 자동 무효화).
+from app.thread_slide_pool import get_thread_slide as _get_thread_slide
 
 
 def _update_task(task_id, **kwargs):
@@ -230,12 +235,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
         def _read_patch_tensor(patch_x, patch_y):
             try:
                 wait_if_viewer_busy()
-                if (not hasattr(_patch_thread_local, 'slide') or
-                        _patch_thread_local.slide_path != slide_path):
-                    import openslide
-                    _patch_thread_local.slide = openslide.OpenSlide(slide_path)
-                    _patch_thread_local.slide_path = slide_path
-                local_slide = _patch_thread_local.slide
+                local_slide = _get_thread_slide(slide_id, slide_path)
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
@@ -1086,12 +1086,7 @@ def _run_marker_detection_pipeline(
         def _read_patch_tensor(patch_x, patch_y):
             try:
                 wait_if_viewer_busy()
-                if (not hasattr(_patch_thread_local, 'slide') or
-                        _patch_thread_local.slide_path != slide_path):
-                    import openslide
-                    _patch_thread_local.slide = openslide.OpenSlide(slide_path)
-                    _patch_thread_local.slide_path = slide_path
-                local_slide = _patch_thread_local.slide
+                local_slide = _get_thread_slide(slide_id, slide_path)
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
@@ -2299,7 +2294,7 @@ async def get_virtual_stain_image(slide_id: str, stain_type: str,
     return FileResponse(str(png_path), media_type="image/png")
 
 
-@router.get("/virtual-stain/{slide_id}/{stain_type}/tile/{level}/{tx}_{ty}.jpeg")
+@media_router.get("/virtual-stain/{slide_id}/{stain_type}/tile/{level}/{tx}_{ty}.jpeg")
 async def get_virtual_stain_tile(
     slide_id: str,
     stain_type: str,

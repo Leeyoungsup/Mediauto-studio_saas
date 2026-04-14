@@ -109,10 +109,18 @@ class SlideInfo:
 
 
 class SlideManager:
-    """열린 슬라이드 관리자 (thread-safe)"""
+    """열린 슬라이드 관리자 (thread-safe).
+
+    Generation counter:
+        각 slide_id 에 대해 단조 증가 generation 을 유지한다. close() 가 호출되면
+        해당 slide_id 의 generation 이 +1 된다. 워커 스레드가 thread-local
+        핸들을 재사용할 때 (app.thread_slide_pool) 이 generation 을 비교해
+        stale 이면 자기 핸들을 닫고 재오픈해 leak 을 방지한다.
+    """
 
     def __init__(self):
         self._slides: Dict[str, SlideInfo] = {}
+        self._generations: Dict[str, int] = {}
         self._lock = threading.Lock()
 
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
@@ -126,6 +134,8 @@ class SlideManager:
             slide = openslide.OpenSlide(file_path)
             info = SlideInfo(slide, file_path)
             self._slides[slide_id] = info
+            # 최초 open 시 generation 0 부여 (이미 있으면 유지)
+            self._generations.setdefault(slide_id, 0)
             return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
@@ -136,9 +146,15 @@ class SlideManager:
                 info.touch()
             return info
 
-    def close(self, slide_id: str):
-        """슬라이드 닫기"""
+    def get_generation(self, slide_id: str) -> int:
+        """주어진 slide_id 의 현재 generation. thread-local 핸들 무효화 판정용."""
         with self._lock:
+            return self._generations.get(slide_id, 0)
+
+    def close(self, slide_id: str):
+        """슬라이드 닫기 — generation 을 bump 하여 모든 thread-local 핸들을 무효화."""
+        with self._lock:
+            self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
             info = self._slides.pop(slide_id, None)
             if info:
                 try:
@@ -147,8 +163,10 @@ class SlideManager:
                     pass
 
     def close_all(self):
-        """모든 슬라이드 닫기"""
+        """모든 슬라이드 닫기 — 전체 generation bump."""
         with self._lock:
+            for str_sid in list(self._slides.keys()):
+                self._generations[str_sid] = self._generations.get(str_sid, 0) + 1
             for info in self._slides.values():
                 try:
                     info.slide.close()

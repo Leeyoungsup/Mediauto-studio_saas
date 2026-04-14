@@ -78,19 +78,16 @@ def decode_token(str_token: str) -> dict:
 
 # ── Bearer 토큰 추출 ──
 def _extract_bearer_token(request: Request) -> str:
-    """Authorization 헤더 또는 query parameter에서 토큰 추출
+    """Authorization 헤더에서만 Bearer JWT 추출.
 
-    이미지 URL(img.src)은 Authorization 헤더를 설정할 수 없으므로
-    ?token= 쿼리 파라미터도 허용한다.
+    과거엔 `?token=` query parameter fallback 을 허용했으나, 이는 JWT 를
+    URL 에 노출시켜(브라우저 히스토리·프록시 로그·리퍼러) 계정 탈취 위험이
+    있었다. img.src 로 로드되는 미디어는 별도의 단기 HMAC 티켓
+    (app.url_signer) 을 사용하며, JWT 는 오직 Authorization 헤더로만 전달된다.
     """
     str_auth_header = request.headers.get("Authorization", "")
     if str_auth_header.startswith("Bearer "):
         return str_auth_header[7:]
-
-    # 이미지/타일 URL용 query parameter fallback
-    str_query_token = request.query_params.get("token")
-    if str_query_token:
-        return str_query_token
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -152,6 +149,60 @@ async def get_current_user(request: Request) -> dict:
             )
 
     # _id를 문자열로 변환
+    dict_user["_id"] = str(dict_user["_id"])
+    return dict_user
+
+
+# ── 미디어 엔드포인트 전용 인증 (타일/썸네일/프리뷰) ──
+async def get_media_user(request: Request) -> dict:
+    """미디어(<img src>) 엔드포인트용 의존성.
+
+    - Bearer JWT 가 있으면 get_current_user 와 동일하게 처리한다.
+    - 없으면 query parameter `?mt=<token>` 의 단기 HMAC 티켓 (url_signer)
+      으로 인증한다.
+
+    일반 API 에는 이 의존성을 달지 않는다 — 미디어 티켓이 누출되어도
+    API 호출(슬라이드 삭제/업로드/AI 시작 등) 은 막히도록 스코프를 분리.
+    """
+    # 1) Bearer 헤더 우선
+    str_auth_header = request.headers.get("Authorization", "")
+    if str_auth_header.startswith("Bearer "):
+        return await get_current_user(request)
+
+    # 2) 미디어 티켓 fallback
+    from app.url_signer import verify_media_ticket
+
+    str_ticket = request.query_params.get("mt", "")
+    str_user_id = verify_media_ticket(str_ticket)
+    if not str_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired media ticket",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # DB 미연결 시 익명 모드
+    if not is_db_connected():
+        return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
+
+    db = get_db()
+    try:
+        dict_user = await db.users.find_one(
+            {"_id": ObjectId(str_user_id)},
+            {"str_hashed_password": 0},
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid media ticket subject",
+        )
+
+    if dict_user is None or not dict_user.get("bool_is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+
     dict_user["_id"] = str(dict_user["_id"])
     return dict_user
 

@@ -117,8 +117,10 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
+app.include_router(slides.media_router, prefix="/api/slides", tags=["slides-media"])
 app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])
 
 # 프론트엔드 정적 파일 서빙
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

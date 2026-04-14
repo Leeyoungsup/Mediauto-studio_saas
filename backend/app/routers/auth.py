@@ -482,6 +482,20 @@ async def logout(request: Request, dict_current_user: dict = Depends(get_current
     return {"str_message": "Logged out successfully"}
 
 
+# ── 미디어 티켓 발급 (타일/썸네일 <img src> 용) ──
+@router.get("/media-ticket")
+async def issue_media_ticket(dict_current_user: dict = Depends(get_current_user)):
+    """단기 HMAC 미디어 티켓 발급.
+
+    브라우저의 <img src> 는 Authorization 헤더를 설정할 수 없으므로,
+    타일/썸네일 URL 에는 이 티켓을 `?mt=` 쿼리로 붙여 사용한다.
+    티켓은 10분 TTL, 사용자 바인딩, 미디어 엔드포인트에만 유효.
+    """
+    from app.url_signer import sign_media_ticket
+
+    return sign_media_ticket(str(dict_current_user["_id"]))
+
+
 # ── 현재 사용자 정보 ──
 @router.get("/me")
 async def get_me(dict_current_user: dict = Depends(get_current_user)):

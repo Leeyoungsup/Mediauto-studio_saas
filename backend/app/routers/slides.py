@@ -15,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_media_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app import tile_generator
@@ -24,6 +24,10 @@ from app import auto_ai
 from app.cpu_layout import bg_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+# 미디어(썸네일/프리뷰) 전용 서브 라우터 — Bearer JWT 또는 ?mt= 티켓 허용.
+# 부모 router 와 같은 prefix("/api/slides") 로 main.py 에서 별도 include 된다.
+media_router = APIRouter(dependencies=[Depends(get_media_user)])
 
 
 def _rel_path_for(file_path: str) -> str:
@@ -598,7 +602,7 @@ async def get_slide_info(slide_id: str):
     }
 
 
-@router.get("/thumbnail-by-name")
+@media_router.get("/thumbnail-by-name")
 async def get_thumbnail_by_name(
     filename: str = Query(...),
     path: str = Query(""),
@@ -646,7 +650,7 @@ async def get_thumbnail_by_name(
         raise HTTPException(500, f"썸네일 생성 실패: {e}")
 
 
-@router.get("/{slide_id}/preview")
+@media_router.get("/{slide_id}/preview")
 async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
     """고해상도 슬라이드 프리뷰 (PDF 리포트용, 캐시 미사용)"""
     info = slide_manager.get(slide_id)
@@ -661,7 +665,7 @@ async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
-@router.get("/{slide_id}/thumbnail")
+@media_router.get("/{slide_id}/thumbnail")
 async def get_thumbnail(slide_id: str, size: int = Query(300, ge=64, le=1024)):
     """slide_id 기반 썸네일 (하위 호환)"""
     info = slide_manager.get(slide_id)
