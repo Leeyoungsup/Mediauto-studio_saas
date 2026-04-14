@@ -19,6 +19,7 @@ from app.config import settings
 from app.slide_manager import slide_manager
 from app.tile_generator import get_tiles_dir
 from app.priority import notify_viewer_activity
+from app.cpu_layout import viewer_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -113,8 +114,9 @@ async def get_tile(
         return buf.getvalue()
 
     try:
-        # 블로킹 디코딩/인코딩은 스레드로 — 이벤트 루프 차단 방지
-        content = await asyncio.to_thread(_render_and_save)
+        # viewer 전용 pool — viewer cores 에 핀닝됨 (cpu_layout)
+        loop = asyncio.get_running_loop()
+        content = await loop.run_in_executor(viewer_executor, _render_and_save)
         return Response(
             content=content,
             media_type="image/jpeg",

@@ -13,18 +13,15 @@ Claude.md 규칙 준수 (str_/int_/bool_/list_/dict_ 접두어).
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
+# 백그라운드 타일 생성용 executor — cpu_layout 에서 핀닝된 풀 재사용.
+# (이전엔 모듈 로컬 ThreadPoolExecutor 였지만 cores 분배를 일관되게 하기 위해 통합)
+from app.cpu_layout import bg_executor as _bg_executor
+
 
 SCAN_INTERVAL_SECONDS = 20
-
-# 백그라운드 타일 생성 전용 단일-워커 executor.
-# 디폴트 풀(asyncio.to_thread / run_in_executor(None, ...))과 분리해
-# 사용자 뷰어 타일 즉석 서빙([routers/tiles.py])이 백그라운드 인코딩에
-# 막혀 latency 가 튀는 것을 방지한다.
-_bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tile_worker")
 
 _worker_task: Optional[asyncio.Task] = None
 
