@@ -13,11 +13,18 @@ Claude.md 규칙 준수 (str_/int_/bool_/list_/dict_ 접두어).
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 
 SCAN_INTERVAL_SECONDS = 20
+
+# 백그라운드 타일 생성 전용 단일-워커 executor.
+# 디폴트 풀(asyncio.to_thread / run_in_executor(None, ...))과 분리해
+# 사용자 뷰어 타일 즉석 서빙([routers/tiles.py])이 백그라운드 인코딩에
+# 막혀 latency 가 튀는 것을 방지한다.
+_bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tile_worker")
 
 _worker_task: Optional[asyncio.Task] = None
 
@@ -40,7 +47,7 @@ async def _process_one_slide(dict_slide: dict) -> bool:
     loop = asyncio.get_running_loop()
     try:
         bool_valid = await loop.run_in_executor(
-            None, tile_generator.tiles_are_valid, str_filename, str_full_path
+            _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
         )
     except Exception as e:
         print(f"[tile_worker] tiles_are_valid error {str_filename}: {e}")
@@ -57,7 +64,7 @@ async def _process_one_slide(dict_slide: dict) -> bool:
     tile_generator.invalidate_tiles(str_filename)
     print(f"[tile_worker] generating tiles: {str_filename}")
     await loop.run_in_executor(
-        None, tile_generator._generate_tiles, str_filename, str_full_path
+        _bg_executor, tile_generator._generate_tiles, str_filename, str_full_path
     )
     # 안전장치 — threadsafe 마킹이 메인 루프 타이밍 이슈로 못 올 수 있어 한 번 더
     await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
@@ -101,7 +108,7 @@ async def _startup_validate_all() -> None:
             continue
         try:
             bool_valid = await loop.run_in_executor(
-                None, tile_generator.tiles_are_valid, str_filename, str_full_path
+                _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
             )
         except Exception as e:
             print(f"[tile_worker] validate error {str_filename}: {e}")

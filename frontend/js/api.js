@@ -33,31 +33,44 @@ function _isTokenExpiringSoon() {
     return Date.now() > expires - 120000;
 }
 
+// 동시 다중 호출 직렬화용 싱글톤 프라미스.
+// 여러 API 가 거의 동시에 /auth/refresh 를 찌르면 서버의 rotation 로직이 "reuse 공격"
+// 으로 오인해 전체 세션을 revoke 해버리는 레이스 컨디션이 있다. 하나가 진행 중이면
+// 나머지는 같은 프라미스를 공유해 한 번만 네트워크 호출이 나가도록 한다.
+let _refreshInFlight = null;
+
 async function _refreshTokenIfNeeded() {
+    // 이미 진행 중인 refresh 가 있으면 그걸 기다린다 (만료 체크 여부 무관).
+    if (_refreshInFlight) return _refreshInFlight;
     if (!_isTokenExpiringSoon()) return;
     const refreshToken = _getRefreshToken();
     if (!refreshToken) return;
 
-    try {
-        const res = await fetch(`${API_BASE}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ str_refresh_token: refreshToken }),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            _setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
-            if (data.dict_user) {
-                localStorage.setItem('user', JSON.stringify(data.dict_user));
+    _refreshInFlight = (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ str_refresh_token: refreshToken }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                _setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
+                if (data.dict_user) {
+                    localStorage.setItem('user', JSON.stringify(data.dict_user));
+                }
+            } else {
+                // Refresh 실패 → 로그인 페이지로
+                _clearTokens();
+                window.location.href = '/login.html';
             }
-        } else {
-            // Refresh 실패 → 로그인 페이지로
-            _clearTokens();
-            window.location.href = '/login.html';
+        } catch (e) {
+            console.error('Token refresh failed:', e);
+        } finally {
+            _refreshInFlight = null;
         }
-    } catch (e) {
-        console.error('Token refresh failed:', e);
-    }
+    })();
+    return _refreshInFlight;
 }
 
 // 타일/썸네일 URL 은 <img src> 로 직접 로드되어 _authFetch 를 거치지 않음 → 토큰

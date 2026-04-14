@@ -704,14 +704,25 @@ export class TileViewer {
 
     /**
      * 특정 scene 영역을 커버하는 fallback 타일을 캐시에서 찾는다.
-     * 다른 레벨의 타일 중 해당 scene 영역과 겹치는 것을 반환.
-     * 낮은 해상도(높은 레벨) → 높은 해상도(낮은 레벨) 순으로 탐색.
+     * 뷰어가 실제 사용하는 **stage level** 에서만 탐색한다.
+     * 비-stage 레벨은 디스크/캐시 어디에도 없을 가능성이 높아 검사가 무의미하다.
+     *
+     * 탐색 우선순위: 현재 stage 의 **바로 위 stage** 부터 coarser 방향, 이후
+     * finer 방향. 가장 인접한 해상도의 타일이 우선 fallback 으로 사용되어
+     * 흐림이 최소화된다.
      */
     _findFallbackTile(sceneX, sceneY, sceneSize, currentLevel) {
-        // 낮은 해상도 레벨부터 (빠르게 찾을 확률 높음)
+        const list_stages = this._getLevelStages();
+        // 중복 제거 후 오름차순 정렬
+        const list_unique = Array.from(new Set(list_stages)).sort((a, b) => a - b);
+        const int_idx = list_unique.indexOf(currentLevel);
         const levels = [];
-        for (let l = this.slideInfo.level_count - 1; l >= 0; l--) {
-            if (l !== currentLevel) levels.push(l);
+        if (int_idx >= 0) {
+            for (let i = int_idx + 1; i < list_unique.length; i++) levels.push(list_unique[i]);
+            for (let i = int_idx - 1; i >= 0; i--) levels.push(list_unique[i]);
+        } else {
+            // 안전망 — currentLevel 이 stage 가 아니면 그냥 모든 stage 검사
+            for (const l of list_unique) if (l !== currentLevel) levels.push(l);
         }
 
         for (const l of levels) {
@@ -770,7 +781,20 @@ export class TileViewer {
         const tyMax = Math.min(Math.ceil(levelH / TILE_SIZE) - 1, Math.ceil(viewBottom / tileSceneSize));
 
         // 로드 큐 초기화 (새 프레임마다 현재 뷰 기준으로 재구성)
+        // parent / child 분리 — parent 들을 strictly 먼저 다 큐잉한 뒤 child 큐잉.
+        // FIFO + MAX_CONCURRENT_LOADS 병렬이라 parent 가 제일 먼저 다 출발해
+        // child 보다 빨리 도착할 가능성이 높아진다.
         this._loadQueue = [];
+        const list_parent_tasks = [];
+        const list_child_tasks = [];
+        const set_parent_enqueued = new Set();
+
+        // 현재 stage 의 "바로 위 stage level" — fallback prefetch 대상
+        const list_stage_unique = Array.from(new Set(this._getLevelStages())).sort((a, b) => a - b);
+        const int_cur_stage_idx = list_stage_unique.indexOf(level);
+        const int_parent_stage_level = (int_cur_stage_idx >= 0 && int_cur_stage_idx + 1 < list_stage_unique.length)
+            ? list_stage_unique[int_cur_stage_idx + 1]
+            : -1;
 
         // ── Pass 1: fallback 먼저 그리기 (낮은 해상도 타일 스케일) ──
         // ── Pass 2: 현재 레벨 타일 그리기 (있으면 덮어씀) ──
@@ -835,13 +859,45 @@ export class TileViewer {
                         }
                     }
 
-                    // 현재 레벨 타일 로드 요청
+                    // 바로 위 stage level 부모 타일 프리페치 (parent 큐로 분리).
+                    // 부모 1 개는 여러 child 를 커버하므로 프레임별 dedup.
+                    const int_parent_level = int_parent_stage_level;
+                    if (int_parent_level >= 0) {
+                        const float_parent_ds = this.slideInfo.level_downsamples[int_parent_level];
+                        const float_parent_tile_scene = TILE_SIZE * float_parent_ds;
+                        const float_cx = sceneX + tileSceneSize / 2;
+                        const float_cy = sceneY + tileSceneSize / 2;
+                        const int_ptx = Math.floor(float_cx / float_parent_tile_scene);
+                        const int_pty = Math.floor(float_cy / float_parent_tile_scene);
+                        const str_parent_key = `${int_parent_level}/${int_ptx}/${int_pty}`;
+                        if (
+                            !set_parent_enqueued.has(str_parent_key) &&
+                            !this._tileCache.has(str_parent_key) &&
+                            !this._tileLoading.has(str_parent_key)
+                        ) {
+                            set_parent_enqueued.add(str_parent_key);
+                            list_parent_tasks.push({
+                                level: int_parent_level,
+                                tx: int_ptx,
+                                ty: int_pty,
+                                key: str_parent_key,
+                            });
+                        }
+                    }
+
+                    // 현재 레벨 child 는 별도 리스트에 모아둔다 — 모든 parent 이후에 큐잉
                     if (!this._tileLoading.has(key)) {
-                        this._loadQueue.push({ level, tx, ty, key });
+                        list_child_tasks.push({ level, tx, ty, key });
                     }
                 }
             }
         }
+
+        // 부모 stage 타일을 먼저, 그 다음 현재 레벨 child 타일을 큐에 넣는다.
+        // FIFO + 병렬 12 라 parent 들이 먼저 모두 출발해 child 보다 빠르게 도착,
+        // fallback 으로 즉시 사용 가능해진다.
+        for (const t of list_parent_tasks) this._loadQueue.push(t);
+        for (const t of list_child_tasks) this._loadQueue.push(t);
 
         // 큐에 있는 타일 로딩 시작
         this._processLoadQueue();
