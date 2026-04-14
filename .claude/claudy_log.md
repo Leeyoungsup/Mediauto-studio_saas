@@ -1,3 +1,23 @@
+### [2026-04-15 08:10]
+**Q:** 모바일/태블릿 (작은 화면) 에서 뷰어가 너무 작게 보이는 문제 — 좌/우 패널 합계 560px+ 고정폭 3컬럼 레이아웃
+**A:** `@media (max-width: 900px)` 미디어쿼리 추가. 좌/우 패널을 `position: absolute` drawer 로 전환 + `transform: translateX` 슬라이드 애니메이션. `body.panel-left-open` / `body.panel-right-open` 클래스로 열림 상태 관리. 메뉴바 좌측에 햄버거 토글(≡), 우측에 AI 패널 토글(□|) 버튼 추가(데스크톱에선 `.mobile-toggle { display: none }`). 배경 backdrop 클릭 + ESC 로 닫힘. `matchMedia` change 리스너로 브레이크포인트 역방향 이동 시 drawer 상태 자동 정리. 모바일 헤더·툴바 폭 축소(status/user-name 숨김, toolbar horizontal scroll), ≤480px 추가 규칙. 뷰어는 절대 위치 drawer 가 그 위로 겹치므로 `viewer-container` 실제 크기는 안 바뀜 → `_resizeCanvas` 재계산 불필요.
+**변경사항**: frontend/css/style.css, frontend/app.html, frontend/js/app.js
+
+### [2026-04-15 07:55]
+**Q:** 관리자 활동 로그 시각이 UTC 로 표시되는 문제 (9시간 차이)
+**A:** Motor 가 MongoDB 의 UTC datetime 을 naive 로 리턴 → FastAPI 가 timezone suffix 없이 직렬화 → JS `new Date()` 가 local(KST) 로 오해해 결과적으로 UTC 값을 KST 로 표시. `frontend/js/admin.js::fmtDate` 에서 ISO 문자열에 timezone suffix 가 없으면 `'Z'` 를 붙여 UTC 로 강제 파싱 후 `toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })` 로 변환. DB 마이그레이션 불필요 (저장은 이미 올바른 UTC).
+**변경사항**: frontend/js/admin.js
+
+### [2026-04-15 07:45]
+**Q:** 활동 로그 다이얼로그 닫기 버튼 눌러도 안 닫히는 문제 + 버튼이 안 보이는 문제
+**A:** (1) `admin.css .admin-dialog-wide` 기본 규칙에 `display: flex` 가 무조건 걸려있어서 `<dialog>` 기본의 `dialog:not([open]) { display: none }` 을 덮어씀 → `.close()` 호출해도 보이는 상태 유지. 기본 규칙에서 `display: flex` 제거하고 `[open]` 셀렉터에만 남김. (2) 닫기 버튼 클래스 `admin-btn-ghost`(흰색, 다크 헤더용)가 밝은 다이얼로그 헤더 `#f9fafb` 에서 안 보여서 `admin-btn-secondary` 로 교체.
+**변경사항**: frontend/admin.html, frontend/css/admin.css
+
+### [2026-04-15 07:30]
+**Q:** DB 스키마 MD 문서 작성 + README 업데이트
+**A:** `docs/DATABASE.md` 신규 작성 — 6개 컬렉션(users/sessions/audit_logs/ip_geo_cache/slides/folder_ai_configs) 전부 필드·타입·설명·인덱스·관계·마이그레이션·TTL·helper 흐름 정리. README 는 기능표(PD-Score/Precise-IHC/폴더 자동 AI/활동 로그 추가), 프로젝트 구조(geo.py/slide_store.py/auto_ai.py/admin.html/docs), RBAC 역할 매트릭스(technician 제거), API 엔드포인트(승인/활동 로그) 반영.
+**변경사항**: docs/DATABASE.md(신규), README.md
+
 ### [2026-04-14 23:30]
 **Q:** 타일 1024 전환, 폴더별 AI 제한, Cloudflare 캐시 오염, refresh 무한 retry 루프 수정
 **A:**

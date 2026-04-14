@@ -594,6 +594,35 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
+// ── 모바일 패널 토글 (≤900px) ──
+const $btnToggleLeft = $('#btn-toggle-left');
+const $btnToggleRight = $('#btn-toggle-right');
+const $mobileBackdrop = $('#mobile-backdrop');
+function _closeMobilePanels() {
+    document.body.classList.remove('panel-left-open');
+    document.body.classList.remove('panel-right-open');
+}
+function _toggleMobilePanel(str_side) {
+    const str_cls_open = str_side === 'left' ? 'panel-left-open' : 'panel-right-open';
+    const str_cls_other = str_side === 'left' ? 'panel-right-open' : 'panel-left-open';
+    const bool_is_open = document.body.classList.contains(str_cls_open);
+    document.body.classList.remove(str_cls_other);
+    document.body.classList.toggle(str_cls_open, !bool_is_open);
+}
+if ($btnToggleLeft) $btnToggleLeft.addEventListener('click', () => _toggleMobilePanel('left'));
+if ($btnToggleRight) $btnToggleRight.addEventListener('click', () => _toggleMobilePanel('right'));
+if ($mobileBackdrop) $mobileBackdrop.addEventListener('click', _closeMobilePanels);
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && (document.body.classList.contains('panel-left-open') ||
+                                document.body.classList.contains('panel-right-open'))) {
+        _closeMobilePanels();
+    }
+});
+// 브레이크포인트 넘어가면 drawer 상태 정리
+window.matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
+    if (!e.matches) _closeMobilePanels();
+});
+
 // ESC 등으로 drawMode가 변경될 때 버튼 동기화
 viewer.onDrawModeChange = (mode) => {
     Object.values(drawButtons).forEach(b => b.classList.remove('active'));

@@ -104,9 +104,15 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // ─── 유틸 ───
 function fmtDate(iso) {
     if (!iso) return '—';
-    const d = new Date(iso);
+    // 백엔드에서 naive datetime (timezone suffix 없음) 으로 올 수 있음 —
+    // DB 는 UTC 로 저장되므로 suffix 없으면 Z(UTC)로 간주해 파싱.
+    let str_iso = String(iso);
+    if (typeof iso === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(str_iso)) {
+        str_iso += 'Z';
+    }
+    const d = new Date(str_iso);
     if (isNaN(d)) return '—';
-    return d.toLocaleString('ko-KR', { hour12: false });
+    return d.toLocaleString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' });
 }
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({
