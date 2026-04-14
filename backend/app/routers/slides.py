@@ -15,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.auth import get_current_user, get_media_user
+from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
 from app import tile_generator
@@ -732,7 +732,7 @@ async def get_folder_config(path: str = Query("")):
     }
 
 
-@router.post("/folder-config")
+@router.post("/folder-config", dependencies=[Depends(require_not_viewer)])
 async def save_folder_config(
     path: str = Form(""),
     enabled: bool = Form(True),
@@ -792,7 +792,7 @@ async def save_folder_config(
     return {"status": "saved", "path": str_norm, "enabled": enabled, "tasks": list_clean}
 
 
-@router.delete("/folder-config")
+@router.delete("/folder-config", dependencies=[Depends(require_not_viewer)])
 async def delete_folder_config(path: str = Query("")):
     """폴더의 AI 자동 추론 설정 삭제."""
     if not is_db_connected():
@@ -816,7 +816,7 @@ async def close_slide(slide_id: str):
 
 # ── Annotation 저장/불러오기 ──
 
-@router.post("/{slide_id}/annotations/save")
+@router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
 async def save_annotations(slide_id: str, data: str = Form(...)):
     """슬라이드별 annotation JSON 저장"""
     info = slide_manager.get(slide_id)
@@ -830,7 +830,7 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
     return {"status": "saved", "count": len(json.loads(data))}
 
 
-@router.get("/{slide_id}/annotations/load")
+@router.get("/{slide_id}/annotations/load", dependencies=[Depends(require_not_viewer)])
 async def load_annotations(slide_id: str):
     """슬라이드별 annotation JSON 불러오기"""
     info = slide_manager.get(slide_id)

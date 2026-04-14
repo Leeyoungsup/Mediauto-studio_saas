@@ -82,6 +82,19 @@ async def connect_db():
                 f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
             )
 
+        # ── technician 역할 제거 마이그레이션 ──
+        # 제품 정책 변경: technician 역할 폐지. 기존 technician 사용자는
+        # viewer 로 downgrade (권한 확대 방지를 위해 doctor 가 아닌 viewer 로).
+        int_migrated_tech = (await _db.users.update_many(
+            {"str_role": "technician"},
+            {"$set": {"str_role": "viewer"}},
+        )).modified_count
+        if int_migrated_tech:
+            print(
+                f"[MeDICus SaaS] Role migration — "
+                f"technician → viewer: {int_migrated_tech}"
+            )
+
         _connected = True
         print(f"[MeDICus SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")
     except Exception as e:

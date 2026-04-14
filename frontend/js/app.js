@@ -81,6 +81,20 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
 };
 viewer.onViewChange = () => updateMinimap();
 
+// ── 마우스 좌표 오버레이 (씬 좌표 기준 px) ──
+const $mousePosOverlay = $('#mouse-pos-overlay');
+if ($mousePosOverlay) {
+    $canvas.addEventListener('mousemove', (e) => {
+        if (!currentSlideId) return;
+        const rect = $canvas.getBoundingClientRect();
+        const [sx, sy] = viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
+        $mousePosOverlay.textContent = `x: ${Math.round(sx)}px, y: ${Math.round(sy)}px`;
+    });
+    $canvas.addEventListener('mouseleave', () => {
+        // 값은 유지하되 살짝 흐리게
+    });
+}
+
 // ═══════════════════════════
 // 탭 전환
 // ═══════════════════════════
@@ -339,8 +353,15 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // 폴더별 AI 자동 분석 설정이 있으면 해당 task 만 활성화, 나머지는 disabled.
     _applyFolderAiRestrictions(currentBrowsePath);
 
+    // Viewer 역할은 AI / annotation 기능 전면 비활성. 폴더 제한보다 우선.
+    if (window.__currentUserRole === 'viewer') {
+        _applyViewerRoleRestrictions();
+    }
+
     // 뷰어 로드 (타일은 요청 시 즉석 생성 + 백그라운드 프리제네레이션)
     viewer.loadSlide(slideId, slideInfo);
+
+    if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
     // 미니맵
     loadMinimap(slideId);
@@ -416,6 +437,47 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     // VS-IHC — variant(ihc_membrane / ihc_nucleus) 단위. target_mpp 는 제한 안 함.
     $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
     $btnVsNucleus.disabled = !set_allowed.has('VS-IHC::ihc_nucleus');
+}
+
+// ═══════════════════════════
+// Viewer 역할 제한 — AI 기능 / annotation 전면 비활성
+// ═══════════════════════════
+function _applyViewerRoleRestrictions() {
+    document.body.classList.add('role-viewer');
+
+    // Annotation 그리기 도구 (상단 툴바)
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point'];
+    list_draw_btns.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = true;
+            el.classList.remove('active');
+            el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다';
+        }
+    });
+    // 그리기 모드가 켜져있었다면 해제
+    if (viewer && viewer.drawMode) viewer.setDrawMode(null);
+
+    // AI 분석 버튼 전체 비활성
+    const list_ai_btn_ids = [
+        'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
+        'btn-vs-membrane', 'btn-vs-nucleus',
+    ];
+    list_ai_btn_ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
+
+    // AI 입력 (tissue-type radio 등) 비활성
+    document.querySelectorAll(
+        'input[name="tissue-type"], input[name="pd-tissue-type"]'
+    ).forEach(el => { el.disabled = true; });
+
+    // Annotation 패널의 저장/불러오기/초기화 버튼
+    ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
 }
 
 // ═══════════════════════════
@@ -512,6 +574,25 @@ function setDrawMode(mode) {
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
+
+// ── UX 기능 설명 모달 ──
+const $btnUxHelp = $('#btn-ux-help');
+const $uxHelpModal = $('#ux-help-modal');
+const $uxHelpClose = $('#ux-help-close');
+function _openUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.add('visible'); }
+function _closeUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.remove('visible'); }
+if ($btnUxHelp) $btnUxHelp.addEventListener('click', _openUxHelp);
+if ($uxHelpClose) $uxHelpClose.addEventListener('click', _closeUxHelp);
+if ($uxHelpModal) {
+    $uxHelpModal.addEventListener('click', (e) => {
+        if (e.target === $uxHelpModal) _closeUxHelp();
+    });
+}
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $uxHelpModal && $uxHelpModal.classList.contains('visible')) {
+        _closeUxHelp();
+    }
+});
 
 // ESC 등으로 drawMode가 변경될 때 버튼 동기화
 viewer.onDrawModeChange = (mode) => {
@@ -2884,6 +2965,10 @@ $btnVsSplit?.addEventListener('click', () => {
         if (dict_me.str_role === 'admin') {
             const $linkAdmin = document.getElementById('link-admin');
             if ($linkAdmin) $linkAdmin.hidden = false;
+        }
+        window.__currentUserRole = dict_me.str_role || 'viewer';
+        if (window.__currentUserRole === 'viewer') {
+            _applyViewerRoleRestrictions();
         }
     } catch (_) {
         // 인증 실패 — api.js 가 리다이렉트 처리. 슬라이드/폴링 시작 생략.

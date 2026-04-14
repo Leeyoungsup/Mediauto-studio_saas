@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from fastapi.responses import JSONResponse, FileResponse
 
-from app.auth import get_current_user, get_media_user
+from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.priority import wait_if_viewer_busy
@@ -26,7 +26,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+# Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
+router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
 
 # Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
 # main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.

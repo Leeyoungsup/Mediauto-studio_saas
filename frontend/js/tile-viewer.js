@@ -413,7 +413,8 @@ export class TileViewer {
             }
 
             // 컨트롤포인트 드래그 감지 (선택된 annotation의 꼭짓점)
-            if (e.button === 0 && !this.drawMode) {
+            // Ctrl 누른 상태면 annotation 내부여도 pan 우선 (주석 이동 방지)
+            if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
                 const cp = this._hitControlPoint(cx, cy);
                 if (cp) {
                     this._dragControlPoint = cp;
@@ -603,9 +604,12 @@ export class TileViewer {
             }
         });
 
-        // ── 우클릭: 컨텍스트 메뉴 방지 ──
+        // ── 우클릭: 컨텍스트 메뉴 방지 + 그리기 모드 해제 ──
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            if (this.drawMode) {
+                this.setDrawMode(null);
+            }
         });
 
         // ── 더블클릭: annotation 센터링 ──

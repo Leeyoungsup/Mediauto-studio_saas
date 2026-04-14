@@ -208,6 +208,22 @@ async def get_media_user(request: Request) -> dict:
 
 
 # ── 역할 기반 접근 제어 (RBAC) 의존성 팩토리 ──
+def require_not_viewer(
+    dict_current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Viewer 역할은 거부 — AI 분석 / annotation 등 읽기 전용 초과 기능 차단.
+
+    Admin, Doctor 만 통과. Viewer 는 로그인은 되어 있지만 결과 쓰기/트리거 불가.
+    """
+    str_user_role = dict_current_user.get("str_role", "")
+    if str_user_role == UserRole.VIEWER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Viewer role cannot perform this action",
+        )
+    return dict_current_user
+
+
 def require_role(*list_allowed_roles: UserRole):
     """특정 역할만 접근 가능한 의존성 팩토리
 

@@ -24,7 +24,6 @@ _STR_PEPPER = settings.AUTH_PEPPER
 class UserRole(str, Enum):
     ADMIN = "admin"
     DOCTOR = "doctor"
-    TECHNICIAN = "technician"
     VIEWER = "viewer"
 
 

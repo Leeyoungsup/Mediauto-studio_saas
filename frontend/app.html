@@ -54,6 +54,7 @@
             <button id="btn-draw-point" class="toolbar-btn toggle-btn" title="Draw Point" disabled>
                 <img src="assets/Point.png" alt="Point">
             </button>
+            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">?</button>
         </div>
         <div class="toolbar-spacer"></div>
         <div class="toolbar-group">
@@ -94,6 +95,9 @@
 
             <canvas id="wsi-canvas"></canvas>
             <canvas id="overlay-canvas"></canvas>
+
+            <!-- 마우스 좌표 오버레이 -->
+            <div id="mouse-pos-overlay" class="mouse-pos-overlay" hidden>x: 0px, y: 0px</div>
 
             <!-- 미니맵 -->
             <div id="minimap-container" hidden>
@@ -262,6 +266,54 @@
             <div id="viz-confidence" class="viz-panel"></div>
         </div>
     </dialog>
+
+    <!-- UX 기능 설명 모달 -->
+    <div id="ux-help-modal" class="ux-help-modal" role="dialog" aria-modal="true" aria-labelledby="ux-help-title">
+        <div class="ux-help-card">
+            <div class="ux-help-header">
+                <div id="ux-help-title" class="ux-help-title">뷰어 UX 기능 가이드</div>
+                <button id="ux-help-close" class="ux-help-close" aria-label="닫기">&times;</button>
+            </div>
+
+            <div class="ux-help-section">마우스 / 패닝</div>
+            <ul>
+                <li>드래그: 화면 이동 (pan)</li>
+                <li>휠: 커서 위치 기준 줌 인/아웃</li>
+                <li>더블클릭: 해당 annotation 을 화면 중앙으로 이동</li>
+                <li>오른쪽 하단 좌표: 씬 좌표(px) 실시간 표시</li>
+            </ul>
+
+            <div class="ux-help-section">Annotation 그리기</div>
+            <ul>
+                <li>상단 툴바의 <b>Polygon / Rectangle / Point</b> 버튼으로 모드 진입 (활성 시 하이라이트)</li>
+                <li>Polygon: 마우스를 <b>누른 채 드래그</b>하여 자유 경로를 그리고, 떼면 완성 (최소 3점, 자기교차 시 취소)</li>
+                <li>Rectangle: 드래그로 사각형 그리기 (떼면 완성)</li>
+                <li>Point: 클릭 위치에 포인트 생성</li>
+                <li><b>그리기 중 오른쪽 클릭</b> 또는 <kbd>Esc</kbd> 로 모드 해제</li>
+            </ul>
+
+            <div class="ux-help-section">Annotation 편집</div>
+            <ul>
+                <li>클릭: 선택 / 빈 공간 클릭: 선택 해제</li>
+                <li>선택 후 꼭짓점 드래그: 모양 변형</li>
+                <li>내부 드래그: annotation 전체 이동</li>
+                <li><kbd>Ctrl</kbd> + 드래그: annotation 내부에서도 <b>화면 이동</b> (이동 대신 패닝)</li>
+                <li><kbd>Delete</kbd>: 선택한 annotation 삭제</li>
+            </ul>
+
+            <div class="ux-help-section">AI 결과 편집 (HE-Fit 등)</div>
+            <ul>
+                <li><kbd>Alt</kbd> + 클릭: 가장 가까운 셀 편집 팝업</li>
+                <li><kbd>Alt</kbd> + 드래그: 라쏘 선택 → 여러 셀 일괄 편집</li>
+            </ul>
+
+            <div class="ux-help-section">기타</div>
+            <ul>
+                <li><kbd>Esc</kbd>: 그리기/라쏘 모드 취소</li>
+                <li>우측 상단 <b>?</b> (AI Analysis): 모델별 설명</li>
+            </ul>
+        </div>
+    </div>
 
     <script type="module" src="js/app.js"></script>
 </body>
