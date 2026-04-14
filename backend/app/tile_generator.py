@@ -8,11 +8,15 @@
     ├── 1/{tx}_{ty}.jpeg
     ├── ...
     ├── thumbnail.jpeg
-    └── .complete           ← 생성 완료 마커
+    └── .complete           ← 생성 완료 마커 (JSON: 버전/ICC 해시/적용 여부)
 """
 
+import hashlib
+import json
+import shutil
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -24,6 +28,108 @@ from app.config import settings
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
 
 TILE_SIZE = settings.TILE_SIZE
+
+# .complete marker schema version. Bump when the on-disk tile format changes
+# in a way that requires regeneration.
+COMPLETE_MARKER_VERSION = 1
+COMPLETE_MARKER_NAME = ".complete"
+
+
+def _slide_icc_hash(slide) -> Optional[str]:
+    """슬라이드의 ICC 프로파일 바이트 md5 해시. 프로파일이 없거나 읽기 실패 시 None."""
+    try:
+        obj_profile = getattr(slide, "color_profile", None)
+        if obj_profile is None:
+            return None
+        if hasattr(obj_profile, "tobytes"):
+            return hashlib.md5(obj_profile.tobytes()).hexdigest()
+        # Fallback: description 기반 (재현 가능성 보장은 약하지만 없는 것보단 낫다)
+        from PIL import ImageCms
+        str_desc = ImageCms.getProfileDescription(obj_profile) or ""
+        return hashlib.md5(("desc:" + str_desc).encode("utf-8")).hexdigest()
+    except Exception as e:
+        print(f"[tile_generator] icc hash 계산 실패: {e}")
+        return None
+
+
+def read_complete_marker(filename: str) -> Optional[dict]:
+    """마커 JSON 을 파싱해 반환. 파일 없음/비JSON(legacy touch)/파싱 실패 시 None."""
+    path = get_tiles_dir(filename) / COMPLETE_MARKER_NAME
+    if not path.exists():
+        return None
+    try:
+        str_text = path.read_text(encoding="utf-8").strip()
+        if not str_text:
+            return None  # legacy touch file (size 0)
+        return json.loads(str_text)
+    except Exception:
+        return None
+
+
+def _write_complete_marker(
+    tiles_dir: Path,
+    str_icc_hash: Optional[str],
+    bool_icc_applied: bool,
+) -> None:
+    """마커 JSON 작성. _generate_tiles 완료 시점에서만 호출."""
+    dict_marker = {
+        "version": COMPLETE_MARKER_VERSION,
+        "icc_hash": str_icc_hash,
+        "icc_applied": bool(bool_icc_applied),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (tiles_dir / COMPLETE_MARKER_NAME).write_text(
+        json.dumps(dict_marker, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def tiles_are_valid(filename: str, file_path: str) -> bool:
+    """디스크 타일이 현재 슬라이드 상태와 일치하는지 판정.
+
+    - 마커 없음 / 레거시 touch 파일 / 버전 불일치 → False (재생성 필요)
+    - 마커의 icc_hash 가 현재 슬라이드의 ICC 해시와 다름 → False
+    - 마커 icc_applied=False 인데 현재 슬라이드에 ICC 프로파일이 있음 → False
+    - 슬라이드 열기 실패 → True (기존 타일 보존; 호출측이 판단)
+
+    주의: 개별 타일 파일 존재 여부는 검사하지 않음. 마커가 있으면 _generate_tiles 가
+    완주했다는 뜻이고, 개별 파일 무결성은 외부에서 챙겨야 함.
+    """
+    tiles_dir = get_tiles_dir(filename)
+    if not tiles_dir.exists():
+        return False
+    dict_marker = read_complete_marker(filename)
+    if dict_marker is None:
+        return False
+    if dict_marker.get("version") != COMPLETE_MARKER_VERSION:
+        return False
+    try:
+        slide = openslide.OpenSlide(file_path)
+    except Exception as e:
+        print(f"[tile_generator] tiles_are_valid: OpenSlide 실패 ({filename}): {e}")
+        return True  # 판단 불가 — 기존 타일 유지
+    try:
+        str_current_hash = _slide_icc_hash(slide)
+    finally:
+        try:
+            slide.close()
+        except Exception:
+            pass
+
+    str_marker_hash = dict_marker.get("icc_hash")
+    if str_marker_hash != str_current_hash:
+        return False
+    # 해시는 같은데 이전 생성 시 ICC 적용이 실패했던 경우: 재시도해도 같은 환경이라
+    # 보통 똑같이 실패한다. 무한 재생성 루프 방지를 위해 valid 로 간주한다.
+    # 환경(PIL/openslide)을 바꾼 뒤 수동 재생성을 원하면 tile dir 를 지우면 된다.
+    return True
+
+
+def invalidate_tiles(filename: str) -> None:
+    """타일 디렉토리 통째 삭제 — 재생성 전 호출."""
+    tiles_dir = get_tiles_dir(filename)
+    if tiles_dir.exists():
+        shutil.rmtree(tiles_dir, ignore_errors=True)
 
 
 # ── 진행 상태 ──
@@ -113,6 +219,9 @@ def _generate_tiles(filename: str, file_path: str):
         slide = openslide.OpenSlide(file_path)
 
         # ICC profile → sRGB transform (있으면 픽셀 한 번 변환 후 plain JPEG 저장)
+        # 마커에 기록할 해시는 buildTransform 성공 여부와 무관하게 "소스에 존재한 프로파일"
+        # 기준으로 계산한다. 그래야 환경이 바뀌었을 때 재생성 트리거가 정확히 걸린다.
+        str_icc_hash = _slide_icc_hash(slide)
         icc_transform = None
         try:
             obj_profile = getattr(slide, "color_profile", None)
@@ -122,6 +231,8 @@ def _generate_tiles(filename: str, file_path: str):
                 icc_transform = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
         except Exception as e:
             print(f"[tile_generator] ICC transform 실패 ({filename}): {e}")
+        if str_icc_hash is not None and icc_transform is None:
+            print(f"[tile_generator] WARN {filename}: ICC 프로파일이 존재하지만 transform 빌드 실패 — ICC 미적용 상태로 타일 생성")
 
         def _to_srgb(img_rgb):
             if icc_transform is None:
@@ -189,8 +300,12 @@ def _generate_tiles(filename: str, file_path: str):
                         )
                     progress.generated_tiles += 1
 
-        # 완료 마커
-        (tiles_dir / ".complete").touch()
+        # 완료 마커 — 현재 슬라이드의 ICC 해시 + 실제 적용 여부 기록
+        _write_complete_marker(
+            tiles_dir,
+            str_icc_hash=str_icc_hash,
+            bool_icc_applied=(icc_transform is not None),
+        )
         progress.status = "completed"
         slide.close()
 
