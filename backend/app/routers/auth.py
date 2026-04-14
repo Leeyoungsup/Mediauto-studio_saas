@@ -351,6 +351,9 @@ async def refresh_token(body: RefreshRequest, request: Request):
         dt_rotated = dict_session.get("dt_rotated_at")
         str_replaced_by = dict_session.get("str_replaced_by")
         dt_now = datetime.now(timezone.utc)
+        # Mongo 에서 읽은 datetime 은 naive 로 올 수 있어 UTC 로 강제
+        if dt_rotated is not None and dt_rotated.tzinfo is None:
+            dt_rotated = dt_rotated.replace(tzinfo=timezone.utc)
         bool_in_grace = (
             dt_rotated is not None
             and str_replaced_by

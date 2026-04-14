@@ -57,6 +57,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import connect_db, disconnect_db
+from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, startup 에서 affinity 적용
 from app.routers import slides, tiles, ai, auth, users
 from app import auto_ai
 from app import tile_worker
@@ -65,6 +66,10 @@ from app import tile_worker
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 리소스 관리"""
+    # CPU 파티셔닝 적용 — 메인 프로세스 affinity 를 AI cores 로 설정.
+    # viewer / bg pool 은 자체 initializer 로 자기 cores 를 override.
+    cpu_layout.setup_process_affinity()
+
     # MongoDB 연결
     await connect_db()
 
