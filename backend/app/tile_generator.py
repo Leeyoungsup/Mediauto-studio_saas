@@ -214,6 +214,7 @@ def _generate_tiles(filename: str, file_path: str):
         _progress[filename] = progress
 
     tiles_dir = get_tiles_dir(filename)
+    bool_completed = False
 
     try:
         slide = openslide.OpenSlide(file_path)
@@ -306,6 +307,7 @@ def _generate_tiles(filename: str, file_path: str):
             str_icc_hash=str_icc_hash,
             bool_icc_applied=(icc_transform is not None),
         )
+        bool_completed = True
         progress.status = "completed"
         slide.close()
 
@@ -320,6 +322,18 @@ def _generate_tiles(filename: str, file_path: str):
         progress.status = "error"
         progress.error = str(e)
     finally:
+        # 부분 실패 정리 — 마커가 쓰이기 전에 예외가 발생했다면 .complete 없는
+        # 불완전 타일 디렉토리가 남는다. 다음 실행에서 tiles_are_valid 가
+        # False 를 내리고 invalidate_tiles 가 불릴 테지만, 혼재 상태에서
+        # 뷰어가 404/깨진 타일을 보는 윈도우를 줄이기 위해 여기서 바로 지운다.
+        # thumbnail 은 유용하지만 이후 재생성 시 어차피 overwrite 되므로 함께 삭제.
+        if not bool_completed and tiles_dir.exists():
+            try:
+                shutil.rmtree(tiles_dir, ignore_errors=True)
+                print(f"[tile_generator] 부분 실패 → {tiles_dir} 정리됨")
+            except Exception as exc_cleanup:
+                print(f"[tile_generator] cleanup 실패 ({filename}): {exc_cleanup}")
+
         # 완료 후 일정 시간 뒤 progress 정리
         def _cleanup():
             time.sleep(60)

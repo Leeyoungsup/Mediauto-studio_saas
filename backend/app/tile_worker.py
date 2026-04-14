@@ -22,8 +22,11 @@ from app.cpu_layout import bg_executor as _bg_executor
 
 
 SCAN_INTERVAL_SECONDS = 20
+# janitor 실행 주기 — 스캔 카운트 기준. 20s * 15 = 5분마다 한 번.
+JANITOR_EVERY_N_SCANS = 15
 
 _worker_task: Optional[asyncio.Task] = None
+_int_scan_count = 0
 
 
 async def _process_one_slide(dict_slide: dict) -> bool:
@@ -148,9 +151,14 @@ async def _worker_loop() -> None:
     except Exception as e:
         import traceback
         print(f"[tile_worker] startup validation error: {e}\n{traceback.format_exc()}")
+    global _int_scan_count
     while True:
         try:
             await _scan_once()
+            _int_scan_count += 1
+            if _int_scan_count % JANITOR_EVERY_N_SCANS == 0:
+                from app import tile_janitor
+                await tile_janitor.run_janitor_once()
         except asyncio.CancelledError:
             print("[tile_worker] cancelled")
             raise

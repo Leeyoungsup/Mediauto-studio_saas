@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import (
@@ -312,7 +313,17 @@ async def login(body: LoginRequest, request: Request):
 # ── 토큰 갱신 ──
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(body: RefreshRequest, request: Request):
-    """Refresh Token → 새 Access + Refresh Token"""
+    """Refresh Token → 새 Access + Refresh Token (원자적 CAS 기반 rotation)
+
+    동시 호출 레이스 방지:
+        과거엔 세션을 먼저 read → 검사 → write 하는 방식이라 두 요청이 동시에
+        같은 토큰으로 들어오면 둘 다 "active" 라고 판정하고 각자 rotate 해
+        중복 세션이 생기거나 replacement 포인터가 덮어쓰였다. 지금은
+        `find_one_and_update` 로 CAS (filter: `bool_is_revoked: False`) 를 걸어
+        한 요청만 rotation 을 획득하게 한다. 경합에서 진 요청은 자연스럽게
+        "이미 revoked" 분기로 떨어져 grace window 검사를 거쳐 동일한 새 토큰을
+        돌려받는다.
+    """
     dict_payload = decode_token(body.str_refresh_token)
     if dict_payload is None or dict_payload.get("type") != TOKEN_TYPE_REFRESH:
         raise HTTPException(
@@ -323,7 +334,63 @@ async def refresh_token(body: RefreshRequest, request: Request):
     str_user_id = dict_payload.get("sub")
     db = get_db()
 
-    # 세션을 토큰으로 단건 조회 (revoked 여부 무관). 상태 분기를 아래에서 처리.
+    # 사용자 정보 먼저 조회 (비활성 사용자면 rotation 자체를 하지 않음).
+    dict_user = await db.users.find_one(
+        {"_id": ObjectId(str_user_id)},
+        {"str_hashed_password": 0},
+    )
+    if not dict_user or not dict_user.get("bool_is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or deactivated",
+        )
+
+    # 새 토큰 미리 생성 — CAS 에서 replaced_by 로 기록할 필요 때문.
+    str_new_access = create_access_token(str_user_id, dict_user["str_role"])
+    str_new_refresh, dt_new_expires = create_refresh_token(str_user_id)
+    dt_now = datetime.now(timezone.utc)
+
+    # ── 원자적 CAS: active 세션을 revoked 로 뒤집으면서 replacement 포인터 기록 ──
+    dict_claimed = await db.sessions.find_one_and_update(
+        {
+            "str_refresh_token": body.str_refresh_token,
+            "bool_is_revoked": False,
+        },
+        {"$set": {
+            "bool_is_revoked": True,
+            "dt_rotated_at": dt_now,
+            "str_replaced_by": str_new_refresh,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if dict_claimed is not None:
+        # CAS 승리 — 이 요청이 rotation 을 획득. 새 세션 insert 후 토큰 반환.
+        await db.sessions.insert_one({
+            "str_user_id": str_user_id,
+            "str_refresh_token": str_new_refresh,
+            "str_ip_address": get_client_ip(request),
+            "str_user_agent": request.headers.get("User-Agent", ""),
+            "dt_created_at": dt_now,
+            "dt_expires_at": dt_new_expires,
+            "bool_is_revoked": False,
+        })
+
+        return TokenResponse(
+            str_access_token=str_new_access,
+            str_refresh_token=str_new_refresh,
+            int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            dict_user={
+                "str_id": str_user_id,
+                "str_login_id": dict_user["str_login_id"],
+                "str_name": dict_user["str_name"],
+                "str_role": dict_user["str_role"],
+                "str_department": dict_user.get("str_department", ""),
+            },
+        )
+
+    # ── CAS 실패 경로: 토큰이 존재하지 않거나 이미 revoked ──
+    # 세션을 revoked 여부 무관하게 단건 조회.
     dict_session = await db.sessions.find_one({
         "str_refresh_token": body.str_refresh_token,
     })
@@ -346,114 +413,53 @@ async def refresh_token(body: RefreshRequest, request: Request):
             detail="Token reuse detected. All sessions revoked.",
         )
 
-    # 세션이 이미 revoked 인 경우: 방금 rotation 이 일어난 것인지(유예 내) 검사.
-    if dict_session.get("bool_is_revoked"):
-        dt_rotated = dict_session.get("dt_rotated_at")
-        str_replaced_by = dict_session.get("str_replaced_by")
-        dt_now = datetime.now(timezone.utc)
-        # Mongo 에서 읽은 datetime 은 naive 로 올 수 있어 UTC 로 강제
-        if dt_rotated is not None and dt_rotated.tzinfo is None:
-            dt_rotated = dt_rotated.replace(tzinfo=timezone.utc)
-        bool_in_grace = (
-            dt_rotated is not None
-            and str_replaced_by
-            and (dt_now - dt_rotated).total_seconds() < REFRESH_ROTATION_GRACE_SECONDS
-        )
-        if bool_in_grace:
-            dict_repl = await db.sessions.find_one({
-                "str_refresh_token": str_replaced_by,
-                "bool_is_revoked": False,
-            })
-            if dict_repl is not None:
-                # 병렬 호출 레이스 — replacement 토큰을 그대로 돌려주고
-                # 새 access_token 만 재발급한다. rotation 을 연쇄로 일으키지 않음.
-                dict_user = await db.users.find_one(
-                    {"_id": ObjectId(str_user_id)},
-                    {"str_hashed_password": 0},
-                )
-                if not dict_user or not dict_user.get("bool_is_active", False):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="User not found or deactivated",
-                    )
-                str_new_access = create_access_token(str_user_id, dict_user["str_role"])
-                return TokenResponse(
-                    str_access_token=str_new_access,
-                    str_refresh_token=str_replaced_by,
-                    int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-                    dict_user={
-                        "str_id": str_user_id,
-                        "str_login_id": dict_user["str_login_id"],
-                        "str_name": dict_user["str_name"],
-                        "str_role": dict_user["str_role"],
-                        "str_department": dict_user.get("str_department", ""),
-                    },
-                )
-        # 유예 밖 또는 replacement 사라짐 → 진짜 reuse 공격으로 간주.
-        await db.sessions.update_many(
-            {"str_user_id": str_user_id},
-            {"$set": {"bool_is_revoked": True}},
-        )
-        await log_audit_event(
-            str_action="security.token_reuse_detected",
-            str_user_id=str_user_id,
-            str_detail="Refresh token reuse outside rotation grace window",
-            str_ip_address=get_client_ip(request),
-            str_user_agent=request.headers.get("User-Agent", ""),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token reuse detected. All sessions revoked.",
-        )
-
-    # 정상 경로: 아직 active 한 refresh token → rotation 진행.
-    # 사용자 정보 먼저 조회 (비활성 사용자면 rotation 자체를 하지 않음).
-    dict_user = await db.users.find_one(
-        {"_id": ObjectId(str_user_id)},
-        {"str_hashed_password": 0},
+    # 세션은 존재하지만 이미 revoked: (a) 동시 호출에서 내가 진 경우,
+    # (b) 레거시 grace window 내 slow client 호출, (c) 진짜 reuse.
+    dt_rotated = dict_session.get("dt_rotated_at")
+    str_replaced_by = dict_session.get("str_replaced_by")
+    if dt_rotated is not None and dt_rotated.tzinfo is None:
+        dt_rotated = dt_rotated.replace(tzinfo=timezone.utc)
+    bool_in_grace = (
+        dt_rotated is not None
+        and str_replaced_by
+        and (dt_now - dt_rotated).total_seconds() < REFRESH_ROTATION_GRACE_SECONDS
     )
-    if not dict_user or not dict_user.get("bool_is_active", False):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or deactivated",
-        )
-
-    # 새 토큰 발급
-    str_new_access = create_access_token(str_user_id, dict_user["str_role"])
-    str_new_refresh, dt_new_expires = create_refresh_token(str_user_id)
-
-    # 이전 refresh token 폐기 + replacement 포인터 기록 (grace window 조회용)
-    dt_now = datetime.now(timezone.utc)
-    await db.sessions.update_one(
-        {"_id": dict_session["_id"]},
-        {"$set": {
-            "bool_is_revoked": True,
-            "dt_rotated_at": dt_now,
-            "str_replaced_by": str_new_refresh,
-        }},
+    if bool_in_grace:
+        dict_repl = await db.sessions.find_one({
+            "str_refresh_token": str_replaced_by,
+            "bool_is_revoked": False,
+        })
+        if dict_repl is not None:
+            # replacement 세션이 살아있음 → 새 access_token 만 재발급하고
+            # 동일한 refresh_token 을 그대로 돌려준다. rotation 은 연쇄하지 않음.
+            str_grace_access = create_access_token(str_user_id, dict_user["str_role"])
+            return TokenResponse(
+                str_access_token=str_grace_access,
+                str_refresh_token=str_replaced_by,
+                int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                dict_user={
+                    "str_id": str_user_id,
+                    "str_login_id": dict_user["str_login_id"],
+                    "str_name": dict_user["str_name"],
+                    "str_role": dict_user["str_role"],
+                    "str_department": dict_user.get("str_department", ""),
+                },
+            )
+    # 유예 밖 또는 replacement 사라짐 → 진짜 reuse 공격으로 간주.
+    await db.sessions.update_many(
+        {"str_user_id": str_user_id},
+        {"$set": {"bool_is_revoked": True}},
     )
-
-    await db.sessions.insert_one({
-        "str_user_id": str_user_id,
-        "str_refresh_token": str_new_refresh,
-        "str_ip_address": get_client_ip(request),
-        "str_user_agent": request.headers.get("User-Agent", ""),
-        "dt_created_at": dt_now,
-        "dt_expires_at": dt_new_expires,
-        "bool_is_revoked": False,
-    })
-
-    return TokenResponse(
-        str_access_token=str_new_access,
-        str_refresh_token=str_new_refresh,
-        int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        dict_user={
-            "str_id": str_user_id,
-            "str_login_id": dict_user["str_login_id"],
-            "str_name": dict_user["str_name"],
-            "str_role": dict_user["str_role"],
-            "str_department": dict_user.get("str_department", ""),
-        },
+    await log_audit_event(
+        str_action="security.token_reuse_detected",
+        str_user_id=str_user_id,
+        str_detail="Refresh token reuse outside rotation grace window",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token reuse detected. All sessions revoked.",
     )
 
 

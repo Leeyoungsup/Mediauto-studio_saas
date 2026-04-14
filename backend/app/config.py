@@ -90,6 +90,15 @@ class Settings:
     TILE_FORMAT: str = "JPEG"  # JPEG이 PNG보다 빠르고 작음
     TILE_QUALITY: int = 85
 
+    # 타일 디스크 캐시 쿼터 (바이트, 기본 50 GB). 0 이하이면 janitor 비활성화.
+    # janitor 는 주기적으로 TILES_DIR 총량을 검사하고, 쿼터를 초과하면 LRU
+    # 기준으로 오래된 슬라이드 타일 디렉토리를 삭제 + DB 플래그 리셋한다.
+    # 현재 slide_manager 에 열려 있는 (활성) 슬라이드는 보호된다.
+    TILE_CACHE_QUOTA_BYTES: int = int(os.environ.get(
+        "TILE_CACHE_QUOTA_BYTES",
+        str(50 * 1024 * 1024 * 1024),
+    ))
+
     # 청크 업로드 설정
     CHUNK_SIZE: int = 5 * 1024 * 1024  # 5MB
 

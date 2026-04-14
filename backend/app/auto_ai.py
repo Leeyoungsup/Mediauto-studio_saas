@@ -53,21 +53,30 @@ def upload_exit() -> None:
         _upload_in_progress = max(0, _upload_in_progress - 1)
 
 
+def _is_activity_idle_nolock() -> bool:
+    """_activity_lock 이 이미 잡힌 상태에서만 호출 — 업로드/사용자활동 조건만 검사."""
+    if _upload_in_progress > 0:
+        return False
+    if (time.monotonic() - _last_ai_activity_ts) < IDLE_THRESHOLD_SECONDS:
+        return False
+    return True
+
+
 def is_system_idle() -> bool:
-    """시스템이 자동 추론을 시작해도 되는지 판단.
+    """시스템이 자동 추론을 시작해도 되는지 판단 (비원자적 pre-check).
 
     조건 (모두 만족해야 idle):
       1. 진행 중인 업로드 없음
       2. 마지막 사용자 AI 활동 이후 IDLE_THRESHOLD_SECONDS 경과
       3. 현재 실행 중(queued/running) 인 AI task 없음
+
+    주의: 이 함수는 스냅샷 체크일 뿐, 체크와 실제 task 등록 사이에 사용자 task 가
+    끼어들 수 있다. 실제 reservation 은 check_idle_and_reserve() 로 원자적으로 수행.
     """
     with _activity_lock:
-        if _upload_in_progress > 0:
-            return False
-        if (time.monotonic() - _last_ai_activity_ts) < IDLE_THRESHOLD_SECONDS:
+        if not _is_activity_idle_nolock():
             return False
 
-    # 실행 중 task 확인 (ai 라우터 import 는 순환 방지 위해 지연)
     try:
         from app.routers import ai as ai_router
         with ai_router._tasks_lock:
@@ -78,6 +87,33 @@ def is_system_idle() -> bool:
         pass
 
     return True
+
+
+def check_idle_and_reserve(str_task_id: str, dict_task_initial: dict) -> bool:
+    """원자적 "idle 확인 + task slot 예약".
+
+    _tasks_lock 과 _activity_lock 을 동시에 잡은 상태에서 모든 idle 조건을 검사하고
+    성공 시 즉시 _tasks 에 예약 레코드를 삽입한다. 이렇게 해야 사용자 엔드포인트가
+    같은 _tasks_lock 으로 task 를 insert 하기 전/후로 race 가 발생하지 않는다.
+
+    Lock 순서: _tasks_lock → _activity_lock (사용자 경로는 _tasks_lock 만 잡으므로
+    데드락 위험 없음; _activity_lock 쪽에서 _tasks_lock 을 역순으로 잡는 경로가
+    존재하지 않는다).
+    """
+    try:
+        from app.routers import ai as ai_router
+    except Exception:
+        return False
+
+    with ai_router._tasks_lock:
+        for dict_task in ai_router._tasks.values():
+            if dict_task.get("status") in ("queued", "running"):
+                return False
+        with _activity_lock:
+            if not _is_activity_idle_nolock():
+                return False
+        ai_router._tasks[str_task_id] = dict_task_initial
+        return True
 
 
 # ═══════════════════════════
@@ -106,17 +142,20 @@ async def _run_auto_inference(
             return
 
     str_task_id = f"auto_{uuid.uuid4().hex[:10]}"
-    with ai_router._tasks_lock:
-        ai_router._tasks[str_task_id] = {
-            "status": "queued",
-            "progress": 0,
-            "result": None,
-            "error": None,
-            "status_msg": "",
-            "slide_filename": str_filename,
-            "model": str_model,
-            "variant": str_variant,
-        }
+    dict_initial = {
+        "status": "queued",
+        "progress": 0,
+        "result": None,
+        "error": None,
+        "status_msg": "",
+        "slide_filename": str_filename,
+        "model": str_model,
+        "variant": str_variant,
+    }
+    # 원자적 idle 재확인 + 예약. 사용자 task 가 끼어들었으면 이 사이클 즉시 abort.
+    if not check_idle_and_reserve(str_task_id, dict_initial):
+        print(f"[auto_ai] reserve aborted (activity detected) — skip {str_filename}")
+        return
 
     def _dispatch() -> None:
         if str_model == "HE-Fit":

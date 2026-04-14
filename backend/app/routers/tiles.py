@@ -32,6 +32,26 @@ router = APIRouter()
 TILE_SIZE = settings.TILE_SIZE
 
 
+# ── LRU 접근 시각 touch (janitor 용) ──
+# tile 서빙 시 `.complete` 마커의 mtime 을 갱신해 tile_janitor 가 LRU 판단에
+# 사용한다. per-slide 60s throttle — utime 호출을 최소화.
+_dict_access_touch: dict[str, float] = {}
+_ACCESS_TOUCH_THROTTLE_SEC = 60.0
+
+
+def _touch_slide_access(slide_id: str, tiles_root: Path) -> None:
+    float_now = time.time()
+    if _dict_access_touch.get(slide_id, 0.0) + _ACCESS_TOUCH_THROTTLE_SEC > float_now:
+        return
+    _dict_access_touch[slide_id] = float_now
+    try:
+        marker = tiles_root / ".complete"
+        if marker.exists():
+            os.utime(marker, None)
+    except Exception:
+        pass
+
+
 # ── Thread-local OpenSlide 핸들 풀 ──
 # app.thread_slide_pool.get_thread_slide 을 통해 generation 검증 + LRU eviction
 # 이 적용된 핸들을 얻는다. SlideManager.close() 시 generation 이 bump 되어
@@ -72,7 +92,9 @@ async def get_tile(
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
 
     filename = Path(info.file_path).name
-    tile_path = get_tiles_dir(filename) / str(level) / f"{tile_x}_{tile_y}.jpeg"
+    tiles_root = get_tiles_dir(filename)
+    tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
+    _touch_slide_access(slide_id, tiles_root)
 
     # 1) 프리제네레이트된 타일이 있으면 바로 반환
     if tile_path.exists():

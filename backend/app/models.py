@@ -37,7 +37,7 @@ class ApprovalStatus(str, Enum):
 # ── 비밀번호 해싱 ──
 def hash_password(str_plain_password: str) -> str:
     """bcrypt + pepper 해싱"""
-    str_peppered = str_plain_password + PEPPER
+    str_peppered = str_plain_password + _STR_PEPPER
     bytes_hashed = bcrypt.hashpw(
         str_peppered.encode("utf-8"),
         bcrypt.gensalt(rounds=BCRYPT_COST),
@@ -47,7 +47,7 @@ def hash_password(str_plain_password: str) -> str:
 
 def verify_password(str_plain_password: str, str_hashed_password: str) -> bool:
     """bcrypt + pepper 검증"""
-    str_peppered = str_plain_password + PEPPER
+    str_peppered = str_plain_password + _STR_PEPPER
     return bcrypt.checkpw(
         str_peppered.encode("utf-8"),
         str_hashed_password.encode("utf-8"),
