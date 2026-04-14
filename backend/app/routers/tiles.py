@@ -4,6 +4,7 @@
 """
 
 import io
+import asyncio
 import hashlib
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,6 +14,7 @@ from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.tile_generator import get_tiles_dir
+from app.priority import notify_viewer_activity
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -44,6 +46,9 @@ async def get_tile(
     """
     타일 반환: 디스크에 있으면 정적 서빙, 없으면 즉석 생성 + 저장.
     """
+    # 뷰어 활동 신호 — AI 워커가 이 동안 양보한다
+    notify_viewer_activity()
+
     info = _find_and_open(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -67,21 +72,20 @@ async def get_tile(
     x = int(tile_x * TILE_SIZE * downsample)
     y = int(tile_y * TILE_SIZE * downsample)
 
-    try:
+    def _render_and_save() -> bytes:
         tile = info.slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
-        tile_rgb = tile.convert("RGB")
-
-        # 디스크에 저장 (다음 요청부터는 정적 서빙)
+        tile_rgb = info.apply_icc(tile.convert("RGB"))
         tile_path.parent.mkdir(parents=True, exist_ok=True)
         tile_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
-
-        # 응답
         buf = io.BytesIO()
         tile_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
-        buf.seek(0)
+        return buf.getvalue()
 
+    try:
+        # 블로킹 디코딩/인코딩은 스레드로 — 이벤트 루프 차단 방지
+        content = await asyncio.to_thread(_render_and_save)
         return Response(
-            content=buf.getvalue(),
+            content=content,
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=604800"},
         )

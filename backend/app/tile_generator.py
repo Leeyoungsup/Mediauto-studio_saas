@@ -111,6 +111,26 @@ def _generate_tiles(filename: str, file_path: str):
     try:
         slide = openslide.OpenSlide(file_path)
 
+        # ICC profile → sRGB transform (있으면 픽셀 한 번 변환 후 plain JPEG 저장)
+        icc_transform = None
+        try:
+            obj_profile = getattr(slide, "color_profile", None)
+            if obj_profile is not None:
+                from PIL import ImageCms
+                obj_srgb = ImageCms.createProfile("sRGB")
+                icc_transform = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
+        except Exception as e:
+            print(f"[tile_generator] ICC transform 실패 ({filename}): {e}")
+
+        def _to_srgb(img_rgb):
+            if icc_transform is None:
+                return img_rgb
+            try:
+                from PIL import ImageCms
+                return ImageCms.applyTransform(img_rgb, icc_transform)
+            except Exception:
+                return img_rgb
+
         # level 0만 프리제네레이션 (나머지 레벨은 타일 수가 적어 즉석 생성으로 충분)
         lw, lh = slide.level_dimensions[0]
         ds = slide.level_downsamples[0]
@@ -126,7 +146,7 @@ def _generate_tiles(filename: str, file_path: str):
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumb_path.exists():
             thumb = slide.get_thumbnail((300, 300))
-            thumb.convert("RGB").save(str(thumb_path), "JPEG", quality=85)
+            _to_srgb(thumb.convert("RGB")).save(str(thumb_path), "JPEG", quality=85)
 
         # level 0 타일 생성
         level_dir = tiles_dir / "0"
@@ -139,7 +159,9 @@ def _generate_tiles(filename: str, file_path: str):
                     x = int(tx * TILE_SIZE * ds)
                     y = int(ty * TILE_SIZE * ds)
                     tile = slide.read_region((x, y), 0, (TILE_SIZE, TILE_SIZE))
-                    tile.convert("RGB").save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
+                    _to_srgb(tile.convert("RGB")).save(
+                        str(tile_path), "JPEG", quality=settings.TILE_QUALITY
+                    )
 
                 progress.generated_tiles += 1
 

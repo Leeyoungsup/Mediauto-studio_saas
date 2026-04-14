@@ -60,6 +60,22 @@ async function _refreshTokenIfNeeded() {
     }
 }
 
+// 타일/썸네일 URL 은 <img src> 로 직접 로드되어 _authFetch 를 거치지 않음 → 토큰
+// 사전 갱신이 트리거되지 않는다. 백그라운드 타이머로 30초마다 만료 임박 여부를
+// 확인해 미리 refresh 해 둔다.
+let _refreshTimer = null;
+function _startBackgroundTokenRefresh() {
+    if (_refreshTimer) return;
+    _refreshTimer = setInterval(() => {
+        if (_getAccessToken() && _getRefreshToken()) {
+            _refreshTokenIfNeeded();
+        }
+    }, 30000);
+}
+if (typeof window !== 'undefined') {
+    _startBackgroundTokenRefresh();
+}
+
 function _authHeaders() {
     return { 'Authorization': `Bearer ${_getAccessToken()}` };
 }
@@ -373,6 +389,7 @@ export const api = {
         } catch (_) {
             // 서버 에러 시에도 로컬 토큰은 삭제
         }
+        if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
         _clearTokens();
         window.location.href = '/login.html';
     },

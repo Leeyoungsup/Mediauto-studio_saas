@@ -42,6 +42,21 @@ class SlideInfo:
         self.vendor = slide.properties.get("openslide.vendor", "Unknown")
         self.objective_power = slide.properties.get("openslide.objective-power", "Unknown")
 
+        # ICC color profile (openslide-python ≥ 1.3) → sRGB ImageCms transform 캐싱.
+        # 이 transform 을 PIL 이미지에 적용하면 한 번의 픽셀 변환으로 sRGB 가 되고
+        # JPEG 에 ICC 를 임베드할 필요가 없어 파일 크기/IO 폭증을 막는다.
+        self.icc_transform = None
+        try:
+            obj_profile = getattr(slide, "color_profile", None)
+            if obj_profile is not None:
+                from PIL import ImageCms
+                obj_srgb = ImageCms.createProfile("sRGB")
+                self.icc_transform = ImageCms.buildTransform(
+                    obj_profile, obj_srgb, "RGB", "RGB"
+                )
+        except Exception as e:
+            print(f"[slide_manager] ICC transform 생성 실패: {e}")
+
         # 물리적 크기 (mm)
         w, h = self.dimensions
         self.physical_width_mm = w * self.mpp_x / 1000.0
@@ -81,6 +96,16 @@ class SlideInfo:
 
     def touch(self):
         self.last_accessed = time.time()
+
+    def apply_icc(self, img_rgb):
+        """RGB PIL 이미지에 ICC → sRGB 변환을 in-place 로 적용 (없으면 그대로 반환)."""
+        if self.icc_transform is None:
+            return img_rgb
+        try:
+            from PIL import ImageCms
+            return ImageCms.applyTransform(img_rgb, self.icc_transform)
+        except Exception:
+            return img_rgb
 
 
 class SlideManager:

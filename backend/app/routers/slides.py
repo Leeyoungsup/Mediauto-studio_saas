@@ -458,24 +458,55 @@ async def upload_complete(
         if not chunk_dir.exists():
             raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
 
+        # 확장자 재검증 (start 단계 우회 방지)
+        ext = Path(filename).suffix.lower()
+        if ext not in settings.SUPPORTED_EXTENSIONS:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            raise HTTPException(400, f"지원하지 않는 파일 형식: {ext}")
+
+        # 청크 총 크기 선집계 → 상한 초과 시 조립 전에 거부
+        int_total_bytes = 0
+        for i in range(total_chunks):
+            chunk_path = chunk_dir / f"chunk_{i:06d}"
+            if not chunk_path.exists():
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+                raise HTTPException(400, f"청크 {i} 누락")
+            int_total_bytes += chunk_path.stat().st_size
+        if int_total_bytes > settings.MAX_UPLOAD_BYTES:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            int_limit_gb = settings.MAX_UPLOAD_BYTES / (1024 ** 3)
+            raise HTTPException(
+                413,
+                f"업로드 크기 상한 초과: {int_total_bytes / (1024**3):.2f} GB > {int_limit_gb:.2f} GB",
+            )
+
         save_dir = _safe_subpath(path)
         save_dir.mkdir(parents=True, exist_ok=True)
         final_path = save_dir / filename
 
+        bool_newly_written = False
         if final_path.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
         else:
             with open(final_path, "wb") as out:
                 for i in range(total_chunks):
                     chunk_path = chunk_dir / f"chunk_{i:06d}"
-                    if not chunk_path.exists():
-                        raise HTTPException(400, f"청크 {i} 누락")
                     with open(chunk_path, "rb") as cf:
                         shutil.copyfileobj(cf, out)
             shutil.rmtree(chunk_dir, ignore_errors=True)
+            bool_newly_written = True
 
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
-        return await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+        try:
+            return await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+        except HTTPException:
+            # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리
+            if bool_newly_written and final_path.exists():
+                try:
+                    final_path.unlink()
+                except Exception:
+                    pass
+            raise
     finally:
         auto_ai.upload_exit()
 
@@ -561,6 +592,17 @@ async def get_thumbnail_by_name(
         thumb = slide.get_thumbnail((size, size))
         thumb_rgb = thumb.convert("RGB")
 
+        # ICC → sRGB 픽셀 변환 (한 번만, JPEG 임베드 X)
+        try:
+            obj_profile = getattr(slide, "color_profile", None)
+            if obj_profile is not None:
+                from PIL import ImageCms
+                obj_srgb = ImageCms.createProfile("sRGB")
+                obj_tx = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
+                thumb_rgb = ImageCms.applyTransform(thumb_rgb, obj_tx)
+        except Exception:
+            pass
+
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
         slide.close()
@@ -581,7 +623,7 @@ async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
     import io
     thumb = info.slide.get_thumbnail((size, size))
-    thumb_rgb = thumb.convert("RGB")
+    thumb_rgb = info.apply_icc(thumb.convert("RGB"))
     buf = io.BytesIO()
     thumb_rgb.save(buf, format="JPEG", quality=92)
     buf.seek(0)
@@ -601,7 +643,7 @@ async def get_thumbnail(slide_id: str, size: int = Query(300, ge=64, le=1024)):
 
     import io
     thumb = info.slide.get_thumbnail((size, size))
-    thumb_rgb = thumb.convert("RGB")
+    thumb_rgb = info.apply_icc(thumb.convert("RGB"))
     thumb_path.parent.mkdir(parents=True, exist_ok=True)
     thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
     buf = io.BytesIO()

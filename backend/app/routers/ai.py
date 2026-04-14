@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from app.auth import get_current_user
 from app.config import settings
 from app.slide_manager import slide_manager
+from app.priority import wait_if_viewer_busy
 
 # 기존 AI 코드 경로 추가
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -188,8 +189,10 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
         processed_valid = 0
 
         # ── I/O → 텐서 변환 함수 (스레드별 독립 OpenSlide) ──
+        icc_tf = info.icc_transform
         def _read_patch_tensor(patch_x, patch_y):
             try:
+                wait_if_viewer_busy()
                 if (not hasattr(_patch_thread_local, 'slide') or
                         _patch_thread_local.slide_path != slide_path):
                     import openslide
@@ -199,6 +202,9 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
+                if icc_tf is not None:
+                    from PIL import ImageCms
+                    ImageCms.applyTransform(patch_rgb, icc_tf, inPlace=True)
                 patch_np = np.asarray(patch_rgb)
                 patch_resized = cv2.resize(patch_np, (512, 512))
                 return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
@@ -484,6 +490,7 @@ def _run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_
             progress_callback=progress_cb,
             roi_bounds=roi_bounds,
             image_path=slide_path,
+            icc_transform=info.icc_transform,
         )
 
         _update_task(task_id, progress=92,
@@ -540,7 +547,8 @@ def _run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_
 
         # ── 썸네일 + 세그멘테이션 오버레이 생성 (프론트엔드 시각화용) ──
         seg_data = _build_seg_overlays(slide, prediction_mask, metadata,
-                                       seg_model.class_names, roi_bounds)
+                                       seg_model.class_names, roi_bounds,
+                                       icc_transform=info.icc_transform)
 
         del seg_model
         if torch.cuda.is_available():
@@ -556,7 +564,7 @@ def _run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_
         return None
 
 
-def _build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds):
+def _build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds, icc_transform=None):
     """
     세그멘테이션 확률맵(prob_map)을 썸네일 크기로 리사이즈하여 클래스별 오버레이 base64 생성.
     데스크톱의 _create_spatial_heatmap_tab과 동일: jet colormap + alpha=0.75 on probability maps.
@@ -593,10 +601,14 @@ def _build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bound
             read_w = int(rw / ds)
             read_h = int(rh / ds)
             region = slide.read_region((x0, y0), best_level, (read_w, read_h))
-            thumb_np = np.array(region.convert('RGB'))
+            thumb_rgb = region.convert('RGB')
         else:
             thumb = slide.get_thumbnail((THUMB_SIZE, THUMB_SIZE))
-            thumb_np = np.array(thumb.convert('RGB'))
+            thumb_rgb = thumb.convert('RGB')
+        if icc_transform is not None:
+            from PIL import ImageCms
+            ImageCms.applyTransform(thumb_rgb, icc_transform, inPlace=True)
+        thumb_np = np.array(thumb_rgb)
         thumb_resized = cv2.resize(thumb_np, (tw, th))
 
         # 썸네일 → base64 JPEG
@@ -949,8 +961,10 @@ def _run_marker_detection_pipeline(
         detected_count = 0
         processed_valid = 0
 
+        icc_tf = info.icc_transform
         def _read_patch_tensor(patch_x, patch_y):
             try:
+                wait_if_viewer_busy()
                 if (not hasattr(_patch_thread_local, 'slide') or
                         _patch_thread_local.slide_path != slide_path):
                     import openslide
@@ -960,6 +974,9 @@ def _run_marker_detection_pipeline(
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
+                if icc_tf is not None:
+                    from PIL import ImageCms
+                    ImageCms.applyTransform(patch_rgb, icc_tf, inPlace=True)
                 patch_np = np.asarray(patch_rgb)
                 patch_resized = cv2.resize(patch_np, (512, 512))
                 return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
@@ -1196,6 +1213,48 @@ PRECISE_IHC_CONFIG = {
         "score_type": "HER2",
         "exclude_classes": [4],
     },
+    # ER / PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other)
+    # 동일한 .pt 파일을 공유하지만 cache key (marker) 가 다르므로 별도 캐시.
+    "ER": {
+        "model_file": "Precise_IHC_ER_PR_detection.pt",
+        "num_classes": 5,
+        "class_names": {
+            0: "ER 0+",
+            1: "ER 1+",
+            2: "ER 2+",
+            3: "ER 3+",
+            4: "Other",
+        },
+        "class_colors": {
+            0: "#27ae60",
+            1: "#f1c40f",
+            2: "#e67e22",
+            3: "#c0392b",
+            4: "#95a5a6",
+        },
+        "score_type": "Allred",
+        "exclude_classes": [4],
+    },
+    "PR": {
+        "model_file": "Precise_IHC_ER_PR_detection.pt",
+        "num_classes": 5,
+        "class_names": {
+            0: "PR 0+",
+            1: "PR 1+",
+            2: "PR 2+",
+            3: "PR 3+",
+            4: "Other",
+        },
+        "class_colors": {
+            0: "#27ae60",
+            1: "#f1c40f",
+            2: "#e67e22",
+            3: "#c0392b",
+            4: "#95a5a6",
+        },
+        "score_type": "Allred",
+        "exclude_classes": [4],
+    },
 }
 
 
@@ -1239,8 +1298,81 @@ def _compute_her2_score(all_cls) -> dict:
     }
 
 
+def _compute_allred_score(all_cls) -> dict:
+    """
+    Allred score (ER/PR):
+      - intensity 클래스 0~3 (none / weak / intermediate / strong)
+      - Proportion Score (PS): 양성 비율 (positive / total tumor)
+          0=0%, 1=<1%, 2=1-10%, 3=10-33%, 4=33-66%, 5=>66%
+      - Intensity Score (IS): 양성 세포 평균 강도 → bin 0/1/2/3
+          (avg < 0.5: 0, 0.5–1.5: 1, 1.5–2.5: 2, ≥2.5: 3)
+      - Total Score (TS) = PS + IS (0~8). 3 이상 → Positive.
+    """
+    import numpy as np
+    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
+    n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
+    int_total = n0 + n1 + n2 + n3
+    int_pos = n1 + n2 + n3
+
+    if int_total == 0:
+        return {
+            "score_type": "Allred",
+            "proportion_score": 0,
+            "intensity_score": 0,
+            "total_score": 0,
+            "positive_pct": 0.0,
+            "avg_intensity": 0.0,
+            "interpretation": "Negative",
+            "total_tumor": 0,
+            "class_counts": int_counts,
+        }
+
+    float_pos_pct = int_pos / int_total * 100.0
+    if int_pos == 0:
+        int_ps = 0
+    elif float_pos_pct < 1.0:
+        int_ps = 1
+    elif float_pos_pct < 10.0:
+        int_ps = 2
+    elif float_pos_pct < 33.0:
+        int_ps = 3
+    elif float_pos_pct < 66.0:
+        int_ps = 4
+    else:
+        int_ps = 5
+
+    if int_pos == 0:
+        float_avg = 0.0
+        int_is = 0
+    else:
+        float_avg = (1 * n1 + 2 * n2 + 3 * n3) / int_pos
+        if float_avg < 0.5:
+            int_is = 0
+        elif float_avg < 1.5:
+            int_is = 1
+        elif float_avg < 2.5:
+            int_is = 2
+        else:
+            int_is = 3
+
+    int_ts = int_ps + int_is
+    str_interp = "Positive" if int_ts >= 3 else "Negative"
+
+    return {
+        "score_type": "Allred",
+        "proportion_score": int_ps,
+        "intensity_score": int_is,
+        "total_score": int_ts,
+        "positive_pct": round(float_pos_pct, 2),
+        "avg_intensity": round(float_avg, 3),
+        "interpretation": str_interp,
+        "total_tumor": int_total,
+        "class_counts": int_counts,
+    }
+
+
 def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Precise-IHC 파이프라인 wrapper. 현재 HER2 만 지원."""
+    """Precise-IHC 파이프라인 wrapper — HER2 / ER / PR 지원."""
     if marker not in PRECISE_IHC_CONFIG:
         _update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
         return
@@ -1254,6 +1386,9 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
     if marker == "HER2":
         score_fn = _compute_her2_score
         score_key = "her2_score"
+    elif marker in ("ER", "PR"):
+        score_fn = _compute_allred_score
+        score_key = "allred_score"
     else:
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
@@ -1827,11 +1962,13 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         io_workers = min(max(2, os.cpu_count() or 4), 8)
         tissue_batch = []
 
+        icc_tf = info.icc_transform
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
             for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:
+                wait_if_viewer_busy()
                 f = pool.submit(_read_patch, slide_path, x0, y0,
-                                best_level, level_read, ps, None, None)
+                                best_level, level_read, ps, icc_tf, None)
                 futures.append(f)
 
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):

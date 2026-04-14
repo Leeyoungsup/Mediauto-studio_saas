@@ -55,6 +55,8 @@ const $pdScoreLabel = $('#pd-score-label');
 const $pdScoreValue = $('#pd-score-value');
 const $pdScoreDetail = $('#pd-score-detail');
 const $btnIhcHer2 = $('#btn-ihc-her2');
+const $btnIhcEr = $('#btn-ihc-er');
+const $btnIhcPr = $('#btn-ihc-pr');
 const $ihcScoreResult = $('#ihc-score-result');
 const $ihcScoreLabel = $('#ihc-score-label');
 const $ihcScoreValue = $('#ihc-score-value');
@@ -108,8 +110,8 @@ const AI_MODEL_HELP = {
         body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 기본 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다.',
     },
     'ihc-tab': {
-        title: 'Precise-IHC — HER2 Scoring',
-        body: 'Precise-IHC 모델은 HER2 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 을 동시에 표시하여 HER2 Score 를 정량적으로 판독합니다. ER/PR, KI-67 은 준비 중입니다.',
+        title: 'Precise-IHC — HER2 / ER / PR',
+        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로 판독합니다. KI-67 은 준비 중입니다.',
     },
 };
 const $aiHelpIcon = document.querySelector('#ai-help-icon');
@@ -233,9 +235,9 @@ const SCANNER_META = {
         svg: `<svg viewBox="0 0 80 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="15" font-weight="800" fill="#ee7800" letter-spacing="-0.5">HAMAMATSU</text></svg>`,
     },
     'aperio': {
-        label: 'Aperio (Leica)',
-        color: '#d41e26',
-        svg: `<svg viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Georgia,serif" font-size="15" font-weight="700" fill="#d41e26" font-style="italic">Aperio</text></svg>`,
+        label: 'Leica',
+        color: '#e20025',
+        svg: `<svg viewBox="0 0 50 20" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="2" width="50" height="16" rx="2" fill="#e20025"/><text x="25" y="14" font-family="Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" text-anchor="middle" letter-spacing="1">LEICA</text></svg>`,
     },
     'leica': {
         label: 'Leica',
@@ -326,6 +328,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     $btnVsNucleus.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
+    if ($btnIhcEr) $btnIhcEr.disabled = false;
+    if ($btnIhcPr) $btnIhcPr.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
 
@@ -1235,6 +1239,7 @@ function _updateResultCounts() {
     }
     _updatePdScoreDisplay(counts);
     _updateHer2ScoreDisplay(counts);
+    _updateAllredScoreDisplay(counts);
 }
 
 // Confidence 필터가 반영된 카운트로 CPS/TPS 재계산하여 스코어 카드 갱신
@@ -1286,6 +1291,46 @@ function _updateHer2ScoreDisplay(counts) {
         `0+: ${n0} &nbsp;·&nbsp; 1+: ${n1}<br>` +
         `2+: ${n2} &nbsp;·&nbsp; 3+: ${n3}<br>` +
         `Total: ${total}`;
+}
+
+function _computeAllredFromCounts(c) {
+    const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const pos = n1 + n2 + n3;
+    const posPct = total === 0 ? 0 : pos / total * 100;
+    let ps = 0;
+    if (pos === 0) ps = 0;
+    else if (posPct < 1) ps = 1;
+    else if (posPct < 10) ps = 2;
+    else if (posPct < 33) ps = 3;
+    else if (posPct < 66) ps = 4;
+    else ps = 5;
+    let avg = 0, is_ = 0;
+    if (pos > 0) {
+        avg = (1 * n1 + 2 * n2 + 3 * n3) / pos;
+        if (avg < 0.5) is_ = 0;
+        else if (avg < 1.5) is_ = 1;
+        else if (avg < 2.5) is_ = 2;
+        else is_ = 3;
+    }
+    const ts = ps + is_;
+    return { n0, n1, n2, n3, total, pos, posPct, ps, is_, avg, ts,
+             interpretation: ts >= 3 ? 'Positive' : 'Negative' };
+}
+
+function _updateAllredScoreDisplay(counts) {
+    if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
+    if (!_lastDetectionResult || !_lastDetectionResult.allred_score) return;
+    const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    const a = _computeAllredFromCounts(c);
+    const marker = _lastDetectionTissue || 'ER';
+    $ihcScoreLabel.textContent = `${marker} (Allred)`;
+    $ihcScoreValue.textContent = `${a.ts} / 8`;
+    $ihcScoreDetail.innerHTML =
+        `PS: ${a.ps} &nbsp;·&nbsp; IS: ${a.is_} &nbsp;·&nbsp; <strong>${a.interpretation}</strong><br>` +
+        `Positive: ${a.posPct.toFixed(1)}% &nbsp;·&nbsp; Avg int: ${a.avg.toFixed(2)}<br>` +
+        `0+: ${a.n0} · 1+: ${a.n1} · 2+: ${a.n2} · 3+: ${a.n3}<br>` +
+        `Total: ${a.total}`;
 }
 
 function buildResultList(result) {
@@ -1435,10 +1480,12 @@ $btnVisualize.addEventListener('click', () => {
     // 모델 타입 / 클래스 메타
     const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
-    const modelType = isHer2 ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
+    const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
+    const isIhc = isHer2 || isAllred;
+    const modelType = isIhc ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
     const scoreType = isHer2
         ? 'HER2'
-        : (isPdScore ? _lastDetectionResult.pd_score.score_type : null);
+        : (isAllred ? 'Allred' : (isPdScore ? _lastDetectionResult.pd_score.score_type : null));
     const classNames = _lastDetectionResult?.class_names || null;
     const classColors = _lastDetectionResult?.class_colors || null;
 
@@ -2123,6 +2170,8 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
+    { model: 'Precise-IHC', variant: 'ER',      label: 'Precise-IHC · ER (Allred)' },
+    { model: 'Precise-IHC', variant: 'PR',      label: 'Precise-IHC · PR (Allred)' },
     { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)', mpp: true },
     { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)',  mpp: true },
 ];
@@ -2487,10 +2536,18 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
+$btnIhcEr?.addEventListener('click', () => startPreciseIhc('ER'));
+$btnIhcPr?.addEventListener('click', () => startPreciseIhc('PR'));
+
+function _setIhcMarkerButtonsDisabled(disabled) {
+    if ($btnIhcHer2) $btnIhcHer2.disabled = disabled;
+    if ($btnIhcEr) $btnIhcEr.disabled = disabled;
+    if ($btnIhcPr) $btnIhcPr.disabled = disabled;
+}
 
 async function startPreciseIhc(marker) {
     if (!currentSlideId) return;
-    if ($btnIhcHer2) $btnIhcHer2.disabled = true;
+    _setIhcMarkerButtonsDisabled(true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
     $progressLabel.textContent = `${marker} Detection...`;
     setProgress(0);
@@ -2524,7 +2581,7 @@ async function startPreciseIhc(marker) {
     } catch (err) {
         setStatus(`${marker} 실패: ${err.message}`);
     } finally {
-        if ($btnIhcHer2) $btnIhcHer2.disabled = false;
+        _setIhcMarkerButtonsDisabled(false);
         $progressLabel.textContent = 'AI Progress';
     }
 }
@@ -2552,20 +2609,41 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
-    const score = result.her2_score || {};
-    const dominant = score.dominant_class ?? 0;
-    const weighted = (score.score ?? 0).toFixed(2);
-    setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
 
-    if ($ihcScoreResult) {
-        $ihcScoreResult.hidden = false;
-        $ihcScoreLabel.textContent = 'HER2';
-        $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
-        const cc = score.class_counts || {};
-        $ihcScoreDetail.innerHTML =
-            `0+: ${cc[0] || 0} &nbsp;·&nbsp; 1+: ${cc[1] || 0}<br>` +
-            `2+: ${cc[2] || 0} &nbsp;·&nbsp; 3+: ${cc[3] || 0}<br>` +
-            `Total: ${score.total_tumor || 0}`;
+    if (result.her2_score) {
+        const score = result.her2_score;
+        const dominant = score.dominant_class ?? 0;
+        const weighted = (score.score ?? 0).toFixed(2);
+        setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
+        if ($ihcScoreResult) {
+            $ihcScoreResult.hidden = false;
+            $ihcScoreLabel.textContent = 'HER2';
+            $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
+            const cc = score.class_counts || {};
+            $ihcScoreDetail.innerHTML =
+                `0+: ${cc[0] || 0} &nbsp;·&nbsp; 1+: ${cc[1] || 0}<br>` +
+                `2+: ${cc[2] || 0} &nbsp;·&nbsp; 3+: ${cc[3] || 0}<br>` +
+                `Total: ${score.total_tumor || 0}`;
+        }
+    } else if (result.allred_score) {
+        const score = result.allred_score;
+        const ts = score.total_score ?? 0;
+        const ps = score.proportion_score ?? 0;
+        const is_ = score.intensity_score ?? 0;
+        const interp = score.interpretation || (ts >= 3 ? 'Positive' : 'Negative');
+        setStatus(`${marker} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
+        if ($ihcScoreResult) {
+            $ihcScoreResult.hidden = false;
+            $ihcScoreLabel.textContent = `${marker} (Allred)`;
+            $ihcScoreValue.textContent = `${ts} / 8`;
+            const cc = score.class_counts || {};
+            $ihcScoreDetail.innerHTML =
+                `PS: ${ps} &nbsp;·&nbsp; IS: ${is_} &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
+                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; ` +
+                `Avg int: ${(score.avg_intensity ?? 0).toFixed(2)}<br>` +
+                `0+: ${cc[0] || 0} · 1+: ${cc[1] || 0} · 2+: ${cc[2] || 0} · 3+: ${cc[3] || 0}<br>` +
+                `Total: ${score.total_tumor || 0}`;
+        }
     }
 
     buildResultList(result);

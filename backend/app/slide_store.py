@@ -277,6 +277,33 @@ async def list_slides_in_folder(str_rel_path: str) -> dict:
     return dict_result
 
 
+async def list_slides_missing_variant(
+    str_rel_path: str,
+    str_model: str,
+    str_variant: str,
+) -> list:
+    """폴더 내에서 (model, variant) 결과가 아직 없는 슬라이드만 DB 질의로 반환.
+
+    `dict_ai_results.{model}.list_variants` 배열에 해당 variant 가 없는 도큐먼트만
+    골라 오므로 auto_ai 가 폴더 전체를 순회할 필요가 없다. VS-IHC 는 DB 에 target_mpp
+    를 기록하지 않으므로 이 함수로는 "base model 단계" 필터링만 하고, per-mpp 캐시
+    존재 확인은 호출자가 따로 수행해야 한다.
+    """
+    if not is_db_connected():
+        return []
+    db = get_db()
+    str_rel_path = _norm_rel_path(str_rel_path)
+    str_field = f"dict_ai_results.{str_model}.list_variants"
+    dict_query = {
+        "str_rel_path": str_rel_path,
+        str_field: {"$ne": str_variant},
+    }
+    list_out = []
+    async for dict_doc in db.slides.find(dict_query):
+        list_out.append(dict_doc)
+    return list_out
+
+
 async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
     if not is_db_connected():
         return None

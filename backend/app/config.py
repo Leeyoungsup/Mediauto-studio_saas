@@ -1,8 +1,56 @@
 """앱 설정"""
 
+import json
 import os
 import secrets
 from pathlib import Path
+
+
+# ══════════════════════════════════════════════════════════════════
+# 시크릿 영속화
+# ──
+# 환경변수(JWT_SECRET_KEY / FIELD_ENCRYPTION_KEY) 가 설정돼 있으면 그대로 사용.
+# 없으면 `backend/.secrets.json` 에 자동 생성/로드 — 서버 재시작 시에도
+# 같은 키가 유지되어 기존 토큰/암호화 필드가 깨지지 않음.
+# On-Premise 전제이므로 파일 권한 외 별도 보호 안함.
+# ══════════════════════════════════════════════════════════════════
+_SECRETS_FILE = Path(__file__).parent.parent / ".secrets.json"
+
+
+def _load_or_create_secrets() -> dict:
+    dict_loaded: dict = {}
+    if _SECRETS_FILE.exists():
+        try:
+            with open(_SECRETS_FILE, "r", encoding="utf-8") as f:
+                dict_loaded = json.load(f) or {}
+        except Exception:
+            dict_loaded = {}
+
+    bool_changed = False
+    if not dict_loaded.get("jwt_secret_key"):
+        dict_loaded["jwt_secret_key"] = secrets.token_urlsafe(64)
+        bool_changed = True
+    if not dict_loaded.get("field_encryption_key"):
+        dict_loaded["field_encryption_key"] = secrets.token_urlsafe(32)
+        bool_changed = True
+
+    if bool_changed:
+        try:
+            _SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(_SECRETS_FILE, "w", encoding="utf-8") as f:
+                json.dump(dict_loaded, f, indent=2)
+            try:
+                os.chmod(_SECRETS_FILE, 0o600)
+            except Exception:
+                pass
+            print(f"[MeDICus SaaS] Persistent secrets written to {_SECRETS_FILE}")
+        except Exception as e:
+            print(f"[MeDICus SaaS] WARN — failed to persist secrets: {e}")
+
+    return dict_loaded
+
+
+_dict_persistent_secrets = _load_or_create_secrets()
 
 
 class Settings:
@@ -51,7 +99,7 @@ class Settings:
     # ── JWT 설정 ──
     JWT_SECRET_KEY: str = os.environ.get(
         "JWT_SECRET_KEY",
-        secrets.token_urlsafe(64)
+        _dict_persistent_secrets["jwt_secret_key"],
     )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
@@ -62,10 +110,16 @@ class Settings:
     ACCOUNT_LOCK_MINUTES: int = 30
     SESSION_INACTIVE_MINUTES: int = 30
 
+    # 업로드 크기 상한 (기본 20 GB — WSI 파일 고려). 환경변수 `MAX_UPLOAD_BYTES` 로 오버라이드.
+    MAX_UPLOAD_BYTES: int = int(os.environ.get(
+        "MAX_UPLOAD_BYTES",
+        str(20 * 1024 * 1024 * 1024),
+    ))
+
     # ── 민감 필드 암호화 키 (AES-256-GCM) ──
     FIELD_ENCRYPTION_KEY: str = os.environ.get(
         "FIELD_ENCRYPTION_KEY",
-        secrets.token_urlsafe(32)
+        _dict_persistent_secrets["field_encryption_key"],
     )
 
 

@@ -16,7 +16,7 @@ const DEFAULT_CLASS_COLORS = {
 let _activeNames = DEFAULT_CLASS_NAMES;
 let _activeColors = DEFAULT_CLASS_COLORS;
 let _activeModelType = 'HE-Fit';  // 'HE-Fit' | 'PD-Score' | 'Precise-IHC'
-let _activeScoreType = null;      // 'CPS' | 'TPS' | 'HER2' | null
+let _activeScoreType = null;      // 'CPS' | 'TPS' | 'HER2' | 'Allred' | null
 let _activeTissue = null;
 
 function _getName(id) { return _activeNames[id] || DEFAULT_CLASS_NAMES[id] || `Class ${id}`; }
@@ -96,7 +96,11 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     if (_activeModelType === 'PD-Score') {
         _renderPdScoreAnalysis(countsByClass);
     } else if (_activeModelType === 'Precise-IHC') {
-        _renderHer2Analysis(countsByClass);
+        if (_activeScoreType === 'Allred') {
+            _renderAllredAnalysis(countsByClass);
+        } else {
+            _renderHer2Analysis(countsByClass);
+        }
     } else {
         _renderTumorAnalysis(countsByClass);
     }
@@ -130,7 +134,7 @@ function _configureTabs(modelType) {
     const hideHeatmap = isPdScore || isIhc;
     let tumorLabel = 'Tumor Analysis';
     if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
-    else if (isIhc) tumorLabel = 'HER2 Analysis';
+    else if (isIhc) tumorLabel = (_activeScoreType === 'Allred') ? 'Allred Analysis' : 'HER2 Analysis';
 
     const tabButtons = $vizDialog.querySelectorAll('.viz-tab');
     tabButtons.forEach(tab => {
@@ -739,6 +743,123 @@ function _drawHer2Gauge(ctx, w, h, weighted, dominant, gaugePct, barColor, ease,
     ctx.fillText(`Dominant: ${dominant}+`, cx, gaugeCy + 28);
 }
 
+// ── Allred Analysis 탭 (Precise-IHC ER/PR 전용) ──
+function _allredFromCounts(counts) {
+    const n0 = counts[0] || 0, n1 = counts[1] || 0, n2 = counts[2] || 0, n3 = counts[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const pos = n1 + n2 + n3;
+    const posPct = total === 0 ? 0 : pos / total * 100;
+    let ps = 0;
+    if (pos === 0) ps = 0;
+    else if (posPct < 1) ps = 1;
+    else if (posPct < 10) ps = 2;
+    else if (posPct < 33) ps = 3;
+    else if (posPct < 66) ps = 4;
+    else ps = 5;
+    let avg = 0, is_ = 0;
+    if (pos > 0) {
+        avg = (1 * n1 + 2 * n2 + 3 * n3) / pos;
+        if (avg < 0.5) is_ = 0;
+        else if (avg < 1.5) is_ = 1;
+        else if (avg < 2.5) is_ = 2;
+        else is_ = 3;
+    }
+    const ts = ps + is_;
+    return { n0, n1, n2, n3, total, pos, posPct, ps, is_, avg, ts,
+             interpretation: ts >= 3 ? 'Positive' : 'Negative' };
+}
+
+function _renderAllredAnalysis(countsByClass) {
+    const panel = document.getElementById('viz-tumor');
+    panel.innerHTML = '';
+
+    const a = _allredFromCounts(countsByClass);
+    const tsColor = a.ts >= 3 ? '#E84040' : '#2E7D32';
+
+    const row = document.createElement('div');
+    row.className = 'viz-chart-row';
+    panel.appendChild(row);
+
+    const summary = document.createElement('div');
+    summary.className = 'viz-summary';
+    panel.appendChild(summary);
+
+    const panelW = panel.clientWidth || 780;
+    const cardH = 320;
+
+    const cardW1 = Math.floor(panelW * 0.5 - 8);
+    const cv1 = _createHiDPICanvas(cardW1, cardH);
+    row.appendChild(cv1);
+
+    const cardW2 = Math.floor(panelW * 0.5 - 8);
+    const cv2 = _createHiDPICanvas(cardW2, cardH);
+    row.appendChild(cv2);
+
+    _animate(900, (t) => {
+        const ease = _easeOutCubic(t);
+        const elastic = t < 0.5 ? _easeOutCubic(t * 2) : _easeOutElastic((t - 0.5) * 2) * 0.5 + 0.5;
+
+        const ctx1 = cv1.getContext('2d');
+        _drawAllredCard(ctx1, cardW1, cardH, a, tsColor, elastic);
+
+        const ctx2 = cv2.getContext('2d');
+        _drawHer2Bars(ctx2, cardW2, cardH, [a.n0, a.n1, a.n2, a.n3], ease);
+    }, () => {
+        summary.innerHTML =
+            `<strong>Allred TS:</strong> <span style="color:${tsColor};font-weight:700">${a.ts}/8</span> ` +
+            `(PS ${a.ps} + IS ${a.is_}) &nbsp;|&nbsp; ` +
+            `Positive ${a.posPct.toFixed(1)}% &nbsp;|&nbsp; ` +
+            `<span style="color:${tsColor};font-weight:700">${a.interpretation}</span> ` +
+            `&nbsp;|&nbsp; Total ${a.total.toLocaleString()}`;
+        summary.style.animation = 'fadeIn 0.3s ease';
+    });
+}
+
+function _drawAllredCard(ctx, w, h, a, tsColor, elastic) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Allred Score', cx, 24);
+
+    ctx.fillStyle = '#666';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Proportion (0-5) + Intensity (0-3) = Total (0-8)', cx, 42);
+
+    // 큰 TS 숫자
+    const cyTs = 130;
+    const animTs = a.ts * elastic;
+    ctx.fillStyle = tsColor;
+    ctx.font = 'bold 64px sans-serif';
+    ctx.fillText(`${animTs.toFixed(0)} / 8`, cx, cyTs);
+
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(a.interpretation, cx, cyTs + 24);
+
+    // 하단 PS / IS / Pos%
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
+    let dy = 200;
+    const items = [
+        ['Proportion Score (PS)', `${a.ps}  (${a.posPct.toFixed(1)}% positive)`],
+        ['Intensity Score (IS)', `${a.is_}  (avg ${a.avg.toFixed(2)})`],
+        ['Total Score (TS)',     `${a.ts}  (${a.interpretation})`],
+    ];
+    for (const [k, v] of items) {
+        ctx.fillStyle = '#666';
+        ctx.fillText(k, 24, dy);
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'right';
+        ctx.fillText(v, w - 24, dy);
+        ctx.textAlign = 'left';
+        dy += 24;
+    }
+}
+
 function _drawHer2Bars(ctx, w, h, counts, ease) {
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2;
@@ -1181,10 +1302,11 @@ async function _exportPDF(state) {
             _pdfDrawConfidence(state),
         ];
     } else if (str_model_type === 'Precise-IHC') {
+        const isAllred = (_activeScoreType === 'Allred');
         list_pages = [
             _pdfDrawCover(state),
             _pdfDrawClassDist(state),
-            _pdfDrawHer2Analysis(state),
+            isAllred ? _pdfDrawAllredAnalysis(state) : _pdfDrawHer2Analysis(state),
             _pdfDrawConfidence(state),
         ];
     } else {
@@ -1346,12 +1468,21 @@ function _pdfDrawCover(state) {
         const int_n2 = countsByClass[2] || 0;
         const int_n3 = countsByClass[3] || 0;
         const int_total = int_n0 + int_n1 + int_n2 + int_n3;
-        str_metric_label = 'HER2 Score (dominant / weighted)';
-        if (int_total > 0) {
-            const float_weighted = (0 * int_n0 + 1 * int_n1 + 2 * int_n2 + 3 * int_n3) / int_total;
-            const int_dominant = [int_n0, int_n1, int_n2, int_n3].indexOf(Math.max(int_n0, int_n1, int_n2, int_n3));
-            str_metric_value = `${int_dominant}+ / ${float_weighted.toFixed(2)}`;
-            str_metric_color = _getColor(Math.round(float_weighted));
+        if (_activeScoreType === 'Allred') {
+            const a = _allredFromCounts(countsByClass);
+            str_metric_label = 'Allred Score (PS + IS = TS)';
+            if (int_total > 0) {
+                str_metric_value = `${a.ts} / 8`;
+                str_metric_color = a.ts >= 3 ? '#E84040' : '#2E7D32';
+            }
+        } else {
+            str_metric_label = 'HER2 Score (dominant / weighted)';
+            if (int_total > 0) {
+                const float_weighted = (0 * int_n0 + 1 * int_n1 + 2 * int_n2 + 3 * int_n3) / int_total;
+                const int_dominant = [int_n0, int_n1, int_n2, int_n3].indexOf(Math.max(int_n0, int_n1, int_n2, int_n3));
+                str_metric_value = `${int_dominant}+ / ${float_weighted.toFixed(2)}`;
+                str_metric_color = _getColor(Math.round(float_weighted));
+            }
         }
     } else {
         // HE-Fit
@@ -1908,6 +2039,106 @@ function _pdfDrawHer2Analysis(state) {
         ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
         ctx.textAlign = 'left';
         const int_pct = int_total > 0 ? (list_bins[i] / int_total * 100) : 0;
+        ctx.fillText(
+            `${list_bins[i].toLocaleString()} (${int_pct.toFixed(1)}%)`,
+            int_chart_x + int_local_w + 14, int_yc
+        );
+    });
+
+    return c;
+}
+
+function _pdfDrawAllredAnalysis(state) {
+    const { countsByClass } = state;
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, 'Allred Analysis');
+
+    const a = _allredFromCounts(countsByClass);
+    const list_bins = [a.n0, a.n1, a.n2, a.n3];
+    const str_ts_color = a.ts >= 3 ? '#E84040' : '#2E7D32';
+
+    // Left card — Allred score summary
+    const gx = 100, gy = 200, gw = 950, gh = 1170;
+    _pdfPanel(ctx, gx, gy, gw, gh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Allred Score', gx + 40, gy + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '24px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Proportion (0-5) + Intensity (0-3) = Total (0-8)', gx + 40, gy + 90);
+
+    // Big TS label
+    ctx.fillStyle = a.total > 0 ? str_ts_color : PDF_COL.subtext;
+    ctx.font = 'bold 260px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(a.total > 0 ? `${a.ts}` : 'N/A', gx + gw / 2, gy + 380);
+
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = '32px Segoe UI, Arial, sans-serif';
+    ctx.fillText(a.total > 0 ? `/ 8    ${a.interpretation}` : '—', gx + gw / 2, gy + 560);
+
+    // Stat rows: PS / IS / TS / Positive% / Avg intensity
+    const int_stat_x = gx + 60;
+    let int_stat_y = gy + 700;
+    const int_row_h = 62;
+    const list_rows = [
+        ['Proportion Score (PS)', `${a.ps}  (${a.posPct.toFixed(1)}% positive)`],
+        ['Intensity Score (IS)', `${a.is_}  (avg ${a.avg.toFixed(2)})`],
+        ['Total Score (TS)', `${a.ts}  (${a.interpretation})`],
+        ['Positive Cells', `${a.pos.toLocaleString()} / ${a.total.toLocaleString()}`],
+    ];
+    ctx.font = '28px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    for (const [k, v] of list_rows) {
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.textAlign = 'left';
+        ctx.fillText(k, int_stat_x, int_stat_y);
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(v, gx + gw - 60, int_stat_y);
+        ctx.font = '28px Segoe UI, Arial, sans-serif';
+        int_stat_y += int_row_h;
+    }
+
+    // Right card — intensity distribution bars
+    const bx = 1100, by = 200, bw = 900, bh = 1170;
+    _pdfPanel(ctx, bx, by, bw, bh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Intensity Distribution', bx + 40, by + 30);
+
+    const int_max = Math.max(...list_bins, 1);
+    const int_chart_x = bx + 160;
+    const int_chart_y = by + 150;
+    const int_chart_w = bw - 240;
+    const int_chart_h = bh - 260;
+    const int_bar_row_h = int_chart_h / 4;
+
+    ['0+', '1+', '2+', '3+'].forEach((lbl, i) => {
+        const int_yc = int_chart_y + i * int_bar_row_h + int_bar_row_h / 2;
+        const int_bar_local_h = Math.min(int_bar_row_h * 0.6, 90);
+        const int_local_w = (list_bins[i] / int_max) * int_chart_w;
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 32px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, int_chart_x - 20, int_yc);
+
+        ctx.fillStyle = _getColor(i);
+        ctx.fillRect(int_chart_x, int_yc - int_bar_local_h / 2, int_local_w, int_bar_local_h);
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        const int_pct = a.total > 0 ? (list_bins[i] / a.total * 100) : 0;
         ctx.fillText(
             `${list_bins[i].toLocaleString()} (${int_pct.toFixed(1)}%)`,
             int_chart_x + int_local_w + 14, int_yc

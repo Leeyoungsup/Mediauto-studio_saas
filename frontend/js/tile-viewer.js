@@ -174,6 +174,22 @@ export class TileViewer {
         this.detectionCells = [];
 
         this.fitToWindow();
+        // 최상위(가장 거친) 레벨 전체 프리로드 — 어디를 확대해도 블러 fallback 보장
+        this._preloadCoarsestLevel();
+    }
+
+    _preloadCoarsestLevel() {
+        if (!this.slideInfo) return;
+        const level = this.slideInfo.level_count - 1;
+        if (level < 0) return;
+        const [levelW, levelH] = this.slideInfo.level_dimensions[level];
+        const nx = Math.ceil(levelW / TILE_SIZE);
+        const ny = Math.ceil(levelH / TILE_SIZE);
+        for (let ty = 0; ty < ny; ty++) {
+            for (let tx = 0; tx < nx; tx++) {
+                this._loadTile(level, tx, ty);
+            }
+        }
     }
 
     fitToWindow() {

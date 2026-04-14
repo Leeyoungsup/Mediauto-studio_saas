@@ -158,34 +158,36 @@ async def _scan_and_infer_once() -> None:
         if not list_tasks:
             continue
 
-        dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
-        for str_filename, dict_slide in dict_slides.items():
-            str_full_path = dict_slide.get("str_full_path") or ""
-            if not str_full_path or not Path(str_full_path).exists():
+        # task 단위로 "누락된 슬라이드"를 DB 에 직접 질의 → 폴더 전체 순회 X
+        for dict_task in list_tasks:
+            str_model = dict_task.get("model") or ""
+            str_variant = dict_task.get("variant") or ""
+            if not str_model or not str_variant:
                 continue
 
-            dict_ai = dict_slide.get("dict_ai_results") or {}
-            for dict_task in list_tasks:
-                str_model = dict_task.get("model") or ""
-                str_variant = dict_task.get("variant") or ""
-                if not str_model or not str_variant:
+            float_target_mpp = 2.0
+            if str_model == "VS-IHC":
+                try:
+                    float_target_mpp = float(dict_task.get("target_mpp", 2.0))
+                except (TypeError, ValueError):
+                    float_target_mpp = 2.0
+                # VS-IHC 는 per-mpp 캐시라 DB 로 base 필터만 하고 폴더 전체를 후보로 봄
+                dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
+                list_candidates = list(dict_slides.values())
+            else:
+                list_candidates = await slide_store.list_slides_missing_variant(
+                    str_rel_path, str_model, str_variant
+                )
+
+            for dict_slide in list_candidates:
+                str_full_path = dict_slide.get("str_full_path") or ""
+                if not str_full_path or not Path(str_full_path).exists():
                     continue
 
-                float_target_mpp = 2.0
                 if str_model == "VS-IHC":
-                    try:
-                        float_target_mpp = float(dict_task.get("target_mpp", 2.0))
-                    except (TypeError, ValueError):
-                        float_target_mpp = 2.0
-                    # VS-IHC 는 per-mpp 캐시 존재 여부로 스킵 판단
                     from app.routers.ai import _get_vs_cache_paths
                     png_path, _ = _get_vs_cache_paths(str_full_path, str_variant, float_target_mpp)
                     if png_path.exists():
-                        continue
-                else:
-                    # 다른 모델: DB 의 variant 목록으로 중복 스킵
-                    dict_mr = dict_ai.get(str_model) or {}
-                    if dict_mr.get("bool_has_result") and str_variant in (dict_mr.get("list_variants") or []):
                         continue
 
                 # 매 추론 전 idle 재확인 — 사용자 활동 / 업로드 끼어들면 중단
