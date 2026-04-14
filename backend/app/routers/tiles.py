@@ -6,7 +6,11 @@
 import io
 import asyncio
 import hashlib
+import threading
 from pathlib import Path
+from typing import Dict
+
+import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
@@ -19,6 +23,31 @@ from app.priority import notify_viewer_activity
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 TILE_SIZE = settings.TILE_SIZE
+
+
+# ── Thread-local OpenSlide 핸들 풀 ──
+# OpenSlide 는 thread-safe 라고 명시돼 있지만 내부 mutex 로 read_region 을 직렬화한다.
+# 같은 슬라이드를 동시에 여러 코어에서 디코딩하려면 thread 별 독립 핸들이 필요하다.
+# (AI 모듈 [routers/ai.py] 도 동일 이유로 _patch_thread_local 을 쓴다.)
+#
+# 정책:
+# - thread-local 딕셔너리에 slide_id → OpenSlide 매핑.
+# - 같은 worker thread 가 같은 slide 에 재방문하면 즉시 재사용.
+# - SlideManager.close() 가 호출돼도 worker thread 의 핸들은 leak — 슬라이드 닫는 일이
+#   드물고, worker 는 프로세스 수명 동안 살아 있어 OS 가 정리한다.
+_slide_thread_local = threading.local()
+
+
+def _get_thread_slide(slide_id: str, file_path: str) -> openslide.OpenSlide:
+    dict_pool: Dict[str, openslide.OpenSlide] = getattr(_slide_thread_local, "slides", None)
+    if dict_pool is None:
+        dict_pool = {}
+        _slide_thread_local.slides = dict_pool
+    obj_slide = dict_pool.get(slide_id)
+    if obj_slide is None:
+        obj_slide = openslide.OpenSlide(file_path)
+        dict_pool[slide_id] = obj_slide
+    return obj_slide
 
 
 def _find_and_open(slide_id: str):
@@ -73,7 +102,9 @@ async def get_tile(
     y = int(tile_y * TILE_SIZE * downsample)
 
     def _render_and_save() -> bytes:
-        tile = info.slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
+        # thread-local 핸들로 read — 같은 슬라이드를 여러 코어에서 병렬 디코딩 가능
+        obj_slide = _get_thread_slide(slide_id, info.file_path)
+        tile = obj_slide.read_region((x, y), level, (TILE_SIZE, TILE_SIZE))
         tile_rgb = info.apply_icc(tile.convert("RGB"))
         tile_path.parent.mkdir(parents=True, exist_ok=True)
         tile_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
