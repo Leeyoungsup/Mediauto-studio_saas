@@ -1758,6 +1758,11 @@ $btnSaveResults?.addEventListener('click', async () => {
             _lastDetectionResult.cells = viewer.detectionCells;
             _lastDetectionResult.total_cells = viewer.detectionCells.length;
         }
+        // 클래스별 confidence 임계값 슬라이더 상태도 함께 저장
+        if (viewer?.classConfidence) {
+            _lastDetectionResult.class_confidence = { ...viewer.classConfidence };
+            _lastDetectionResult.default_confidence = viewer.defaultConfidence ?? 0.01;
+        }
         const r = await api.saveDetectionResult(
             currentSlideId, tissue, _lastDetectionResult, aiMode,
         );
@@ -1836,17 +1841,24 @@ async function _openLoadUserEditDialog() {
         return;
     }
 
+    const myId = window.__currentUserId || '';
     for (const u of users) {
         const row = document.createElement('div');
         row.className = 'result-row';
-        row.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+        row.style.cssText = 'padding:10px 12px; border-bottom:1px solid #333; display:flex; align-items:center; gap:8px;';
         const displayName = u.str_user_name || u.str_login_id || u.str_user_id;
-        row.innerHTML = `
-            <div style="font-weight:600;">${escapeHtml(displayName)}</div>
+        const isMine = u.str_user_id && u.str_user_id === myId;
+
+        const info = document.createElement('div');
+        info.style.cssText = 'flex:1; cursor:pointer; min-width:0;';
+        info.innerHTML = `
+            <div style="font-weight:600;">
+                ${escapeHtml(displayName)}${isMine ? ' <span style="color:#6cf; font-size:10px;">(me)</span>' : ''}
+            </div>
             <div style="font-size:11px; color:#888; margin-top:2px;">
                 ${u.int_total_cells.toLocaleString()} cells · ${_fmtDateIso(u.dt_updated_at)}
             </div>`;
-        row.addEventListener('click', async () => {
+        info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
             try {
                 setStatus(`Loading ${displayName}'s analysis…`);
@@ -1857,6 +1869,31 @@ async function _openLoadUserEditDialog() {
                 setStatus(`Load failed: ${err.message}`);
             }
         });
+        row.appendChild(info);
+
+        if (isMine) {
+            const del = document.createElement('button');
+            del.className = 'small-btn';
+            del.title = 'Delete my saved analysis';
+            del.style.cssText = 'background:transparent; border:1px solid #555; padding:4px 8px; cursor:pointer;';
+            del.textContent = '🗑';
+            del.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                if (!confirm(`Delete your saved ${aiMode} / ${variant} analysis for this slide?`)) return;
+                try {
+                    del.disabled = true;
+                    await api.deleteMyUserAiEdit(currentSlideId, aiMode, variant);
+                    setStatus('Deleted your saved analysis');
+                    // 모달 다시 불러오기
+                    _openLoadUserEditDialog();
+                } catch (err) {
+                    setStatus(`Delete failed: ${err.message}`);
+                    del.disabled = false;
+                }
+            });
+            row.appendChild(del);
+        }
+
         $loadUserEditList.appendChild(row);
     }
 }
@@ -1876,6 +1913,20 @@ function _applyLoadedResult(aiMode, variant, result) {
         onPdScoreComplete(result, roi, variant);
     } else if (aiMode === 'Precise-IHC') {
         onPreciseIhcComplete(result, roi, variant);
+    }
+    // onXxxComplete 에서 setDetectionResults() 가 classConfidence 를 default 로
+    // 리셋하므로, 저장된 임계값이 있으면 그 뒤에 복원 + 결과 리스트 재빌드
+    if (result.class_confidence && viewer) {
+        for (const [k, v] of Object.entries(result.class_confidence)) {
+            const id = parseInt(k);
+            if (!isNaN(id)) viewer.classConfidence[id] = Number(v);
+        }
+        if (typeof result.default_confidence === 'number') {
+            viewer.defaultConfidence = result.default_confidence;
+        }
+        buildResultList(result);
+        viewer._buildHeatmapCache?.();
+        viewer.requestRender();
     }
 }
 
@@ -3147,6 +3198,7 @@ $btnVsSplit?.addEventListener('click', () => {
             if ($linkAdmin) $linkAdmin.hidden = false;
         }
         window.__currentUserRole = dict_me.str_role || 'viewer';
+        window.__currentUserId = String(dict_me._id || '');
         if (window.__currentUserRole === 'viewer') {
             _applyViewerRoleRestrictions();
         }

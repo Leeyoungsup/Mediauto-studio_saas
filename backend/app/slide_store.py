@@ -399,9 +399,14 @@ async def upsert_user_ai_edit(
     str_user_id: str,
     str_user_name: str,
     str_login_id: str,
-    dict_result: dict,
+    str_file_path: str,
+    int_total_cells: int,
 ) -> None:
-    """현재 로그인한 사용자의 편집본을 `user_ai_edits` 에 upsert (최신본만 유지)."""
+    """현재 로그인한 사용자의 편집본 **메타** 를 `user_ai_edits` 에 upsert (최신본만 유지).
+
+    실제 셀 결과 JSON 은 디스크(str_file_path) 에 저장되고, 여기서는 경로/총 셀 수/
+    사용자/시각만 DB 에 기록한다.
+    """
     if not is_db_connected():
         return
     if str_ai_mode not in LIST_AI_MODEL_KEYS:
@@ -417,8 +422,8 @@ async def upsert_user_ai_edit(
     dict_set = {
         "str_user_name": str_user_name or "",
         "str_login_id": str_login_id or "",
-        "dict_result": dict_result,
-        "int_total_cells": int(dict_result.get("total_cells", 0) or 0),
+        "str_file_path": str_file_path,
+        "int_total_cells": int(int_total_cells or 0),
         "dt_updated_at": dt_now,
     }
     await db.user_ai_edits.update_one(
@@ -448,7 +453,6 @@ async def list_user_ai_edits(
     }
     async for dict_doc in db.user_ai_edits.find(
         dict_query,
-        projection={"dict_result": 0},  # 메타만
     ).sort("dt_updated_at", -1):
         list_out.append({
             "str_user_id": dict_doc.get("str_user_id", ""),
@@ -461,6 +465,24 @@ async def list_user_ai_edits(
             ),
         })
     return list_out
+
+
+async def delete_user_ai_edit(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+) -> Optional[dict]:
+    """사용자 편집본 메타 삭제. 삭제된 문서(특히 str_file_path) 반환 — 호출자가 파일도 지움."""
+    if not is_db_connected():
+        return None
+    db = get_db()
+    return await db.user_ai_edits.find_one_and_delete({
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    })
 
 
 async def get_user_ai_edit(

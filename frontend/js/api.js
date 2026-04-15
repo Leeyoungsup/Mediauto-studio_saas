@@ -450,6 +450,14 @@ export const api = {
         return res.json();
     },
 
+    /** 본인 편집본 삭제 (타 사용자 것은 백엔드에서 거부) */
+    async deleteMyUserAiEdit(slideId, aiMode, variant = '') {
+        const qs = new URLSearchParams({ slide_id: slideId, ai_mode: aiMode, variant: variant || '' });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits?${qs.toString()}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 특정 사용자의 편집본 전체 결과 로드 */
     async loadUserAiEdit(slideId, aiMode, userId, variant = '') {
         const qs = new URLSearchParams({

@@ -1848,9 +1848,9 @@ export class TileViewer {
         if (!this.detectionCells.length) return;
 
         // effectiveMpp 기준: 화면에 보이는 실제 해상도로 판단
-        // mpp < 2.0 → 고배율 → 개별 셀, mpp >= 2.0 → 저배율 → 히트맵
+        // mpp < 3.0 → 개별 셀, mpp >= 3.0 → 저배율 → 히트맵
         const effectiveMpp = this.getEffectiveMpp();
-        if (effectiveMpp >= 2.0) {
+        if (effectiveMpp >= 3.0) {
             this._renderHeatmap(octx);
         } else {
             this._renderCells(octx);
