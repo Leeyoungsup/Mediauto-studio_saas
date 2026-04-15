@@ -52,6 +52,10 @@ def _slide_response(slide_id: str, info, filename: str):
         "level_count": info.level_count,
         "level_dimensions": info.level_dimensions,
         "level_downsamples": info.level_downsamples,
+        # 3단계 stage 피라미드 (타일 생성/서빙 기준)
+        "stage_count": info.stage_count,
+        "stage_downsamples": info.stage_downsamples,
+        "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
         "mpp_x": info.mpp_x,
         "mpp_y": info.mpp_y,
@@ -631,6 +635,9 @@ async def get_slide_info(slide_id: str):
         "level_count": info.level_count,
         "level_dimensions": info.level_dimensions,
         "level_downsamples": info.level_downsamples,
+        "stage_count": info.stage_count,
+        "stage_downsamples": info.stage_downsamples,
+        "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
         "tiles_ready": tile_generator.tiles_ready(Path(info.file_path).name),
     }

@@ -86,6 +86,20 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
 };
 viewer.onViewChange = () => updateMinimap();
 
+// ── 슬라이드 초기 3-stage 프리로드 로딩창 ──
+const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
+const $slideLoadingProgress = document.getElementById('slide-loading-progress');
+viewer.onPreloadStart = () => {
+    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = false;
+    if ($slideLoadingProgress) $slideLoadingProgress.textContent = '0 / 0';
+};
+viewer.onPreloadProgress = (done, total) => {
+    if ($slideLoadingProgress) $slideLoadingProgress.textContent = `${done} / ${total}`;
+};
+viewer.onPreloadComplete = () => {
+    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
+};
+
 // ── 마우스 좌표 오버레이 (씬 좌표 기준 px) ──
 const $mousePosOverlay = $('#mouse-pos-overlay');
 if ($mousePosOverlay) {

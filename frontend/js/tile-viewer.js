@@ -15,6 +15,12 @@ import { api } from './api.js';
 const TILE_SIZE = 1024;
 const MAX_CONCURRENT_LOADS = 12;  // 동시 타일 로딩 수
 
+// 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
+//   stage 0: level0 1024x1024 그대로   (downsample 1)
+//   stage 1: level0 4096x4096 → 1024   (downsample 4)
+//   stage 2: level0 8192x8192 → 1024   (downsample 8)
+const STAGE_DOWNSAMPLES = [1, 4, 8];
+
 /**
  * 공간 격자 인덱스 — 데스크톱 SpatialGrid와 동일
  * 셀을 grid_size 단위 버킷에 분류하여 뷰포트 영역의 셀만 O(1)에 조회
@@ -81,6 +87,10 @@ export class TileViewer {
         // 타일 캐시 — 모든 레벨의 타일을 보관 (fallback용)
         this._tileCache = new Map();  // "level/tx/ty" -> Image
         this._tileLoading = new Set();
+        // 타일 페이드인 — key → fade start timestamp (ms). 새로 도착한 current-level
+        // child 타일을 alpha 0 → 1 로 램프해 OSD 처럼 부드럽게 레이어 전환을 보이게 한다.
+        this._tileFadeStart = new Map();
+        this._fadeDurationMs = 250;
         this._thumbnailBitmap = null;  // 전역 폴백용 고해상도 썸네일 (slide 열 때 1회 로드)
         this._maxCacheTiles = 3000;
         this._loadQueue = [];         // 우선순위 로드 큐
@@ -89,6 +99,13 @@ export class TileViewer {
         this._inflightImages = new Set();
         // 슬라이드 generation — onload 콜백이 자기 generation 을 기억해 stale 방지
         this._loadGeneration = 0;
+
+        // 3-stage 프리로드 추적 — 슬라이드 열 때 3개 stage level 의 모든 타일이 다
+        // 로드될 때까지 앱에서 로딩창을 띄운다.
+        this._preloadKeys = null;   // Set<string> of tile keys that belong to initial preload
+        this._preloadTotal = 0;
+        this._preloadDone = 0;
+        this._isPreloading = false;
 
         // 패닝 상태
         this._isPanning = false;
@@ -152,6 +169,9 @@ export class TileViewer {
         // 콜백
         this.onZoomChange = null;
         this.onViewChange = null;
+        this.onPreloadStart = null;     // () => {}  3-stage 프리로드 시작
+        this.onPreloadProgress = null;  // (done, total) => {}
+        this.onPreloadComplete = null;  // () => {}  3-stage 프리로드 완료
         this.onAnnotationCreated = null;   // (annotation) => {}
         this.onAnnotationSelected = null;  // (annotation|null) => {}
         this.onAnnotationDeleted = null;   // (annotation) => {}
@@ -181,14 +201,21 @@ export class TileViewer {
 
         this._tileCache.clear();
         this._tileLoading.clear();
+        this._tileFadeStart.clear();
         this._loadQueue = [];
         this._activeLoads = 0;
         this.detectionCells = [];
         this._thumbnailBitmap = null;
 
+        // 이전 슬라이드의 프리로드 상태 초기화
+        this._preloadKeys = null;
+        this._preloadTotal = 0;
+        this._preloadDone = 0;
+        this._isPreloading = false;
+
         this.fitToWindow();
-        // 최상위(가장 거친) 레벨 전체 프리로드 — 어디를 확대해도 블러 fallback 보장
-        this._preloadCoarsestLevel();
+        // 3 stage level 전체 프리로드 — 완료까지 앱은 로딩창 표시
+        this._preloadAllStageLevels();
         // 전역 폴백용 고해상도 썸네일 1회 로드 — 타일/폴백 모두 miss 일 때 최후의 블러 표시
         this._loadThumbnailFallback();
     }
@@ -228,17 +255,53 @@ export class TileViewer {
         img_hi.src = api.previewUrl(str_slide_id, 2048);
     }
 
-    _preloadCoarsestLevel() {
+    _preloadAllStageLevels() {
         if (!this.slideInfo) return;
-        const level = this.slideInfo.level_count - 1;
-        if (level < 0) return;
-        const [levelW, levelH] = this.slideInfo.level_dimensions[level];
+        // 초기에는 stage 2 (가장 거친) 만 전체 프리로드.
+        // stage 0, 1 은 사용자가 zoom in 할 때 on-demand 로 로드.
+        const int_level = 2;
+        const [levelW, levelH] = this._stageDimensions(int_level);
         const nx = Math.ceil(levelW / TILE_SIZE);
         const ny = Math.ceil(levelH / TILE_SIZE);
+
+        const set_keys = new Set();
+        const list_tasks = [];
         for (let ty = 0; ty < ny; ty++) {
             for (let tx = 0; tx < nx; tx++) {
-                this._loadTile(level, tx, ty);
+                const key = `${int_level}/${tx}/${ty}`;
+                set_keys.add(key);
+                list_tasks.push({ level: int_level, tx, ty });
             }
+        }
+
+        this._preloadKeys = set_keys;
+        this._preloadTotal = set_keys.size;
+        this._preloadDone = 0;
+        this._isPreloading = this._preloadTotal > 0;
+
+        if (this._isPreloading && this.onPreloadStart) {
+            this.onPreloadStart();
+        }
+        if (this._preloadTotal === 0) {
+            if (this.onPreloadComplete) this.onPreloadComplete();
+            return;
+        }
+
+        for (const t of list_tasks) {
+            this._loadTile(t.level, t.tx, t.ty);
+        }
+    }
+
+    _markPreloadTileDone(key) {
+        if (!this._preloadKeys || !this._preloadKeys.has(key)) return;
+        this._preloadKeys.delete(key);
+        this._preloadDone++;
+        if (this.onPreloadProgress) {
+            this.onPreloadProgress(this._preloadDone, this._preloadTotal);
+        }
+        if (this._preloadDone >= this._preloadTotal) {
+            this._isPreloading = false;
+            if (this.onPreloadComplete) this.onPreloadComplete();
         }
     }
 
@@ -285,26 +348,31 @@ export class TileViewer {
     }
 
     _getStageLevel(effectiveMpp) {
-        if (!this.slideInfo) return 0;
-        const stages = this._getLevelStages();
-        if (effectiveMpp < 2.0) return stages[0];
-        if (effectiveMpp < 15.0) return stages[1];
-        if (effectiveMpp < 100.0) return stages[2];
-        return stages[3];
+        // stage index 반환 (0/1/2). level 이 아닌 stage 인덱스 그 자체.
+        if (effectiveMpp < 2.0) return 0;
+        if (effectiveMpp < 15.0) return 1;
+        return 2;
     }
 
     _getLevelStages() {
-        const total = this.slideInfo.level_count;
-        if (total === 1) return [0, 0, 0, 0];
-        if (total === 2) return [0, 0, 1, 1];
-        if (total === 3) return [0, 1, 2, 2];
-        const step = (total - 1) / 3.0;
-        return [
-            0,
-            Math.round(step),
-            Math.round(step * 2),
-            Math.min(total - 1, Math.round(step * 3)),
-        ];
+        // 3단계 stage 는 항상 [0, 1, 2] — stage index 가 곧 level 변수의 값
+        return [0, 1, 2];
+    }
+
+    _stageDownsample(stage) {
+        return STAGE_DOWNSAMPLES[stage];
+    }
+
+    _stageDimensions(stage) {
+        // backend 의 stage_dimensions 가 있으면 사용, 없으면 level 0 크기에서 계산
+        if (this.slideInfo &&
+            Array.isArray(this.slideInfo.stage_dimensions) &&
+            this.slideInfo.stage_dimensions[stage]) {
+            return this.slideInfo.stage_dimensions[stage];
+        }
+        const [w0, h0] = this.slideInfo.dimensions;
+        const ds = STAGE_DOWNSAMPLES[stage];
+        return [Math.max(1, Math.ceil(w0 / ds)), Math.max(1, Math.ceil(h0 / ds))];
     }
 
     // ── 줌 ──
@@ -748,7 +816,7 @@ export class TileViewer {
         }
 
         for (const l of levels) {
-            const ds = this.slideInfo.level_downsamples[l];
+            const ds = this._stageDownsample(l);
             const tileScene = TILE_SIZE * ds;
             // child 가 걸치는 parent 타일 격자 범위 (좌상 ~ 우하)
             const int_ptx_min = Math.floor(sceneX / tileScene);
@@ -795,8 +863,8 @@ export class TileViewer {
 
         const effectiveMpp = this.getEffectiveMpp();
         const level = this._getStageLevel(effectiveMpp);
-        const downsample = this.slideInfo.level_downsamples[level];
-        const [levelW, levelH] = this.slideInfo.level_dimensions[level];
+        const downsample = this._stageDownsample(level);
+        const [levelW, levelH] = this._stageDimensions(level);
 
         // 뷰 영역 (scene 좌표)
         const halfVW = this._viewW / this.zoom / 2;
@@ -866,7 +934,7 @@ export class TileViewer {
                     // 바로 위 stage level 부모 타일 프리페치 (parent 큐로 분리).
                     const int_parent_level = int_parent_stage_level;
                     if (int_parent_level >= 0) {
-                        const float_parent_ds = this.slideInfo.level_downsamples[int_parent_level];
+                        const float_parent_ds = this._stageDownsample(int_parent_level);
                         const float_parent_tile_scene = TILE_SIZE * float_parent_ds;
                         const float_cx = sceneX + tileSceneSize / 2;
                         const float_cy = sceneY + tileSceneSize / 2;
@@ -933,12 +1001,38 @@ export class TileViewer {
                 fb.srcSceneSize * this.zoom, fb.srcSceneSize * this.zoom);
         }
 
-        // ── Pass 3: 현재 레벨 child 타일 ──
+        // ── Pass 3: 현재 레벨 child 타일 (fade-in) ──
+        // 새로 도착한 타일은 alpha 0 → 1 로 램프해 OSD 처럼 레이어가 서서히 올라오게
+        // 보이게 한다. 폴백 parent/썸네일은 이미 아래에 깔려있어 빈 공간이 생기지 않는다.
+        const float_now_ms = performance.now();
+        const float_fade_dur = this._fadeDurationMs;
+        let bool_any_fading = false;
         for (const c of list_present_children) {
             this._tileCache.delete(c.key);
             this._tileCache.set(c.key, c.img);
-            _drawAligned(c.img, null, null, null, null,
-                c.canvasX, c.canvasY, c.canvasSize, c.canvasSize);
+            let float_alpha = 1;
+            const float_fade_start = this._tileFadeStart.get(c.key);
+            if (float_fade_start !== undefined) {
+                const float_elapsed = float_now_ms - float_fade_start;
+                if (float_elapsed < float_fade_dur) {
+                    float_alpha = float_elapsed / float_fade_dur;
+                    bool_any_fading = true;
+                } else {
+                    this._tileFadeStart.delete(c.key);
+                }
+            }
+            if (float_alpha < 1) {
+                ctx.globalAlpha = float_alpha;
+                _drawAligned(c.img, null, null, null, null,
+                    c.canvasX, c.canvasY, c.canvasSize, c.canvasSize);
+                ctx.globalAlpha = 1;
+            } else {
+                _drawAligned(c.img, null, null, null, null,
+                    c.canvasX, c.canvasY, c.canvasSize, c.canvasSize);
+            }
+        }
+        if (bool_any_fading) {
+            this.requestRender();
         }
 
         // 부모 stage 타일을 먼저, 그 다음 현재 레벨 child 타일을 큐에 넣는다.
@@ -1266,6 +1360,8 @@ export class TileViewer {
             this._tileLoading.delete(key);
             this._activeLoads--;
             this._putCache(key, img);
+            this._tileFadeStart.set(key, performance.now());
+            this._markPreloadTileDone(key);
             this._processLoadQueue();
             this.requestRender();
         };
@@ -1274,6 +1370,8 @@ export class TileViewer {
             if (int_gen !== this._loadGeneration) return;
             this._tileLoading.delete(key);
             this._activeLoads--;
+            // 실패도 "완료" 로 간주해야 로딩창이 영원히 멈추지 않음
+            this._markPreloadTileDone(key);
             this._processLoadQueue();
         };
         img.src = api.tileUrl(this.slideId, level, tx, ty);
@@ -1285,6 +1383,7 @@ export class TileViewer {
             // 가장 오래된 (Map 첫 번째) 항목 제거
             const oldest = this._tileCache.keys().next().value;
             this._tileCache.delete(oldest);
+            this._tileFadeStart.delete(oldest);
         }
         this._tileCache.set(key, img);
     }
@@ -1293,6 +1392,7 @@ export class TileViewer {
     clearCacheAndRender() {
         this._tileCache.clear();
         this._tileLoading.clear();
+        this._tileFadeStart.clear();
         this._loadQueue = [];
         this._activeLoads = 0;
         this.requestRender();
