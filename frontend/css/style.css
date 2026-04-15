@@ -7,6 +7,23 @@ html, body {
     height: 100%; overflow: hidden;
     font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; font-size: 13px;
     background: #f3f4fa;
+    user-select: none; -webkit-user-select: none;
+    cursor: default;
+}
+/* 실제 입력/편집 요소만 선택·caret 허용 */
+input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+    user-select: text; -webkit-user-select: text;
+    cursor: text;
+}
+input[type="button"], input[type="submit"], input[type="reset"],
+input[type="checkbox"], input[type="radio"], input[type="range"],
+input[type="color"], input[type="file"], select {
+    cursor: pointer;
+}
+/* 사용자가 복사해갈 수 있는 읽기전용 콘텐츠는 .selectable 로 opt-in */
+.selectable, .selectable * {
+    user-select: text; -webkit-user-select: text;
+    cursor: text;
 }
 
 :root {
@@ -93,6 +110,8 @@ html, body {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     padding: 6px 14px; background: var(--bg-light); border-radius: 999px;
     max-width: 420px;
+    user-select: none; -webkit-user-select: none;
+    cursor: default;
 }
 .status-text {
     display: inline-flex; align-items: center; gap: 6px;

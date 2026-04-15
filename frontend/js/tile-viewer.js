@@ -916,7 +916,18 @@ export class TileViewer {
                 const canvasSize = tileSceneSize * this.zoom;
 
                 if (img && img.complete && img.naturalWidth > 0) {
-                    list_present_children.push({ img, canvasX, canvasY, canvasSize, key });
+                    list_present_children.push({ img, canvasX, canvasY, canvasSize, key, sceneX, sceneY });
+                    // 아직 페이드 중이면 부모를 아래에 깔아 블랙→타일 블렌딩 깜빡임 방지
+                    const float_fs = this._tileFadeStart.get(key);
+                    if (float_fs !== undefined && (performance.now() - float_fs) < this._fadeDurationMs) {
+                        const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
+                        for (const fb of list_fbs) {
+                            const str_fb_key = `${fb.srcSceneX}_${fb.srcSceneY}_${fb.srcSceneSize}`;
+                            if (!map_fallback_parents.has(str_fb_key)) {
+                                map_fallback_parents.set(str_fb_key, fb);
+                            }
+                        }
+                    }
                 } else {
                     list_missing_children.push({ tx, ty, sceneX, sceneY, canvasX, canvasY, canvasSize });
                     // 이 child 를 덮는 parent 들을 수집 (중복은 map 이 dedup)
