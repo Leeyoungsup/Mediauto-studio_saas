@@ -53,7 +53,6 @@ const $btnDrawPoint = $('#btn-draw-point');
 
 // VS-IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
-const $btnVsNucleus = $('#btn-vs-nucleus');
 const $btnPdScore = $('#btn-pd-score');
 const $pdScoreResult = $('#pd-score-result');
 const $pdScoreLabel = $('#pd-score-label');
@@ -139,7 +138,7 @@ const AI_MODEL_HELP = {
     },
     'pd-tab': {
         title: 'PD-Score — PD-L1 Scoring',
-        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 기본 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다.',
+        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 검증된 고정 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다 (SaMD 재현성 보장).',
     },
     'ihc-tab': {
         title: 'Precise-IHC — HER2 / ER / PR',
@@ -357,7 +356,6 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // 버튼 활성화
     $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
-    $btnVsNucleus.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
     // ER/PR 은 임시 비활성화 — 준비되면 다시 활성화
@@ -453,9 +451,8 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
     // ER/PR / KI-67 은 원래 disabled — 건드리지 않는다
 
-    // VS-IHC — variant(ihc_membrane / ihc_nucleus) 단위. target_mpp 는 제한 안 함.
+    // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
     $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
-    $btnVsNucleus.disabled = !set_allowed.has('VS-IHC::ihc_nucleus');
 }
 
 // ═══════════════════════════
@@ -480,7 +477,7 @@ function _applyViewerRoleRestrictions() {
     // AI 분석 버튼 전체 비활성
     const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
-        'btn-vs-membrane', 'btn-vs-nucleus',
+        'btn-vs-membrane',
     ];
     list_ai_btn_ids.forEach(id => {
         const el = document.getElementById(id);
@@ -1438,7 +1435,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
 
     // HE-Fit 은 기본 CLASS_COLORS 사용 (override 해제)
     viewer.classColorOverride = null;
-    viewer.defaultConfidence = 0.01;
+    viewer.defaultConfidence = 0.1;  // 고정 (SaMD 재현성)
 
     // ROI 폴리곤 내부 셀만 필터링하여 표시
     viewer.setDetectionResults(result.cells, roiPolygons);
@@ -1461,16 +1458,6 @@ const CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
-
-// confidence 슬라이더 debounce용
-let _confDebounceTimer = null;
-function _debouncedRender() {
-    if (_confDebounceTimer) clearTimeout(_confDebounceTimer);
-    _confDebounceTimer = setTimeout(() => {
-        viewer._buildHeatmapCache();
-        viewer.requestRender();
-    }, 200);
-}
 
 // 현재 confidence 임계값을 반영한 클래스별 카운트 계산
 function _computeFilteredCounts(cells) {
@@ -1673,34 +1660,7 @@ function buildResultList(result) {
 
         item.append(cb, dot, nameSpan, countSpan);
         $resultList.appendChild(item);
-
-        // 개별 confidence 슬라이더
-        const sliderRow = document.createElement('div');
-        sliderRow.className = 'class-conf-slider';
-
-        const initConf = viewer.classConfidence[id] ?? viewer.defaultConfidence ?? 0.01;
-        const initConfStr = initConf.toFixed(2);
-
-        const sliderLabel = document.createElement('span');
-        sliderLabel.className = 'conf-label';
-        sliderLabel.textContent = initConfStr;
-
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = '0';
-        slider.max = '1';
-        slider.step = '0.01';
-        slider.value = initConfStr;
-        slider.addEventListener('input', () => {
-            const val = parseFloat(slider.value);
-            sliderLabel.textContent = val.toFixed(2);
-            viewer.classConfidence[id] = val;
-            _updateResultCounts();
-            _debouncedRender();
-        });
-
-        sliderRow.append(slider, sliderLabel);
-        $resultList.appendChild(sliderRow);
+        // confidence 임계값은 SaMD 재현성을 위해 고정 — UI 조절 슬라이더 제거됨
     }
 
     _resultCountRefs = { total: totalCount, perClass: perClassCountEls };
@@ -1772,11 +1732,10 @@ $btnSaveResults?.addEventListener('click', async () => {
             _lastDetectionResult.cells = viewer.detectionCells;
             _lastDetectionResult.total_cells = viewer.detectionCells.length;
         }
-        // 클래스별 confidence 임계값 슬라이더 상태도 함께 저장
-        if (viewer?.classConfidence) {
-            _lastDetectionResult.class_confidence = { ...viewer.classConfidence };
-            _lastDetectionResult.default_confidence = viewer.defaultConfidence ?? 0.01;
-        }
+        // confidence 임계값은 SaMD 재현성을 위해 고정값만 사용.
+        // 과거 저장본과의 호환을 위해 레거시 필드는 저장하지 않음(있어도 로드 시 무시).
+        delete _lastDetectionResult.class_confidence;
+        delete _lastDetectionResult.default_confidence;
         const r = await api.saveDetectionResult(
             currentSlideId, tissue, _lastDetectionResult, aiMode,
         );
@@ -1928,20 +1887,8 @@ function _applyLoadedResult(aiMode, variant, result) {
     } else if (aiMode === 'Precise-IHC') {
         onPreciseIhcComplete(result, roi, variant);
     }
-    // onXxxComplete 에서 setDetectionResults() 가 classConfidence 를 default 로
-    // 리셋하므로, 저장된 임계값이 있으면 그 뒤에 복원 + 결과 리스트 재빌드
-    if (result.class_confidence && viewer) {
-        for (const [k, v] of Object.entries(result.class_confidence)) {
-            const id = parseInt(k);
-            if (!isNaN(id)) viewer.classConfidence[id] = Number(v);
-        }
-        if (typeof result.default_confidence === 'number') {
-            viewer.defaultConfidence = result.default_confidence;
-        }
-        buildResultList(result);
-        viewer._buildHeatmapCache?.();
-        viewer.requestRender();
-    }
+    // 레거시 저장본에 class_confidence / default_confidence 필드가 있어도 무시.
+    // 모든 결과는 현재 모델의 고정 임계값으로 표시된다 (SaMD 재현성).
 }
 
 function _rerunOriginalInference(aiMode, variant) {
@@ -2618,8 +2565,7 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
     // ER/PR 임시 비활성화 — 준비되면 다시 활성화
     // { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
-    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)', mpp: true },
-    { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)',  mpp: true },
+    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC (Virtual Stain)', mpp: true },
 ];
 const VS_MPP_CHOICES = [
     { value: 4.0, label: '4.0 µm/px (x2.5)' },
@@ -2789,7 +2735,7 @@ async function startVirtualStain(stainType) {
     const str_key = 'vs-' + stainType;
     if (await _maybeCancelRunning(str_key)) return;
 
-    const btnEl = stainType === 'ihc_nucleus' ? $btnVsNucleus : $btnVsMembrane;
+    const btnEl = $btnVsMembrane;
     _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
     _vsRunning = true;
     _setButtonRunning(btnEl, true);
@@ -2898,7 +2844,6 @@ $vsMppSlider?.addEventListener('input', () => {
 });
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
-$btnVsNucleus?.addEventListener('click', () => startVirtualStain('ihc_nucleus'));
 
 // ═══════════════════════════
 // PD-Score (PD-L1) — CPS / TPS
@@ -2983,7 +2928,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;
+    viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
@@ -3108,7 +3053,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;
+    viewer.defaultConfidence = 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 

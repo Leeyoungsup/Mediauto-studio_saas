@@ -230,7 +230,7 @@ async def _scan_and_infer_once() -> None:
 
                 if str_model == "VS-IHC":
                     from app.routers.ai import _get_vs_cache_paths
-                    png_path, _ = _get_vs_cache_paths(str_full_path, str_variant, float_target_mpp)
+                    png_path, _ = _get_vs_cache_paths(str_full_path, float_target_mpp)
                     if png_path.exists():
                         continue
 

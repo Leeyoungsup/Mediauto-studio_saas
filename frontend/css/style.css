@@ -968,18 +968,6 @@ body.role-viewer .annotation-group::after {
 .slider-group input[type="range"] { width: 100%; margin-top: 3px; accent-color: var(--accent); }
 
 /* 클래스별 confidence 슬라이더 */
-.class-conf-slider {
-    display: flex; align-items: center; gap: 6px;
-    padding: 0 8px 6px 28px;  /* 체크박스 너비만큼 들여쓰기 */
-}
-.class-conf-slider input[type="range"] {
-    flex: 1; height: 4px; accent-color: var(--accent);
-}
-.class-conf-slider .conf-label {
-    font-size: 10px; color: var(--text-dim); min-width: 28px; text-align: right;
-    font-family: 'Consolas', monospace;
-}
-
 /* ═══ Annotation 패널 ═══ */
 .annotation-group { display: flex; flex-direction: column; }
 .annotation-list {

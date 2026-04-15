@@ -1,3 +1,33 @@
+### [2026-04-16 15:45]
+**Q:** PD-Score(Stomach/Lung) 고정 임계값을 0.5 → 0.1 로 되돌림. Precise-IHC 만 0.5 유지
+**A:** 백엔드: `_run_pd_score` wrapper 에서 `float_score_conf_threshold=0.1` 명시 전달, `_run_precise_ihc` 는 `0.5` 명시 전달. `_run_marker_detection_pipeline` docstring 을 "PD=0.1 / Precise-IHC=0.5" 로 갱신 (default 0.5 는 안전장치로 유지). 프론트: `onPdScoreComplete` 의 `viewer.defaultConfidence` 0.5 → 0.1 복귀. PD-Score help 텍스트도 "0.1 이상" 으로 복구.
+**변경사항**: backend/app/routers/ai.py, frontend/js/app.js
+
+### [2026-04-16 15:30]
+**Q:** Cell detection confidence 사용자 조절 기능 제거 — SaMD 인허가 재현성을 위해 고정값 강제. HE-Fit=0.1, PD-Score/Precise-IHC=0.5
+**A:** **백엔드**: `_run_marker_detection_pipeline` 의 `float_score_conf_threshold` default 0.1 → 0.5 (PD-Score/Precise-IHC 공용). score 계산 comment 도 "고정 0.5, 사용자 조절 불가" 로 갱신. 레거시 캐시에 score_conf_threshold 가 다르면 자동 재계산하는 기존 로직이 그대로 동작. **프론트**: HE-Fit `onDetectionComplete` → `viewer.defaultConfidence = 0.1`, PD-Score `onPdScoreComplete` / Precise-IHC `onPreciseIhcComplete` → `0.5`. `buildResultList` 의 클래스별 confidence 슬라이더 UI 생성 코드 전체 삭제. `_debouncedRender` / `_confDebounceTimer` 도 미사용 → 제거. `saveDetectionResult` 에서 `class_confidence` / `default_confidence` 필드 저장 중단 (`delete` 로 레거시 필드 스트립). `onDetectionResultLoaded` (캐시 로드 경로) 에서 저장본의 `class_confidence` 복원 로직 제거 — 레거시 저장본이어도 현재 모델의 고정 임계값으로 재표시. PD-Score help 텍스트를 "검증된 고정 0.5 (SaMD 재현성)" 로 갱신. **CSS**: `.class-conf-slider` / `.conf-label` 규칙 삭제. `setDetectionResults` 는 기존대로 매 클래스 임계값을 `defaultConfidence` 로 재설정 → 고정값이 항상 보장됨.
+**변경사항**: backend/app/routers/ai.py, frontend/js/app.js, frontend/css/style.css
+
+### [2026-04-16 15:00]
+**Q:** VS-IHC 결과 파일명에서 `_ihc_membrane_` 제거 (옵션 A — lazy 마이그레이션), nucleus 결과 파일 삭제
+**A:** `_get_vs_cache_paths(slide_path, target_mpp)` 에서 `stain_type` 인자 제거, 새 컨벤션 `{stem}_VS-IHC_mpp{p}`. 함수 내부에 2단계 마이그레이션 (1) stain-suffix 마이그레이션: 기존 `_ihc_membrane_` 파일/타일디렉터리 → 새 이름 자동 rename, (2) 레거시 ai_results 루트 → VS-IHC/ 마이그레이션 기존 로직 유지 + 구 이름도 동시 체크. `_get_vs_tile_dir` 도 stain_type 제거. 모든 caller (ai.py 5곳 + auto_ai.py 1곳) 에서 stain_type 인자 제거. 프론트 URL/요청 스키마는 건드리지 않음 (stain_type 필드는 서버에서 무시). `backend/ai_results/VS-IHC/*_ihc_nucleus_*` 파일/디렉터리 전체 삭제 (rm -rf, 0개 남음 확인).
+**변경사항**: backend/app/routers/ai.py, backend/app/auto_ai.py, backend/ai_results/VS-IHC/(nucleus 파일 삭제)
+
+### [2026-04-16 14:30]
+**Q:** VS-IHC membrane/nucleus 분리 제거 — membrane 모델 하나로 통합, "membrane 특화" 표시도 제거
+**A:** 프론트: `app.html`에서 `btn-vs-nucleus` 버튼 삭제, `btn-vs-membrane` 라벨을 "IHC → H&E (Membrane)" → "IHC → H&E" 로 변경. `app.js`에서 `$btnVsNucleus` 상수/권한 체크/뷰어 제한 리스트/`AI_TASKS` 엔트리/클릭 리스너 모두 제거, `startVirtualStain` 내 nucleus 분기 제거(항상 `$btnVsMembrane` 사용), VS-IHC 라벨에서 "Membrane" 삭제. 백엔드: `ai.py::VS_MODEL_FILES`에서 `ihc_nucleus` 항목 제거. 기존 `ai_results/VS-IHC/*_ihc_nucleus_*.json` 파일은 과거 결과 보존용으로 그대로 둠.
+**변경사항**: frontend/app.html, frontend/js/app.js, backend/app/routers/ai.py
+
+### [2026-04-16 14:00]
+**Q:** UI 전역에서 텍스트 선택/caret 깜빡임 막아달라 — slide-name 말고 다른 것들도 전부
+**A:** `style.css` 글로벌 규칙에 `body { user-select: none; cursor: default }` 추가 후 `input, textarea, select, [contenteditable]` 에만 `user-select: text; cursor: text` 로 복구. 버튼류 input 과 select 는 `cursor: pointer`. 읽기전용 복사 허용이 필요한 콘텐츠는 `.selectable` 클래스로 opt-in. `.slide-name` 전용 `user-select: none` 규칙도 유지(중복 무해).
+**변경사항**: frontend/css/style.css
+
+### [2026-04-16 13:30]
+**Q:** 3-stage 타일 페이드인 시 검정→타일 블렌딩으로 깜빡여보이는 문제
+**A:** `tile-viewer.js::_render()` 의 present children 루프에서 페이드 중인 타일(fade_start + duration 이내)을 만나면 `_findFallbackTiles` 로 parent 를 수집해 `map_fallback_parents` 에 추가 → Pass 2b 에서 parent 가 먼저 깔린 뒤 그 위로 alpha 램프. 이로써 블랙 캔버스 위에 블렌딩되던 깜빡임 제거. alpha 계산은 `_tileFadeStart` Map (onload 시 `performance.now()` 기록), LRU 제거·슬라이드 전환·`clearCacheAndRender` 에서 동기 cleanup. 페이드 중 프레임은 `requestRender()` 로 rAF 루프 지속.
+**변경사항**: frontend/js/tile-viewer.js
+
 ### [2026-04-15 08:30]
 **Q:** 보안 관련 내용 정리 MD 파일 작성
 **A:** `docs/SECURITY.md` 신규 작성 — 10개 섹션(시크릿 관리/비밀번호/JWT/계정 생애주기/RBAC/미디어 HMAC 티켓/필드 암호화/감사 로그/네트워크/알려진 한계) 전체 커버. 각 섹션마다 구현 경로 파일 링크, 위협 모델, 관련 라인 번호까지 포함. 운영 배포 직전 체크리스트 부록 추가(CORS 제한, TLS, X-Forwarded-For 신뢰 범위, audit_logs append-only 유저 분리 등). DB 미연결 시 익명 admin fallback, AES-GCM 검색 불가 등 설계상 한계도 명시.

@@ -949,11 +949,15 @@ def _run_marker_detection_pipeline(
     score_fn, score_key,
     extra_fields, log_label,
     str_variant: str = "",
-    float_score_conf_threshold: float = 0.1,
+    float_score_conf_threshold: float = 0.5,
 ):
     """
     YOLOv11m 기반 marker detection 공용 파이프라인.
     PD-Score / Precise-IHC 가 공유.
+    임계값은 모델별로 고정 — 인허가(SaMD) 재현성을 위해 사용자 조절 금지.
+      - PD-Score (Stomach/Lung): 0.1
+      - Precise-IHC (HER2/ER_PR): 0.5
+    각 wrapper 에서 명시적으로 전달한다.
     """
     list_cleanup_on_cancel = [cache_path]
     try:
@@ -1276,10 +1280,8 @@ def _run_marker_detection_pipeline(
             for i in range(n_cells)
         ]
 
-        # Score 는 프론트엔드 기본 confidence 필터(0.1)와 동일한 임계값으로 계산.
-        # PD-Score/Precise-IHC 모델은 표시 시 conf < 0.1 셀을 숨기므로,
-        # 초기 노출되는 CPS/TPS/HER2 점수도 같은 필터를 거친 cells 로부터 구해야 일관적이다.
-        # (cells 리스트 전체는 그대로 저장 — 사용자가 임계값을 낮추면 셀은 더 표시됨)
+        # Score 는 모델별 고정 confidence 임계값으로 계산 (PD=0.1, Precise-IHC=0.5).
+        # SaMD 인허가 재현성을 위해 사용자 조절 불가.
         if len(all_conf) > 0:
             mask_score = all_conf >= float_score_conf_threshold
             cls_for_score = all_cls[mask_score]
@@ -1342,6 +1344,7 @@ def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         extra_fields={"tissue_type": tissue_type},
         log_label="PD-Score",
         str_variant=tissue_type,
+        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung 고정 (SaMD 재현성)
     )
 
 
@@ -1542,6 +1545,7 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         extra_fields={"marker": marker},
         log_label=f"Precise-IHC/{marker}",
         str_variant=marker,
+        float_score_conf_threshold=0.5,  # Precise-IHC 고정 (SaMD 재현성)
     )
 
 
@@ -1905,15 +1909,17 @@ async def load_user_edit(
 
 VS_MODEL_FILES = {
     "ihc_membrane": "IHC_HnE_virtual_stain_membrane.pth",
-    "ihc_nucleus": "IHC_HnE_virtual_stain_nucleus.pth",
 }
 
 
-def _get_vs_cache_paths(slide_path: str, stain_type: str, target_mpp: float = 2.0):
+def _get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0):
     """
-    Virtual stain 결과 캐시: ai_results/VS-IHC/{slide_stem}_VS-IHC_{stain}_mpp{p}.{png|json}
+    Virtual stain 결과 캐시: ai_results/VS-IHC/{slide_stem}_VS-IHC_mpp{p}.{png|json}
     타일 피라미드는 sibling 폴더: ..._tile/{level}/{tx}_{ty}.jpeg
-    레거시 (ai_results 루트) 경로가 있으면 새 위치로 자동 이동.
+
+    마이그레이션 2단계:
+      1) 레거시 `ai_results/` 루트 → `ai_results/VS-IHC/`
+      2) stain_type (`_ihc_membrane`) 제거 — VS-IHC 가 단일 모델로 통합됨
     """
     p = Path(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "VS-IHC"
@@ -1922,32 +1928,51 @@ def _get_vs_cache_paths(slide_path: str, stain_type: str, target_mpp: float = 2.
     except Exception:
         pass
     mpp_str = f"{target_mpp:g}".replace(".", "p")
-    base_name = f"{p.stem}_VS-IHC_{stain_type}_mpp{mpp_str}"
+    base_name = f"{p.stem}_VS-IHC_mpp{mpp_str}"
     new_png = (cache_dir / base_name).with_suffix(".png")
     new_meta = (cache_dir / base_name).with_suffix(".json")
+    new_tile = cache_dir / f"{base_name}_tile"
 
-    legacy_dir = Path(settings.AI_RESULTS_DIR)
-    legacy_png = (legacy_dir / base_name).with_suffix(".png")
-    legacy_meta = (legacy_dir / base_name).with_suffix(".json")
-    legacy_tile = legacy_dir / f"{base_name}_tile"
-
-    for src, dst in ((legacy_png, new_png), (legacy_meta, new_meta)):
+    # ── 1) stain_type suffix 마이그레이션 (membrane 파일 → 새 이름) ──
+    old_stain_base = f"{p.stem}_VS-IHC_ihc_membrane_mpp{mpp_str}"
+    old_stain_png = (cache_dir / old_stain_base).with_suffix(".png")
+    old_stain_meta = (cache_dir / old_stain_base).with_suffix(".json")
+    old_stain_tile = cache_dir / f"{old_stain_base}_tile"
+    for src, dst in ((old_stain_png, new_png), (old_stain_meta, new_meta)):
         if src.exists() and not dst.exists():
             try:
                 src.replace(dst)
             except Exception as e:
-                print(f"[ai] VS legacy migration failed ({src.name}): {e}")
-    if legacy_tile.exists() and not (cache_dir / f"{base_name}_tile").exists():
+                print(f"[ai] VS stain-suffix migration failed ({src.name}): {e}")
+    if old_stain_tile.exists() and not new_tile.exists():
         try:
-            legacy_tile.replace(cache_dir / f"{base_name}_tile")
+            old_stain_tile.replace(new_tile)
         except Exception as e:
-            print(f"[ai] VS legacy tile dir migration failed: {e}")
+            print(f"[ai] VS stain-suffix tile dir migration failed: {e}")
+
+    # ── 2) ai_results 루트 레거시 (새/구 이름 둘 다 체크) ──
+    legacy_dir = Path(settings.AI_RESULTS_DIR)
+    for legacy_base in (base_name, old_stain_base):
+        legacy_png = (legacy_dir / legacy_base).with_suffix(".png")
+        legacy_meta = (legacy_dir / legacy_base).with_suffix(".json")
+        legacy_tile = legacy_dir / f"{legacy_base}_tile"
+        for src, dst in ((legacy_png, new_png), (legacy_meta, new_meta)):
+            if src.exists() and not dst.exists():
+                try:
+                    src.replace(dst)
+                except Exception as e:
+                    print(f"[ai] VS legacy migration failed ({src.name}): {e}")
+        if legacy_tile.exists() and not new_tile.exists():
+            try:
+                legacy_tile.replace(new_tile)
+            except Exception as e:
+                print(f"[ai] VS legacy tile dir migration failed: {e}")
     return new_png, new_meta
 
 
-def _get_vs_tile_dir(slide_path: str, stain_type: str, target_mpp: float = 2.0) -> Path:
+def _get_vs_tile_dir(slide_path: str, target_mpp: float = 2.0) -> Path:
     """VS 타일 피라미드 폴더: {png_parent}/{png_stem}_tile/"""
-    png_path, _ = _get_vs_cache_paths(slide_path, stain_type, target_mpp)
+    png_path, _ = _get_vs_cache_paths(slide_path, target_mpp)
     return png_path.parent / f"{png_path.stem}_tile"
 
 
@@ -2059,7 +2084,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         roi_polygons = None  # 전체 추론 강제
 
         # ── 캐시 확인 ──
-        png_path, meta_path = _get_vs_cache_paths(info.file_path, stain_type, target_mpp)
+        png_path, meta_path = _get_vs_cache_paths(info.file_path, target_mpp)
         # 캐시 hit 경로에서는 cleanup 등록 금지 (기존 멀쩡한 캐시를 지울 수 있음).
         # 새 추론이 실제로 파일을 쓰기 직전 아래에서만 등록한다.
         if png_path.exists() and meta_path.exists():
@@ -2070,7 +2095,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                     cached_meta = json.load(f)
 
                 # 레거시 캐시: 타일 피라미드가 없으면 PNG에서 1회 업그레이드 생성
-                tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+                tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
                 if (not cached_meta.get("levels")) or (not tile_dir.exists()):
                     try:
                         _update_task(task_id, progress=30,
@@ -2337,7 +2362,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
             Image.fromarray(rgba, 'RGBA').save(str(png_path), format='PNG', optimize=False)
 
             _update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
-            tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+            tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
             levels_meta = _generate_vs_tiles(
                 output_canvas, tile_dir,
                 tile_size=tile_size_px, n_levels=4,
@@ -2450,7 +2475,7 @@ async def get_virtual_stain_image(slide_id: str, stain_type: str,
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
-    png_path, _ = _get_vs_cache_paths(info.file_path, stain_type, target_mpp)
+    png_path, _ = _get_vs_cache_paths(info.file_path, target_mpp)
     if not png_path.exists():
         raise HTTPException(404, "Virtual stain image not found")
     return FileResponse(str(png_path), media_type="image/png")
@@ -2472,7 +2497,7 @@ async def get_virtual_stain_tile(
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
-    tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+    tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
     tile_path = tile_dir / str(level) / f"{tx}_{ty}.jpeg"
     if not tile_path.exists():
         raise HTTPException(404, "tile not found")
