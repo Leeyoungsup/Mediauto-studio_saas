@@ -1779,7 +1779,11 @@ async def save_detection_result(
             str_login_id=str_login_id,
             dict_result=result_obj,
         )
+        print(f"[ai/save-result] upserted slide={slide_id} mode={ai_mode} "
+              f"variant={tissue_type} user={str_user_name or str_login_id} "
+              f"cells={int(result_obj.get('total_cells', 0) or 0)}")
     except Exception as e:
+        print(f"[ai/save-result] upsert failed: {e}")
         raise HTTPException(500, f"Save failed: {e}")
 
     return {

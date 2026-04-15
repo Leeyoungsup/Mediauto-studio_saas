@@ -1761,8 +1761,10 @@ $btnSaveResults?.addEventListener('click', async () => {
         const r = await api.saveDetectionResult(
             currentSlideId, tissue, _lastDetectionResult, aiMode,
         );
+        console.log('[save-result]', r);
         setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells → ${r.user_name || 'me'}`);
     } catch (err) {
+        console.error('[save-result] failed', err);
         setStatus(`Save failed: ${err.message}`);
     } finally {
         $btnSaveResults.disabled = false;
@@ -1790,9 +1792,12 @@ async function _openLoadUserEditDialog() {
         setStatus('슬라이드를 먼저 열어주세요');
         return;
     }
-    // 로드할 AI 모드/variant 결정: 현재 뷰어에 결과가 있으면 그것을, 없으면 기본(HE-Fit/Stomach)
-    const aiMode = _lastDetectionModel || 'HE-Fit';
-    const variant = _lastDetectionTissue || 'Stomach';
+    if (!_lastDetectionModel || !_lastDetectionTissue) {
+        setStatus('먼저 AI 모델을 실행해주세요 (어떤 모드를 로드할지 지정해야 합니다)');
+        return;
+    }
+    const aiMode = _lastDetectionModel;
+    const variant = _lastDetectionTissue;
     $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
     $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading…</div>';
     $loadUserEditDialog.showModal();
