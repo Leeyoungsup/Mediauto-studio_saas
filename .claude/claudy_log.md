@@ -1,3 +1,8 @@
+### [2026-04-15 08:30]
+**Q:** 보안 관련 내용 정리 MD 파일 작성
+**A:** `docs/SECURITY.md` 신규 작성 — 10개 섹션(시크릿 관리/비밀번호/JWT/계정 생애주기/RBAC/미디어 HMAC 티켓/필드 암호화/감사 로그/네트워크/알려진 한계) 전체 커버. 각 섹션마다 구현 경로 파일 링크, 위협 모델, 관련 라인 번호까지 포함. 운영 배포 직전 체크리스트 부록 추가(CORS 제한, TLS, X-Forwarded-For 신뢰 범위, audit_logs append-only 유저 분리 등). DB 미연결 시 익명 admin fallback, AES-GCM 검색 불가 등 설계상 한계도 명시.
+**변경사항**: docs/SECURITY.md(신규)
+
 ### [2026-04-15 08:10]
 **Q:** 모바일/태블릿 (작은 화면) 에서 뷰어가 너무 작게 보이는 문제 — 좌/우 패널 합계 560px+ 고정폭 3컬럼 레이아웃
 **A:** `@media (max-width: 900px)` 미디어쿼리 추가. 좌/우 패널을 `position: absolute` drawer 로 전환 + `transform: translateX` 슬라이드 애니메이션. `body.panel-left-open` / `body.panel-right-open` 클래스로 열림 상태 관리. 메뉴바 좌측에 햄버거 토글(≡), 우측에 AI 패널 토글(□|) 버튼 추가(데스크톱에선 `.mobile-toggle { display: none }`). 배경 backdrop 클릭 + ESC 로 닫힘. `matchMedia` change 리스너로 브레이크포인트 역방향 이동 시 drawer 상태 자동 정리. 모바일 헤더·툴바 폭 축소(status/user-name 숨김, toolbar horizontal scroll), ≤480px 추가 규칙. 뷰어는 절대 위치 drawer 가 그 위로 겹치므로 `viewer-container` 실제 크기는 안 바뀜 → `_resizeCanvas` 재계산 불필요.
