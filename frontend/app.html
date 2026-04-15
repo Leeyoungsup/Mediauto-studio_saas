@@ -238,6 +238,7 @@
                 <div class="btn-row compact">
                     <button id="btn-clear-results" class="small-btn" disabled>Clear</button>
                     <button id="btn-save-results" class="small-btn" disabled>Save</button>
+                    <button id="btn-load-results" class="small-btn" disabled>Load</button>
                 </div>
             </div>
         </aside>
@@ -253,6 +254,18 @@
             <button class="dialog-close" id="close-slide-info">&times;</button>
         </div>
         <div id="slide-info-content" class="dialog-body"></div>
+    </dialog>
+
+    <!-- 사용자별 AI 편집본 로드 다이얼로그 -->
+    <dialog id="load-user-edit-dialog">
+        <div class="dialog-header">
+            <span>Load Saved Analysis</span>
+            <button class="dialog-close" id="close-load-user-edit">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div id="load-user-edit-meta" style="margin-bottom:10px; font-size:12px; color:#888;"></div>
+            <div id="load-user-edit-list" class="result-list" style="max-height:340px; overflow:auto;"></div>
+        </div>
     </dialog>
 
     <!-- AI 결과 시각화 다이얼로그 -->

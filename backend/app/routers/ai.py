@@ -1735,16 +1735,24 @@ async def get_task_result(task_id: str):
     return task["result"]
 
 
+_USER_EDIT_MODES = {"HE-Fit", "PD-Score", "Precise-IHC"}
+
+
 @router.post("/save-result")
 async def save_detection_result(
     slide_id: str = Form(...),
     tissue_type: str = Form("Stomach"),
     result: str = Form(...),
+    ai_mode: str = Form("HE-Fit"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """
-    검출 결과를 서버 내부 AI 결과 폴더에 저장 (다운로드 X).
-    파일: AI_RESULTS_DIR/{slide_stem}_HE-Fit_{tissue_type}.json
+    세포 편집본을 **현재 로그인한 사용자 전용**으로 DB 에 저장한다.
+    원본 디스크 캐시 (ai_results/...) 는 건드리지 않는다.
     """
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -1754,31 +1762,71 @@ async def save_detection_result(
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"Invalid JSON: {e}")
 
-    cache_path = _get_ai_cache_path(info.file_path, tissue_type)
+    from app import slide_store
+    str_user_id = str(dict_user.get("_id") or "")
+    str_user_name = str(dict_user.get("str_name") or "")
+    str_login_id = str(dict_user.get("str_login_id") or "")
+    if not str_user_id:
+        raise HTTPException(401, "사용자 식별 실패")
+
     try:
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(result_obj, f)
+        await slide_store.upsert_user_ai_edit(
+            str_slide_id=slide_id,
+            str_ai_mode=ai_mode,
+            str_variant=tissue_type or "",
+            str_user_id=str_user_id,
+            str_user_name=str_user_name,
+            str_login_id=str_login_id,
+            dict_result=result_obj,
+        )
     except Exception as e:
         raise HTTPException(500, f"Save failed: {e}")
 
-    # DB 에 AI 결과 플래그 기록 (async 컨텍스트 — 직접 await)
-    from app import slide_store
-    from pathlib import Path as _P
-    try:
-        p = _P(info.file_path).resolve()
-        upload_dir = _P(settings.UPLOAD_DIR).resolve()
-        str_rel_path = str(p.parent.relative_to(upload_dir)).replace("\\", "/")
-        if str_rel_path in (".", ""):
-            str_rel_path = ""
-        await slide_store.mark_ai_result(str_rel_path, p.name, "HE-Fit", tissue_type)
-    except Exception as e:
-        print(f"[ai] mark_ai_result (save-result) failed: {e}")
-
     return {
         "saved": True,
-        "path": str(cache_path),
-        "filename": cache_path.name,
-        "total_cells": result_obj.get("total_cells", 0),
+        "ai_mode": ai_mode,
+        "variant": tissue_type or "",
+        "user_id": str_user_id,
+        "user_name": str_user_name,
+        "filename": f"{str_user_name or str_login_id}@{ai_mode}/{tissue_type}",
+        "total_cells": int(result_obj.get("total_cells", 0) or 0),
+    }
+
+
+@router.get("/user-edits/list")
+async def list_user_edits(
+    slide_id: str,
+    ai_mode: str,
+    variant: str = "",
+):
+    """해당 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+    from app import slide_store
+    list_users = await slide_store.list_user_ai_edits(slide_id, ai_mode, variant)
+    return {"users": list_users}
+
+
+@router.get("/user-edits/load")
+async def load_user_edit(
+    slide_id: str,
+    ai_mode: str,
+    user_id: str,
+    variant: str = "",
+):
+    """특정 사용자의 저장본 전체 결과."""
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+    from app import slide_store
+    dict_doc = await slide_store.get_user_ai_edit(slide_id, ai_mode, variant, user_id)
+    if not dict_doc:
+        raise HTTPException(404, "저장본이 없습니다")
+    return {
+        "ai_mode": ai_mode,
+        "variant": variant or "",
+        "user_id": user_id,
+        "user_name": dict_doc.get("str_user_name", ""),
+        "result": dict_doc.get("dict_result") or {},
     }
 
 

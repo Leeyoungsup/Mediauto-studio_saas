@@ -387,6 +387,100 @@ async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════
+# user_ai_edits — 사용자별 세포 편집본 (원본 추론 캐시는 유지)
+# ═══════════════════════════════════════════════════════════════════
+
+async def upsert_user_ai_edit(
+    *,
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+    str_user_name: str,
+    str_login_id: str,
+    dict_result: dict,
+) -> None:
+    """현재 로그인한 사용자의 편집본을 `user_ai_edits` 에 upsert (최신본만 유지)."""
+    if not is_db_connected():
+        return
+    if str_ai_mode not in LIST_AI_MODEL_KEYS:
+        return
+    db = get_db()
+    dt_now = datetime.now(timezone.utc)
+    dict_filter = {
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    }
+    dict_set = {
+        "str_user_name": str_user_name or "",
+        "str_login_id": str_login_id or "",
+        "dict_result": dict_result,
+        "int_total_cells": int(dict_result.get("total_cells", 0) or 0),
+        "dt_updated_at": dt_now,
+    }
+    await db.user_ai_edits.update_one(
+        dict_filter,
+        {
+            "$set": dict_set,
+            "$setOnInsert": {"dt_created_at": dt_now, **dict_filter},
+        },
+        upsert=True,
+    )
+
+
+async def list_user_ai_edits(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+) -> list:
+    """특정 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    if not is_db_connected():
+        return []
+    db = get_db()
+    list_out = []
+    dict_query = {
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+    }
+    async for dict_doc in db.user_ai_edits.find(
+        dict_query,
+        projection={"dict_result": 0},  # 메타만
+    ).sort("dt_updated_at", -1):
+        list_out.append({
+            "str_user_id": dict_doc.get("str_user_id", ""),
+            "str_user_name": dict_doc.get("str_user_name", ""),
+            "str_login_id": dict_doc.get("str_login_id", ""),
+            "int_total_cells": int(dict_doc.get("int_total_cells", 0) or 0),
+            "dt_updated_at": (
+                dict_doc["dt_updated_at"].isoformat()
+                if dict_doc.get("dt_updated_at") else None
+            ),
+        })
+    return list_out
+
+
+async def get_user_ai_edit(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+) -> Optional[dict]:
+    """특정 사용자의 편집본 전체 결과."""
+    if not is_db_connected():
+        return None
+    db = get_db()
+    return await db.user_ai_edits.find_one({
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    })
+
+
 def serialize_slide_doc(dict_doc: dict) -> dict:
     """MongoDB 문서 → JSON-friendly dict (ObjectId/datetime 제거)."""
     if not dict_doc:

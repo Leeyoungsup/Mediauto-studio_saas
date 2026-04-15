@@ -54,6 +54,20 @@ async def connect_db():
         await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
         await _db.folder_ai_configs.create_index("bool_enabled")
 
+        # ── user_ai_edits 컬렉션 (사용자별 세포 편집본 — 최신본만 유지) ──
+        await _db.user_ai_edits.create_index(
+            [
+                ("str_slide_id", 1),
+                ("str_ai_mode", 1),
+                ("str_variant", 1),
+                ("str_user_id", 1),
+            ],
+            unique=True,
+        )
+        await _db.user_ai_edits.create_index(
+            [("str_slide_id", 1), ("str_ai_mode", 1), ("str_variant", 1)]
+        )
+
         # ── 승인 상태 마이그레이션 ──
         # str_approval_status 필드 없는 기존 사용자 처리:
         #   - admin → approved + is_active=True 유지

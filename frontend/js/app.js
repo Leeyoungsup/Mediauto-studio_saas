@@ -40,8 +40,13 @@ const $btnDetect = $('#btn-detect');
 const $btnVisualize = $('#btn-visualize');
 const $btnClearResults = $('#btn-clear-results');
 const $btnSaveResults = $('#btn-save-results');
+const $btnLoadResults = $('#btn-load-results');
 let _lastDetectionResult = null;
 let _lastDetectionTissue = null;
+// 현재 뷰어에 올라간 결과의 AI 모드 ("HE-Fit" | "PD-Score" | "Precise-IHC")
+let _lastDetectionModel = null;
+// 로드된 결과를 onXxxComplete 로 재투입할 때 필요한 ROI (없으면 null)
+let _lastDetectionRoi = null;
 const $btnDrawPolygon = $('#btn-draw-polygon');
 const $btnDrawRect = $('#btn-draw-rect');
 const $btnDrawPoint = $('#btn-draw-point');
@@ -1411,6 +1416,8 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     // 내부 저장용으로 최신 결과 보존
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
+    _lastDetectionModel = 'HE-Fit';
+    _lastDetectionRoi = roiPolygons;
 
     // segmentation 데이터 저장 (Spatial Heatmap 시각화용)
     lastSegData = result.seg_data || null;
@@ -1430,6 +1437,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 // ═══════════════════════════
@@ -1689,10 +1697,13 @@ function clearResults() {
     $btnVisualize.disabled = true;
     $btnClearResults.disabled = true;
     $btnSaveResults.disabled = true;
+    if ($btnLoadResults) $btnLoadResults.disabled = true;
     viewer.setDetectionResults([]);
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
+    _lastDetectionModel = null;
+    _lastDetectionRoi = null;
 }
 
 $btnClearResults.addEventListener('click', clearResults);
@@ -1731,23 +1742,152 @@ $btnVisualize.addEventListener('click', () => {
     });
 });
 
-// Detection Result 내부 저장 (서버 AI 결과 폴더로) — 다운로드 X
+// Detection Result 저장 — 현재 로그인한 사용자 전용 편집본으로 DB 저장
+// (원본 모델 추론 캐시는 건드리지 않음)
 $btnSaveResults?.addEventListener('click', async () => {
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
     }
     const tissue = _lastDetectionTissue || 'Stomach';
+    const aiMode = _lastDetectionModel || 'HE-Fit';
     try {
         $btnSaveResults.disabled = true;
-        const r = await api.saveDetectionResult(currentSlideId, tissue, _lastDetectionResult);
-        setStatus(`AI result saved: ${r.filename} (${r.total_cells} cells)`);
+        // 뷰어에서 편집된 셀을 결과 객체에 반영 (class_id 변경 등)
+        if (viewer?.detectionCells) {
+            _lastDetectionResult.cells = viewer.detectionCells;
+            _lastDetectionResult.total_cells = viewer.detectionCells.length;
+        }
+        const r = await api.saveDetectionResult(
+            currentSlideId, tissue, _lastDetectionResult, aiMode,
+        );
+        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells → ${r.user_name || 'me'}`);
     } catch (err) {
         setStatus(`Save failed: ${err.message}`);
     } finally {
         $btnSaveResults.disabled = false;
     }
 });
+
+// ═══════════════════════════
+// Detection Result 로드 — 다른 사용자(또는 본인)의 저장본 선택
+// ═══════════════════════════
+const $loadUserEditDialog = $('#load-user-edit-dialog');
+const $loadUserEditList = $('#load-user-edit-list');
+const $loadUserEditMeta = $('#load-user-edit-meta');
+$('#close-load-user-edit')?.addEventListener('click', () => $loadUserEditDialog?.close());
+
+function _fmtDateIso(str) {
+    if (!str) return '';
+    try {
+        const d = new Date(str);
+        return d.toLocaleString();
+    } catch (_) { return str; }
+}
+
+async function _openLoadUserEditDialog() {
+    if (!currentSlideId) {
+        setStatus('슬라이드를 먼저 열어주세요');
+        return;
+    }
+    // 로드할 AI 모드/variant 결정: 현재 뷰어에 결과가 있으면 그것을, 없으면 기본(HE-Fit/Stomach)
+    const aiMode = _lastDetectionModel || 'HE-Fit';
+    const variant = _lastDetectionTissue || 'Stomach';
+    $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
+    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading…</div>';
+    $loadUserEditDialog.showModal();
+
+    let users = [];
+    try {
+        const r = await api.listUserAiEdits(currentSlideId, aiMode, variant);
+        users = r.users || [];
+    } catch (err) {
+        $loadUserEditList.innerHTML = `<div style="padding:12px; color:#c66;">Failed: ${err.message}</div>`;
+        return;
+    }
+
+    $loadUserEditList.innerHTML = '';
+
+    // 편의 항목: "원본 모델 추론 결과" (기존 AI 버튼 재실행과 동일)
+    const originalRow = document.createElement('div');
+    originalRow.className = 'result-row';
+    originalRow.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+    originalRow.innerHTML = `
+        <div style="font-weight:600;">Original model inference</div>
+        <div style="font-size:11px; color:#888; margin-top:2px;">
+            원본 모델 추론 재실행 (${aiMode} / ${variant})
+        </div>`;
+    originalRow.addEventListener('click', async () => {
+        $loadUserEditDialog.close();
+        _rerunOriginalInference(aiMode, variant);
+    });
+    $loadUserEditList.appendChild(originalRow);
+
+    if (users.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:12px; color:#888; font-size:12px;';
+        empty.textContent = '저장된 사용자 편집본이 없습니다.';
+        $loadUserEditList.appendChild(empty);
+        return;
+    }
+
+    for (const u of users) {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+        const displayName = u.str_user_name || u.str_login_id || u.str_user_id;
+        row.innerHTML = `
+            <div style="font-weight:600;">${escapeHtml(displayName)}</div>
+            <div style="font-size:11px; color:#888; margin-top:2px;">
+                ${u.int_total_cells.toLocaleString()} cells · ${_fmtDateIso(u.dt_updated_at)}
+            </div>`;
+        row.addEventListener('click', async () => {
+            $loadUserEditDialog.close();
+            try {
+                setStatus(`Loading ${displayName}'s analysis…`);
+                const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
+                _applyLoadedResult(aiMode, variant, r.result);
+                setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
+            } catch (err) {
+                setStatus(`Load failed: ${err.message}`);
+            }
+        });
+        $loadUserEditList.appendChild(row);
+    }
+}
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+function _applyLoadedResult(aiMode, variant, result) {
+    if (!result) return;
+    const roi = _lastDetectionRoi || null;
+    if (aiMode === 'HE-Fit') {
+        onDetectionComplete(result, roi, variant);
+    } else if (aiMode === 'PD-Score') {
+        onPdScoreComplete(result, roi, variant);
+    } else if (aiMode === 'Precise-IHC') {
+        onPreciseIhcComplete(result, roi, variant);
+    }
+}
+
+function _rerunOriginalInference(aiMode, variant) {
+    // 기존 AI 버튼과 동일한 경로로 재실행 — 서버 디스크 캐시가 있으면 즉시 반환됨
+    if (aiMode === 'HE-Fit') {
+        // startDetection 은 버튼 핸들러 내부에 있으므로 버튼 클릭 트리거
+        $('#btn-detect')?.click();
+    } else if (aiMode === 'PD-Score') {
+        $('#btn-pd-score')?.click();
+    } else if (aiMode === 'Precise-IHC') {
+        if (variant === 'ER_PR') $('#btn-ihc-erpr')?.click();
+        else $('#btn-ihc-her2')?.click();
+    }
+}
+
+$btnLoadResults?.addEventListener('click', _openLoadUserEditDialog);
 
 // ═══════════════════════════
 // 유틸리티
@@ -2761,6 +2901,8 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
+    _lastDetectionModel = 'PD-Score';
+    _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
     // PD-Score 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
@@ -2803,6 +2945,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
@@ -2884,6 +3027,8 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
 
     _lastDetectionResult = result;
     _lastDetectionTissue = marker;
+    _lastDetectionModel = 'Precise-IHC';
+    _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
     const colorMap = {};
@@ -2940,6 +3085,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 // ─── VS toggle 헬퍼 ───

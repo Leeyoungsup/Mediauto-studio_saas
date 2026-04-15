@@ -430,13 +430,32 @@ export const api = {
         return res.json();
     },
 
-    /** 검출 결과 내부 저장 */
-    async saveDetectionResult(slideId, tissueType, result) {
+    /** 검출 결과 — 현재 사용자 전용 편집본으로 DB 저장 (원본 캐시는 유지) */
+    async saveDetectionResult(slideId, tissueType, result, aiMode = 'HE-Fit') {
         const form = new FormData();
         form.append('slide_id', slideId);
         form.append('tissue_type', tissueType);
         form.append('result', JSON.stringify(result));
+        form.append('ai_mode', aiMode);
         const res = await _authFetch(`${API_BASE}/ai/save-result`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 사용자별 편집본 목록 — 현재 슬라이드+모드+variant 에 저장본을 가진 사용자들 */
+    async listUserAiEdits(slideId, aiMode, variant = '') {
+        const qs = new URLSearchParams({ slide_id: slideId, ai_mode: aiMode, variant: variant || '' });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/list?${qs.toString()}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 특정 사용자의 편집본 전체 결과 로드 */
+    async loadUserAiEdit(slideId, aiMode, userId, variant = '') {
+        const qs = new URLSearchParams({
+            slide_id: slideId, ai_mode: aiMode, user_id: userId, variant: variant || ''
+        });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/load?${qs.toString()}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
