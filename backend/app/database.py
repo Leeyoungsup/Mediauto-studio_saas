@@ -100,7 +100,7 @@ async def connect_db():
         )).modified_count
         if int_migrated_admin or int_migrated_pending:
             print(
-                f"[MeDICus SaaS] Approval migration — "
+                f"[MeDIAuto SaaS] Approval migration — "
                 f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
             )
 
@@ -113,17 +113,17 @@ async def connect_db():
         )).modified_count
         if int_migrated_tech:
             print(
-                f"[MeDICus SaaS] Role migration — "
+                f"[MeDIAuto SaaS] Role migration — "
                 f"technician → viewer: {int_migrated_tech}"
             )
 
         _connected = True
-        print(f"[MeDICus SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")
+        print(f"[MeDIAuto SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")
     except Exception as e:
         _client = None
         _db = None
         _connected = False
-        print(f"[MeDICus SaaS] MongoDB unavailable ({e}). Auth features disabled.")
+        print(f"[MeDIAuto SaaS] MongoDB unavailable ({e}). Auth features disabled.")
 
 
 async def disconnect_db():
@@ -134,7 +134,7 @@ async def disconnect_db():
         _client = None
         _db = None
         _connected = False
-    print("[MeDICus SaaS] MongoDB disconnected")
+    print("[MeDIAuto SaaS] MongoDB disconnected")
 
 
 def is_db_connected() -> bool:

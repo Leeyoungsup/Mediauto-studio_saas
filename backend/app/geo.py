@@ -56,7 +56,7 @@ def _fetch_geo_sync(str_ip: str) -> Optional[dict]:
     try:
         str_url = _STR_GEO_URL.format(ip=urllib.parse.quote(str_ip, safe=""))
         str_url += "?fields=status,country,countryCode,regionName,city"
-        req = urllib.request.Request(str_url, headers={"User-Agent": "MeDICus-SaaS/1.0"})
+        req = urllib.request.Request(str_url, headers={"User-Agent": "MeDIAuto-SaaS/1.0"})
         with urllib.request.urlopen(req, timeout=_FLOAT_HTTP_TIMEOUT) as resp:
             bytes_body = resp.read()
         dict_data = json.loads(bytes_body.decode("utf-8"))

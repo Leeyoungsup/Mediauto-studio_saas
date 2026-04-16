@@ -1,5 +1,5 @@
 """
-MeDICus Studio SaaS — FastAPI Backend
+MeDIAuto Studio SaaS — FastAPI Backend
 WSI 타일 서빙 + AI 분석 API
 """
 
@@ -76,9 +76,9 @@ async def lifespan(app: FastAPI):
     # 디렉토리 생성
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.TILES_DIR, exist_ok=True)
-    print(f"[MeDICus SaaS] Upload dir: {settings.UPLOAD_DIR}")
-    print(f"[MeDICus SaaS] Tiles dir:  {settings.TILES_DIR}")
-    print(f"[MeDICus SaaS] Server ready")
+    print(f"[MeDIAuto SaaS] Upload dir: {settings.UPLOAD_DIR}")
+    print(f"[MeDIAuto SaaS] Tiles dir:  {settings.TILES_DIR}")
+    print(f"[MeDIAuto SaaS] Server ready")
 
     # 뷰어 타일 생성 워커 시작 (사용자 활동 무관, 최우선 백그라운드)
     await tile_worker.start_tile_worker()
@@ -94,11 +94,11 @@ async def lifespan(app: FastAPI):
     slide_manager.close_all()
     # MongoDB 연결 해제
     await disconnect_db()
-    print("[MeDICus SaaS] Shutdown complete")
+    print("[MeDIAuto SaaS] Shutdown complete")
 
 
 app = FastAPI(
-    title="MeDICus Studio SaaS",
+    title="MeDIAuto Studio SaaS",
     description="병리 AI 분석 SaaS API",
     version="1.0.0",
     lifespan=lifespan,
@@ -145,4 +145,4 @@ if FRONTEND_DIR.exists():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "MeDICus Studio SaaS"}
+    return {"status": "ok", "service": "MeDIAuto Studio SaaS"}

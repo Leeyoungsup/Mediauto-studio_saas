@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>MeDICus Studio</title>
+    <title>MeDIAuto Studio</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -16,10 +16,10 @@
                     <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
                 </svg>
             </button>
-            <img src="assets/logo.png" alt="MeDICus Studio" class="header-logo">
+            <img src="assets/logo.png" alt="MeDIAuto Studio" class="header-logo">
         </div>
         <div class="menu-center">
-            <span id="slide-name" class="slide-name">MeDICus Studio</span>
+            <span id="slide-name" class="slide-name">MeDIAuto Studio</span>
         </div>
         <div class="menu-right">
             <span id="status-text" class="status-text">Ready</span>
@@ -121,8 +121,14 @@
 
             <!-- 미니맵 -->
             <div id="minimap-container" hidden>
-                <canvas id="minimap-canvas"></canvas>
-                <div id="minimap-viewport"></div>
+                <button id="minimap-toggle" class="minimap-toggle" type="button" title="Minimize">
+                    <svg viewBox="0 0 14 14" width="14" height="14"><path id="minimap-toggle-icon" d="M3 7h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+                </button>
+                <div id="minimap-body">
+                    <canvas id="minimap-canvas"></canvas>
+                    <div id="minimap-viewport"></div>
+                </div>
+                <div id="minimap-resize" class="minimap-resize"></div>
             </div>
         </main>
 
@@ -189,10 +195,13 @@
                         <label class="radio-item"><input type="radio" name="pd-tissue-type" value="Lung"> Lung (TPS)</label>
                     </div>
                     <button id="btn-pd-score" class="action-btn primary" disabled>PD-L1 Detection</button>
-                    <div id="pd-score-result" class="pd-score-result" hidden>
-                        <div class="pd-score-label" id="pd-score-label">CPS</div>
-                        <div class="pd-score-value" id="pd-score-value">--</div>
-                        <div class="pd-score-detail" id="pd-score-detail"></div>
+                    <div id="pd-score-result" class="score-card" hidden>
+                        <div class="score-card-header">
+                            <span class="score-card-type" id="pd-score-label">CPS</span>
+                            <span class="score-card-value" id="pd-score-value">--</span>
+                        </div>
+                        <div class="score-bar" id="pd-score-bar"></div>
+                        <div class="score-card-detail" id="pd-score-detail"></div>
                     </div>
                 </div>
 
@@ -206,10 +215,13 @@
                             <button id="btn-ihc-ki67" class="action-btn primary" disabled title="Coming soon">KI-67</button>
                         </div>
                     </div>
-                    <div id="ihc-score-result" class="pd-score-result" hidden>
-                        <div class="pd-score-label" id="ihc-score-label">HER2</div>
-                        <div class="pd-score-value" id="ihc-score-value">--</div>
-                        <div class="pd-score-detail" id="ihc-score-detail"></div>
+                    <div id="ihc-score-result" class="score-card" hidden>
+                        <div class="score-card-header">
+                            <span class="score-card-type" id="ihc-score-label">HER2</span>
+                            <span class="score-card-value" id="ihc-score-value">--</span>
+                        </div>
+                        <div class="score-bar" id="ihc-score-bar"></div>
+                        <div class="score-card-detail" id="ihc-score-detail"></div>
                     </div>
                 </div>
             </div>

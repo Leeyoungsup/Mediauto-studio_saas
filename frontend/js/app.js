@@ -1,5 +1,5 @@
 /**
- * MeDICus Studio SaaS — 메인 앱
+ * MeDIAuto Studio SaaS — 메인 앱
  * 기존 PyQt5 viewer.py의 UI 로직을 JS로 포팅
  */
 
@@ -58,12 +58,14 @@ const $pdScoreResult = $('#pd-score-result');
 const $pdScoreLabel = $('#pd-score-label');
 const $pdScoreValue = $('#pd-score-value');
 const $pdScoreDetail = $('#pd-score-detail');
+const $pdScoreBar = $('#pd-score-bar');
 const $btnIhcHer2 = $('#btn-ihc-her2');
 const $btnIhcErPr = $('#btn-ihc-erpr');
 const $ihcScoreResult = $('#ihc-score-result');
 const $ihcScoreLabel = $('#ihc-score-label');
 const $ihcScoreValue = $('#ihc-score-value');
 const $ihcScoreDetail = $('#ihc-score-detail');
+const $ihcScoreBar = $('#ihc-score-bar');
 const $btnVsToggle = $('#btn-vs-toggle');
 const $btnVsSplit = $('#btn-vs-split');
 let _vsRunning = false;
@@ -539,6 +541,10 @@ async function loadMinimap(slideId) {
         $minimapCanvas.height = img.height;
         $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
         $minimapContainer.hidden = false;
+        $minimapContainer.classList.remove('minimized');
+        if ($minimapIcon) $minimapIcon.setAttribute('d', 'M3 7h8');
+        const body = document.getElementById('minimap-body');
+        if (body) body.style.width = `${img.width}px`;
         updateMinimap();
     };
     img.src = api.thumbnailUrl(slideId, 200);
@@ -549,8 +555,11 @@ function updateMinimap() {
     const vr = viewer.getViewRect();
     if (!vr) return;
     const [imgW, imgH] = currentSlideInfo.dimensions;
-    const sx = $minimapCanvas.width / imgW;
-    const sy = $minimapCanvas.height / imgH;
+    // CSS width 기준 (리사이즈 대응)
+    const displayW = $minimapCanvas.clientWidth || $minimapCanvas.width;
+    const displayH = $minimapCanvas.clientHeight || $minimapCanvas.height;
+    const sx = displayW / imgW;
+    const sy = displayH / imgH;
     $minimapViewport.style.left = `${vr.x * sx}px`;
     $minimapViewport.style.top = `${vr.y * sy}px`;
     $minimapViewport.style.width = `${Math.max(4, vr.width * sx)}px`;
@@ -562,10 +571,45 @@ $minimapCanvas.addEventListener('click', (e) => {
     const rect = $minimapCanvas.getBoundingClientRect();
     const [imgW, imgH] = currentSlideInfo.dimensions;
     viewer.navigateTo(
-        ((e.clientX - rect.left) / $minimapCanvas.width) * imgW,
-        ((e.clientY - rect.top) / $minimapCanvas.height) * imgH
+        ((e.clientX - rect.left) / rect.width) * imgW,
+        ((e.clientY - rect.top) / rect.height) * imgH
     );
 });
+
+// 미니맵 최소화 토글
+const $minimapToggle = $('#minimap-toggle');
+const $minimapIcon = $('#minimap-toggle-icon');
+$minimapToggle?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const minimized = $minimapContainer.classList.toggle('minimized');
+    // minimize: — icon, expand: + icon
+    $minimapIcon.setAttribute('d', minimized ? 'M3 7h8M7 3v8' : 'M3 7h8');
+    $minimapToggle.title = minimized ? 'Expand' : 'Minimize';
+});
+
+// 미니맵 리사이즈 (오른쪽 위 모서리 드래그 → 크기 조절)
+const $minimapResize = $('#minimap-resize');
+const $minimapBody = $('#minimap-body');
+let _minimapResizing = false;
+let _minimapStartW = 0, _minimapStartX = 0;
+const MINIMAP_MIN_W = 100, MINIMAP_MAX_W = 400;
+
+$minimapResize?.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    _minimapResizing = true;
+    _minimapStartW = $minimapBody.offsetWidth;
+    _minimapStartX = e.clientX;
+    $minimapResize.setPointerCapture(e.pointerId);
+});
+$minimapResize?.addEventListener('pointermove', (e) => {
+    if (!_minimapResizing) return;
+    const dx = e.clientX - _minimapStartX;
+    const newW = Math.min(MINIMAP_MAX_W, Math.max(MINIMAP_MIN_W, _minimapStartW + dx));
+    $minimapBody.style.width = `${newW}px`;
+    updateMinimap();
+});
+$minimapResize?.addEventListener('pointerup', () => { _minimapResizing = false; });
+$minimapResize?.addEventListener('pointercancel', () => { _minimapResizing = false; });
 
 // ═══════════════════════════
 // 줌 컨트롤
@@ -1459,6 +1503,37 @@ const CLASS_COLORS = {
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
 
+// ── 스코어 바 차트 유틸 ──
+function _renderScoreBar(barEl, segments) {
+    if (!barEl) return;
+    barEl.innerHTML = '';
+    const total = segments.reduce((s, seg) => s + seg.value, 0);
+    if (total === 0) { barEl.style.display = 'none'; return; }
+    barEl.style.display = '';
+    for (const seg of segments) {
+        const pct = seg.value / total * 100;
+        if (pct < 0.5) continue;
+        const el = document.createElement('div');
+        el.className = 'score-bar-seg';
+        el.style.width = `${pct}%`;
+        el.style.backgroundColor = seg.color;
+        if (pct > 8) el.setAttribute('data-label', seg.label || '');
+        barEl.appendChild(el);
+    }
+}
+
+function _renderScoreLegend(detailEl, items) {
+    const wrap = document.createElement('div');
+    wrap.className = 'score-card-legend';
+    for (const item of items) {
+        const el = document.createElement('span');
+        el.className = 'score-card-legend-item';
+        el.innerHTML = `<span class="score-card-legend-dot" style="background:${item.color}"></span>${item.label}: ${item.count.toLocaleString()}`;
+        wrap.appendChild(el);
+    }
+    detailEl.appendChild(wrap);
+}
+
 // 현재 confidence 임계값을 반영한 클래스별 카운트 계산
 function _computeFilteredCounts(cells) {
     const counts = {};
@@ -1498,16 +1573,24 @@ function _updatePdScoreDisplay(counts) {
     if (scoreType === 'CPS') {
         const posTumor = c[3] || 0;
         const posImmune = (c[4] || 0) + (c[5] || 0);
-        const viableTumor = (c[0] || 0) + (c[3] || 0);
+        const negTumor = c[0] || 0;
+        const viableTumor = negTumor + posTumor;
         const score = viableTumor === 0
             ? 0
             : Math.min(100, (posTumor + posImmune) / viableTumor * 100);
         $pdScoreLabel.textContent = 'CPS';
         $pdScoreValue.textContent = `${score.toFixed(1)}%`;
-        $pdScoreDetail.innerHTML =
-            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
-            `Positive Immune: ${posImmune}<br>` +
-            `Viable Tumor: ${viableTumor}`;
+        _renderScoreBar($pdScoreBar, [
+            { value: posTumor, color: '#e74c3c', label: `Pos T ${posTumor}` },
+            { value: posImmune, color: '#f39c12', label: `Pos I ${posImmune}` },
+            { value: negTumor, color: '#27ae60', label: `Neg ${negTumor}` },
+        ]);
+        $pdScoreDetail.innerHTML = '';
+        _renderScoreLegend($pdScoreDetail, [
+            { color: '#e74c3c', label: 'Pos Tumor', count: posTumor },
+            { color: '#f39c12', label: 'Pos Immune', count: posImmune },
+            { color: '#27ae60', label: 'Neg Tumor', count: negTumor },
+        ]);
     } else if (scoreType === 'TPS') {
         const posTumor = c[1] || 0;
         const negTumor = c[0] || 0;
@@ -1515,10 +1598,15 @@ function _updatePdScoreDisplay(counts) {
         const score = totalTumor === 0 ? 0 : posTumor / totalTumor * 100;
         $pdScoreLabel.textContent = 'TPS';
         $pdScoreValue.textContent = `${score.toFixed(1)}%`;
-        $pdScoreDetail.innerHTML =
-            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
-            `Negative Tumor: ${negTumor}<br>` +
-            `Total Tumor: ${totalTumor}`;
+        _renderScoreBar($pdScoreBar, [
+            { value: posTumor, color: '#e74c3c', label: `Pos ${posTumor}` },
+            { value: negTumor, color: '#27ae60', label: `Neg ${negTumor}` },
+        ]);
+        $pdScoreDetail.innerHTML = '';
+        _renderScoreLegend($pdScoreDetail, [
+            { color: '#e74c3c', label: 'Positive', count: posTumor },
+            { color: '#27ae60', label: 'Negative', count: negTumor },
+        ]);
     }
 }
 
@@ -1532,10 +1620,20 @@ function _updateHer2ScoreDisplay(counts) {
     const dominant = total === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
     $ihcScoreLabel.textContent = 'HER2';
     $ihcScoreValue.textContent = `${dominant}+ (${weighted.toFixed(2)})`;
-    $ihcScoreDetail.innerHTML =
-        `0+: ${n0} &nbsp;·&nbsp; 1+: ${n1}<br>` +
-        `2+: ${n2} &nbsp;·&nbsp; 3+: ${n3}<br>` +
-        `Total: ${total}`;
+    const HER2_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
+    _renderScoreBar($ihcScoreBar, [
+        { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+        { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+        { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+        { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+    ]);
+    $ihcScoreDetail.innerHTML = '';
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: HER2_COLORS[0], label: '0+', count: n0 },
+        { color: HER2_COLORS[1], label: '1+', count: n1 },
+        { color: HER2_COLORS[2], label: '2+', count: n2 },
+        { color: HER2_COLORS[3], label: '3+', count: n3 },
+    ]);
 }
 
 function _computeAllredFromCounts(c) {
@@ -1569,13 +1667,25 @@ function _updateAllredScoreDisplay(counts) {
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
     const a = _computeAllredFromCounts(c);
     const marker = _lastDetectionTissue || 'ER/PR';
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
     $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
     $ihcScoreValue.textContent = `${a.ts} / 8`;
+    const ALLRED_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
+    _renderScoreBar($ihcScoreBar, [
+        { value: a.n0, color: ALLRED_COLORS[0], label: `0+ ${a.n0}` },
+        { value: a.n1, color: ALLRED_COLORS[1], label: `1+ ${a.n1}` },
+        { value: a.n2, color: ALLRED_COLORS[2], label: `2+ ${a.n2}` },
+        { value: a.n3, color: ALLRED_COLORS[3], label: `3+ ${a.n3}` },
+    ]);
     $ihcScoreDetail.innerHTML =
         `PS: ${a.ps} &nbsp;·&nbsp; IS: ${a.is_} &nbsp;·&nbsp; <strong>${a.interpretation}</strong><br>` +
-        `Positive: ${a.posPct.toFixed(1)}% &nbsp;·&nbsp; Avg int: ${a.avg.toFixed(2)}<br>` +
-        `0+: ${a.n0} · 1+: ${a.n1} · 2+: ${a.n2} · 3+: ${a.n3}<br>` +
-        `Total: ${a.total}`;
+        `Positive: ${a.posPct.toFixed(1)}% &nbsp;·&nbsp; Avg intensity: ${a.avg.toFixed(2)}`;
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: ALLRED_COLORS[0], label: '0+', count: a.n0 },
+        { color: ALLRED_COLORS[1], label: '1+', count: a.n1 },
+        { color: ALLRED_COLORS[2], label: '2+', count: a.n2 },
+        { color: ALLRED_COLORS[3], label: '3+', count: a.n3 },
+    ]);
 }
 
 function buildResultList(result) {
@@ -2944,15 +3054,32 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         $pdScoreLabel.textContent = scoreLabel;
         $pdScoreValue.textContent = `${scoreValue}%`;
         if (score.score_type === 'CPS') {
-            $pdScoreDetail.innerHTML =
-                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
-                `Positive Immune: ${score.positive_immune}<br>` +
-                `Viable Tumor: ${score.viable_tumor}`;
+            const pt = score.positive_tumor || 0;
+            const pi = score.positive_immune || 0;
+            const nt = (score.viable_tumor || 0) - pt;
+            _renderScoreBar($pdScoreBar, [
+                { value: pt, color: '#e74c3c', label: `Pos T ${pt}` },
+                { value: pi, color: '#f39c12', label: `Pos I ${pi}` },
+                { value: Math.max(0, nt), color: '#27ae60', label: `Neg ${Math.max(0, nt)}` },
+            ]);
+            $pdScoreDetail.innerHTML = '';
+            _renderScoreLegend($pdScoreDetail, [
+                { color: '#e74c3c', label: 'Pos Tumor', count: pt },
+                { color: '#f39c12', label: 'Pos Immune', count: pi },
+                { color: '#27ae60', label: 'Neg Tumor', count: Math.max(0, nt) },
+            ]);
         } else {
-            $pdScoreDetail.innerHTML =
-                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
-                `Negative Tumor: ${score.negative_tumor}<br>` +
-                `Total Tumor: ${score.total_tumor}`;
+            const pt = score.positive_tumor || 0;
+            const nt = score.negative_tumor || 0;
+            _renderScoreBar($pdScoreBar, [
+                { value: pt, color: '#e74c3c', label: `Pos ${pt}` },
+                { value: nt, color: '#27ae60', label: `Neg ${nt}` },
+            ]);
+            $pdScoreDetail.innerHTML = '';
+            _renderScoreLegend($pdScoreDetail, [
+                { color: '#e74c3c', label: 'Positive', count: pt },
+                { color: '#27ae60', label: 'Negative', count: nt },
+            ]);
         }
     }
 
@@ -3060,20 +3187,31 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
+    const HER2_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
     if (result.her2_score) {
         const score = result.her2_score;
         const dominant = score.dominant_class ?? 0;
         const weighted = (score.score ?? 0).toFixed(2);
+        const cc = score.class_counts || {};
+        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
         setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
         if ($ihcScoreResult) {
             $ihcScoreResult.hidden = false;
             $ihcScoreLabel.textContent = 'HER2';
             $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
-            const cc = score.class_counts || {};
-            $ihcScoreDetail.innerHTML =
-                `0+: ${cc[0] || 0} &nbsp;·&nbsp; 1+: ${cc[1] || 0}<br>` +
-                `2+: ${cc[2] || 0} &nbsp;·&nbsp; 3+: ${cc[3] || 0}<br>` +
-                `Total: ${score.total_tumor || 0}`;
+            _renderScoreBar($ihcScoreBar, [
+                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+            ]);
+            $ihcScoreDetail.innerHTML = '';
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: HER2_COLORS[0], label: '0+', count: n0 },
+                { color: HER2_COLORS[1], label: '1+', count: n1 },
+                { color: HER2_COLORS[2], label: '2+', count: n2 },
+                { color: HER2_COLORS[3], label: '3+', count: n3 },
+            ]);
         }
     } else if (result.allred_score) {
         const score = result.allred_score;
@@ -3081,18 +3219,28 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         const ps = score.proportion_score ?? 0;
         const is_ = score.intensity_score ?? 0;
         const interp = score.interpretation || (ts >= 3 ? 'Positive' : 'Negative');
+        const cc = score.class_counts || {};
+        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
         setStatus(`${markerLabel} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
         if ($ihcScoreResult) {
             $ihcScoreResult.hidden = false;
             $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
             $ihcScoreValue.textContent = `${ts} / 8`;
-            const cc = score.class_counts || {};
+            _renderScoreBar($ihcScoreBar, [
+                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+            ]);
             $ihcScoreDetail.innerHTML =
                 `PS: ${ps} &nbsp;·&nbsp; IS: ${is_} &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
-                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; ` +
-                `Avg int: ${(score.avg_intensity ?? 0).toFixed(2)}<br>` +
-                `0+: ${cc[0] || 0} · 1+: ${cc[1] || 0} · 2+: ${cc[2] || 0} · 3+: ${cc[3] || 0}<br>` +
-                `Total: ${score.total_tumor || 0}`;
+                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; Avg intensity: ${(score.avg_intensity ?? 0).toFixed(2)}`;
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: HER2_COLORS[0], label: '0+', count: n0 },
+                { color: HER2_COLORS[1], label: '1+', count: n1 },
+                { color: HER2_COLORS[2], label: '2+', count: n2 },
+                { color: HER2_COLORS[3], label: '3+', count: n3 },
+            ]);
         }
     }
 

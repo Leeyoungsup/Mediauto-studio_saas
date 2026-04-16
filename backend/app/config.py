@@ -56,9 +56,9 @@ def _load_or_create_secrets() -> dict:
                 os.chmod(_SECRETS_FILE, 0o600)
             except Exception:
                 pass
-            print(f"[MeDICus SaaS] Persistent secrets written to {_SECRETS_FILE}")
+            print(f"[MeDIAuto SaaS] Persistent secrets written to {_SECRETS_FILE}")
         except Exception as e:
-            print(f"[MeDICus SaaS] WARN — failed to persist secrets: {e}")
+            print(f"[MeDIAuto SaaS] WARN — failed to persist secrets: {e}")
 
     return dict_loaded
 

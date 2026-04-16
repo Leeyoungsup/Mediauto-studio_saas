@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════
-   MeDICus Studio SaaS — Purple Dashboard Theme
+   MeDIAuto Studio SaaS — Purple Dashboard Theme
    ═══════════════════════════════════════════ */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -62,15 +62,17 @@ input[type="color"], input[type="file"], select {
     height: 56px; padding: 0;
     background: #efecfb;
     position: relative; z-index: 20;
+    overflow: visible;
 }
 #menubar::after {
     content: ''; position: absolute; left: var(--left-panel-w); right: 0; bottom: 0;
     height: 1px; background: var(--border-light);
 }
 .menu-left {
-    display: flex; align-items: center; flex-shrink: 0;
-    width: var(--left-panel-w); height: 100%; padding: 0 20px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: var(--left-panel-w); height: calc(56px + 42px); padding: 0 16px;
     background: var(--sidebar-dark-2);
+    position: relative; z-index: 21;
 }
 .menu-center {
     flex: 1; display: flex; align-items: center; justify-content: center;
@@ -104,7 +106,7 @@ input[type="color"], input[type="file"], select {
     display: flex; align-items: center; gap: 14px; flex-shrink: 0;
     padding: 0 20px;
 }
-.header-logo { height: 34px; filter: brightness(0) invert(1); }
+.header-logo { height: 75px; filter: brightness(0) invert(1); }
 .slide-name {
     font-size: 13px; color: var(--text-dim); font-weight: 500;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -596,14 +598,42 @@ input[type="color"], input[type="file"], select {
 /* 미니맵 */
 #minimap-container {
     position: absolute; bottom: 12px; left: 12px;
-    border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 6px; overflow: visible;
     background: #fff; z-index: 10;
     box-shadow: 0 2px 8px rgba(0,0,0,0.12);
 }
-#minimap-canvas { display: block; }
+#minimap-container.minimized { border-radius: 6px; }
+#minimap-container.minimized #minimap-body { display: none; }
+#minimap-container.minimized #minimap-resize { display: none; }
+#minimap-body { position: relative; overflow: hidden; border-radius: 0 0 5px 5px; }
+#minimap-canvas { display: block; width: 100%; height: auto; }
 #minimap-viewport {
     position: absolute; border: 2px solid var(--accent); pointer-events: none;
 }
+.minimap-toggle {
+    position: absolute; top: 4px; right: 4px; z-index: 2;
+    width: 20px; height: 20px; border: none; border-radius: 4px;
+    background: rgba(0,0,0,0.45); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; opacity: 0; transition: opacity 0.15s;
+}
+#minimap-container:hover .minimap-toggle,
+#minimap-container.minimized .minimap-toggle { opacity: 1; }
+.minimap-toggle:hover { background: rgba(0,0,0,0.65); }
+#minimap-container.minimized .minimap-toggle {
+    position: static; margin: 3px;
+}
+.minimap-resize {
+    position: absolute; top: -4px; right: -4px;
+    width: 12px; height: 12px; cursor: ne-resize; z-index: 3;
+    background: transparent;
+}
+.minimap-resize::after {
+    content: ''; position: absolute; top: 2px; right: 2px;
+    width: 6px; height: 6px; border-top: 2px solid var(--text-dim);
+    border-right: 2px solid var(--text-dim); opacity: 0; transition: opacity 0.15s;
+}
+#minimap-container:hover .minimap-resize::after { opacity: 0.6; }
 
 /* ═══ 우측 패널 ═══ */
 #right-panel {
@@ -868,25 +898,52 @@ body.role-viewer .annotation-group::after {
 }
 
 /* ═══ PD-Score 결과 디스플레이 ═══ */
-.pd-score-result {
+/* ═══ Score Card (PD-Score / Precise-IHC) ═══ */
+.score-card {
     margin: 10px 14px 14px;
-    padding: 14px 16px;
+    padding: 14px 16px 12px;
     background: linear-gradient(135deg, var(--sidebar-dark), var(--accent));
     border-radius: 12px;
     color: #fff;
     box-shadow: 0 4px 14px rgba(108, 92, 231, 0.3);
-    text-align: center;
 }
-.pd-score-label {
+.score-card-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+}
+.score-card-type {
     font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
     opacity: 0.9; text-transform: uppercase;
 }
-.pd-score-value {
-    font-size: 36px; font-weight: 800; line-height: 1.1;
-    margin: 4px 0 6px;
+.score-card-value {
+    font-size: 32px; font-weight: 800; line-height: 1;
 }
-.pd-score-detail {
-    font-size: 11px; opacity: 0.85; line-height: 1.5;
+.score-bar {
+    display: flex; height: 14px; border-radius: 7px; overflow: hidden;
+    margin: 10px 0 8px; background: rgba(255,255,255,0.15);
+}
+.score-bar-seg {
+    height: 100%; transition: width 0.4s ease;
+    position: relative; min-width: 0;
+}
+.score-bar-seg[data-label]::after {
+    content: attr(data-label);
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #fff;
+    text-shadow: 0 0 3px rgba(0,0,0,0.5);
+    white-space: nowrap; overflow: hidden;
+}
+.score-card-detail {
+    font-size: 11px; opacity: 0.85; line-height: 1.6;
+}
+.score-card-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 10px;
+    margin-top: 6px; font-size: 10px;
+}
+.score-card-legend-item {
+    display: flex; align-items: center; gap: 4px;
+}
+.score-card-legend-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
 
 /* ═══ Precise-IHC marker 버튼 행 ═══ */

@@ -1,4 +1,4 @@
-// MeDICus Studio — 관리자 페이지 로직
+// MeDIAuto Studio — 관리자 페이지 로직
 // 단일 파일 스크립트 (모듈 X). localStorage access_token 사용.
 
 const API_BASE = '/api';
