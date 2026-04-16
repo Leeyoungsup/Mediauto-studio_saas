@@ -9,15 +9,22 @@ ThreadPoolExecutor 는 worker thread 시작 시 `os.sched_setaffinity` 로
 - 그 외 모든 thread (uvicorn worker, AI 모듈의 raw threading.Thread 와
   중첩 ThreadPoolExecutor) 는 자동으로 AI cores 를 상속받음.
 
-동적 분배 공식 — 사용 가능 코어 수 N 기준:
-    viewer = max(1, N - max(2, N // 3))
-    ai     = max(1, N - viewer)
-    bg     = max(1, ai // 2)            (AI cores 의 일부, AI 와 시간상 배타적)
+동적 분배 공식 — 사용 가능 코어 수 N 기준 (사용자 체감 우선):
+    ai     = max(2, round(N / 6))       ~17%
+    bg     = max(2, round(N / 6))       ~17%  (AI와 독립, 비공유)
+    viewer = N - ai - bg                ~67%  (타일 서빙 + HTTP 처리)
 
 예시:
-    N=24 → viewer=16 / ai=8 / bg=4
-    N=48 → viewer=32 / ai=16 / bg=8
-    N=8  → viewer=6  / ai=2  / bg=1
+    N=48 → viewer=32 / ai=8  / bg=8
+    N=24 → viewer=16 / ai=4  / bg=4
+    N=16 → viewer=10 / ai=3  / bg=3
+    N=12 → viewer=8  / ai=2  / bg=2
+    N=8  → viewer=4  / ai=2  / bg=2
+
+기존 대비 변경점:
+- bg 가 ai 의 부분집합이 아닌 **독립 코어 그룹**. 4명 동시 슬라이드
+  열기 시 타일 프리젠과 AI 추론이 서로 간섭하지 않음.
+- viewer 비율 유지(~67%)하되 남은 1/3 을 ai/bg 균등 분배.
 
 Linux 만 지원 (`os.sched_setaffinity`). 다른 OS 면 핀닝은 noop 으로
 fallback 하고 worker count 만 적용.
@@ -25,7 +32,6 @@ fallback 하고 worker count 만 적용.
 
 import os
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import FrozenSet, List
 
@@ -47,14 +53,22 @@ def _initial_cpus() -> List[int]:
 list_all_cpus: List[int] = _initial_cpus()
 INT_TOTAL: int = len(list_all_cpus)
 
-INT_VIEWER: int = max(1, INT_TOTAL - max(2, INT_TOTAL // 3))
-INT_AI: int = max(1, INT_TOTAL - INT_VIEWER)
-INT_BG: int = max(1, INT_AI // 2)
+# ── 분배 공식: 사용자 체감 우선 ──
+# ai/bg 각 ~17%, viewer 나머지 ~67%
+# bg는 ai와 독립 — 타일 프리젠과 AI 추론이 간섭하지 않음
+INT_AI: int = max(2, round(INT_TOTAL / 6))
+INT_BG: int = max(2, round(INT_TOTAL / 6))
+INT_VIEWER: int = max(2, INT_TOTAL - INT_AI - INT_BG)
 
-# 인접 슬라이스로 자른다 — 같은 NUMA / cache 에 가까운 코어가 묶이도록.
+# 코어 배치: [viewer | bg | ai] — 인접 슬라이스로 NUMA/cache 친화
 list_viewer_cpus: List[int] = list_all_cpus[:INT_VIEWER]
-list_ai_cpus: List[int] = list_all_cpus[INT_VIEWER:] or list_all_cpus[-INT_AI:]
-list_bg_cpus: List[int] = list_ai_cpus[:INT_BG]
+list_bg_cpus: List[int] = list_all_cpus[INT_VIEWER:INT_VIEWER + INT_BG]
+list_ai_cpus: List[int] = list_all_cpus[INT_VIEWER + INT_BG:]
+
+# 실제 할당된 개수로 보정 (반올림 오차 방지)
+INT_VIEWER = len(list_viewer_cpus)
+INT_BG = len(list_bg_cpus)
+INT_AI = len(list_ai_cpus)
 
 frozenset_viewer_cpus: FrozenSet[int] = frozenset(list_viewer_cpus)
 frozenset_ai_cpus: FrozenSet[int] = frozenset(list_ai_cpus)
@@ -85,8 +99,8 @@ def setup_process_affinity() -> None:
     print(
         f"[cpu_layout] total={INT_TOTAL} "
         f"viewer={INT_VIEWER}({sorted(list_viewer_cpus)}) "
-        f"ai={INT_AI}({sorted(list_ai_cpus)}) "
-        f"bg={INT_BG}({sorted(list_bg_cpus)})"
+        f"bg={INT_BG}({sorted(list_bg_cpus)}) "
+        f"ai={INT_AI}({sorted(list_ai_cpus)})"
     )
 
 

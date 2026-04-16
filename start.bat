@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
 REM  MeDICus Studio SaaS - Server Start Script
-REM  - conda env "yslee" activate
+REM  - conda env "medicus-saas" activate
 REM  - uvicorn FastAPI start
 REM ============================================================
 setlocal

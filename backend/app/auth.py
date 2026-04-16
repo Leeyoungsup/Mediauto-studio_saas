@@ -7,6 +7,7 @@
 """
 
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
@@ -20,6 +21,29 @@ from app.models import UserRole
 # ── 상수 ──
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_REFRESH = "refresh"
+
+# ── 사용자 정보 단기 캐시 (타일 등 대량 요청 시 DB 부하 방지) ──
+_USER_CACHE: dict[str, tuple[dict, float]] = {}
+_USER_CACHE_TTL = 30.0  # 30초 — 비활성화/잠금 반영 지연 허용 범위
+
+
+def _get_cached_user(str_user_id: str) -> dict | None:
+    entry = _USER_CACHE.get(str_user_id)
+    if entry and (time.monotonic() - entry[1]) < _USER_CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _set_cached_user(str_user_id: str, dict_user: dict):
+    _USER_CACHE[str_user_id] = (dict_user, time.monotonic())
+
+
+def invalidate_user_cache(str_user_id: str = ""):
+    """사용자 정보 변경 시 캐시 무효화. 빈 문자열이면 전체 클리어."""
+    if str_user_id:
+        _USER_CACHE.pop(str_user_id, None)
+    else:
+        _USER_CACHE.clear()
 
 
 # ── 토큰 생성 ──
@@ -122,6 +146,11 @@ async def get_current_user(request: Request) -> dict:
             detail="Invalid token payload",
         )
 
+    # 캐시 확인 — 타일 등 대량 요청 시 DB 부하 방지
+    dict_cached = _get_cached_user(str_user_id)
+    if dict_cached is not None:
+        return dict_cached
+
     db = get_db()
     dict_user = await db.users.find_one(
         {"_id": ObjectId(str_user_id)},
@@ -150,6 +179,7 @@ async def get_current_user(request: Request) -> dict:
 
     # _id를 문자열로 변환
     dict_user["_id"] = str(dict_user["_id"])
+    _set_cached_user(str_user_id, dict_user)
     return dict_user
 
 
@@ -185,6 +215,11 @@ async def get_media_user(request: Request) -> dict:
     if not is_db_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
 
+    # 캐시 확인 — 타일 대량 요청 시 DB 부하 방지
+    dict_cached = _get_cached_user(str_user_id)
+    if dict_cached is not None:
+        return dict_cached
+
     db = get_db()
     try:
         dict_user = await db.users.find_one(
@@ -204,6 +239,7 @@ async def get_media_user(request: Request) -> dict:
         )
 
     dict_user["_id"] = str(dict_user["_id"])
+    _set_cached_user(str_user_id, dict_user)
     return dict_user
 
 

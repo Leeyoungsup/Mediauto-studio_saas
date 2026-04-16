@@ -13,7 +13,7 @@
 import { api } from './api.js';
 
 const TILE_SIZE = 1024;
-const MAX_CONCURRENT_LOADS = 12;  // 동시 타일 로딩 수
+const MAX_CONCURRENT_LOADS = 36;  // 동시 타일 로딩 수 — 브라우저 HTTP/1.1 은 origin 당 6 연결이지만, 큐에 많이 넣어야 파이프라인이 빈틈없이 채워짐
 
 // 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
 //   stage 0: level0 1024x1024 그대로   (downsample 1)
@@ -1047,8 +1047,16 @@ export class TileViewer {
         }
 
         // 부모 stage 타일을 먼저, 그 다음 현재 레벨 child 타일을 큐에 넣는다.
-        // FIFO + 병렬 12 라 parent 들이 먼저 모두 출발해 child 보다 빠르게 도착,
+        // parent 들이 먼저 모두 출발해 child 보다 빠르게 도착,
         // fallback 으로 즉시 사용 가능해진다.
+        // child 는 뷰포트 중심에서 가까운 순으로 정렬 — 사용자가 보는 영역이 먼저 로딩.
+        const float_center_tx = (txMin + txMax) / 2;
+        const float_center_ty = (tyMin + tyMax) / 2;
+        list_child_tasks.sort((a, b) => {
+            const float_da = (a.tx - float_center_tx) ** 2 + (a.ty - float_center_ty) ** 2;
+            const float_db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
+            return float_da - float_db;
+        });
         for (const t of list_parent_tasks) this._loadQueue.push(t);
         for (const t of list_child_tasks) this._loadQueue.push(t);
 

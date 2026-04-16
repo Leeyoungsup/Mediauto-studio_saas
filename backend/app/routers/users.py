@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from app.audit import get_client_ip, log_audit_event
-from app.auth import get_current_user, require_role
+from app.auth import get_current_user, invalidate_user_cache, require_role
 from app.database import get_db
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 
@@ -131,6 +131,8 @@ async def approve_user(
         },
     )
 
+    invalidate_user_cache(body.str_user_id)
+
     await log_audit_event(
         str_action="admin.user_approved",
         str_user_id=dict_current_user["_id"],
@@ -183,6 +185,8 @@ async def reject_user(
             }
         },
     )
+
+    invalidate_user_cache(body.str_user_id)
 
     await log_audit_event(
         str_action="admin.user_rejected",
@@ -322,6 +326,7 @@ async def update_user(
         {"_id": ObjectId(body.str_user_id)},
         {"$set": dict_updates},
     )
+    invalidate_user_cache(body.str_user_id)
 
     await log_audit_event(
         str_action="admin.user_updated",
@@ -371,6 +376,7 @@ async def delete_user(
     }
 
     await db.users.delete_one({"_id": ObjectId(str_user_id)})
+    invalidate_user_cache(str_user_id)
     await db.sessions.update_many(
         {"str_user_id": str_user_id, "bool_is_revoked": False},
         {"$set": {"bool_is_revoked": True}},
@@ -440,6 +446,8 @@ async def update_user_role(
         },
     )
 
+    invalidate_user_cache(body.str_user_id)
+
     await log_audit_event(
         str_action="admin.role_changed",
         str_user_id=dict_current_user["_id"],
@@ -496,6 +504,8 @@ async def toggle_user_active(
         },
     )
 
+    invalidate_user_cache(body.str_user_id)
+
     str_action = "activated" if body.bool_is_active else "deactivated"
     await log_audit_event(
         str_action=f"admin.user_{str_action}",
@@ -546,6 +556,8 @@ async def unlock_user(
             }
         },
     )
+
+    invalidate_user_cache(str_user_id)
 
     await log_audit_event(
         str_action="admin.user_unlocked",
