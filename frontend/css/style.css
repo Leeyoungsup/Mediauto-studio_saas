@@ -70,6 +70,7 @@ input[type="color"], input[type="file"], select {
 }
 .menu-left {
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    align-self: flex-start;
     width: var(--left-panel-w); height: calc(56px + 42px); padding: 0 16px;
     background: var(--sidebar-dark-2);
     position: relative; z-index: 21;
@@ -106,7 +107,7 @@ input[type="color"], input[type="file"], select {
     display: flex; align-items: center; gap: 14px; flex-shrink: 0;
     padding: 0 20px;
 }
-.header-logo { height: 75px; filter: brightness(0) invert(1); }
+.header-logo { height: 60px; filter: brightness(0) invert(1); }
 .slide-name {
     font-size: 13px; color: var(--text-dim); font-weight: 500;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

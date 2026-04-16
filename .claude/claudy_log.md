@@ -1,3 +1,23 @@
+### [2026-04-16 17:30]
+**Q:** 로고 왼쪽 메뉴바+툴바 합쳐서 가운데 배치
+**A:** `.menu-left`에 `align-self: flex-start` 추가하여 `#menubar`(56px) 상단부터 시작 → `height: calc(56px + 42px)` = 98px 영역이 메뉴바+툴바 두 줄을 정확히 커버. 내부 `align-items: center; justify-content: center`로 로고(60px)가 98px 안에서 수직·수평 가운데 정렬. 기존 `#menubar`의 `align-items: center`가 `.menu-left`를 56px 기준 중앙 배치하여 위아래로 삐져나가던 문제 해결.
+**변경사항**: frontend/css/style.css
+
+### [2026-04-16 17:00]
+**Q:** 브랜드명 "MeDICus Studio" → "MeDIAuto Studio" 전체 변경 + 로고 크기/배치 개선
+**A:** 프론트: `app.html`, `login.html`, `index.html`, `admin.html` 의 타이틀/alt 텍스트 변경. `app.js`, `admin.js` 주석/코드 내 문구 변경. `visualization.js` PDF 푸터 텍스트 변경. 백엔드: `main.py` 로그 출력, `geo.py` User-Agent 헤더, `database.py`/`config.py` 로그 문구 변경. DB명(`medicus_studio`), pepper 값(`MeDICus_2024_P3pp3r`)은 하위 호환 유지. CSS: `.header-logo { height: 60px; filter: brightness(0) invert(1) }` 로 흰색 변환, `.menu-left`를 `height: calc(56px + 42px)` 로 메뉴바+툴바 영역 합침.
+**변경사항**: frontend/app.html, frontend/login.html, frontend/index.html, frontend/admin.html, frontend/js/app.js, frontend/js/admin.js, frontend/js/visualization.js, frontend/css/style.css, backend/main.py, backend/app/geo.py, backend/app/database.py, backend/app/config.py
+
+### [2026-04-16 16:30]
+**Q:** 미니맵에 최소화 버튼과 크기 조절 핸들 추가
+**A:** `app.html`: `#minimap-container` 내부에 `#minimap-toggle` 버튼(▾/▸ 토글)과 `#minimap-body` 래퍼, 하단에 `#minimap-resize` 드래그 핸들 추가. `app.js`: 토글 클릭 시 `.minimized` 클래스 on/off, 리사이즈 핸들에 pointerdown → pointermove/pointerup 으로 100~400px 범위 드래그 리사이즈. `loadMinimap`/`updateMinimap`/click 핸들러에서 CSS 기반 크기(`offsetWidth/Height`) 사용. CSS: `#minimap-container.minimized` 시 body 숨김, `.minimap-toggle` / `.minimap-resize` 스타일 추가.
+**변경사항**: frontend/app.html, frontend/js/app.js, frontend/css/style.css
+
+### [2026-04-16 16:00]
+**Q:** AI Analysis 탭 스코어 카드 가시성 개선 — 스택 바 차트 + 범례 추가
+**A:** `app.html`: 각 AI 결과 영역에 `.score-card` 컨테이너, `.score-bar` (flexbox 기반 stacked bar), `.score-card-detail` 테이블, `.score-card-legend` 추가. `app.js`: `_renderScoreBar(container, segments)` — 비율 기반 세그먼트 생성, `_renderScoreLegend(container, items)` — 범례 dot+label 생성. HE-Fit/PD-Score/Precise-IHC 각 완료 콜백에서 bar+legend 렌더링. CSS: `.score-card`, `.score-bar`, `.score-bar-seg`, `.score-card-legend` 등 스타일 추가.
+**변경사항**: frontend/app.html, frontend/js/app.js, frontend/css/style.css
+
 ### [2026-04-16 15:45]
 **Q:** PD-Score(Stomach/Lung) 고정 임계값을 0.5 → 0.1 로 되돌림. Precise-IHC 만 0.5 유지
 **A:** 백엔드: `_run_pd_score` wrapper 에서 `float_score_conf_threshold=0.1` 명시 전달, `_run_precise_ihc` 는 `0.5` 명시 전달. `_run_marker_detection_pipeline` docstring 을 "PD=0.1 / Precise-IHC=0.5" 로 갱신 (default 0.5 는 안전장치로 유지). 프론트: `onPdScoreComplete` 의 `viewer.defaultConfidence` 0.5 → 0.1 복귀. PD-Score help 텍스트도 "0.1 이상" 으로 복구.
