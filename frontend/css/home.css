@@ -42,6 +42,16 @@ html, body {
     color: #fff; text-decoration: none;
 }
 .home-logo { height: 52px; filter: brightness(0) invert(1); }
+.home-nav {
+    display: flex; align-items: center; gap: 4px; margin-left: 24px;
+}
+.home-nav-item {
+    padding: 6px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.7);
+    text-decoration: none; transition: color 0.15s, background 0.15s;
+}
+.home-nav-item:hover { color: #fff; background: rgba(255,255,255,0.1); }
+.home-nav-item.active { color: #fff; background: rgba(255,255,255,0.18); }
 .home-user-info {
     display: flex; align-items: center; gap: 12px;
     font-size: 13px;
@@ -96,8 +106,8 @@ html, body {
 }
 .stat-icon svg { width: 24px; height: 24px; }
 .stat-icon-slides { background: var(--home-accent-soft); color: var(--home-accent); }
-.stat-icon-folder { background: #fef3e2; color: var(--home-warning); }
-.stat-icon-storage { background: #e8f8ef; color: var(--home-success); }
+.stat-icon-done { background: #e8f8ef; color: var(--home-success); }
+.stat-icon-progress { background: #fef3e2; color: var(--home-warning); }
 .stat-icon-ai { background: #e8f0fe; color: var(--home-info); }
 .stat-body { display: flex; flex-direction: column; }
 .stat-value { font-size: 28px; font-weight: 700; line-height: 1.1; }
@@ -127,29 +137,57 @@ html, body {
 }
 .section-link:hover { text-decoration: underline; }
 
-/* ═══ AI Overview Bars ═══ */
-.ai-overview { display: flex; flex-direction: column; gap: 14px; }
-.ai-bar-item { display: flex; align-items: center; gap: 12px; }
-.ai-bar-label {
-    width: 100px; font-size: 13px; font-weight: 600;
-    color: var(--home-text); text-align: right; flex-shrink: 0;
+/* ═══ Storage & Folders ═══ */
+.storage-overview { display: flex; flex-direction: column; gap: 20px; }
+.storage-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
+.storage-bar-track {
+    height: 20px; background: #f0f1f5; border-radius: 10px;
+    overflow: hidden;
 }
-.ai-bar-track {
-    flex: 1; height: 24px; background: #f0f1f5; border-radius: 6px;
-    overflow: hidden; position: relative;
-}
-.ai-bar-fill {
-    height: 100%; border-radius: 6px;
+.storage-bar-fill {
+    height: 100%; border-radius: 10px;
+    background: linear-gradient(90deg, var(--home-accent), #a29bfe);
     transition: width 0.6s ease;
     width: 0;
 }
-#ai-bar-hefit .ai-bar-fill { background: linear-gradient(90deg, #6c5ce7, #a29bfe); }
-#ai-bar-pdscore .ai-bar-fill { background: linear-gradient(90deg, #00b894, #55efc4); }
-#ai-bar-ihc .ai-bar-fill { background: linear-gradient(90deg, #0984e3, #74b9ff); }
-#ai-bar-vs .ai-bar-fill { background: linear-gradient(90deg, #e17055, #fab1a0); }
-.ai-bar-count {
-    width: 50px; font-size: 14px; font-weight: 700;
-    color: var(--home-text); text-align: left; flex-shrink: 0;
+.storage-info {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 14px; color: var(--home-text);
+}
+.storage-info span { font-weight: 600; }
+.storage-sep { color: var(--home-text-dim); font-weight: 400 !important; }
+.storage-pct {
+    margin-left: 8px; font-size: 12px; color: var(--home-text-dim);
+    font-weight: 500 !important;
+}
+
+.folder-tree {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+.folder-tree-loading {
+    grid-column: 1 / -1;
+    text-align: center; padding: 16px; color: var(--home-text-dim); font-size: 13px;
+}
+.folder-tree-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--home-bg); border: 1px solid var(--home-border); border-radius: 8px;
+    cursor: pointer; text-decoration: none; color: inherit;
+    transition: border-color 0.15s;
+}
+.folder-tree-item:hover { border-color: var(--home-accent); }
+.folder-tree-icon { color: var(--home-warning); flex-shrink: 0; }
+.folder-tree-icon svg { width: 20px; height: 20px; }
+.folder-tree-name {
+    font-size: 13px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.folder-tree-count { font-size: 11px; color: var(--home-text-dim); margin-left: auto; flex-shrink: 0; }
+.folder-tree-empty {
+    grid-column: 1 / -1;
+    text-align: center; padding: 16px; color: var(--home-text-dim); font-size: 13px;
 }
 
 /* ═══ Recent Grid ═══ */

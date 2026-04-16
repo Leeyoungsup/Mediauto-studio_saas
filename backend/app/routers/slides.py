@@ -193,6 +193,7 @@ async def dashboard():
     return {
         "recent_slides": list_recent_out,
         "total_slides": dict_stats["int_total_slides"],
+        "status_counts": dict_stats["dict_status_counts"],
         "ai_counts": dict_stats["dict_ai_counts"],
         "folder_count": dict_stats["int_folder_count"],
         "storage_used_bytes": dict_stats["int_storage_used_bytes"],

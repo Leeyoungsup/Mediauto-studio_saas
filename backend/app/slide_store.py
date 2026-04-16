@@ -413,6 +413,7 @@ async def get_dashboard_stats() -> dict:
     dict_result = {
         "int_total_slides": 0,
         "dict_ai_counts": {},
+        "dict_status_counts": {},
         "int_folder_count": 0,
         "int_storage_used_bytes": 0,
         "int_storage_total_bytes": 0,
@@ -453,6 +454,20 @@ async def get_dashboard_stats() -> dict:
 
     db = get_db()
     dict_result["int_total_slides"] = await db.slides.count_documents({})
+
+    # 상태별 집계
+    for str_s in SET_SLIDE_STATUSES:
+        if str_s == "":
+            int_c = await db.slides.count_documents({
+                "$or": [
+                    {"str_status": ""},
+                    {"str_status": {"$exists": False}},
+                ]
+            })
+            dict_result["dict_status_counts"]["none"] = int_c
+        else:
+            int_c = await db.slides.count_documents({"str_status": str_s})
+            dict_result["dict_status_counts"][str_s] = int_c
 
     # AI 모델별 결과 보유 슬라이드 수
     for str_k in LIST_AI_MODEL_KEYS:

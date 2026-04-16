@@ -25,9 +25,8 @@
     const $quickAdmin = document.getElementById('quick-admin');
 
     const $statTotal = document.getElementById('stat-total');
-    const $statFolders = document.getElementById('stat-folders');
-    const $statStorage = document.getElementById('stat-storage');
-    const $statStorageLabel = document.getElementById('stat-storage-label');
+    const $statDone = document.getElementById('stat-done');
+    const $statInProgress = document.getElementById('stat-in-progress');
     const $statAiTotal = document.getElementById('stat-ai-total');
 
     const $recentGrid = document.getElementById('recent-grid');
@@ -92,6 +91,15 @@
         const mb = bytes / (1024 * 1024);
         if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
         return mb.toFixed(1) + ' MB';
+    }
+
+    function formatStorageShort(bytes) {
+        if (!bytes) return '0 B';
+        const gb = bytes / (1024 * 1024 * 1024);
+        if (gb >= 1024) return (gb / 1024).toFixed(1) + ' TB';
+        if (gb >= 1) return gb.toFixed(1) + ' GB';
+        const mb = bytes / (1024 * 1024);
+        return mb.toFixed(0) + ' MB';
     }
 
     // ── AI badge mapping ──
@@ -163,27 +171,24 @@
 
             // AI total (unique slides with any AI result)
             const ac = data.ai_counts || {};
-            // 전체 슬라이드 중 하나라도 AI 결과가 있는 수 → 가장 많은 모델 수 기준 대략값
             const aiTotal = Math.max(ac['HE-Fit'] || 0, ac['PD-Score'] || 0, ac['Precise-IHC'] || 0, ac['VS-IHC'] || 0);
             $statAiTotal.textContent = aiTotal;
 
-            // AI overview bars
-            const total = data.total_slides || 1;
-            const barMap = {
-                'ai-bar-hefit':  ac['HE-Fit'] || 0,
-                'ai-bar-pdscore': ac['PD-Score'] || 0,
-                'ai-bar-ihc':    ac['Precise-IHC'] || 0,
-                'ai-bar-vs':     ac['VS-IHC'] || 0,
-            };
-            for (const [id, count] of Object.entries(barMap)) {
-                const el = document.getElementById(id);
-                if (!el) continue;
-                const fill = el.querySelector('.ai-bar-fill');
-                const countEl = el.querySelector('.ai-bar-count');
-                const pct = Math.min(100, (count / total) * 100);
-                fill.style.width = pct + '%';
-                countEl.textContent = count + ' / ' + data.total_slides;
-            }
+            // Storage bar
+            const usedBytes = data.storage_used_bytes || 0;
+            const totalBytes = data.storage_total_bytes || 1;
+            const storagePct = Math.min(100, (usedBytes / totalBytes) * 100);
+            const $storageFill = document.getElementById('storage-bar-fill');
+            const $storageUsed = document.getElementById('storage-used');
+            const $storageTotal = document.getElementById('storage-total');
+            const $storagePct = document.getElementById('storage-pct');
+            if ($storageFill) $storageFill.style.width = storagePct + '%';
+            if ($storageUsed) $storageUsed.textContent = formatStorageShort(usedBytes);
+            if ($storageTotal) $storageTotal.textContent = formatStorageShort(totalBytes);
+            if ($storagePct) $storagePct.textContent = `(${storagePct.toFixed(1)}%)`;
+
+            // Folder tree
+            loadFolderTree();
 
             // Recent slides
             $recentGrid.innerHTML = '';
@@ -197,6 +202,60 @@
         } catch (err) {
             console.error('[Dashboard]', err);
             $recentGrid.innerHTML = '<div class="recent-empty">Failed to load dashboard data</div>';
+        }
+    }
+
+    // ── Load folder tree (root level) ──
+    async function loadFolderTree() {
+        const $tree = document.getElementById('folder-tree');
+        if (!$tree) return;
+        try {
+            const res = await authFetch('/slides/browse?path=');
+            if (!res) return;
+            const data = await res.json();
+            $tree.innerHTML = '';
+
+            const folders = data.folders || [];
+            const slides = data.slides || [];
+
+            if (folders.length === 0 && slides.length === 0) {
+                $tree.innerHTML = '<div class="folder-tree-empty">No folders or slides yet</div>';
+                return;
+            }
+
+            for (const folder of folders) {
+                const el = document.createElement('a');
+                el.className = 'folder-tree-item';
+                el.href = `/app.html?path=${encodeURIComponent(folder.name)}`;
+                el.innerHTML = `
+                    <div class="folder-tree-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                            <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/>
+                        </svg>
+                    </div>
+                    <span class="folder-tree-name">${folder.name}</span>
+                `;
+                $tree.appendChild(el);
+            }
+
+            // root 슬라이드가 있으면 표시
+            if (slides.length > 0) {
+                const el = document.createElement('div');
+                el.className = 'folder-tree-item';
+                el.style.cursor = 'default';
+                el.innerHTML = `
+                    <div class="folder-tree-icon" style="color:var(--home-accent)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/>
+                        </svg>
+                    </div>
+                    <span class="folder-tree-name">Root</span>
+                    <span class="folder-tree-count">${slides.length} slides</span>
+                `;
+                $tree.appendChild(el);
+            }
+        } catch {
+            $tree.innerHTML = '<div class="folder-tree-empty">Failed to load folders</div>';
         }
     }
 

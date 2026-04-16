@@ -13,11 +13,14 @@
             <a href="/home.html" class="home-brand">
                 <img src="assets/logo.png" alt="MeDIAuto Studio" class="home-logo">
             </a>
+            <nav class="home-nav">
+                <a href="/home.html" class="home-nav-item active">Home</a>
+                <a href="/app.html" class="home-nav-item">Viewer</a>
+                <a href="/admin.html" class="home-nav-item" id="btn-admin" hidden>Admin</a>
+            </nav>
             <div class="home-user-info">
                 <span id="user-name">—</span>
                 <span class="role-badge" id="user-role">—</span>
-                <a href="/app.html" class="home-btn-primary" id="btn-open-viewer">Viewer</a>
-                <a href="/admin.html" class="home-btn-ghost" id="btn-admin" hidden>Admin</a>
                 <button class="home-btn-ghost" id="btn-logout">Logout</button>
             </div>
         </div>
@@ -36,21 +39,21 @@
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon stat-icon-folder">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                <div class="stat-icon stat-icon-done">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                 </div>
                 <div class="stat-body">
-                    <span class="stat-value" id="stat-folders">0</span>
-                    <span class="stat-label">Folders</span>
+                    <span class="stat-value" id="stat-done">0</span>
+                    <span class="stat-label">Reviewed</span>
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon stat-icon-storage">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+                <div class="stat-icon stat-icon-progress">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                 </div>
                 <div class="stat-body">
-                    <span class="stat-value" id="stat-storage">—</span>
-                    <span class="stat-label" id="stat-storage-label">Storage</span>
+                    <span class="stat-value" id="stat-in-progress">0</span>
+                    <span class="stat-label">In Progress</span>
                 </div>
             </div>
             <div class="stat-card">
@@ -64,29 +67,23 @@
             </div>
         </section>
 
-        <!-- AI 분석 현황 -->
+        <!-- 저장공간 + 폴더 구성 -->
         <section class="home-section">
-            <h2 class="section-title">AI Analysis Overview</h2>
-            <div class="ai-overview">
-                <div class="ai-bar-item" id="ai-bar-hefit">
-                    <span class="ai-bar-label">HE-Fit</span>
-                    <div class="ai-bar-track"><div class="ai-bar-fill"></div></div>
-                    <span class="ai-bar-count">0</span>
+            <h2 class="section-title">Storage & Folders</h2>
+            <div class="storage-overview">
+                <div class="storage-bar-wrap">
+                    <div class="storage-bar-track">
+                        <div class="storage-bar-fill" id="storage-bar-fill"></div>
+                    </div>
+                    <div class="storage-info">
+                        <span id="storage-used">—</span>
+                        <span class="storage-sep">/</span>
+                        <span id="storage-total">—</span>
+                        <span class="storage-pct" id="storage-pct"></span>
+                    </div>
                 </div>
-                <div class="ai-bar-item" id="ai-bar-pdscore">
-                    <span class="ai-bar-label">PD-Score</span>
-                    <div class="ai-bar-track"><div class="ai-bar-fill"></div></div>
-                    <span class="ai-bar-count">0</span>
-                </div>
-                <div class="ai-bar-item" id="ai-bar-ihc">
-                    <span class="ai-bar-label">Precise-IHC</span>
-                    <div class="ai-bar-track"><div class="ai-bar-fill"></div></div>
-                    <span class="ai-bar-count">0</span>
-                </div>
-                <div class="ai-bar-item" id="ai-bar-vs">
-                    <span class="ai-bar-label">VS-IHC</span>
-                    <div class="ai-bar-track"><div class="ai-bar-fill"></div></div>
-                    <span class="ai-bar-count">0</span>
+                <div class="folder-tree" id="folder-tree">
+                    <div class="folder-tree-loading">Loading folders...</div>
                 </div>
             </div>
         </section>

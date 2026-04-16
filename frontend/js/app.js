@@ -360,8 +360,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     $btnVsMembrane.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
-    // ER/PR 은 임시 비활성화 — 준비되면 다시 활성화
-    // if ($btnIhcErPr) $btnIhcErPr.disabled = false;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
     // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
@@ -451,7 +450,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
 
     // Precise-IHC — 마커별 버튼 단위
     if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
-    // ER/PR / KI-67 은 원래 disabled — 건드리지 않는다
+    if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Precise-IHC::ER_PR');
 
     // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
     $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
@@ -2673,8 +2672,7 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
-    // ER/PR 임시 비활성화 — 준비되면 다시 활성화
-    // { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
+    { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
     { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC (Virtual Stain)', mpp: true },
 ];
 const VS_MPP_CHOICES = [
