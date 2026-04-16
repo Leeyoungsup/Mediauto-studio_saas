@@ -392,15 +392,27 @@ async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
 # ═══════════════════════════════════════════════════════════════════
 
 async def get_recent_slides(int_limit: int = 12) -> list:
-    """최근 열어본 슬라이드 (dt_last_opened_at 내림차순)."""
+    """최근 열어본 슬라이드 (dt_last_opened_at 내림차순).
+
+    실제 파일이 디스크에 존재하는 슬라이드만 반환.
+    """
     if not is_db_connected():
         return []
+    from app.config import settings
+
     db = get_db()
+    upload_dir = Path(settings.UPLOAD_DIR).resolve()
     list_out = []
+    # 삭제된 파일이 섞여 있을 수 있으므로 여유 있게 조회
     async for dict_doc in db.slides.find(
         {"dt_last_opened_at": {"$ne": None}},
-    ).sort("dt_last_opened_at", -1).limit(int_limit):
+    ).sort("dt_last_opened_at", -1).limit(int_limit * 3):
+        file_path = upload_dir / (dict_doc.get("str_rel_path") or "") / dict_doc["str_filename"]
+        if not file_path.exists():
+            continue
         list_out.append(dict_doc)
+        if len(list_out) >= int_limit:
+            break
     return list_out
 
 

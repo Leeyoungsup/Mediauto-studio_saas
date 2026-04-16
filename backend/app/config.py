@@ -124,8 +124,8 @@ class Settings:
         _dict_persistent_secrets["jwt_secret_key"],
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 360   # 6시간
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── 보안 설정 ──
     MAX_LOGIN_ATTEMPTS: int = 5

@@ -62,6 +62,19 @@
         return res;
     }
 
+    // ── Media ticket (썸네일용) ──
+    let _mediaTicket = null;
+    async function getMediaTicket() {
+        if (_mediaTicket && _mediaTicket.int_exp - Math.floor(Date.now() / 1000) > 30) {
+            return _mediaTicket.str_token;
+        }
+        try {
+            const res = await authFetch('/auth/media-ticket');
+            if (res) _mediaTicket = await res.json();
+            return _mediaTicket ? _mediaTicket.str_token : '';
+        } catch { return ''; }
+    }
+
     // ── Logout ──
     $btnLogout.addEventListener('click', async () => {
         try {
@@ -121,10 +134,12 @@
     }
 
     // ── Render recent slide card ──
-    function renderRecentCard(slide) {
+    function renderRecentCard(slide, mediaToken) {
         const card = document.createElement('a');
         card.className = 'recent-card';
         card.href = `/app.html?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
+
+        const thumbUrl = `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}&size=200&mt=${mediaToken}`;
 
         const aiBadges = (slide.ai_done || [])
             .map(k => {
@@ -134,18 +149,12 @@
             .join('');
 
         card.innerHTML = `
-            <div class="recent-card-top">
-                <div class="recent-card-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                        <circle cx="8.5" cy="8.5" r="1.5"/>
-                        <path d="M21 15l-5-5L5 21"/>
-                    </svg>
-                </div>
-                <div class="recent-card-info">
-                    <div class="recent-card-name" title="${slide.filename}">${slide.filename}</div>
-                    <div class="recent-card-path">${slide.rel_path || 'Root'} · ${formatSize(slide.size_bytes)}</div>
-                </div>
+            <div class="recent-card-thumb">
+                <img src="${thumbUrl}" alt="" loading="lazy">
+            </div>
+            <div class="recent-card-body">
+                <div class="recent-card-name" title="${slide.filename}">${slide.filename}</div>
+                <div class="recent-card-path">${slide.rel_path || 'Root'} · ${formatSize(slide.size_bytes)}</div>
             </div>
             <div class="recent-card-meta">
                 ${statusBadge(slide.status)}
@@ -195,8 +204,9 @@
             if (!data.recent_slides || data.recent_slides.length === 0) {
                 $recentGrid.innerHTML = '<div class="recent-empty">No recently opened slides</div>';
             } else {
+                const mt = await getMediaTicket();
                 for (const slide of data.recent_slides) {
-                    $recentGrid.appendChild(renderRecentCard(slide));
+                    $recentGrid.appendChild(renderRecentCard(slide, mt));
                 }
             }
         } catch (err) {
@@ -258,6 +268,13 @@
             $tree.innerHTML = '<div class="folder-tree-empty">Failed to load folders</div>';
         }
     }
+
+    // ── 업로드 팝업 완료 시 대시보드 새로고침 ──
+    window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'upload-complete') {
+            loadDashboard();
+        }
+    });
 
     loadDashboard();
 })();

@@ -10,14 +10,18 @@
 <body>
     <header class="admin-header">
         <div class="admin-header-inner">
-            <a href="/home.html" class="admin-back" title="홈으로">
+            <a href="/home.html" class="admin-brand">
                 <img src="assets/logo.png" alt="logo" class="admin-logo">
-                <span class="admin-title">MeDIAuto Studio · 관리자 페이지</span>
             </a>
+            <nav class="admin-nav">
+                <a href="/home.html" class="admin-nav-item">Home</a>
+                <a href="/app.html" class="admin-nav-item">Viewer</a>
+                <a href="/admin.html" class="admin-nav-item active">Admin</a>
+            </nav>
             <div class="admin-user-info">
                 <span id="current-user-name">—</span>
                 <span class="role-badge" id="current-user-role">admin</span>
-                <button id="btn-logout" class="admin-btn-ghost">로그아웃</button>
+                <button id="btn-logout" class="admin-btn-ghost">Logout</button>
             </div>
         </div>
     </header>

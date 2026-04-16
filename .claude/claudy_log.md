@@ -1,3 +1,38 @@
+### [2026-04-16 22:00]
+**Q:** Admin 페이지 Nav 정렬 수정 — 홈 페이지와 동일하게 통일
+**A:** `.admin-user-info`에서 불필요한 `margin-left: auto` 제거하여 `justify-content: space-between`이 올바르게 동작하도록 수정. 홈 페이지의 `.home-user-info` CSS와 동일한 패턴으로 통일.
+**변경사항**: frontend/css/admin.css
+
+### [2026-04-16 21:30]
+**Q:** 페이지별 헤더/네비게이션 통일 — 홈 페이지 패턴으로
+**A:** `admin.html` 헤더를 홈 페이지와 동일한 패턴으로 재구성: Logo(링크) + Nav(Home/Viewer/Admin) + User Info. `admin.css`에 `.admin-brand`, `.admin-nav`, `.admin-nav-item` 스타일 추가 — 홈의 `.home-nav-*` 와 동일한 디자인. 기존 버튼형 네비게이션 제거.
+**변경사항**: frontend/admin.html, frontend/css/admin.css
+
+### [2026-04-16 21:00]
+**Q:** 업로드 전용 팝업 창 구현 — 페이지 이동 시에도 업로드 유지
+**A:** `upload.html` (신규) — 독립 팝업 윈도우. drag&drop + 파일선택, 청크 업로드(5MB), 파일별 프로그레스 바, 상태 배지(Waiting/Uploading/Done/Error). `window.opener._pendingUploadFiles`로 File 객체 전달, 완료 시 `postMessage({ type: 'upload-complete' })` 로 opener에 알림. `app.js`에서 `openUploadPopup(files)` 함수 추가, postMessage 리스너로 슬라이드 목록 자동 새로고침. 대용량 파일 업로드 시 타임아웃 방지를 위해 `upload/complete` 엔드포인트에 `wait_tiles` 파라미터(기본 false) 추가.
+**변경사항**: frontend/upload.html(신규), frontend/js/app.js, backend/app/routers/slides.py
+
+### [2026-04-16 20:30]
+**Q:** 홈 페이지 Recent Slides 썸네일 표시
+**A:** `home.js`에서 대시보드 로드 시 `/api/auth/media-ticket` 으로 미디어 티켓 획득, 최근 슬라이드 카드의 이미지 영역에 `/api/slides/{id}/thumbnail?ticket=` URL로 썸네일 표시. 이미지 로드 실패 시 기본 아이콘 폴백.
+**변경사항**: frontend/js/home.js
+
+### [2026-04-16 20:15]
+**Q:** 사용 공간에 슬라이드+타일+AI결과 모두 포함 확인 및 저장공간 표시 개선
+**A:** `slide_store.py`의 `get_dashboard_stats()`에서 `UPLOAD_DIR`, `TILE_DIR`, `AI_RESULT_DIR` 세 디렉토리 모두 `os.walk`로 합산. `shutil.disk_usage`로 전체 디스크 용량 산출. 홈 페이지의 AI Analysis Overview 섹션을 제거하고 Storage & Folders 섹션으로 교체 — 스토리지 바 + 폴더 그리드 표시.
+**변경사항**: backend/app/slide_store.py, frontend/home.html, frontend/css/home.css, frontend/js/home.js
+
+### [2026-04-16 20:00]
+**Q:** ER/PR 통합 모델 재활성화 + confidence 0.3
+**A:** `app.html`에서 ER/PR 버튼 `hidden` 제거. `app.js`에서 슬라이드 로드 시 ER/PR 버튼 활성화, `FOLDER_AI_TASK_OPTIONS`에 ER/PR 추가, ER/PR confidence `viewer.defaultConfidence = 0.3`. `ai.py`에서 ER/PR marker 감지 시 `float_conf = 0.3` 적용.
+**변경사항**: frontend/app.html, frontend/js/app.js, backend/app/routers/ai.py
+
+### [2026-04-16 19:30]
+**Q:** 401 로그 억제 + 토큰 만료 시간 연장
+**A:** `main.py`에서 `/api/auth/refresh`와 `/api/ai/active-tasks` 의 401 응답 로그를 uvicorn access log 필터로 억제. `config.py`에서 `ACCESS_TOKEN_EXPIRE_MINUTES=360` (6시간), `REFRESH_TOKEN_EXPIRE_DAYS=30` (30일)로 변경.
+**변경사항**: backend/main.py, backend/app/config.py
+
 ### [2026-04-16 18:30]
 **Q:** 대시보드 홈 페이지 추가 — 로고 클릭 시 홈으로 이동
 **A:** **백엔드**: `slide_store.py`에 `get_recent_slides(limit)` (dt_last_opened_at 내림차순), `get_dashboard_stats()` (전체 슬라이드 수, 상태별 수, AI 모델별 결과 수) helper 추가. `slides.py`에 `GET /api/slides/dashboard` 엔드포인트 추가 — 최근 12개 슬라이드 + 통계 반환. **프론트**: `home.html` — 통계 카드 4개 (Total/Reviewed/In Progress/AI Analyzed), AI 모델별 바 차트, 최근 슬라이드 그리드 (클릭 시 뷰어 자동 열기), Quick Actions (Viewer/Upload/Admin). `home.css` — admin.css 디자인 언어와 통일된 대시보드 전용 스타일. `home.js` — 인증 체크, `/api/slides/dashboard` fetch, 카드/바/그리드 렌더링, 로그아웃. `app.html`: 로고를 `<a href="/home.html">` 링크로 래핑. `app.js`: URL 파라미터 `?slide=&path=` 지원 → 대시보드에서 클릭한 슬라이드 자동 열기. `index.html`: 로그인 상태 리디렉트 `/app.html` → `/home.html`. `login.html`: 로그인 성공 후 이동 대상 `/app.html` → `/home.html`. `admin.html`: 로고 링크 `/app.html` → `/home.html`.

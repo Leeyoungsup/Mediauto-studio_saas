@@ -1534,8 +1534,8 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
 
-    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR=0.1
-    float_conf = 0.1 if marker == "ER_PR" else 0.5
+    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR=0.3
+    float_conf = 0.3 if marker == "ER_PR" else 0.5
 
     _run_marker_detection_pipeline(
         task_id=task_id,

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDIAuto Studio — Upload</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <style>
+        :root {
+            --accent: #6c5ce7;
+            --accent-hover: #5a4bd1;
+            --accent-soft: #ede9fe;
+            --bg: #f5f6fa;
+            --surface: #ffffff;
+            --border: #e1e4eb;
+            --text: #2d3142;
+            --text-dim: #6c7083;
+            --success: #27ae60;
+            --danger: #e74c3c;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+            background: var(--bg); color: var(--text);
+            height: 100%;
+        }
+        body { display: flex; flex-direction: column; }
+
+        /* Header */
+        .upload-header {
+            background: linear-gradient(135deg, #2d3142, var(--accent));
+            color: #fff; padding: 12px 20px;
+            display: flex; align-items: center; gap: 12px;
+            flex-shrink: 0;
+        }
+        .upload-header img { height: 28px; filter: brightness(0) invert(1); }
+        .upload-header-title { font-size: 14px; font-weight: 700; }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 32px 20px;
+            text-align: center;
+            margin: 16px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            flex-shrink: 0;
+        }
+        .drop-zone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+        .drop-zone-icon { font-size: 36px; color: var(--accent); margin-bottom: 8px; }
+        .drop-zone-text { font-size: 13px; color: var(--text-dim); }
+        .drop-zone-text strong { color: var(--accent); cursor: pointer; }
+        .drop-zone input { display: none; }
+
+        /* File list */
+        .file-list {
+            flex: 1; overflow-y: auto; padding: 0 16px;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .file-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px;
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .file-item-top {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .file-item-name {
+            flex: 1; font-size: 13px; font-weight: 600;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .file-item-size { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+        .file-item-status {
+            font-size: 11px; font-weight: 600; flex-shrink: 0;
+            padding: 2px 8px; border-radius: 4px;
+        }
+        .status-waiting { background: #eee; color: #888; }
+        .status-uploading { background: var(--accent-soft); color: var(--accent); }
+        .status-done { background: #e8f8ef; color: var(--success); }
+        .status-error { background: #fde8e8; color: var(--danger); }
+
+        .file-item-bar {
+            height: 6px; background: #f0f1f5; border-radius: 3px;
+            overflow: hidden;
+        }
+        .file-item-fill {
+            height: 100%; border-radius: 3px;
+            background: linear-gradient(90deg, var(--accent), #a29bfe);
+            transition: width 0.2s;
+            width: 0;
+        }
+        .file-item-fill.done { background: var(--success); }
+        .file-item-fill.error { background: var(--danger); }
+
+        /* Footer */
+        .upload-footer {
+            padding: 12px 16px; border-top: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0; background: var(--surface);
+        }
+        .upload-summary { font-size: 12px; color: var(--text-dim); }
+        .btn-upload {
+            padding: 8px 24px; border: none; border-radius: 8px;
+            background: var(--accent); color: #fff;
+            font-size: 13px; font-weight: 700; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-upload:hover { background: var(--accent-hover); }
+        .btn-upload:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-close {
+            padding: 8px 20px; border: 1px solid var(--border); border-radius: 8px;
+            background: var(--surface); color: var(--text);
+            font-size: 13px; cursor: pointer;
+        }
+        .upload-footer-btns { display: flex; gap: 8px; }
+    </style>
+</head>
+<body>
+    <div class="upload-header">
+        <img src="assets/logo.png" alt="logo">
+        <span class="upload-header-title">Slide Upload</span>
+    </div>
+
+    <div class="drop-zone" id="drop-zone">
+        <div class="drop-zone-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+        </div>
+        <div class="drop-zone-text">
+            Drag & drop slide files here<br>
+            or <strong id="browse-btn">browse files</strong>
+        </div>
+        <input type="file" id="file-input" multiple accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn,.png,.jpg,.jpeg">
+    </div>
+
+    <div class="file-list" id="file-list"></div>
+
+    <div class="upload-footer">
+        <span class="upload-summary" id="upload-summary"></span>
+        <div class="upload-footer-btns">
+            <button class="btn-close" id="btn-close" hidden>Close</button>
+            <button class="btn-upload" id="btn-upload" disabled>Upload</button>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        'use strict';
+
+        const API_BASE = '/api';
+        const CHUNK_SIZE = 5 * 1024 * 1024;
+        const SUPPORTED = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg)$/i;
+
+        const accessToken = localStorage.getItem('access_token');
+        if (!accessToken) { window.close(); return; }
+
+        // 업로드 대상 경로 (opener 에서 전달)
+        const uploadPath = new URLSearchParams(location.search).get('path') || '';
+
+        const $dropZone = document.getElementById('drop-zone');
+        const $fileInput = document.getElementById('file-input');
+        const $fileList = document.getElementById('file-list');
+        const $btnUpload = document.getElementById('btn-upload');
+        const $btnClose = document.getElementById('btn-close');
+        const $summary = document.getElementById('upload-summary');
+
+        let fileQueue = [];      // {file, el, status, fillEl, statusEl}
+        let isUploading = false;
+        let completedCount = 0;
+        let errorCount = 0;
+
+        // ── Auth fetch ──
+        async function authFetch(path, options = {}) {
+            const headers = { ...(options.headers || {}) };
+            headers['Authorization'] = `Bearer ${accessToken}`;
+            return fetch(`${API_BASE}${path}`, { ...options, headers });
+        }
+
+        // ── File selection ──
+        document.getElementById('browse-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            $fileInput.click();
+        });
+        $dropZone.addEventListener('click', () => $fileInput.click());
+        $fileInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+        // ── Drag & drop ──
+        $dropZone.addEventListener('dragover', (e) => { e.preventDefault(); $dropZone.classList.add('dragover'); });
+        $dropZone.addEventListener('dragleave', () => $dropZone.classList.remove('dragover'));
+        $dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            $dropZone.classList.remove('dragover');
+            addFiles(e.dataTransfer.files);
+        });
+
+        // ── Opener 에서 파일 전달받기 ──
+        if (window.opener && window.opener._pendingUploadFiles) {
+            const files = window.opener._pendingUploadFiles;
+            window.opener._pendingUploadFiles = null;
+            setTimeout(() => addFiles(files), 100);
+        }
+
+        function addFiles(fileListObj) {
+            const files = [...fileListObj].filter(f => SUPPORTED.test(f.name));
+            if (!files.length) return;
+
+            for (const file of files) {
+                // 중복 체크
+                if (fileQueue.some(q => q.file.name === file.name && q.file.size === file.size)) continue;
+
+                const el = document.createElement('div');
+                el.className = 'file-item';
+                el.innerHTML = `
+                    <div class="file-item-top">
+                        <span class="file-item-name" title="${file.name}">${file.name}</span>
+                        <span class="file-item-size">${formatSize(file.size)}</span>
+                        <span class="file-item-status status-waiting">Waiting</span>
+                    </div>
+                    <div class="file-item-bar"><div class="file-item-fill"></div></div>
+                `;
+                $fileList.appendChild(el);
+
+                fileQueue.push({
+                    file,
+                    el,
+                    status: 'waiting',
+                    fillEl: el.querySelector('.file-item-fill'),
+                    statusEl: el.querySelector('.file-item-status'),
+                });
+            }
+
+            updateSummary();
+            $btnUpload.disabled = false;
+        }
+
+        function formatSize(bytes) {
+            const mb = bytes / (1024 * 1024);
+            if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+            return mb.toFixed(1) + ' MB';
+        }
+
+        function updateSummary() {
+            const total = fileQueue.length;
+            const pending = total - completedCount - errorCount;
+            if (isUploading) {
+                $summary.textContent = `Uploading... ${completedCount}/${total} done` + (errorCount ? `, ${errorCount} failed` : '');
+            } else if (completedCount > 0) {
+                $summary.textContent = `${completedCount}/${total} uploaded` + (errorCount ? `, ${errorCount} failed` : '');
+            } else {
+                $summary.textContent = `${total} file${total > 1 ? 's' : ''} selected`;
+            }
+        }
+
+        function setItemStatus(item, status, text) {
+            item.status = status;
+            item.statusEl.textContent = text;
+            item.statusEl.className = 'file-item-status status-' + status;
+        }
+
+        // ── Upload ──
+        $btnUpload.addEventListener('click', startUpload);
+
+        async function startUpload() {
+            if (isUploading) return;
+            isUploading = true;
+            $btnUpload.disabled = true;
+            $dropZone.style.display = 'none';
+            completedCount = 0;
+            errorCount = 0;
+
+            // 페이지 이탈 방지
+            window.onbeforeunload = () => '';
+
+            for (const item of fileQueue) {
+                if (item.status === 'done') continue;
+                try {
+                    setItemStatus(item, 'uploading', 'Uploading...');
+                    await uploadOneFile(item);
+                    setItemStatus(item, 'done', 'Done');
+                    item.fillEl.classList.add('done');
+                    item.fillEl.style.width = '100%';
+                    completedCount++;
+                } catch (err) {
+                    setItemStatus(item, 'error', err.message || 'Failed');
+                    item.fillEl.classList.add('error');
+                    item.fillEl.style.width = '100%';
+                    errorCount++;
+                }
+                updateSummary();
+            }
+
+            isUploading = false;
+            window.onbeforeunload = null;
+            $btnClose.hidden = false;
+            $btnUpload.textContent = 'Done';
+            updateSummary();
+
+            // opener 에 완료 알림
+            try {
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({ type: 'upload-complete', count: completedCount }, '*');
+                }
+            } catch { /* cross-origin or closed */ }
+        }
+
+        async function uploadOneFile(item) {
+            const file = item.file;
+
+            // 1) 이미 존재하는지 확인
+            const checkForm = new FormData();
+            checkForm.append('filename', file.name);
+            checkForm.append('path', uploadPath);
+            const checkRes = await authFetch(`/slides/open-by-name`, { method: 'POST', body: checkForm });
+            if (checkRes.ok) {
+                const checkData = await checkRes.json();
+                if (checkData.exists) {
+                    setItemStatus(item, 'done', 'Already exists');
+                    item.fillEl.classList.add('done');
+                    item.fillEl.style.width = '100%';
+                    completedCount++;
+                    throw { alreadyHandled: true };
+                }
+            }
+
+            // 2) 업로드 시작
+            const startForm = new FormData();
+            startForm.append('filename', file.name);
+            const startRes = await authFetch('/slides/upload/start', { method: 'POST', body: startForm });
+            if (!startRes.ok) throw new Error('Start failed');
+            const { upload_id } = await startRes.json();
+
+            // 3) 청크 전송
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+                const chunkForm = new FormData();
+                chunkForm.append('upload_id', upload_id);
+                chunkForm.append('chunk_index', i.toString());
+                chunkForm.append('chunk', blob);
+                const chunkRes = await authFetch('/slides/upload/chunk', { method: 'POST', body: chunkForm });
+                if (!chunkRes.ok) throw new Error(`Chunk ${i + 1} failed`);
+                item.fillEl.style.width = Math.round(((i + 1) / totalChunks) * 90) + '%';
+                setItemStatus(item, 'uploading', `${Math.round(((i + 1) / totalChunks) * 90)}%`);
+            }
+
+            // 4) 완료
+            setItemStatus(item, 'uploading', 'Registering...');
+            item.fillEl.style.width = '95%';
+            const completeForm = new FormData();
+            completeForm.append('upload_id', upload_id);
+            completeForm.append('filename', file.name);
+            completeForm.append('total_chunks', totalChunks.toString());
+            completeForm.append('path', uploadPath);
+            const completeRes = await authFetch('/slides/upload/complete', { method: 'POST', body: completeForm });
+            if (!completeRes.ok) throw new Error('Complete failed');
+        }
+
+        // ── Close ──
+        $btnClose.addEventListener('click', () => window.close());
+
+    })();
+    </script>
+</body>
+</html>

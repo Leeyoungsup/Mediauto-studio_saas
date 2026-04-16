@@ -9,6 +9,7 @@ import uuid
 import asyncio
 import hashlib
 import shutil
+from datetime import timezone
 from pathlib import Path
 from typing import Optional
 
@@ -149,7 +150,8 @@ async def _upsert_and_attach(
     )
     if dict_doc:
         resp["ai_results"] = slide_store.serialize_slide_doc(dict_doc).get("dict_ai_results")
-        resp["uploaded_at"] = dict_doc.get("dt_uploaded_at").isoformat() if dict_doc.get("dt_uploaded_at") else None
+        dt_up = dict_doc.get("dt_uploaded_at")
+        resp["uploaded_at"] = dt_up.replace(tzinfo=timezone.utc).isoformat() if dt_up and not dt_up.tzinfo else (dt_up.isoformat() if dt_up else None)
 
 
 # ── 저장된 슬라이드/폴더 목록 ──
@@ -185,7 +187,7 @@ async def dashboard():
             "size_bytes": dict_doc.get("int_size_bytes", 0),
             "mpp": dict_doc.get("float_mpp"),
             "status": dict_doc.get("str_status", ""),
-            "last_opened_at": dt_opened.isoformat() if dt_opened else None,
+            "last_opened_at": dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None),
             "ai_done": list_ai_done,
             "tiles_ready": bool(dict_doc.get("bool_tiles_ready")),
         })
@@ -240,7 +242,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 }
                 dict_item["uploaded_by"] = dict_db.get("str_uploaded_by") or ""
                 dt_opened = dict_db.get("dt_last_opened_at")
-                dict_item["last_opened_at"] = dt_opened.isoformat() if dt_opened else None
+                dict_item["last_opened_at"] = dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None)
                 dict_item["status"] = dict_db.get("str_status") or ""
             else:
                 dict_item["ai_results"] = None
@@ -541,6 +543,7 @@ async def upload_complete(
     filename: str = Form(...),
     total_chunks: int = Form(...),
     path: str = Form(""),
+    wait_tiles: str = Form("false"),
     dict_user: dict = Depends(get_current_user),
 ):
     """업로드 완료 — 청크 조립 → 슬라이드 열기 + 타일 생성"""
@@ -589,10 +592,11 @@ async def upload_complete(
             bool_newly_written = True
 
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
+        bool_wait = wait_tiles.lower() in ("true", "1", "yes")
         try:
             return await _open_and_generate(
                 slide_id, str(final_path), filename, dict_user,
-                bool_wait_for_tiles=True,
+                bool_wait_for_tiles=bool_wait,
             )
         except HTTPException:
             # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리

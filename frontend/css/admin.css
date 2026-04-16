@@ -28,21 +28,30 @@ html, body {
 .admin-header {
     background: linear-gradient(135deg, var(--admin-sidebar-dark), var(--admin-accent));
     color: #fff;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     position: sticky; top: 0; z-index: 50;
 }
 .admin-header-inner {
     max-width: 1400px;
     margin: 0 auto;
-    padding: 14px 28px;
+    padding: 14px 32px;
     display: flex; align-items: center; justify-content: space-between;
 }
-.admin-back {
-    display: flex; align-items: center; gap: 12px;
-    color: #fff; text-decoration: none;
+.admin-brand {
+    display: flex; align-items: center;
+    text-decoration: none;
 }
-.admin-logo { height: 32px; }
-.admin-title { font-size: 16px; font-weight: 700; letter-spacing: 0.4px; }
+.admin-logo { height: 52px; filter: brightness(0) invert(1); }
+.admin-nav {
+    display: flex; align-items: center; gap: 4px; margin-left: 24px;
+}
+.admin-nav-item {
+    padding: 6px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.7);
+    text-decoration: none; transition: color 0.15s, background 0.15s;
+}
+.admin-nav-item:hover { color: #fff; background: rgba(255,255,255,0.1); }
+.admin-nav-item.active { color: #fff; background: rgba(255,255,255,0.18); }
 .admin-user-info {
     display: flex; align-items: center; gap: 12px;
     font-size: 13px;

@@ -10,15 +10,19 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 
-# ── 200 OK 로그 숨기기 (에러만 출력) ──
+# ── 불필요한 액세스 로그 숨기기 ──
 class _SuccessFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        # 정상 응답(2xx, 3xx)은 숨기고 에러(4xx, 5xx)만 출력
-        if "HTTP/1.1" in msg:
-            for code in ("200", "204", "304"):
-                if f'" {code}' in msg:
-                    return False
+        if "HTTP/1.1" not in msg:
+            return True
+        # 정상 응답(2xx, 3xx)은 숨김
+        for code in ("200", "204", "304"):
+            if f'" {code}' in msg:
+                return False
+        # 토큰 갱신/폴링 경로의 401 은 정상 동작 — 숨김
+        if '" 401' in msg and ("/api/auth/refresh" in msg or "/api/ai/active-tasks" in msg):
+            return False
         return True
 
 

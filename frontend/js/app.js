@@ -191,73 +191,46 @@ if ($btnLogout) {
 // ═══════════════════════════
 // 파일 열기 + 업로드
 // ═══════════════════════════
+// ── 업로드 팝업 ──
+function openUploadPopup(files) {
+    if (files) window._pendingUploadFiles = files;
+    const w = 520, h = 600;
+    const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+    window.open(
+        `/upload.html?path=${encodeURIComponent(currentBrowsePath)}`,
+        'upload_popup',
+        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+}
+
 $btnOpen.addEventListener('click', () => $fileInput.click());
 $fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) uploadFiles(e.target.files, currentBrowsePath);
-    e.target.value = '';  // 같은 파일 재선택 가능하도록
+    if (e.target.files.length > 0) openUploadPopup(e.target.files);
+    e.target.value = '';
+});
+
+// 팝업에서 업로드 완료 알림 수신
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'upload-complete') {
+        loadSlideList();
+        setStatus(`${e.data.count}개 파일 업로드 완료`);
+    }
 });
 
 const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 
-async function uploadFiles(fileList, targetPath = currentBrowsePath) {
+// uploadFiles — 드래그 앤 드롭 등에서 호출 시 팝업으로 전달
+async function uploadFiles(fileList, _targetPath) {
     const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
     if (!files.length) {
         setStatus('지원하는 슬라이드 파일이 없습니다');
         return;
     }
-
-    const total = files.length;
-    let firstOpened = false;
-
-    for (let idx = 0; idx < total; idx++) {
-        const file = files[idx];
-        const prefix = total > 1 ? `[${idx + 1}/${total}] ` : '';
-        try {
-            const info = await uploadOneFile(file, targetPath, prefix);
-            // 첫 파일만 자동으로 열기 (현재 폴더에 업로드된 경우)
-            if (!firstOpened && info && targetPath === currentBrowsePath) {
-                onSlideLoaded(info.slide_id, info, file.name);
-                firstOpened = true;
-            }
-        } catch (err) {
-            setStatus(`${prefix}${file.name} 실패: ${err.message}`);
-        }
-    }
-
-    loadSlideList();
-    if (total > 1) setStatus(`${total}개 파일 업로드 완료`);
-    setProgress(0);
+    openUploadPopup(fileList);
 }
 
-async function uploadOneFile(file, targetPath, prefix = '') {
-    $slideName.textContent = file.name;
-    setStatus(`${prefix}확인 중...`);
-
-    // 1) 대상 폴더에서 이미 있는지 확인
-    const check = await api.openSlide(file.name, targetPath);
-    if (check.exists) return check;
-
-    // 2) 없으면 대상 폴더에 업로드
-    const CHUNK_SIZE = 5 * 1024 * 1024;
-    setStatus(`${prefix}업로드 중...`);
-    setProgress(0);
-
-    const { upload_id } = await api.uploadStart(file.name);
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-    for (let i = 0; i < totalChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
-        await api.uploadChunk(upload_id, i, blob);
-        setProgress(Math.round(((i + 1) / totalChunks) * 90), `${prefix}Uploading... ${i + 1}/${totalChunks} chunks`);
-    }
-
-    setStatus(`${prefix}슬라이드 등록 중...`);
-    setProgress(95);
-    const info = await api.uploadComplete(upload_id, file.name, totalChunks, targetPath);
-    setProgress(100);
-    return info;
-}
+// 하위 호환 — 기존 uploadOneFile 참조 방지 (사용처 없음)
+async function uploadOneFile() { /* deprecated — upload.html 팝업 사용 */ return null; }
 
 // ── Scanner/Vendor 배지 ──
 // openslide vendor string 은 소문자 키워드 형태. 인라인 SVG 로고로 매핑.
@@ -3178,7 +3151,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = marker === 'ER_PR' ? 0.1 : 0.5;  // 고정 (SaMD 재현성)
+    viewer.defaultConfidence = marker === 'ER_PR' ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
