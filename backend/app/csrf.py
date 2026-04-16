@@ -1,4 +1,4 @@
-"""CSRF 방어 미들웨어
+"""CSRF 방어 미들웨어 (순수 ASGI — BaseHTTPMiddleware 사용 안 함)
 
 JWT 가 Authorization 헤더로만 전달되므로 브라우저의 자동 쿠키 전송 기반
 CSRF 는 원천 차단되지만, defense-in-depth 로 상태 변경 요청(POST/PUT/
@@ -9,9 +9,7 @@ PATCH/DELETE)에 `X-Requested-With` 커스텀 헤더를 요구한다.
 - 미디어 엔드포인트(GET)는 영향 없음
 """
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+import json
 
 # CSRF 검사를 면제할 경로 (인증 전 or GET-only 엔드포인트)
 _EXEMPT_PATHS = frozenset({
@@ -21,20 +19,42 @@ _EXEMPT_PATHS = frozenset({
     "/api/health",
 })
 
-_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_STATE_CHANGING_METHODS = frozenset({b"POST", b"PUT", b"PATCH", b"DELETE"})
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
-    """상태 변경 요청에 X-Requested-With 헤더 필수."""
+class CSRFMiddleware:
+    """순수 ASGI 미들웨어 — 상태 변경 요청에 X-Requested-With 헤더 필수."""
 
-    async def dispatch(self, request: Request, call_next):
-        if request.method in _STATE_CHANGING_METHODS:
-            str_path = request.url.path.rstrip("/")
-            if str_path not in _EXEMPT_PATHS:
-                str_xrw = request.headers.get("X-Requested-With", "")
-                if not str_xrw:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Missing X-Requested-With header (CSRF protection)"},
-                    )
-        return await call_next(request)
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET").encode()
+        if method in _STATE_CHANGING_METHODS:
+            path = scope.get("path", "").rstrip("/")
+            if path not in _EXEMPT_PATHS:
+                # 헤더에서 x-requested-with 찾기
+                headers = dict(scope.get("headers", []))
+                if not headers.get(b"x-requested-with"):
+                    body = json.dumps(
+                        {"detail": "Missing X-Requested-With header (CSRF protection)"}
+                    ).encode()
+                    await send({
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [
+                            [b"content-type", b"application/json"],
+                            [b"content-length", str(len(body)).encode()],
+                        ],
+                    })
+                    await send({
+                        "type": "http.response.body",
+                        "body": body,
+                    })
+                    return
+
+        await self.app(scope, receive, send)

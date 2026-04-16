@@ -61,6 +61,7 @@ const $pdScoreDetail = $('#pd-score-detail');
 const $pdScoreBar = $('#pd-score-bar');
 const $btnIhcHer2 = $('#btn-ihc-her2');
 const $btnIhcErPr = $('#btn-ihc-erpr');
+const $btnIhcKi67 = $('#btn-ihc-ki67');
 const $ihcScoreResult = $('#ihc-score-result');
 const $ihcScoreLabel = $('#ihc-score-label');
 const $ihcScoreValue = $('#ihc-score-value');
@@ -143,8 +144,8 @@ const AI_MODEL_HELP = {
         body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 검증된 고정 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다 (SaMD 재현성 보장).',
     },
     'ihc-tab': {
-        title: 'Precise-IHC — HER2 / ER / PR',
-        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로 판독합니다. KI-67 은 준비 중입니다.',
+        title: 'Precise-IHC — HER2 / ER / PR / KI-67',
+        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로, KI-67 은 Labeling Index (Positive / Total × 100%) 로 판독합니다.',
     },
 };
 const $aiHelpIcon = document.querySelector('#ai-help-icon');
@@ -334,6 +335,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
     if ($btnIhcErPr) $btnIhcErPr.disabled = false;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
     // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
@@ -424,6 +426,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     // Precise-IHC — 마커별 버튼 단위
     if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
     if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Precise-IHC::ER_PR');
+    if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Precise-IHC::KI_67');
 
     // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
     $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
@@ -1534,6 +1537,7 @@ function _updateResultCounts() {
     _updatePdScoreDisplay(counts);
     _updateHer2ScoreDisplay(counts);
     _updateAllredScoreDisplay(counts);
+    _updateKi67ScoreDisplay(counts);
 }
 
 // Confidence 필터가 반영된 카운트로 CPS/TPS 재계산하여 스코어 카드 갱신
@@ -1662,6 +1666,31 @@ function _updateAllredScoreDisplay(counts) {
     ]);
 }
 
+function _updateKi67ScoreDisplay(counts) {
+    if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
+    if (!_lastDetectionResult || !_lastDetectionResult.ki67_score) return;
+    const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const pos = n1 + n2 + n3;
+    const ki67Index = total === 0 ? 0 : pos / total * 100;
+    const interp = ki67Index >= 14 ? 'High' : 'Low';
+    const KI67_COLORS = ['#27ae60', '#e74c3c'];
+    $ihcScoreLabel.textContent = 'KI-67';
+    $ihcScoreValue.textContent = `${ki67Index.toFixed(1)}%`;
+    _renderScoreBar($ihcScoreBar, [
+        { value: n0, color: KI67_COLORS[0], label: `Neg ${n0}` },
+        { value: pos, color: KI67_COLORS[1], label: `Pos ${pos}` },
+    ]);
+    $ihcScoreDetail.innerHTML =
+        `Labeling Index: ${ki67Index.toFixed(1)}% &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
+        `Positive: ${pos.toLocaleString()} &nbsp;·&nbsp; Negative: ${n0.toLocaleString()} &nbsp;·&nbsp; Total: ${total.toLocaleString()}`;
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: KI67_COLORS[0], label: 'Negative', count: n0 },
+        { color: KI67_COLORS[1], label: 'Positive', count: pos },
+    ]);
+}
+
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
@@ -1786,11 +1815,13 @@ $btnVisualize.addEventListener('click', () => {
     const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
-    const isIhc = isHer2 || isAllred;
+    const isKi67 = !!(_lastDetectionResult && _lastDetectionResult.ki67_score);
+    const isIhc = isHer2 || isAllred || isKi67;
     const modelType = isIhc ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
-    const scoreType = isHer2
-        ? 'HER2'
-        : (isAllred ? 'Allred' : (isPdScore ? _lastDetectionResult.pd_score.score_type : null));
+    const scoreType = isHer2 ? 'HER2'
+        : isAllred ? 'Allred'
+        : isKi67 ? 'KI67'
+        : (isPdScore ? _lastDetectionResult.pd_score.score_type : null);
     const classNames = _lastDetectionResult?.class_names || null;
     const classColors = _lastDetectionResult?.class_colors || null;
 
@@ -1984,6 +2015,7 @@ function _rerunOriginalInference(aiMode, variant) {
         $('#btn-pd-score')?.click();
     } else if (aiMode === 'Precise-IHC') {
         if (variant === 'ER_PR') $('#btn-ihc-erpr')?.click();
+        else if (variant === 'KI_67') $('#btn-ihc-ki67')?.click();
         else $('#btn-ihc-her2')?.click();
     }
 }
@@ -2648,6 +2680,7 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
     { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
+    { model: 'Precise-IHC', variant: 'KI_67',   label: 'Precise-IHC · KI-67' },
     { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC (Virtual Stain)', mpp: true },
 ];
 const VS_MPP_CHOICES = [
@@ -3065,10 +3098,12 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
 $btnIhcErPr?.addEventListener('click', () => startPreciseIhc('ER_PR'));
+$btnIhcKi67?.addEventListener('click', () => startPreciseIhc('KI_67'));
 
 function _setIhcMarkerButtonsDisabled(disabled) {
     if ($btnIhcHer2) $btnIhcHer2.disabled = disabled;
     if ($btnIhcErPr) $btnIhcErPr.disabled = disabled;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = disabled;
 }
 
 async function startPreciseIhc(marker) {
@@ -3076,8 +3111,8 @@ async function startPreciseIhc(marker) {
     const str_key = 'ihc-' + marker;
     if (await _maybeCancelRunning(str_key)) return;
 
-    const btnEl = marker === 'ER_PR' ? $btnIhcErPr : $btnIhcHer2;
-    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
+    const btnEl = marker === 'ER_PR' ? $btnIhcErPr : (marker === 'KI_67' ? $btnIhcKi67 : $btnIhcHer2);
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
     _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
     _setButtonRunning(btnEl, true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
@@ -3134,7 +3169,7 @@ async function startPreciseIhc(marker) {
 }
 
 function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
-    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
     $progressLabel.textContent = `${markerLabel} Complete`;
 
     viewer.clearAnnotations();
@@ -3153,7 +3188,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = marker === 'ER_PR' ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
+    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
@@ -3213,6 +3248,31 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
                 { color: HER2_COLORS[1], label: '1+', count: n1 },
                 { color: HER2_COLORS[2], label: '2+', count: n2 },
                 { color: HER2_COLORS[3], label: '3+', count: n3 },
+            ]);
+        }
+    } else if (result.ki67_score) {
+        const score = result.ki67_score;
+        const ki67Index = score.ki67_index ?? 0;
+        const interp = score.interpretation || (ki67Index >= 14 ? 'High' : 'Low');
+        const posCount = score.positive_count ?? 0;
+        const negCount = score.negative_count ?? 0;
+        const totalTumor = score.total_tumor ?? 0;
+        const KI67_COLORS = ['#27ae60', '#e74c3c'];
+        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
+        if ($ihcScoreResult) {
+            $ihcScoreResult.hidden = false;
+            $ihcScoreLabel.textContent = 'KI-67';
+            $ihcScoreValue.textContent = `${ki67Index.toFixed(1)}%`;
+            _renderScoreBar($ihcScoreBar, [
+                { value: negCount, color: KI67_COLORS[0], label: `Neg ${negCount}` },
+                { value: posCount, color: KI67_COLORS[1], label: `Pos ${posCount}` },
+            ]);
+            $ihcScoreDetail.innerHTML =
+                `Labeling Index: ${ki67Index.toFixed(1)}% &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
+                `Positive: ${posCount.toLocaleString()} &nbsp;·&nbsp; Negative: ${negCount.toLocaleString()} &nbsp;·&nbsp; Total: ${totalTumor.toLocaleString()}`;
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: KI67_COLORS[0], label: 'Negative', count: negCount },
+                { color: KI67_COLORS[1], label: 'Positive', count: posCount },
             ]);
         }
     }

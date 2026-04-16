@@ -1,4 +1,4 @@
-"""IP 기반 Rate Limiting 미들웨어
+"""IP 기반 Rate Limiting 미들웨어 (순수 ASGI — BaseHTTPMiddleware 사용 안 함)
 
 외부 라이브러리(slowapi) 없이 in-memory 슬라이딩 윈도우로 구현.
 - 로그인 엔드포인트: 10회/5분 (브루트포스 방지)
@@ -8,11 +8,9 @@
 On-Premise 단일 프로세스 전제이므로 메모리 기반으로 충분.
 """
 
+import json
 import time
 from collections import defaultdict
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 
 class _SlidingWindow:
@@ -35,7 +33,7 @@ class _SlidingWindow:
         return True
 
     def cleanup(self):
-        """주기적 메모리 정리 (선택)."""
+        """주기적 메모리 정리."""
         float_now = time.monotonic()
         list_stale = [
             k for k, v in self._dict_buckets.items()
@@ -55,21 +53,54 @@ _int_request_count = 0
 _CLEANUP_INTERVAL = 1000
 
 
-def _get_client_ip(request: Request) -> str:
-    str_forwarded = request.headers.get("X-Forwarded-For", "")
-    if str_forwarded:
-        return str_forwarded.split(",")[0].strip()
-    str_real = request.headers.get("X-Real-IP", "")
-    if str_real:
-        return str_real.strip()
-    if request.client:
-        return request.client.host
+def _get_client_ip(headers: list[tuple[bytes, bytes]], scope: dict) -> str:
+    """ASGI scope/headers에서 클라이언트 IP 추출."""
+    for k, v in headers:
+        if k == b"x-forwarded-for":
+            return v.decode().split(",")[0].strip()
+        if k == b"x-real-ip":
+            return v.decode().strip()
+    client = scope.get("client")
+    if client:
+        return client[0]
     return "unknown"
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
+def _send_429(retry_after: str):
+    """429 응답을 보내는 코루틴 팩토리."""
+    body = json.dumps(
+        {"detail": "Too many requests. Please try again later."}
+    ).encode()
 
-    async def dispatch(self, request: Request, call_next):
+    async def _respond(send):
+        await send({
+            "type": "http.response.start",
+            "status": 429,
+            "headers": [
+                [b"content-type", b"application/json"],
+                [b"content-length", str(len(body)).encode()],
+                [b"retry-after", retry_after.encode()],
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+        })
+
+    return _respond
+
+
+class RateLimitMiddleware:
+    """순수 ASGI 미들웨어 — IP별 요청 제한."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         global _int_request_count
         _int_request_count += 1
         if _int_request_count % _CLEANUP_INTERVAL == 0:
@@ -77,36 +108,30 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             _API_LIMITER.cleanup()
             _MEDIA_LIMITER.cleanup()
 
-        str_path = request.url.path
-        str_ip = _get_client_ip(request)
+        str_path = scope.get("path", "")
+        headers = scope.get("headers", [])
+        str_ip = _get_client_ip(headers, scope)
 
         # 로그인 엔드포인트 — 엄격한 제한
         if str_path.rstrip("/") in ("/api/auth/login", "/api/auth/register"):
             if not _LOGIN_LIMITER.is_allowed(str_ip):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Too many requests. Please try again later."},
-                    headers={"Retry-After": "300"},
-                )
-            return await call_next(request)
+                await _send_429("300")(send)
+                return
+            await self.app(scope, receive, send)
+            return
 
         # 타일/미디어 — 뷰어 렌더링용 높은 제한
         if str_path.startswith("/api/tiles/") or "/thumbnail" in str_path:
             if not _MEDIA_LIMITER.is_allowed(str_ip):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Too many requests."},
-                    headers={"Retry-After": "60"},
-                )
-            return await call_next(request)
+                await _send_429("60")(send)
+                return
+            await self.app(scope, receive, send)
+            return
 
         # 일반 API
         if str_path.startswith("/api/"):
             if not _API_LIMITER.is_allowed(str_ip):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Too many requests. Please try again later."},
-                    headers={"Retry-After": "60"},
-                )
+                await _send_429("60")(send)
+                return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

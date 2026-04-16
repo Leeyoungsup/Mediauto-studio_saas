@@ -417,32 +417,24 @@ async def get_recent_slides(int_limit: int = 12) -> list:
     return list_out
 
 
-async def get_dashboard_stats() -> dict:
-    """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
+_disk_cache: dict = {}
+_disk_cache_ts: float = 0.0
+_DISK_CACHE_TTL = 60.0  # 60초 캐시
+
+
+def _compute_disk_stats_sync() -> dict:
+    """디스크 통계 (동기) — 스레드풀에서 실행."""
     from app.config import settings
     import os
     import shutil
 
-    dict_result = {
-        "int_total_slides": 0,
-        "dict_ai_counts": {},
-        "dict_status_counts": {},
-        "int_folder_count": 0,
-        "int_storage_used_bytes": 0,
-        "int_storage_total_bytes": 0,
-    }
-
-    # 폴더 수 + 저장공간 (DB 불필요)
     upload_path = Path(settings.UPLOAD_DIR)
+    int_folders = 0
     if upload_path.exists():
-        int_folders = 0
         for _root, dirs, _files in os.walk(str(upload_path)):
-            # _chunks_ 임시 폴더 제외
             dirs[:] = [d for d in dirs if not d.startswith("_chunks_") and not d.startswith(".")]
             int_folders += len(dirs)
-        dict_result["int_folder_count"] = int_folders
 
-    # 디스크 사용량: uploads + tiles + ai_results
     int_used = 0
     for str_dir in [settings.UPLOAD_DIR, settings.TILES_DIR, settings.AI_RESULTS_DIR]:
         dir_path = Path(str_dir)
@@ -453,41 +445,98 @@ async def get_dashboard_stats() -> dict:
                         int_used += os.path.getsize(os.path.join(_root, f))
                     except OSError:
                         pass
-    dict_result["int_storage_used_bytes"] = int_used
 
-    # 디스크 전체 용량 (uploads 디렉터리가 위치한 파티션)
+    int_total = 0
     try:
         usage = shutil.disk_usage(str(upload_path) if upload_path.exists() else "/")
-        dict_result["int_storage_total_bytes"] = usage.total
+        int_total = usage.total
     except Exception:
         pass
+
+    return {
+        "int_folder_count": int_folders,
+        "int_storage_used_bytes": int_used,
+        "int_storage_total_bytes": int_total,
+    }
+
+
+async def _get_disk_stats_cached() -> dict:
+    """디스크 통계를 캐시 + 스레드풀로 논블로킹 제공."""
+    import asyncio
+    import time
+    global _disk_cache, _disk_cache_ts
+
+    float_now = time.monotonic()
+    if _disk_cache and (float_now - _disk_cache_ts) < _DISK_CACHE_TTL:
+        return _disk_cache
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, _compute_disk_stats_sync)
+    _disk_cache = result
+    _disk_cache_ts = float_now
+    return result
+
+
+async def get_dashboard_stats() -> dict:
+    """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
+    dict_result = {
+        "int_total_slides": 0,
+        "dict_ai_counts": {},
+        "dict_status_counts": {},
+        "int_folder_count": 0,
+        "int_storage_used_bytes": 0,
+        "int_storage_total_bytes": 0,
+    }
+
+    # 디스크 통계 — 캐시 + 스레드풀 (이벤트 루프 블로킹 방지)
+    dict_disk = await _get_disk_stats_cached()
+    dict_result.update(dict_disk)
 
     if not is_db_connected():
         return dict_result
 
     db = get_db()
-    dict_result["int_total_slides"] = await db.slides.count_documents({})
 
-    # 상태별 집계
-    for str_s in SET_SLIDE_STATUSES:
-        if str_s == "":
-            int_c = await db.slides.count_documents({
-                "$or": [
-                    {"str_status": ""},
-                    {"str_status": {"$exists": False}},
+    # 단일 aggregation 파이프라인으로 총 슬라이드 수 + 상태별 + AI별 카운트 한 번에 조회
+    pipeline = [
+        {"$facet": {
+            "total": [{"$count": "n"}],
+            "by_status": [
+                {"$group": {
+                    "_id": {"$ifNull": ["$str_status", ""]},
+                    "n": {"$sum": 1},
+                }},
+            ],
+            **{
+                f"ai_{str_k.replace('-', '_')}": [
+                    {"$match": {f"dict_ai_results.{str_k}.bool_has_result": True}},
+                    {"$count": "n"},
                 ]
-            })
-            dict_result["dict_status_counts"]["none"] = int_c
-        else:
-            int_c = await db.slides.count_documents({"str_status": str_s})
-            dict_result["dict_status_counts"][str_s] = int_c
+                for str_k in LIST_AI_MODEL_KEYS
+            },
+        }},
+    ]
+    cursor = db.slides.aggregate(pipeline)
+    dict_facet = await cursor.to_list(length=1)
+    if dict_facet:
+        facet = dict_facet[0]
+        # 총 슬라이드 수
+        total_list = facet.get("total", [])
+        dict_result["int_total_slides"] = total_list[0]["n"] if total_list else 0
 
-    # AI 모델별 결과 보유 슬라이드 수
-    for str_k in LIST_AI_MODEL_KEYS:
-        int_c = await db.slides.count_documents({
-            f"dict_ai_results.{str_k}.bool_has_result": True
-        })
-        dict_result["dict_ai_counts"][str_k] = int_c
+        # 상태별 카운트
+        for doc in facet.get("by_status", []):
+            str_s = doc["_id"]
+            if str_s == "" or str_s is None:
+                dict_result["dict_status_counts"]["none"] = doc["n"]
+            else:
+                dict_result["dict_status_counts"][str_s] = doc["n"]
+
+        # AI 모델별 카운트
+        for str_k in LIST_AI_MODEL_KEYS:
+            safe_key = f"ai_{str_k.replace('-', '_')}"
+            ai_list = facet.get(safe_key, [])
+            dict_result["dict_ai_counts"][str_k] = ai_list[0]["n"] if ai_list else 0
 
     return dict_result
 

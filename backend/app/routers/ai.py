@@ -1349,7 +1349,7 @@ def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Precise-IHC — HER2 / ER-PR / KI-67 (현재 HER2 만 활성화)
+# Precise-IHC — HER2 / ER-PR / KI-67
 # ═══════════════════════════════════════════════════════════════════
 
 PRECISE_IHC_CONFIG = {
@@ -1394,6 +1394,28 @@ PRECISE_IHC_CONFIG = {
             4: "#95a5a6",
         },
         "score_type": "Allred",
+        "exclude_classes": [4],
+    },
+    # KI-67: ER/PR 모델을 임시 사용. class 0 = Negative, class 1/2/3 = Positive.
+    # KI-67 Index = Positive / Total × 100 (%).
+    "KI_67": {
+        "model_file": "Precise_IHC_ER_PR_detection.pt",
+        "num_classes": 5,
+        "class_names": {
+            0: "Negative",
+            1: "Positive (1+)",
+            2: "Positive (2+)",
+            3: "Positive (3+)",
+            4: "Other",
+        },
+        "class_colors": {
+            0: "#27ae60",   # green (Negative)
+            1: "#e67e22",   # orange (Positive weak)
+            2: "#e74c3c",   # red (Positive moderate)
+            3: "#c0392b",   # deep red (Positive strong)
+            4: "#95a5a6",   # other (hidden)
+        },
+        "score_type": "KI67",
         "exclude_classes": [4],
     },
 }
@@ -1512,8 +1534,46 @@ def _compute_allred_score(all_cls) -> dict:
     }
 
 
+def _compute_ki67_score(all_cls) -> dict:
+    """
+    KI-67 Labeling Index:
+      - class 0 = Negative, class 1/2/3 = Positive
+      - KI-67 Index = Positive / Total × 100 (%)
+      - 해석: ≥14% → High, <14% → Low (St Gallen 2013 기준)
+    """
+    import numpy as np
+    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
+    n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
+    int_total = n0 + n1 + n2 + n3
+    int_pos = n1 + n2 + n3
+
+    if int_total == 0:
+        return {
+            "score_type": "KI67",
+            "ki67_index": 0.0,
+            "positive_count": 0,
+            "negative_count": 0,
+            "total_tumor": 0,
+            "interpretation": "Low",
+            "class_counts": int_counts,
+        }
+
+    float_index = int_pos / int_total * 100.0
+    str_interp = "High" if float_index >= 14.0 else "Low"
+
+    return {
+        "score_type": "KI67",
+        "ki67_index": round(float_index, 2),
+        "positive_count": int_pos,
+        "negative_count": n0,
+        "total_tumor": int_total,
+        "interpretation": str_interp,
+        "class_counts": int_counts,
+    }
+
+
 def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Precise-IHC 파이프라인 wrapper — HER2 / ER_PR 지원."""
+    """Precise-IHC 파이프라인 wrapper — HER2 / ER_PR / KI_67 지원."""
     if marker not in PRECISE_IHC_CONFIG:
         _update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
         return
@@ -1530,12 +1590,15 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
     elif marker == "ER_PR":
         score_fn = _compute_allred_score
         score_key = "allred_score"
+    elif marker == "KI_67":
+        score_fn = _compute_ki67_score
+        score_key = "ki67_score"
     else:
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
 
-    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR=0.3
-    float_conf = 0.3 if marker == "ER_PR" else 0.5
+    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR/KI_67=0.3
+    float_conf = 0.3 if marker in ("ER_PR", "KI_67") else 0.5
 
     _run_marker_detection_pipeline(
         task_id=task_id,
@@ -1636,7 +1699,7 @@ async def start_precise_ihc(
     marker: str = Form("HER2"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Precise-IHC 추론 시작 (marker: HER2 / ER_PR)"""
+    """Precise-IHC 추론 시작 (marker: HER2 / ER_PR / KI_67)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")

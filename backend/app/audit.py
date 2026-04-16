@@ -9,7 +9,6 @@
 
 import hashlib
 import hmac
-import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -19,6 +18,10 @@ from app.database import get_db
 
 # ── HMAC 체인 서명키 (JWT 시크릿에서 파생) ──
 _AUDIT_HMAC_KEY: bytes = b""
+
+# ── 마지막 HMAC 메모리 캐시 (매번 DB 조회 제거) ──
+_last_hmac: str = ""
+_last_hmac_loaded: bool = False
 
 
 def _get_hmac_key() -> bytes:
@@ -55,6 +58,24 @@ def _compute_log_hmac(dict_log: dict, str_prev_hmac: str = "") -> str:
     ).hexdigest()
 
 
+async def _ensure_last_hmac_loaded():
+    """앱 시작 후 첫 호출 시 DB에서 마지막 HMAC을 한 번만 로드."""
+    global _last_hmac, _last_hmac_loaded
+    if _last_hmac_loaded:
+        return
+    try:
+        db = get_db()
+        dict_last = await db.audit_logs.find_one(
+            sort=[("dt_created_at", -1)],
+            projection={"str_hmac": 1},
+        )
+        if dict_last:
+            _last_hmac = dict_last.get("str_hmac", "")
+    except Exception:
+        pass
+    _last_hmac_loaded = True
+
+
 # ── 감사 로그 기록 ──
 async def log_audit_event(
     str_action: str,
@@ -77,19 +98,13 @@ async def log_audit_event(
     Returns:
         삽입된 로그의 _id 문자열 (후처리 업데이트용). DB 미연결 시 None.
     """
+    global _last_hmac
+
     db = get_db()
 
-    # 이전 로그의 HMAC 조회 (체인 연결)
-    str_prev_hmac = ""
-    try:
-        dict_last = await db.audit_logs.find_one(
-            sort=[("dt_created_at", -1)],
-            projection={"str_hmac": 1},
-        )
-        if dict_last:
-            str_prev_hmac = dict_last.get("str_hmac", "")
-    except Exception:
-        pass
+    # 이전 HMAC — 메모리 캐시에서 가져옴 (첫 호출 시만 DB 조회)
+    await _ensure_last_hmac_loaded()
+    str_prev_hmac = _last_hmac
 
     dict_log = {
         "str_action": str_action,
@@ -116,9 +131,14 @@ async def log_audit_event(
                 dict_log[str_k] = v
 
     # HMAC 서명
-    dict_log["str_hmac"] = _compute_log_hmac(dict_log, str_prev_hmac)
+    str_new_hmac = _compute_log_hmac(dict_log, str_prev_hmac)
+    dict_log["str_hmac"] = str_new_hmac
 
     result = await db.audit_logs.insert_one(dict_log)
+
+    # 캐시 갱신 — 다음 로그는 DB 조회 없이 이 값 사용
+    _last_hmac = str_new_hmac
+
     return str(result.inserted_id)
 
 

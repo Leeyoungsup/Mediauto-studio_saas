@@ -125,9 +125,9 @@ if _cors_origins:
     )
 
 # CSRF 방어 — 상태 변경 요청에 X-Requested-With 헤더 필수
-app.add_middleware(CSRFMiddleware)
-
 # Rate Limiting — IP별 요청 제한 (로그인: 10회/5분, API: 200회/분)
+# 순수 ASGI 미들웨어 — BaseHTTPMiddleware 의 body 버퍼링 오버헤드 제거
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 # 라우터 등록
