@@ -3178,7 +3178,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.5;  // 고정 (SaMD 재현성)
+    viewer.defaultConfidence = marker === 'ER_PR' ? 0.1 : 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
