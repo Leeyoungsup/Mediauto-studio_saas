@@ -115,12 +115,40 @@
             font-size: 13px; cursor: pointer;
         }
         .upload-footer-btns { display: flex; gap: 8px; }
+
+        /* Folder selector */
+        .folder-selector {
+            margin: 0 16px 8px;
+            display: flex; align-items: center; gap: 8px;
+            flex-shrink: 0;
+        }
+        .folder-selector label {
+            font-size: 12px; font-weight: 600; color: var(--text-dim);
+            white-space: nowrap;
+        }
+        .folder-selector select {
+            flex: 1; padding: 6px 10px;
+            border: 1px solid var(--border); border-radius: 6px;
+            font-size: 12px; color: var(--text);
+            background: var(--surface);
+            cursor: pointer;
+        }
+        .folder-selector select:focus {
+            outline: none; border-color: var(--accent);
+        }
     </style>
 </head>
 <body>
     <div class="upload-header">
         <img src="assets/logo.png" alt="logo">
         <span class="upload-header-title">Slide Upload</span>
+    </div>
+
+    <div class="folder-selector" id="folder-selector">
+        <label for="folder-select">Upload to:</label>
+        <select id="folder-select">
+            <option value="">/ (Root)</option>
+        </select>
     </div>
 
     <div class="drop-zone" id="drop-zone">
@@ -159,8 +187,32 @@
         const accessToken = localStorage.getItem('access_token');
         if (!accessToken) { window.close(); return; }
 
-        // 업로드 대상 경로 (opener 에서 전달)
-        const uploadPath = new URLSearchParams(location.search).get('path') || '';
+        // 업로드 대상 경로 — 폴더 셀렉터에서 동적으로 결정
+        const initialPath = new URLSearchParams(location.search).get('path') || '';
+        const $folderSelect = document.getElementById('folder-select');
+
+        // 폴더 트리 로드
+        (async function loadFolderTree() {
+            try {
+                const res = await fetch(`${API_BASE}/slides/folder-tree`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                });
+                if (!res.ok) return;
+                const { folders } = await res.json();
+                for (const f of folders) {
+                    const opt = document.createElement('option');
+                    opt.value = f;
+                    opt.textContent = '/' + f;
+                    $folderSelect.appendChild(opt);
+                }
+                // 현재 경로 선택
+                if (initialPath && [...$folderSelect.options].some(o => o.value === initialPath)) {
+                    $folderSelect.value = initialPath;
+                }
+            } catch { /* 로드 실패 시 root 만 표시 */ }
+        })();
+
+        function getUploadPath() { return $folderSelect.value; }
 
         const $dropZone = document.getElementById('drop-zone');
         const $fileInput = document.getElementById('file-input');
@@ -271,6 +323,7 @@
             isUploading = true;
             $btnUpload.disabled = true;
             $dropZone.style.display = 'none';
+            $folderSelect.disabled = true;
             completedCount = 0;
             errorCount = 0;
 
@@ -315,7 +368,7 @@
             // 1) 이미 존재하는지 확인
             const checkForm = new FormData();
             checkForm.append('filename', file.name);
-            checkForm.append('path', uploadPath);
+            checkForm.append('path', getUploadPath());
             const checkRes = await authFetch(`/slides/open-by-name`, { method: 'POST', body: checkForm });
             if (checkRes.ok) {
                 const checkData = await checkRes.json();
@@ -357,7 +410,7 @@
             completeForm.append('upload_id', upload_id);
             completeForm.append('filename', file.name);
             completeForm.append('total_chunks', totalChunks.toString());
-            completeForm.append('path', uploadPath);
+            completeForm.append('path', getUploadPath());
             const completeRes = await authFetch('/slides/upload/complete', { method: 'POST', body: completeForm });
             if (!completeRes.ok) throw new Error('Complete failed');
         }

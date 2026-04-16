@@ -263,6 +263,20 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
     return {"path": path, "folders": folders, "slides": slides}
 
 
+@router.get("/folder-tree")
+async def folder_tree():
+    """uploads/ 하위 전체 폴더 트리를 flat list 로 반환 (업로드 폴더 선택용)."""
+    upload_root = Path(settings.UPLOAD_DIR)
+    list_folders: list[str] = []
+    for dirpath, dirnames, _ in os.walk(upload_root):
+        # 숨김/임시 폴더 제외
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and not d.startswith("_chunks_")]
+        for d in sorted(dirnames):
+            rel = os.path.relpath(os.path.join(dirpath, d), upload_root)
+            list_folders.append(rel.replace("\\", "/"))
+    return {"folders": sorted(list_folders)}
+
+
 @router.post("/folder/create")
 async def create_folder(path: str = Form(""), name: str = Form(...)):
     """폴더 생성"""
