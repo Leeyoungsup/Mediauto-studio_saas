@@ -27,6 +27,7 @@ document.getElementById('current-user-role').textContent = currentUser.str_role;
 async function authFetch(path, options = {}) {
     const headers = { ...(options.headers || {}) };
     headers['Authorization'] = `Bearer ${accessToken}`;
+    headers['X-Requested-With'] = 'XMLHttpRequest';
     if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
     }

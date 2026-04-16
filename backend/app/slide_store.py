@@ -73,6 +73,7 @@ async def upsert_slide(
         "dict_ai_results": _empty_ai_results(),
         "bool_tiles_ready": False,
         "dt_tiles_ready_at": None,
+        "str_sha256": "",
     }
     dict_set = {
         "str_full_path": str_full_path,

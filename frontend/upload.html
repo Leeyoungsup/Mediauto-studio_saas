@@ -178,6 +178,7 @@
         async function authFetch(path, options = {}) {
             const headers = { ...(options.headers || {}) };
             headers['Authorization'] = `Bearer ${accessToken}`;
+            headers['X-Requested-With'] = 'XMLHttpRequest';
             return fetch(`${API_BASE}${path}`, { ...options, headers });
         }
 

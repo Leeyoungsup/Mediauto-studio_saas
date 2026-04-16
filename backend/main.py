@@ -60,6 +60,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.csrf import CSRFMiddleware
+from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
 from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, startup 에서 affinity 적용
 from app.routers import slides, tiles, ai, auth, users
@@ -108,14 +110,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 설정 (개발 중에는 모든 origin 허용)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS 설정 — 환경변수 CORS_ORIGINS 로 허용 origin 지정
+# 비어 있으면 same-origin 전용 (StaticFiles 서빙이므로 CORS 불필요)
+_cors_origins = [
+    o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
+] if settings.CORS_ORIGINS else []
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# CSRF 방어 — 상태 변경 요청에 X-Requested-With 헤더 필수
+app.add_middleware(CSRFMiddleware)
+
+# Rate Limiting — IP별 요청 제한 (로그인: 10회/5분, API: 200회/분)
+app.add_middleware(RateLimitMiddleware)
 
 # 라우터 등록
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

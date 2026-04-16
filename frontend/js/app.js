@@ -1116,11 +1116,13 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
 viewer.onCellsMultiEditRequested = _showMultiCellEditPopup;
 
 viewer.onCellEdited = () => {
-    // 결과 리스트 카운트 갱신
+    // 결과 리스트 카운트 + 스코어 갱신
     if (_lastDetectionResult) {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
         buildResultList(_lastDetectionResult);
+        // 스코어 카드 재계산 (Allred / HER2 / PD-Score)
+        _updateResultCounts();
     }
     setStatus(`Cell edited — ${viewer.detectionCells.length} cells`);
 };

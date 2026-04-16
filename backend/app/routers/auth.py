@@ -28,7 +28,9 @@ from app.auth import (
 )
 from app.config import settings
 from app.database import get_db
+from app.encryption import encrypt_field, decrypt_field
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password, verify_password
+from app.totp import generate_totp_secret, verify_totp, build_totp_uri
 
 router = APIRouter()
 
@@ -67,6 +69,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     str_login_id: str = Field(..., min_length=1, max_length=30)
     str_password: str = Field(..., min_length=1, max_length=128)
+    str_totp_code: str = Field(default="", max_length=6)
 
 
 class TokenResponse(BaseModel):
@@ -266,6 +269,31 @@ async def login(body: LoginRequest, request: Request):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="가입 요청이 거부된 계정입니다. 관리자에게 문의하세요.",
         )
+
+    # ── MFA 검증 (활성화된 경우) ──
+    str_encrypted_totp = dict_user.get("str_totp_secret_enc", "")
+    bool_mfa_enabled = dict_user.get("bool_mfa_enabled", False)
+    if bool_mfa_enabled and str_encrypted_totp:
+        if not body.str_totp_code:
+            # 비밀번호는 맞지만 TOTP 코드 미제출 → MFA 필요 응답
+            return {
+                "bool_mfa_required": True,
+                "str_message": "2차 인증 코드를 입력해 주세요.",
+            }
+        str_totp_secret = decrypt_field(str_encrypted_totp)
+        if not verify_totp(str_totp_secret, body.str_totp_code):
+            await log_audit_event(
+                str_action="user.mfa_failed",
+                str_user_id=str_user_id,
+                str_user_email=str_login_id_lower,
+                str_detail="Invalid TOTP code",
+                str_ip_address=get_client_ip(request),
+                str_user_agent=request.headers.get("User-Agent", ""),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="2차 인증 코드가 올바르지 않습니다.",
+            )
 
     # 로그인 성공 → 실패 카운터 초기화
     await db.users.update_one(
@@ -580,3 +608,108 @@ async def change_password(
     )
 
     return {"str_message": "Password changed successfully. Please login again."}
+
+
+# ── MFA 설정 ──
+@router.post("/mfa/setup")
+async def mfa_setup(
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """TOTP 시크릿 생성 → otpauth URI 반환 (QR 코드용).
+
+    아직 활성화되지 않음 — /mfa/verify 로 첫 코드를 검증해야 활성화.
+    """
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    # 이미 활성화된 경우
+    if dict_current_user.get("bool_mfa_enabled", False):
+        raise HTTPException(400, "MFA is already enabled. Disable first.")
+
+    str_secret = generate_totp_secret()
+    str_encrypted = encrypt_field(str_secret)
+
+    # 임시 시크릿 저장 (아직 미활성 — bool_mfa_enabled 은 건드리지 않음)
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"str_totp_secret_enc": str_encrypted}},
+    )
+
+    str_uri = build_totp_uri(str_secret, dict_current_user.get("str_login_id", ""))
+    return {
+        "str_secret": str_secret,
+        "str_uri": str_uri,
+    }
+
+
+class MfaVerifyRequest(BaseModel):
+    str_totp_code: str = Field(..., min_length=6, max_length=6)
+
+
+@router.post("/mfa/verify")
+async def mfa_verify(
+    body: MfaVerifyRequest,
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """첫 TOTP 코드 검증 후 MFA 활성화."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    dict_user_full = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    str_encrypted = dict_user_full.get("str_totp_secret_enc", "")
+    if not str_encrypted:
+        raise HTTPException(400, "Call /mfa/setup first.")
+
+    str_secret = decrypt_field(str_encrypted)
+    if not verify_totp(str_secret, body.str_totp_code):
+        raise HTTPException(400, "Invalid TOTP code. Please try again.")
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"bool_mfa_enabled": True}},
+    )
+
+    await log_audit_event(
+        str_action="user.mfa_enabled",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_detail="TOTP MFA activated",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+
+    return {"str_message": "MFA enabled successfully."}
+
+
+@router.post("/mfa/disable")
+async def mfa_disable(
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """MFA 비활성화 (현재 비밀번호 재확인 없이 — 이미 인증된 세션에서만 호출 가능)."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"bool_mfa_enabled": False, "str_totp_secret_enc": ""}},
+    )
+
+    await log_audit_event(
+        str_action="user.mfa_disabled",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_detail="TOTP MFA deactivated",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+
+    return {"str_message": "MFA disabled."}
+
+
+@router.get("/mfa/status")
+async def mfa_status(dict_current_user: dict = Depends(get_current_user)):
+    """현재 사용자의 MFA 활성화 상태 조회."""
+    return {"bool_mfa_enabled": dict_current_user.get("bool_mfa_enabled", False)}

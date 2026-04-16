@@ -74,6 +74,7 @@ async def _open_and_generate(
     filename: str,
     dict_user: Optional[dict] = None,
     bool_wait_for_tiles: bool = False,
+    str_sha256: str = "",
 ):
     """슬라이드 열기 + 타일 생성 → DB 업서트 후 응답 반환.
 
@@ -86,7 +87,7 @@ async def _open_and_generate(
     if existing:
         await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
         resp = _slide_response(slide_id, existing, filename)
-        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user)
+        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user, str_sha256)
         return resp
 
     try:
@@ -96,7 +97,7 @@ async def _open_and_generate(
 
     await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
     resp = _slide_response(slide_id, info, filename)
-    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user)
+    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user, str_sha256)
     return resp
 
 
@@ -128,6 +129,7 @@ async def _upsert_and_attach(
     filename: str,
     info,
     dict_user: Optional[dict],
+    str_sha256: str = "",
 ):
     """slides 컬렉션에 upsert + 응답에 ai_results 플래그 부착 (DB 없으면 no-op)."""
     try:
@@ -152,6 +154,15 @@ async def _upsert_and_attach(
         resp["ai_results"] = slide_store.serialize_slide_doc(dict_doc).get("dict_ai_results")
         dt_up = dict_doc.get("dt_uploaded_at")
         resp["uploaded_at"] = dt_up.replace(tzinfo=timezone.utc).isoformat() if dt_up and not dt_up.tzinfo else (dt_up.isoformat() if dt_up else None)
+        # SHA-256 체크섬 저장
+        if str_sha256 and not dict_doc.get("str_sha256"):
+            from app.database import get_db as _get_db
+            db = _get_db()
+            await db.slides.update_one(
+                {"str_slide_id": slide_id, "str_filename": filename},
+                {"$set": {"str_sha256": str_sha256}},
+            )
+        resp["sha256"] = str_sha256 or dict_doc.get("str_sha256", "")
 
 
 # ── 저장된 슬라이드/폴더 목록 ──
@@ -580,16 +591,35 @@ async def upload_complete(
         final_path = save_dir / filename
 
         bool_newly_written = False
+        str_sha256 = ""
         if final_path.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
         else:
+            sha256_hash = hashlib.sha256()
             with open(final_path, "wb") as out:
                 for i in range(total_chunks):
                     chunk_path = chunk_dir / f"chunk_{i:06d}"
                     with open(chunk_path, "rb") as cf:
-                        shutil.copyfileobj(cf, out)
+                        while True:
+                            bytes_block = cf.read(8192)
+                            if not bytes_block:
+                                break
+                            out.write(bytes_block)
+                            sha256_hash.update(bytes_block)
+            str_sha256 = sha256_hash.hexdigest()
             shutil.rmtree(chunk_dir, ignore_errors=True)
             bool_newly_written = True
+
+        # 기존 파일의 체크섬도 계산 (DB에 미저장된 경우)
+        if not str_sha256 and final_path.exists():
+            sha256_hash = hashlib.sha256()
+            with open(final_path, "rb") as f:
+                while True:
+                    bytes_block = f.read(8192)
+                    if not bytes_block:
+                        break
+                    sha256_hash.update(bytes_block)
+            str_sha256 = sha256_hash.hexdigest()
 
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
         bool_wait = wait_tiles.lower() in ("true", "1", "yes")
@@ -597,6 +627,7 @@ async def upload_complete(
             return await _open_and_generate(
                 slide_id, str(final_path), filename, dict_user,
                 bool_wait_for_tiles=bool_wait,
+                str_sha256=str_sha256,
             )
         except HTTPException:
             # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리
@@ -682,6 +713,49 @@ async def get_slide_info(slide_id: str):
         "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
         "tiles_ready": tile_generator.tiles_ready(Path(info.file_path).name),
+    }
+
+
+@router.get("/{slide_id}/verify-integrity")
+async def verify_slide_integrity(slide_id: str, dict_user: dict = Depends(get_current_user)):
+    """슬라이드 파일의 SHA-256 체크섬을 재계산하여 DB 저장값과 비교."""
+    from app.database import get_db as _get_db
+
+    db = _get_db()
+    dict_doc = await db.slides.find_one({"str_slide_id": slide_id})
+    if not dict_doc:
+        raise HTTPException(404, "슬라이드 DB 레코드 없음")
+
+    str_stored_hash = dict_doc.get("str_sha256", "")
+    str_file_path = dict_doc.get("str_full_path", "")
+    if not str_file_path or not Path(str_file_path).exists():
+        raise HTTPException(404, "슬라이드 파일을 찾을 수 없습니다")
+
+    # 재계산
+    sha256_hash = hashlib.sha256()
+    with open(str_file_path, "rb") as f:
+        while True:
+            bytes_block = f.read(8192)
+            if not bytes_block:
+                break
+            sha256_hash.update(bytes_block)
+    str_current_hash = sha256_hash.hexdigest()
+
+    bool_match = str_stored_hash == str_current_hash if str_stored_hash else False
+
+    # 저장된 해시가 없으면 이번에 저장
+    if not str_stored_hash:
+        await db.slides.update_one(
+            {"str_slide_id": slide_id},
+            {"$set": {"str_sha256": str_current_hash}},
+        )
+
+    return {
+        "slide_id": slide_id,
+        "filename": dict_doc.get("str_filename", ""),
+        "str_stored_hash": str_stored_hash or "(not set — saved now)",
+        "str_current_hash": str_current_hash,
+        "bool_integrity_ok": bool_match if str_stored_hash else True,
     }
 
 

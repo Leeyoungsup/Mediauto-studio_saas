@@ -52,7 +52,7 @@ async function _refreshTokenIfNeeded(bool_force = false, bool_silent = false) {
         try {
             const res = await fetch(`${API_BASE}/auth/refresh`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: JSON.stringify({ str_refresh_token: refreshToken }),
             });
             if (res.ok) {
@@ -152,7 +152,10 @@ function _clearMediaTicket() {
 }
 
 function _authHeaders() {
-    return { 'Authorization': `Bearer ${_getAccessToken()}` };
+    return {
+        'Authorization': `Bearer ${_getAccessToken()}`,
+        'X-Requested-With': 'XMLHttpRequest',
+    };
 }
 
 async function _authFetch(url, options = {}) {

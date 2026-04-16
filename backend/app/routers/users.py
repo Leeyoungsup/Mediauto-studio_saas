@@ -110,6 +110,12 @@ async def approve_user(
     if dict_target.get("str_approval_status") == ApprovalStatus.APPROVED:
         raise HTTPException(400, "User is already approved")
 
+    dict_before = {
+        "str_approval_status": dict_target.get("str_approval_status"),
+        "str_role": dict_target.get("str_role"),
+        "bool_is_active": dict_target.get("bool_is_active"),
+    }
+
     dt_now = datetime.now(timezone.utc)
     await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
@@ -134,6 +140,12 @@ async def approve_user(
         str_detail=f"Approved with role: {body.str_new_role}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after={
+            "str_approval_status": ApprovalStatus.APPROVED,
+            "str_role": body.str_new_role,
+            "bool_is_active": True,
+        },
     )
     return {"str_message": "User approved", "str_role": body.str_new_role}
 
@@ -151,8 +163,17 @@ async def reject_user(
 ):
     """가입 요청 거부"""
     db = get_db()
+    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    if not dict_target:
+        raise HTTPException(404, "User not found")
+
+    dict_before = {
+        "str_approval_status": dict_target.get("str_approval_status"),
+        "bool_is_active": dict_target.get("bool_is_active"),
+    }
+
     dt_now = datetime.now(timezone.utc)
-    result = await db.users.update_one(
+    await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
         {
             "$set": {
@@ -162,8 +183,6 @@ async def reject_user(
             }
         },
     )
-    if result.matched_count == 0:
-        raise HTTPException(404, "User not found")
 
     await log_audit_event(
         str_action="admin.user_rejected",
@@ -174,6 +193,11 @@ async def reject_user(
         str_detail=f"Rejected. reason: {body.str_reason or '(none)'}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after={
+            "str_approval_status": ApprovalStatus.REJECTED,
+            "bool_is_active": False,
+        },
     )
     return {"str_message": "User rejected"}
 
@@ -256,14 +280,24 @@ async def update_user(
 ):
     """사용자 프로필 / 비밀번호 업데이트 (역할 변경은 /role 사용)"""
     db = get_db()
+    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    if not dict_target:
+        raise HTTPException(404, "User not found")
+
     dict_updates = {"dt_updated_at": datetime.now(timezone.utc)}
     list_changed = []
+    dict_before = {}
+    dict_after = {}
 
     if body.str_name is not None and body.str_name.strip():
+        dict_before["str_name"] = dict_target.get("str_name")
         dict_updates["str_name"] = body.str_name.strip()
+        dict_after["str_name"] = body.str_name.strip()
         list_changed.append("name")
     if body.str_department is not None:
+        dict_before["str_department"] = dict_target.get("str_department")
         dict_updates["str_department"] = body.str_department.strip()
+        dict_after["str_department"] = body.str_department.strip()
         list_changed.append("department")
     if body.str_password:
         if not PASSWORD_PATTERN.match(body.str_password):
@@ -272,6 +306,8 @@ async def update_user(
                 "비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
             )
         dict_updates["str_hashed_password"] = hash_password(body.str_password)
+        dict_before["str_password"] = "********"
+        dict_after["str_password"] = "********(changed)"
         list_changed.append("password")
         # 비밀번호 변경 시 해당 사용자 세션 전부 폐기
         await db.sessions.update_many(
@@ -286,8 +322,6 @@ async def update_user(
         {"_id": ObjectId(body.str_user_id)},
         {"$set": dict_updates},
     )
-    if result.matched_count == 0:
-        raise HTTPException(404, "User not found")
 
     await log_audit_event(
         str_action="admin.user_updated",
@@ -298,6 +332,8 @@ async def update_user(
         str_detail=f"Updated fields: {', '.join(list_changed)}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after=dict_after,
     )
     return {"str_message": "User updated", "list_changed": list_changed}
 
@@ -326,6 +362,14 @@ async def delete_user(
         if int_admin_count <= 1:
             raise HTTPException(400, "마지막 관리자 계정은 삭제할 수 없습니다.")
 
+    dict_before = {
+        "str_login_id": dict_target.get("str_login_id"),
+        "str_name": dict_target.get("str_name"),
+        "str_role": dict_target.get("str_role"),
+        "str_approval_status": dict_target.get("str_approval_status"),
+        "bool_is_active": dict_target.get("bool_is_active"),
+    }
+
     await db.users.delete_one({"_id": ObjectId(str_user_id)})
     await db.sessions.update_many(
         {"str_user_id": str_user_id, "bool_is_revoked": False},
@@ -341,6 +385,8 @@ async def delete_user(
         str_detail=f"Deleted user {dict_target.get('str_login_id', '?')}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after=None,
     )
     return {"str_message": "User deleted"}
 
@@ -367,17 +413,24 @@ async def update_user_role(
             detail="Cannot change your own role",
         )
 
-    # 마지막 admin 을 demote 하지 못하도록 방어
-    if body.str_new_role != UserRole.ADMIN:
-        dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
-        if dict_target and dict_target.get("str_role") == UserRole.ADMIN:
-            int_admin_count = await db.users.count_documents(
-                {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
-            )
-            if int_admin_count <= 1:
-                raise HTTPException(400, "마지막 관리자의 역할은 변경할 수 없습니다.")
+    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    if not dict_target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
 
-    result = await db.users.update_one(
+    str_old_role = dict_target.get("str_role", "")
+
+    # 마지막 admin 을 demote 하지 못하도록 방어
+    if body.str_new_role != UserRole.ADMIN and str_old_role == UserRole.ADMIN:
+        int_admin_count = await db.users.count_documents(
+            {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
+        )
+        if int_admin_count <= 1:
+            raise HTTPException(400, "마지막 관리자의 역할은 변경할 수 없습니다.")
+
+    await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
         {
             "$set": {
@@ -387,21 +440,17 @@ async def update_user_role(
         },
     )
 
-    if result.matched_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
     await log_audit_event(
         str_action="admin.role_changed",
         str_user_id=dict_current_user["_id"],
         str_user_email=dict_current_user.get("str_login_id", ""),
         str_resource_type="user",
         str_resource_id=body.str_user_id,
-        str_detail=f"Role changed to: {body.str_new_role}",
+        str_detail=f"Role changed from {str_old_role} to {body.str_new_role}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before={"str_role": str_old_role},
+        dict_after={"str_role": body.str_new_role},
     )
 
     return {"str_message": f"Role updated to {body.str_new_role}"}
@@ -428,7 +477,16 @@ async def toggle_user_active(
             detail="Cannot deactivate your own account",
         )
 
-    result = await db.users.update_one(
+    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    if not dict_target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    bool_old_active = dict_target.get("bool_is_active")
+
+    await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
         {
             "$set": {
@@ -437,12 +495,6 @@ async def toggle_user_active(
             }
         },
     )
-
-    if result.matched_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
 
     str_action = "activated" if body.bool_is_active else "deactivated"
     await log_audit_event(
@@ -454,6 +506,8 @@ async def toggle_user_active(
         str_detail=f"Account {str_action}",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before={"bool_is_active": bool_old_active},
+        dict_after={"bool_is_active": body.bool_is_active},
     )
 
     return {"str_message": f"Account {str_action}"}
@@ -469,7 +523,19 @@ async def unlock_user(
     """계정 잠금 해제"""
     db = get_db()
 
-    result = await db.users.update_one(
+    dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    if not dict_target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    dict_before = {
+        "bool_is_locked": dict_target.get("bool_is_locked"),
+        "int_failed_login_attempts": dict_target.get("int_failed_login_attempts"),
+    }
+
+    await db.users.update_one(
         {"_id": ObjectId(str_user_id)},
         {
             "$set": {
@@ -481,12 +547,6 @@ async def unlock_user(
         },
     )
 
-    if result.matched_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
     await log_audit_event(
         str_action="admin.user_unlocked",
         str_user_id=dict_current_user["_id"],
@@ -496,6 +556,11 @@ async def unlock_user(
         str_detail="Account unlocked by admin",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after={
+            "bool_is_locked": False,
+            "int_failed_login_attempts": 0,
+        },
     )
 
     return {"str_message": "Account unlocked"}
@@ -676,4 +741,51 @@ async def get_user_activity(
         "int_skip": int_skip,
         "int_limit": int_limit,
         "dict_counts": dict_counts,
+    }
+
+
+@router.get("/audit-logs/verify-chain")
+async def verify_audit_chain(
+    int_limit: int = Query(1000, ge=100, le=10000),
+    dict_admin: dict = Depends(require_role(UserRole.ADMIN)),
+):
+    """감사 로그 HMAC 체인 무결성 검증.
+
+    최근 int_limit 건의 로그를 순회하며 HMAC 체인이 끊어지지 않았는지 확인.
+    """
+    from app.audit import _compute_log_hmac
+
+    db = get_db()
+    list_logs = []
+    async for dict_doc in db.audit_logs.find().sort("dt_created_at", 1).limit(int_limit):
+        list_logs.append(dict_doc)
+
+    int_total = len(list_logs)
+    int_valid = 0
+    int_broken = 0
+    int_missing_hmac = 0
+    list_broken_ids = []
+
+    for i, dict_doc in enumerate(list_logs):
+        str_stored_hmac = dict_doc.get("str_hmac", "")
+        if not str_stored_hmac:
+            int_missing_hmac += 1
+            continue
+
+        str_prev_hmac = dict_doc.get("str_prev_hmac", "")
+        str_expected = _compute_log_hmac(dict_doc, str_prev_hmac)
+
+        if str_stored_hmac == str_expected:
+            int_valid += 1
+        else:
+            int_broken += 1
+            list_broken_ids.append(str(dict_doc.get("_id", "")))
+
+    return {
+        "int_total_checked": int_total,
+        "int_valid": int_valid,
+        "int_broken": int_broken,
+        "int_missing_hmac": int_missing_hmac,
+        "bool_chain_intact": int_broken == 0,
+        "list_broken_ids": list_broken_ids[:20],
     }

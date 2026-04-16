@@ -38,6 +38,7 @@ async def connect_db():
         await _db.audit_logs.create_index(
             [("str_user_id", 1), ("str_action", 1), ("dt_created_at", -1)]
         )
+        await _db.audit_logs.create_index("str_hmac")
 
         # ── ip_geo_cache: MongoDB TTL 인덱스 (dt_expires_at 지난 문서 자동 제거) ──
         await _db.ip_geo_cache.create_index("str_ip", unique=True)

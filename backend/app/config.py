@@ -132,6 +132,10 @@ class Settings:
     ACCOUNT_LOCK_MINUTES: int = 30
     SESSION_INACTIVE_MINUTES: int = 30
 
+    # CORS 허용 origin 목록 (쉼표 구분). 비어 있으면 same-origin 만 허용.
+    # 개발 시: CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+    CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "")
+
     # 업로드 크기 상한 (기본 20 GB — WSI 파일 고려). 환경변수 `MAX_UPLOAD_BYTES` 로 오버라이드.
     MAX_UPLOAD_BYTES: int = int(os.environ.get(
         "MAX_UPLOAD_BYTES",
