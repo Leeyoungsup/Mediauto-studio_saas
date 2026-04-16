@@ -163,6 +163,43 @@ def _safe_subpath(subpath: str) -> Path:
     return target
 
 
+@router.get("/dashboard")
+async def dashboard():
+    """대시보드 홈: 최근 슬라이드 + AI/상태 통계."""
+    list_recent = await slide_store.get_recent_slides(12)
+    dict_stats = await slide_store.get_dashboard_stats()
+
+    list_recent_out = []
+    for dict_doc in list_recent:
+        dt_opened = dict_doc.get("dt_last_opened_at")
+        dict_ai = dict_doc.get("dict_ai_results") or slide_store._empty_ai_results()
+        # AI 결과 모델 이름만 추출
+        list_ai_done = [
+            str_k for str_k, v in dict_ai.items()
+            if v.get("bool_has_result")
+        ]
+        list_recent_out.append({
+            "slide_id": dict_doc.get("str_slide_id", ""),
+            "filename": dict_doc.get("str_filename", ""),
+            "rel_path": dict_doc.get("str_rel_path", ""),
+            "size_bytes": dict_doc.get("int_size_bytes", 0),
+            "mpp": dict_doc.get("float_mpp"),
+            "status": dict_doc.get("str_status", ""),
+            "last_opened_at": dt_opened.isoformat() if dt_opened else None,
+            "ai_done": list_ai_done,
+            "tiles_ready": bool(dict_doc.get("bool_tiles_ready")),
+        })
+
+    return {
+        "recent_slides": list_recent_out,
+        "total_slides": dict_stats["int_total_slides"],
+        "ai_counts": dict_stats["dict_ai_counts"],
+        "folder_count": dict_stats["int_folder_count"],
+        "storage_used_bytes": dict_stats["int_storage_used_bytes"],
+        "storage_total_bytes": dict_stats["int_storage_total_bytes"],
+    }
+
+
 @router.get("/browse")
 async def browse(path: str = Query("", description="uploads/ 기준 상대 경로")):
     """현재 폴더의 하위 폴더 + 슬라이드 파일 목록 (DB 의 ai_results 플래그 포함)"""

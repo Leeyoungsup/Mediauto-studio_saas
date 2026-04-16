@@ -3313,5 +3313,18 @@ $btnVsSplit?.addEventListener('click', () => {
         // 인증 실패 — api.js 가 리다이렉트 처리. 슬라이드/폴링 시작 생략.
         return;
     }
-    loadSlideList();
+    // URL 파라미터로 슬라이드 자동 열기 (?slide=filename&path=rel_path)
+    const _urlParams = new URLSearchParams(location.search);
+    const _paramSlide = _urlParams.get('slide');
+    const _paramPath = _urlParams.get('path');
+    if (_paramPath !== null) currentBrowsePath = _paramPath;
+
+    await loadSlideList();
+
+    if (_paramSlide) {
+        // 슬라이드 목록 로드 후 자동 열기
+        openSavedSlide(_paramSlide, null);
+        // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
+        history.replaceState(null, '', '/app.html');
+    }
 })();

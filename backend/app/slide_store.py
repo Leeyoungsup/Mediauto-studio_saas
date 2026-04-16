@@ -388,6 +388,83 @@ async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 대시보드 — 최근 슬라이드 / AI 통계 집계
+# ═══════════════════════════════════════════════════════════════════
+
+async def get_recent_slides(int_limit: int = 12) -> list:
+    """최근 열어본 슬라이드 (dt_last_opened_at 내림차순)."""
+    if not is_db_connected():
+        return []
+    db = get_db()
+    list_out = []
+    async for dict_doc in db.slides.find(
+        {"dt_last_opened_at": {"$ne": None}},
+    ).sort("dt_last_opened_at", -1).limit(int_limit):
+        list_out.append(dict_doc)
+    return list_out
+
+
+async def get_dashboard_stats() -> dict:
+    """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
+    from app.config import settings
+    import os
+    import shutil
+
+    dict_result = {
+        "int_total_slides": 0,
+        "dict_ai_counts": {},
+        "int_folder_count": 0,
+        "int_storage_used_bytes": 0,
+        "int_storage_total_bytes": 0,
+    }
+
+    # 폴더 수 + 저장공간 (DB 불필요)
+    upload_path = Path(settings.UPLOAD_DIR)
+    if upload_path.exists():
+        int_folders = 0
+        for _root, dirs, _files in os.walk(str(upload_path)):
+            # _chunks_ 임시 폴더 제외
+            dirs[:] = [d for d in dirs if not d.startswith("_chunks_") and not d.startswith(".")]
+            int_folders += len(dirs)
+        dict_result["int_folder_count"] = int_folders
+
+    # 디스크 사용량: uploads + tiles + ai_results
+    int_used = 0
+    for str_dir in [settings.UPLOAD_DIR, settings.TILES_DIR, settings.AI_RESULTS_DIR]:
+        dir_path = Path(str_dir)
+        if dir_path.exists():
+            for _root, _dirs, files in os.walk(str(dir_path)):
+                for f in files:
+                    try:
+                        int_used += os.path.getsize(os.path.join(_root, f))
+                    except OSError:
+                        pass
+    dict_result["int_storage_used_bytes"] = int_used
+
+    # 디스크 전체 용량 (uploads 디렉터리가 위치한 파티션)
+    try:
+        usage = shutil.disk_usage(str(upload_path) if upload_path.exists() else "/")
+        dict_result["int_storage_total_bytes"] = usage.total
+    except Exception:
+        pass
+
+    if not is_db_connected():
+        return dict_result
+
+    db = get_db()
+    dict_result["int_total_slides"] = await db.slides.count_documents({})
+
+    # AI 모델별 결과 보유 슬라이드 수
+    for str_k in LIST_AI_MODEL_KEYS:
+        int_c = await db.slides.count_documents({
+            f"dict_ai_results.{str_k}.bool_has_result": True
+        })
+        dict_result["dict_ai_counts"][str_k] = int_c
+
+    return dict_result
+
+
+# ═══════════════════════════════════════════════════════════════════
 # user_ai_edits — 사용자별 세포 편집본 (원본 추론 캐시는 유지)
 # ═══════════════════════════════════════════════════════════════════
 

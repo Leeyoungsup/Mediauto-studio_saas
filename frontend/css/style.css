@@ -107,6 +107,7 @@ input[type="color"], input[type="file"], select {
     display: flex; align-items: center; gap: 14px; flex-shrink: 0;
     padding: 0 20px;
 }
+.header-logo-link { display: flex; align-items: center; }
 .header-logo { height: 60px; filter: brightness(0) invert(1); }
 .slide-name {
     font-size: 13px; color: var(--text-dim); font-weight: 500;

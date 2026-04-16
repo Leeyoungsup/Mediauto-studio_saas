@@ -1,3 +1,8 @@
+### [2026-04-16 18:30]
+**Q:** 대시보드 홈 페이지 추가 — 로고 클릭 시 홈으로 이동
+**A:** **백엔드**: `slide_store.py`에 `get_recent_slides(limit)` (dt_last_opened_at 내림차순), `get_dashboard_stats()` (전체 슬라이드 수, 상태별 수, AI 모델별 결과 수) helper 추가. `slides.py`에 `GET /api/slides/dashboard` 엔드포인트 추가 — 최근 12개 슬라이드 + 통계 반환. **프론트**: `home.html` — 통계 카드 4개 (Total/Reviewed/In Progress/AI Analyzed), AI 모델별 바 차트, 최근 슬라이드 그리드 (클릭 시 뷰어 자동 열기), Quick Actions (Viewer/Upload/Admin). `home.css` — admin.css 디자인 언어와 통일된 대시보드 전용 스타일. `home.js` — 인증 체크, `/api/slides/dashboard` fetch, 카드/바/그리드 렌더링, 로그아웃. `app.html`: 로고를 `<a href="/home.html">` 링크로 래핑. `app.js`: URL 파라미터 `?slide=&path=` 지원 → 대시보드에서 클릭한 슬라이드 자동 열기. `index.html`: 로그인 상태 리디렉트 `/app.html` → `/home.html`. `login.html`: 로그인 성공 후 이동 대상 `/app.html` → `/home.html`. `admin.html`: 로고 링크 `/app.html` → `/home.html`.
+**변경사항**: backend/app/slide_store.py, backend/app/routers/slides.py, frontend/home.html(신규), frontend/css/home.css(신규), frontend/js/home.js(신규), frontend/app.html, frontend/js/app.js, frontend/css/style.css, frontend/index.html, frontend/login.html, frontend/admin.html
+
 ### [2026-04-16 17:30]
 **Q:** 로고 왼쪽 메뉴바+툴바 합쳐서 가운데 배치
 **A:** `.menu-left`에 `align-self: flex-start` 추가하여 `#menubar`(56px) 상단부터 시작 → `height: calc(56px + 42px)` = 98px 영역이 메뉴바+툴바 두 줄을 정확히 커버. 내부 `align-items: center; justify-content: center`로 로고(60px)가 98px 안에서 수직·수평 가운데 정렬. 기존 `#menubar`의 `align-items: center`가 `.menu-left`를 56px 기준 중앙 배치하여 위아래로 삐져나가던 문제 해결.
