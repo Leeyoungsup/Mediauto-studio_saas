@@ -15,7 +15,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Form, Query, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
@@ -1755,7 +1755,12 @@ async def get_active_tasks():
 
 @router.get("/task/{task_id}")
 async def get_task_status(task_id: str):
-    """AI 작업 상태 조회"""
+    """AI 작업 상태 조회.
+
+    완료된 작업의 `result` 는 수백 MB dict 가 될 수 있으므로 JSON 직렬화를
+    스레드풀로 오프로드한다. 이벤트 루프에서 직렬화하면 같은 시간 동안
+    타일 서빙이 밀린다.
+    """
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
@@ -1771,7 +1776,12 @@ async def get_task_status(task_id: str):
         response["result"] = task["result"]
     elif task["status"] == "error":
         response["error"] = task["error"]
-    return response
+
+    loop = asyncio.get_running_loop()
+    bytes_body = await loop.run_in_executor(
+        None, lambda: json.dumps(response).encode("utf-8")
+    )
+    return Response(content=bytes_body, media_type="application/json")
 
 
 @router.post("/task/{task_id}/cancel")
@@ -1796,14 +1806,20 @@ async def cancel_task(task_id: str):
 
 @router.get("/task/{task_id}/result")
 async def get_task_result(task_id: str):
-    """AI 작업 결과 조회"""
+    """AI 작업 결과 조회. 대용량 result dict 는 스레드풀에서 직렬화."""
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
         raise HTTPException(404, "작업을 찾을 수 없습니다")
     if task["status"] != "completed":
         raise HTTPException(400, f"작업 미완료 (status: {task['status']})")
-    return task["result"]
+
+    obj_result = task["result"]
+    loop = asyncio.get_running_loop()
+    bytes_body = await loop.run_in_executor(
+        None, lambda: json.dumps(obj_result).encode("utf-8")
+    )
+    return Response(content=bytes_body, media_type="application/json")
 
 
 _USER_EDIT_MODES = {"HE-Fit", "PD-Score", "Precise-IHC"}
