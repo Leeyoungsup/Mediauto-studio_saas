@@ -13,19 +13,23 @@ opencv-python-headless>=4.8.0
 numpy>=1.26.0
 scipy>=1.11.0
 scikit-image>=0.22.0
+matplotlib>=3.7.0
 
 # ── 딥러닝 (YOLOv11 detection + VS GAN + tissue segmentation) ──
 # CUDA 빌드는 install.bat 에서 pytorch 공식 index 로 별도 설치
 torch>=2.0.0
 torchvision>=0.15.0
 segmentation-models-pytorch>=0.3.3
+tqdm>=4.65.0
 
-# ── 인증/보안 ──
+# ── 인증/보안 / DB ──
 motor>=3.3.0
+pymongo>=4.6.0
 bcrypt>=4.1.0
 python-jose[cryptography]>=3.3.0
 cryptography>=42.0.0
 
-# ── 레거시 호환 (ai/virtual_stain.py, ai/segmentation.py 가 QThread/pyqtSignal 을
-#    모듈 레벨에서 import 하므로 SaaS 환경에서도 필요) ──
-PyQt5>=5.15.0
+# ── 주의 ──
+# PyQt5 는 설치하지 않습니다. backend/ai/__init__.py 가 SaaS 환경용
+# no-op 스텁을 sys.modules 에 주입하여 레거시 import(QThread/pyqtSignal)를
+# 무해화합니다. 실제 PyQt5 가 설치되어 있으면 헤드리스 서버에서 충돌 가능.

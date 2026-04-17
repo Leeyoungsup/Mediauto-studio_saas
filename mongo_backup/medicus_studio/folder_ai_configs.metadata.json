@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"str_rel_path":{"$numberInt":"1"}},"name":"str_rel_path_1","unique":true},{"v":{"$numberInt":"2"},"key":{"bool_enabled":{"$numberInt":"1"}},"name":"bool_enabled_1"}],"uuid":"a6c73f835326436ea9dcab2dc1f5f3e7","collectionName":"folder_ai_configs","type":"collection"}

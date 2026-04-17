@@ -6,3 +6,4 @@ __pycache__/
 /backend/model/*
 /backend/.secrets.json
 .env
+project.tar
