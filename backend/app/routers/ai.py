@@ -8,6 +8,7 @@ import sys
 import json
 import uuid
 import queue
+import asyncio
 import threading
 from pathlib import Path
 from typing import Optional
@@ -1839,8 +1840,11 @@ async def save_detection_result(
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
 
+    # 대용량 AI 결과(수십~수백 MB) — JSON 파싱/쓰기를 스레드풀로 오프로드해
+    # 이벤트 루프가 타일 서빙 등 다른 요청을 블로킹하지 않게 한다.
+    loop = asyncio.get_running_loop()
     try:
-        result_obj = json.loads(result)
+        result_obj = await loop.run_in_executor(None, json.loads, result)
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"Invalid JSON: {e}")
 
@@ -1851,11 +1855,15 @@ async def save_detection_result(
     if not str_user_id:
         raise HTTPException(401, "사용자 식별 실패")
 
-    # 1) 디스크에 사용자별 JSON 저장
+    # 1) 디스크에 사용자별 JSON 저장 (스레드풀에서)
     file_path = _get_user_edit_path(info.file_path, ai_mode, tissue_type or "", str_user_id)
-    try:
+
+    def _write_json_to_disk():
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(result_obj, f)
+
+    try:
+        await loop.run_in_executor(None, _write_json_to_disk)
     except Exception as e:
         print(f"[ai/save-result] disk write failed: {e}")
         raise HTTPException(500, f"Save failed (disk): {e}")
@@ -1954,9 +1962,16 @@ async def load_user_edit(
     str_file_path = dict_doc.get("str_file_path") or ""
     if not str_file_path or not Path(str_file_path).exists():
         raise HTTPException(404, "저장 파일이 누락되었습니다")
-    try:
+
+    # 대용량 AI 결과 JSON — 스레드풀로 오프로드해 이벤트 루프 블로킹 방지.
+    # 수백 MB 결과도 타일 서빙과 병렬로 처리된다.
+    def _read_json_from_disk():
         with open(str_file_path, "r", encoding="utf-8") as f:
-            result_obj = json.load(f)
+            return json.load(f)
+
+    loop = asyncio.get_running_loop()
+    try:
+        result_obj = await loop.run_in_executor(None, _read_json_from_disk)
     except Exception as e:
         raise HTTPException(500, f"Load failed: {e}")
 
