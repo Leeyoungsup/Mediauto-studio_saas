@@ -13,8 +13,9 @@
 import { api } from './api.js';
 
 const TILE_SIZE = 1024;
-// 동시 로딩 제한 없음 — 브라우저 자체 HTTP 연결 풀(origin 당 6)이 스로틀링 담당
-// JS 측에서 인위적으로 제한하면 배치 경계에서 딜레이 발생
+// 타일 동시 로딩 상한 — 브라우저 연결 6개보다 넉넉하게 잡아 파이프라인 빈틈 방지.
+// _processLoadQueue 가 onload 마다 호출되므로 배치 경계 딜레이 없이 스트리밍 처리.
+const MAX_CONCURRENT_LOADS = 24;
 
 // 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
 //   stage 0: level0 1024x1024 그대로   (downsample 1)
@@ -152,6 +153,8 @@ export class TileViewer {
         this._vsTileCache = new Map();    // key → HTMLImageElement (LRU: Map insertion order)
         this._vsTileLoading = new Set();  // in-flight keys
         this._vsTileMissing = new Set();  // 404 마크 (빈 타일 재요청 방지)
+        this._vsLoadQueue = [];           // VS 타일 로딩 큐
+        this._vsActiveLoads = 0;          // 현재 진행 중인 VS 타일 로드 수
         this._vsMaxTiles = 512;
 
         // ── Annotation ──
@@ -1299,8 +1302,8 @@ export class TileViewer {
     }
 
     /**
-     * VS 타일 반환 (LRU 캐시 + 비동기 로드).
-     * 없으면 null 리턴하고 백그라운드 로드 후 재렌더.
+     * VS 타일 반환 (LRU 캐시 + 큐 기반 비동기 로드).
+     * 없으면 null 리턴하고 큐에 넣어 순차 로드 후 재렌더.
      */
     _getVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
@@ -1316,30 +1319,43 @@ export class TileViewer {
 
         const ov = this._vsOverlay;
         if (!ov) return null;
-        this._vsTileLoading.add(key);
 
-        const img = new Image();
-        img.onload = () => {
-            this._vsTileLoading.delete(key);
-            // 로드 도중 overlay 가 바뀌었으면 버림
-            if (this._vsOverlay !== ov) return;
-            // LRU 제거
-            if (this._vsTileCache.size >= this._vsMaxTiles) {
-                const oldest = this._vsTileCache.keys().next().value;
-                this._vsTileCache.delete(oldest);
-            }
-            this._vsTileCache.set(key, img);
-            this.requestRender();
-        };
-        img.onerror = () => {
-            this._vsTileLoading.delete(key);
-            // 404 (빈 타일) 또는 네트워크 오류 → missing 기록해 재요청 차단
-            this._vsTileMissing.add(key);
-        };
-        img.src = api.virtualStainTileUrl(
-            ov.slideId, ov.stainType, ov.targetMpp, level, tx, ty
-        );
+        // 큐에 추가하고 큐 처리 시작
+        this._vsTileLoading.add(key);
+        this._vsLoadQueue.push({ key, level, tx, ty, ov });
+        this._processVsLoadQueue();
         return null;
+    }
+
+    _processVsLoadQueue() {
+        while (this._vsLoadQueue.length > 0) {
+            const task = this._vsLoadQueue.shift();
+            this._vsActiveLoads++;
+
+            const img = new Image();
+            img.onload = () => {
+                this._vsActiveLoads--;
+                this._vsTileLoading.delete(task.key);
+                // 로드 도중 overlay 가 바뀌었으면 버림
+                if (this._vsOverlay !== task.ov) return;
+                // LRU 제거
+                if (this._vsTileCache.size >= this._vsMaxTiles) {
+                    const oldest = this._vsTileCache.keys().next().value;
+                    this._vsTileCache.delete(oldest);
+                }
+                this._vsTileCache.set(task.key, img);
+                this.requestRender();
+            };
+            img.onerror = () => {
+                this._vsActiveLoads--;
+                this._vsTileLoading.delete(task.key);
+                this._vsTileMissing.add(task.key);
+            };
+            img.src = api.virtualStainTileUrl(
+                task.ov.slideId, task.ov.stainType, task.ov.targetMpp,
+                task.level, task.tx, task.ty
+            );
+        }
     }
 
     setVirtualStainSplitMode(enabled) {
@@ -1356,7 +1372,7 @@ export class TileViewer {
     // ── 타일 로딩 (병렬, 큐 기반) ──
 
     _processLoadQueue() {
-        while (this._loadQueue.length > 0) {
+        while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
             const task = this._loadQueue.shift();
             this._loadTile(task.level, task.tx, task.ty);
         }
@@ -1375,11 +1391,14 @@ export class TileViewer {
         this._inflightImages.add(img);
         img.onload = () => {
             this._inflightImages.delete(img);
-            // 슬라이드가 바뀐 뒤 도착한 응답은 폐기 (이전 슬라이드 픽셀이 새 cache 에
-            // 같은 키로 박히는 contamination 차단)
-            if (int_gen !== this._loadGeneration) return;
             this._tileLoading.delete(key);
             this._activeLoads--;
+            // 슬라이드가 바뀐 뒤 도착한 응답은 폐기 (이전 슬라이드 픽셀이 새 cache 에
+            // 같은 키로 박히는 contamination 차단)
+            if (int_gen !== this._loadGeneration) {
+                this._processLoadQueue();
+                return;
+            }
             this._putCache(key, img);
             this._tileFadeStart.set(key, performance.now());
             this._markPreloadTileDone(key);
@@ -1388,7 +1407,6 @@ export class TileViewer {
         };
         img.onerror = () => {
             this._inflightImages.delete(img);
-            if (int_gen !== this._loadGeneration) return;
             this._tileLoading.delete(key);
             this._activeLoads--;
             // 실패도 "완료" 로 간주해야 로딩창이 영원히 멈추지 않음
@@ -1909,6 +1927,8 @@ export class TileViewer {
         this._vsTileCache.clear();
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
+        this._vsLoadQueue.length = 0;
+        this._vsActiveLoads = 0;
 
         if (!meta || !meta.levels || meta.levels.length === 0) {
             console.warn('[viewer] VS overlay: missing tile levels metadata');
@@ -1946,6 +1966,8 @@ export class TileViewer {
         this._vsTileCache.clear();
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
+        this._vsLoadQueue.length = 0;
+        this._vsActiveLoads = 0;
         this.requestRender();
     }
 

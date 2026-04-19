@@ -120,7 +120,9 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if str_path.startswith("/api/tiles/") or "/thumbnail" in str_path:
+        if (str_path.startswith("/api/tiles/")
+                or "/thumbnail" in str_path
+                or "/virtual-stain/" in str_path):
             await self.app(scope, receive, send)
             return
 
