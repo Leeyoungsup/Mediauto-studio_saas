@@ -429,7 +429,46 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Precise-IHC::KI_67');
 
     // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
-    $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
+    const bool_vs_any = set_allowed.has('VS-IHC::ihc_membrane');
+    $btnVsMembrane.disabled = !bool_vs_any;
+
+    // ── 활성 모델이 없는 탭 전체 숨김 ──
+    const dict_tab_visible = {
+        'hne-tab': bool_hnf_any,
+        'vs-tab': bool_vs_any,
+        'pd-tab': bool_pd_any,
+        'ihc-tab': !!(
+            set_allowed.has('Precise-IHC::HER2') ||
+            set_allowed.has('Precise-IHC::ER_PR') ||
+            set_allowed.has('Precise-IHC::KI_67')
+        ),
+    };
+
+    let str_first_visible = null;
+    for (const [str_tab_id, bool_show] of Object.entries(dict_tab_visible)) {
+        const el_btn = document.querySelector(`.tab-btn[data-tab="${str_tab_id}"]`);
+        const el_content = document.getElementById(str_tab_id);
+        if (el_btn) {
+            el_btn.style.display = bool_show ? '' : 'none';
+            el_btn.classList.remove('active');
+        }
+        if (el_content) {
+            el_content.classList.remove('active');
+            el_content.style.display = bool_show ? '' : 'none';
+        }
+        if (bool_show && !str_first_visible) str_first_visible = str_tab_id;
+    }
+
+    // 첫 번째 보이는 탭을 활성화
+    if (str_first_visible) {
+        const el_new_btn = document.querySelector(`.tab-btn[data-tab="${str_first_visible}"]`);
+        const el_new_content = document.getElementById(str_first_visible);
+        if (el_new_btn) el_new_btn.classList.add('active');
+        if (el_new_content) {
+            el_new_content.style.display = '';
+            el_new_content.classList.add('active');
+        }
+    }
 }
 
 // ═══════════════════════════

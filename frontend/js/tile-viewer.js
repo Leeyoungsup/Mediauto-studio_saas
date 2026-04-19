@@ -13,7 +13,8 @@
 import { api } from './api.js';
 
 const TILE_SIZE = 1024;
-const MAX_CONCURRENT_LOADS = 36;  // 동시 타일 로딩 수 — 브라우저 HTTP/1.1 은 origin 당 6 연결이지만, 큐에 많이 넣어야 파이프라인이 빈틈없이 채워짐
+// 동시 로딩 제한 없음 — 브라우저 자체 HTTP 연결 풀(origin 당 6)이 스로틀링 담당
+// JS 측에서 인위적으로 제한하면 배치 경계에서 딜레이 발생
 
 // 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
 //   stage 0: level0 1024x1024 그대로   (downsample 1)
@@ -1355,7 +1356,7 @@ export class TileViewer {
     // ── 타일 로딩 (병렬, 큐 기반) ──
 
     _processLoadQueue() {
-        while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
+        while (this._loadQueue.length > 0) {
             const task = this._loadQueue.shift();
             this._loadTile(task.level, task.tx, task.ty);
         }
