@@ -33,31 +33,55 @@ function _isTokenExpiringSoon() {
     return Date.now() > expires - 120000;
 }
 
-async function _refreshTokenIfNeeded() {
-    if (!_isTokenExpiringSoon()) return;
+// 동시 다중 호출 직렬화용 싱글톤 프라미스.
+// 여러 API 가 거의 동시에 /auth/refresh 를 찌르면 서버의 rotation 로직이 "reuse 공격"
+// 으로 오인해 전체 세션을 revoke 해버리는 레이스 컨디션이 있다. 하나가 진행 중이면
+// 나머지는 같은 프라미스를 공유해 한 번만 네트워크 호출이 나가도록 한다.
+let _refreshInFlight = null;
+
+// bool_force: 만료 임박 체크를 건너뛰고 무조건 refresh 시도 (_authFetch 재시도용)
+// bool_silent: 실패 시에도 로그아웃 리다이렉트 하지 않음 (_authFetch 재시도 경로 전용;
+//              호출자가 res.status 를 다시 확인해서 처리)
+async function _refreshTokenIfNeeded(bool_force = false, bool_silent = false) {
+    if (_refreshInFlight) return _refreshInFlight;
+    if (!bool_force && !_isTokenExpiringSoon()) return;
     const refreshToken = _getRefreshToken();
     if (!refreshToken) return;
 
-    try {
-        const res = await fetch(`${API_BASE}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ str_refresh_token: refreshToken }),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            _setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
-            if (data.dict_user) {
-                localStorage.setItem('user', JSON.stringify(data.dict_user));
+    _refreshInFlight = (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ str_refresh_token: refreshToken }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                _setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
+                if (data.dict_user) {
+                    localStorage.setItem('user', JSON.stringify(data.dict_user));
+                }
+                return true;
             }
-        } else {
-            // Refresh 실패 → 로그인 페이지로
-            _clearTokens();
-            window.location.href = '/login.html';
+            // Refresh 실패. silent 경로(_authFetch 재시도) 면 false 만 리턴,
+            // 아니면 여기서 즉시 정리 + 로그인 페이지로. 타이머발 실패가 무한 루프
+            // 되는 걸 막는다.
+            if (!bool_silent) {
+                _clearTokens();
+                _clearMediaTicket();
+                if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login.html')) {
+                    window.location.href = '/login.html';
+                }
+            }
+            return false;
+        } catch (e) {
+            console.error('Token refresh failed:', e);
+            return false;
+        } finally {
+            _refreshInFlight = null;
         }
-    } catch (e) {
-        console.error('Token refresh failed:', e);
-    }
+    })();
+    return _refreshInFlight;
 }
 
 // 타일/썸네일 URL 은 <img src> 로 직접 로드되어 _authFetch 를 거치지 않음 → 토큰
@@ -69,6 +93,7 @@ function _startBackgroundTokenRefresh() {
     _refreshTimer = setInterval(() => {
         if (_getAccessToken() && _getRefreshToken()) {
             _refreshTokenIfNeeded();
+            _ensureMediaTicket();
         }
     }, 30000);
 }
@@ -76,20 +101,90 @@ if (typeof window !== 'undefined') {
     _startBackgroundTokenRefresh();
 }
 
+// ── 미디어 티켓 (타일/썸네일 <img src> 전용) ──
+// 과거엔 URL 쿼리에 JWT 를 그대로 실어 보내 브라우저 히스토리/프록시 로그에
+// 토큰이 노출되는 문제가 있었다. 이제는 서버의 /auth/media-ticket 엔드포인트로
+// 10분 TTL HMAC 오파크 토큰을 받아 `?mt=<token>` 으로 전달한다. 이 티켓은
+// 미디어 엔드포인트에만 유효하며, 누출되어도 API 호출 권한은 없다.
+let _mediaTicket = null;          // {str_token, int_exp, int_ttl}
+let _mediaTicketInFlight = null;  // 중복 발급 방지용 프라미스
+
+function _isMediaTicketValid() {
+    if (!_mediaTicket || !_mediaTicket.str_token) return false;
+    const int_now = Math.floor(Date.now() / 1000);
+    // 만료 120초 전에 갱신
+    return _mediaTicket.int_exp - int_now > 120;
+}
+
+async function _ensureMediaTicket() {
+    if (_isMediaTicketValid()) return _mediaTicket.str_token;
+    if (_mediaTicketInFlight) return _mediaTicketInFlight;
+    if (!_getAccessToken()) return '';
+
+    _mediaTicketInFlight = (async () => {
+        try {
+            // 주의: _authFetch 는 내부적으로 _ensureMediaTicket 을 호출하므로
+            // 여기서 다시 _authFetch 를 쓰면 무한 루프가 된다. 직접 fetch.
+            const res = await fetch(`${API_BASE}/auth/media-ticket`, {
+                headers: { 'Authorization': `Bearer ${_getAccessToken()}` },
+            });
+            if (res.ok) {
+                _mediaTicket = await res.json();
+                return _mediaTicket.str_token;
+            }
+        } catch (e) {
+            console.error('Media ticket fetch failed:', e);
+        } finally {
+            _mediaTicketInFlight = null;
+        }
+        return '';
+    })();
+    return _mediaTicketInFlight;
+}
+
+function _getMediaTicketSync() {
+    return (_mediaTicket && _mediaTicket.str_token) || '';
+}
+
+function _clearMediaTicket() {
+    _mediaTicket = null;
+    _mediaTicketInFlight = null;
+}
+
 function _authHeaders() {
-    return { 'Authorization': `Bearer ${_getAccessToken()}` };
+    return {
+        'Authorization': `Bearer ${_getAccessToken()}`,
+        'X-Requested-With': 'XMLHttpRequest',
+    };
 }
 
 async function _authFetch(url, options = {}) {
     await _refreshTokenIfNeeded();
+    // 미디어 티켓 pre-fetch: 슬라이드 오픈·info 호출 시 자동으로 준비되어
+    // 이후 <img src> 가 즉시 유효한 ?mt= 를 쓸 수 있게 된다. 캐시 히트 시
+    // 네트워크 호출 없이 즉시 리턴한다.
+    await _ensureMediaTicket();
 
-    const headers = { ...(options.headers || {}), ..._authHeaders() };
-    const res = await fetch(url, { ...options, headers });
+    const headers_initial = { ...(options.headers || {}), ..._authHeaders() };
+    let res = await fetch(url, { ...options, headers: headers_initial });
 
-    if (res.status === 401) {
-        _clearTokens();
-        window.location.href = '/login.html';
-        throw new Error('Authentication required');
+    // 401 을 받으면 바로 로그아웃하지 않고, 강제 refresh 후 1회 재시도.
+    // 시나리오:
+    //   - access 토큰이 예상보다 일찍 만료 (clock drift / 탭 suspend)
+    //   - 다른 탭이 rotation 중이라 localStorage 동기화 지연
+    // 재시도까지 실패하면 그때 토큰 정리 + 로그인 페이지.
+    if (res.status === 401 && _getRefreshToken()) {
+        const bool_refreshed = await _refreshTokenIfNeeded(true, true);
+        if (bool_refreshed) {
+            const headers_retry = { ...(options.headers || {}), ..._authHeaders() };
+            res = await fetch(url, { ...options, headers: headers_retry });
+        }
+        if (res.status === 401) {
+            _clearTokens();
+            _clearMediaTicket();
+            window.location.href = '/login.html';
+            throw new Error('Authentication required');
+        }
     }
 
     return res;
@@ -244,24 +339,29 @@ export const api = {
 
     /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후) */
     thumbnailUrl(slideId, size = 300) {
-        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** 고해상도 프리뷰 URL (PDF 리포트용) */
     previewUrl(slideId, size = 2048) {
-        return `${API_BASE}/slides/${slideId}/preview?size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/${slideId}/preview?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
     thumbnailUrlByName(filename, path = '', size = 300) {
-        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+    },
+
+    /** 미디어 티켓이 준비되지 않았다면 기다린다. 슬라이드 뷰어 초기 렌더에서 호출. */
+    async ensureMediaReady() {
+        await _ensureMediaTicket();
     },
 
     // ── 타일 ──
 
     /** 타일 이미지 URL (프리제네레이트된 정적 타일) */
     tileUrl(slideId, level, tileX, tileY) {
-        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** stage level 조회 */
@@ -333,13 +433,40 @@ export const api = {
         return res.json();
     },
 
-    /** 검출 결과 내부 저장 */
-    async saveDetectionResult(slideId, tissueType, result) {
+    /** 검출 결과 — 현재 사용자 전용 편집본으로 DB 저장 (원본 캐시는 유지) */
+    async saveDetectionResult(slideId, tissueType, result, aiMode = 'HE-Fit') {
         const form = new FormData();
         form.append('slide_id', slideId);
         form.append('tissue_type', tissueType);
         form.append('result', JSON.stringify(result));
+        form.append('ai_mode', aiMode);
         const res = await _authFetch(`${API_BASE}/ai/save-result`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 사용자별 편집본 목록 — 현재 슬라이드+모드+variant 에 저장본을 가진 사용자들 */
+    async listUserAiEdits(slideId, aiMode, variant = '') {
+        const qs = new URLSearchParams({ slide_id: slideId, ai_mode: aiMode, variant: variant || '' });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/list?${qs.toString()}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 본인 편집본 삭제 (타 사용자 것은 백엔드에서 거부) */
+    async deleteMyUserAiEdit(slideId, aiMode, variant = '') {
+        const qs = new URLSearchParams({ slide_id: slideId, ai_mode: aiMode, variant: variant || '' });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits?${qs.toString()}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 특정 사용자의 편집본 전체 결과 로드 */
+    async loadUserAiEdit(slideId, aiMode, userId, variant = '') {
+        const qs = new URLSearchParams({
+            slide_id: slideId, ai_mode: aiMode, user_id: userId, variant: variant || ''
+        });
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/load?${qs.toString()}`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -354,6 +481,13 @@ export const api = {
     /** 작업 상태 조회 */
     async getTaskStatus(taskId) {
         const res = await _authFetch(`${API_BASE}/ai/task/${taskId}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    /** 실행 중인 AI task 를 취소 요청. 워커는 다음 체크포인트에서 중단하고 부분 캐시를 정리. */
+    async cancelTask(taskId) {
+        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}/cancel`, { method: 'POST' });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -377,7 +511,7 @@ export const api = {
 
     /** Virtual Stain 피라미드 타일 URL (뷰어 렌더용) */
     virtualStainTileUrl(slideId, stainType, targetMpp, level, tx, ty) {
-        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&token=${encodeURIComponent(_getAccessToken())}`;
+        return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     // ── 인증 ──
@@ -390,6 +524,7 @@ export const api = {
             // 서버 에러 시에도 로컬 토큰은 삭제
         }
         if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+        _clearMediaTicket();
         _clearTokens();
         window.location.href = '/login.html';
     },

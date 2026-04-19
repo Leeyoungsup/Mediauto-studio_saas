@@ -1,5 +1,5 @@
 /**
- * MeDICus Studio SaaS — 메인 앱
+ * MeDIAuto Studio SaaS — 메인 앱
  * 기존 PyQt5 viewer.py의 UI 로직을 JS로 포팅
  */
 
@@ -40,27 +40,33 @@ const $btnDetect = $('#btn-detect');
 const $btnVisualize = $('#btn-visualize');
 const $btnClearResults = $('#btn-clear-results');
 const $btnSaveResults = $('#btn-save-results');
+const $btnLoadResults = $('#btn-load-results');
 let _lastDetectionResult = null;
 let _lastDetectionTissue = null;
+// 현재 뷰어에 올라간 결과의 AI 모드 ("HE-Fit" | "PD-Score" | "Precise-IHC")
+let _lastDetectionModel = null;
+// 로드된 결과를 onXxxComplete 로 재투입할 때 필요한 ROI (없으면 null)
+let _lastDetectionRoi = null;
 const $btnDrawPolygon = $('#btn-draw-polygon');
 const $btnDrawRect = $('#btn-draw-rect');
 const $btnDrawPoint = $('#btn-draw-point');
 
 // VS-IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
-const $btnVsNucleus = $('#btn-vs-nucleus');
 const $btnPdScore = $('#btn-pd-score');
 const $pdScoreResult = $('#pd-score-result');
 const $pdScoreLabel = $('#pd-score-label');
 const $pdScoreValue = $('#pd-score-value');
 const $pdScoreDetail = $('#pd-score-detail');
+const $pdScoreBar = $('#pd-score-bar');
 const $btnIhcHer2 = $('#btn-ihc-her2');
-const $btnIhcEr = $('#btn-ihc-er');
-const $btnIhcPr = $('#btn-ihc-pr');
+const $btnIhcErPr = $('#btn-ihc-erpr');
+const $btnIhcKi67 = $('#btn-ihc-ki67');
 const $ihcScoreResult = $('#ihc-score-result');
 const $ihcScoreLabel = $('#ihc-score-label');
 const $ihcScoreValue = $('#ihc-score-value');
 const $ihcScoreDetail = $('#ihc-score-detail');
+const $ihcScoreBar = $('#ihc-score-bar');
 const $btnVsToggle = $('#btn-vs-toggle');
 const $btnVsSplit = $('#btn-vs-split');
 let _vsRunning = false;
@@ -81,6 +87,34 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
 };
 viewer.onViewChange = () => updateMinimap();
+
+// ── 슬라이드 초기 3-stage 프리로드 로딩창 ──
+const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
+const $slideLoadingProgress = document.getElementById('slide-loading-progress');
+viewer.onPreloadStart = () => {
+    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = false;
+    if ($slideLoadingProgress) $slideLoadingProgress.textContent = '0 / 0';
+};
+viewer.onPreloadProgress = (done, total) => {
+    if ($slideLoadingProgress) $slideLoadingProgress.textContent = `${done} / ${total}`;
+};
+viewer.onPreloadComplete = () => {
+    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
+};
+
+// ── 마우스 좌표 오버레이 (씬 좌표 기준 px) ──
+const $mousePosOverlay = $('#mouse-pos-overlay');
+if ($mousePosOverlay) {
+    $canvas.addEventListener('mousemove', (e) => {
+        if (!currentSlideId) return;
+        const rect = $canvas.getBoundingClientRect();
+        const [sx, sy] = viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
+        $mousePosOverlay.textContent = `x: ${Math.round(sx)}px, y: ${Math.round(sy)}px`;
+    });
+    $canvas.addEventListener('mouseleave', () => {
+        // 값은 유지하되 살짝 흐리게
+    });
+}
 
 // ═══════════════════════════
 // 탭 전환
@@ -107,11 +141,11 @@ const AI_MODEL_HELP = {
     },
     'pd-tab': {
         title: 'PD-Score — PD-L1 Scoring',
-        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 기본 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다.',
+        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 검증된 고정 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다 (SaMD 재현성 보장).',
     },
     'ihc-tab': {
-        title: 'Precise-IHC — HER2 / ER / PR',
-        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로 판독합니다. KI-67 은 준비 중입니다.',
+        title: 'Precise-IHC — HER2 / ER / PR / KI-67',
+        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로, KI-67 은 Labeling Index (Positive / Total × 100%) 로 판독합니다.',
     },
 };
 const $aiHelpIcon = document.querySelector('#ai-help-icon');
@@ -158,73 +192,46 @@ if ($btnLogout) {
 // ═══════════════════════════
 // 파일 열기 + 업로드
 // ═══════════════════════════
+// ── 업로드 팝업 ──
+function openUploadPopup(files) {
+    if (files) window._pendingUploadFiles = files;
+    const w = 520, h = 600;
+    const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+    window.open(
+        `/upload.html?path=${encodeURIComponent(currentBrowsePath)}`,
+        'upload_popup',
+        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+}
+
 $btnOpen.addEventListener('click', () => $fileInput.click());
 $fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) uploadFiles(e.target.files, currentBrowsePath);
-    e.target.value = '';  // 같은 파일 재선택 가능하도록
+    if (e.target.files.length > 0) openUploadPopup(e.target.files);
+    e.target.value = '';
+});
+
+// 팝업에서 업로드 완료 알림 수신
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'upload-complete') {
+        loadSlideList();
+        setStatus(`${e.data.count}개 파일 업로드 완료`);
+    }
 });
 
 const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 
-async function uploadFiles(fileList, targetPath = currentBrowsePath) {
+// uploadFiles — 드래그 앤 드롭 등에서 호출 시 팝업으로 전달
+async function uploadFiles(fileList, _targetPath) {
     const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
     if (!files.length) {
         setStatus('지원하는 슬라이드 파일이 없습니다');
         return;
     }
-
-    const total = files.length;
-    let firstOpened = false;
-
-    for (let idx = 0; idx < total; idx++) {
-        const file = files[idx];
-        const prefix = total > 1 ? `[${idx + 1}/${total}] ` : '';
-        try {
-            const info = await uploadOneFile(file, targetPath, prefix);
-            // 첫 파일만 자동으로 열기 (현재 폴더에 업로드된 경우)
-            if (!firstOpened && info && targetPath === currentBrowsePath) {
-                onSlideLoaded(info.slide_id, info, file.name);
-                firstOpened = true;
-            }
-        } catch (err) {
-            setStatus(`${prefix}${file.name} 실패: ${err.message}`);
-        }
-    }
-
-    loadSlideList();
-    if (total > 1) setStatus(`${total}개 파일 업로드 완료`);
-    setProgress(0);
+    openUploadPopup(fileList);
 }
 
-async function uploadOneFile(file, targetPath, prefix = '') {
-    $slideName.textContent = file.name;
-    setStatus(`${prefix}확인 중...`);
-
-    // 1) 대상 폴더에서 이미 있는지 확인
-    const check = await api.openSlide(file.name, targetPath);
-    if (check.exists) return check;
-
-    // 2) 없으면 대상 폴더에 업로드
-    const CHUNK_SIZE = 5 * 1024 * 1024;
-    setStatus(`${prefix}업로드 중...`);
-    setProgress(0);
-
-    const { upload_id } = await api.uploadStart(file.name);
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-    for (let i = 0; i < totalChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
-        await api.uploadChunk(upload_id, i, blob);
-        setProgress(Math.round(((i + 1) / totalChunks) * 90), `${prefix}Uploading... ${i + 1}/${totalChunks} chunks`);
-    }
-
-    setStatus(`${prefix}슬라이드 등록 중...`);
-    setProgress(95);
-    const info = await api.uploadComplete(upload_id, file.name, totalChunks, targetPath);
-    setProgress(100);
-    return info;
-}
+// 하위 호환 — 기존 uploadOneFile 참조 방지 (사용처 없음)
+async function uploadOneFile() { /* deprecated — upload.html 팝업 사용 */ return null; }
 
 // ── Scanner/Vendor 배지 ──
 // openslide vendor string 은 소문자 키워드 형태. 인라인 SVG 로고로 매핑.
@@ -325,16 +332,29 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // 버튼 활성화
     $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
-    $btnVsNucleus.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
-    if ($btnIhcEr) $btnIhcEr.disabled = false;
-    if ($btnIhcPr) $btnIhcPr.disabled = false;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = false;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
+    // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
+    document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
+        el.disabled = false;
+    });
+
+    // 폴더별 AI 자동 분석 설정이 있으면 해당 task 만 활성화, 나머지는 disabled.
+    _applyFolderAiRestrictions(currentBrowsePath);
+
+    // Viewer 역할은 AI / annotation 기능 전면 비활성. 폴더 제한보다 우선.
+    if (window.__currentUserRole === 'viewer') {
+        _applyViewerRoleRestrictions();
+    }
 
     // 뷰어 로드 (타일은 요청 시 즉석 생성 + 백그라운드 프리제네레이션)
     viewer.loadSlide(slideId, slideInfo);
+
+    if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
     // 미니맵
     loadMinimap(slideId);
@@ -350,6 +370,107 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // annotation은 사용자가 Load 버튼으로 파일에서 불러옴 (서버 자동 로드 X)
 
     setProgress(0);
+}
+
+// ═══════════════════════════
+// 폴더별 AI 자동 분석 제한
+// ──
+// 폴더에 자동 분석 설정이 저장돼 있으면 (bool_enabled=true AND tasks 존재),
+// 해당 task(model+variant) 에 속하지 않는 AI 버튼/라디오를 모두 disabled 로 만든다.
+// 설정이 없거나 enabled=false 면 아무것도 제한하지 않는다 (기본 모두 활성).
+// ═══════════════════════════
+
+async function _applyFolderAiRestrictions(strFolderPath) {
+    let cfg = null;
+    try {
+        cfg = await api.getFolderAiConfig(strFolderPath || '');
+    } catch (err) {
+        console.warn('[folder-ai-restrict] load 실패:', err);
+        return;
+    }
+    if (!cfg || !cfg.enabled || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
+        return;
+    }
+
+    const set_allowed = new Set();
+    for (const t of cfg.tasks) {
+        if (t && t.model && t.variant) set_allowed.add(`${t.model}::${t.variant}`);
+    }
+
+    const _restrictRadios = (strName, strModel) => {
+        const list_radios = document.querySelectorAll(`input[name="${strName}"]`);
+        let bool_first_ok = null;
+        let bool_current_ok = false;
+        list_radios.forEach(el => {
+            const bool_ok = set_allowed.has(`${strModel}::${el.value}`);
+            el.disabled = !bool_ok;
+            if (bool_ok && bool_first_ok === null) bool_first_ok = el;
+            if (bool_ok && el.checked) bool_current_ok = true;
+        });
+        // 현재 선택된 것이 허용되지 않으면 첫 허용 옵션으로 자동 전환
+        if (!bool_current_ok && bool_first_ok) {
+            bool_first_ok.checked = true;
+            bool_first_ok.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return bool_first_ok !== null;
+    };
+
+    // HE-Fit
+    const bool_hnf_any = _restrictRadios('tissue-type', 'HE-Fit');
+    $btnDetect.disabled = !bool_hnf_any;
+
+    // PD-Score
+    const bool_pd_any = _restrictRadios('pd-tissue-type', 'PD-Score');
+    if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
+
+    // Precise-IHC — 마커별 버튼 단위
+    if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
+    if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Precise-IHC::ER_PR');
+    if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Precise-IHC::KI_67');
+
+    // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
+    $btnVsMembrane.disabled = !set_allowed.has('VS-IHC::ihc_membrane');
+}
+
+// ═══════════════════════════
+// Viewer 역할 제한 — AI 기능 / annotation 전면 비활성
+// ═══════════════════════════
+function _applyViewerRoleRestrictions() {
+    document.body.classList.add('role-viewer');
+
+    // Annotation 그리기 도구 (상단 툴바)
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point'];
+    list_draw_btns.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = true;
+            el.classList.remove('active');
+            el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다';
+        }
+    });
+    // 그리기 모드가 켜져있었다면 해제
+    if (viewer && viewer.drawMode) viewer.setDrawMode(null);
+
+    // AI 분석 버튼 전체 비활성
+    const list_ai_btn_ids = [
+        'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
+        'btn-vs-membrane',
+    ];
+    list_ai_btn_ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
+
+    // AI 입력 (tissue-type radio 등) 비활성
+    document.querySelectorAll(
+        'input[name="tissue-type"], input[name="pd-tissue-type"]'
+    ).forEach(el => { el.disabled = true; });
+
+    // Annotation 패널의 저장/불러오기/초기화 버튼
+    ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
 }
 
 // ═══════════════════════════
@@ -395,6 +516,10 @@ async function loadMinimap(slideId) {
         $minimapCanvas.height = img.height;
         $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
         $minimapContainer.hidden = false;
+        $minimapContainer.classList.remove('minimized');
+        if ($minimapIcon) $minimapIcon.setAttribute('d', 'M3 7h8');
+        const body = document.getElementById('minimap-body');
+        if (body) body.style.width = `${img.width}px`;
         updateMinimap();
     };
     img.src = api.thumbnailUrl(slideId, 200);
@@ -405,8 +530,11 @@ function updateMinimap() {
     const vr = viewer.getViewRect();
     if (!vr) return;
     const [imgW, imgH] = currentSlideInfo.dimensions;
-    const sx = $minimapCanvas.width / imgW;
-    const sy = $minimapCanvas.height / imgH;
+    // CSS width 기준 (리사이즈 대응)
+    const displayW = $minimapCanvas.clientWidth || $minimapCanvas.width;
+    const displayH = $minimapCanvas.clientHeight || $minimapCanvas.height;
+    const sx = displayW / imgW;
+    const sy = displayH / imgH;
     $minimapViewport.style.left = `${vr.x * sx}px`;
     $minimapViewport.style.top = `${vr.y * sy}px`;
     $minimapViewport.style.width = `${Math.max(4, vr.width * sx)}px`;
@@ -418,10 +546,45 @@ $minimapCanvas.addEventListener('click', (e) => {
     const rect = $minimapCanvas.getBoundingClientRect();
     const [imgW, imgH] = currentSlideInfo.dimensions;
     viewer.navigateTo(
-        ((e.clientX - rect.left) / $minimapCanvas.width) * imgW,
-        ((e.clientY - rect.top) / $minimapCanvas.height) * imgH
+        ((e.clientX - rect.left) / rect.width) * imgW,
+        ((e.clientY - rect.top) / rect.height) * imgH
     );
 });
+
+// 미니맵 최소화 토글
+const $minimapToggle = $('#minimap-toggle');
+const $minimapIcon = $('#minimap-toggle-icon');
+$minimapToggle?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const minimized = $minimapContainer.classList.toggle('minimized');
+    // minimize: — icon, expand: + icon
+    $minimapIcon.setAttribute('d', minimized ? 'M3 7h8M7 3v8' : 'M3 7h8');
+    $minimapToggle.title = minimized ? 'Expand' : 'Minimize';
+});
+
+// 미니맵 리사이즈 (오른쪽 위 모서리 드래그 → 크기 조절)
+const $minimapResize = $('#minimap-resize');
+const $minimapBody = $('#minimap-body');
+let _minimapResizing = false;
+let _minimapStartW = 0, _minimapStartX = 0;
+const MINIMAP_MIN_W = 100, MINIMAP_MAX_W = 400;
+
+$minimapResize?.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    _minimapResizing = true;
+    _minimapStartW = $minimapBody.offsetWidth;
+    _minimapStartX = e.clientX;
+    $minimapResize.setPointerCapture(e.pointerId);
+});
+$minimapResize?.addEventListener('pointermove', (e) => {
+    if (!_minimapResizing) return;
+    const dx = e.clientX - _minimapStartX;
+    const newW = Math.min(MINIMAP_MAX_W, Math.max(MINIMAP_MIN_W, _minimapStartW + dx));
+    $minimapBody.style.width = `${newW}px`;
+    updateMinimap();
+});
+$minimapResize?.addEventListener('pointerup', () => { _minimapResizing = false; });
+$minimapResize?.addEventListener('pointercancel', () => { _minimapResizing = false; });
 
 // ═══════════════════════════
 // 줌 컨트롤
@@ -446,6 +609,54 @@ function setDrawMode(mode) {
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
+
+// ── UX 기능 설명 모달 ──
+const $btnUxHelp = $('#btn-ux-help');
+const $uxHelpModal = $('#ux-help-modal');
+const $uxHelpClose = $('#ux-help-close');
+function _openUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.add('visible'); }
+function _closeUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.remove('visible'); }
+if ($btnUxHelp) $btnUxHelp.addEventListener('click', _openUxHelp);
+if ($uxHelpClose) $uxHelpClose.addEventListener('click', _closeUxHelp);
+if ($uxHelpModal) {
+    $uxHelpModal.addEventListener('click', (e) => {
+        if (e.target === $uxHelpModal) _closeUxHelp();
+    });
+}
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $uxHelpModal && $uxHelpModal.classList.contains('visible')) {
+        _closeUxHelp();
+    }
+});
+
+// ── 모바일 패널 토글 (≤900px) ──
+const $btnToggleLeft = $('#btn-toggle-left');
+const $btnToggleRight = $('#btn-toggle-right');
+const $mobileBackdrop = $('#mobile-backdrop');
+function _closeMobilePanels() {
+    document.body.classList.remove('panel-left-open');
+    document.body.classList.remove('panel-right-open');
+}
+function _toggleMobilePanel(str_side) {
+    const str_cls_open = str_side === 'left' ? 'panel-left-open' : 'panel-right-open';
+    const str_cls_other = str_side === 'left' ? 'panel-right-open' : 'panel-left-open';
+    const bool_is_open = document.body.classList.contains(str_cls_open);
+    document.body.classList.remove(str_cls_other);
+    document.body.classList.toggle(str_cls_open, !bool_is_open);
+}
+if ($btnToggleLeft) $btnToggleLeft.addEventListener('click', () => _toggleMobilePanel('left'));
+if ($btnToggleRight) $btnToggleRight.addEventListener('click', () => _toggleMobilePanel('right'));
+if ($mobileBackdrop) $mobileBackdrop.addEventListener('click', _closeMobilePanels);
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && (document.body.classList.contains('panel-left-open') ||
+                                document.body.classList.contains('panel-right-open'))) {
+        _closeMobilePanels();
+    }
+});
+// 브레이크포인트 넘어가면 drawer 상태 정리
+window.matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
+    if (!e.matches) _closeMobilePanels();
+});
 
 // ESC 등으로 drawMode가 변경될 때 버튼 동기화
 viewer.onDrawModeChange = (mode) => {
@@ -908,11 +1119,13 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
 viewer.onCellsMultiEditRequested = _showMultiCellEditPopup;
 
 viewer.onCellEdited = () => {
-    // 결과 리스트 카운트 갱신
+    // 결과 리스트 카운트 + 스코어 갱신
     if (_lastDetectionResult) {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
         buildResultList(_lastDetectionResult);
+        // 스코어 카드 재계산 (Allred / HER2 / PD-Score)
+        _updateResultCounts();
     }
     setStatus(`Cell edited — ${viewer.detectionCells.length} cells`);
 };
@@ -1112,11 +1325,55 @@ $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close())
 // ═══════════════════════════
 // AI 검출
 // ═══════════════════════════
+
+// 실행 중인 AI task 추적 — key: 버튼 고유 키 ('detect', 'vs-ihc_membrane', 'pd-score', 'ihc-HER2' 등)
+//   value: { task_id, buttonEl }
+// 같은 버튼 재클릭 시 cancelTask 호출.
+const _runningAiTasks = {};
+
+function _setButtonRunning(btnEl, bool_running) {
+    if (!btnEl) return;
+    if (bool_running) {
+        btnEl.classList.add('ai-btn-running');
+        btnEl.dataset.origLabel = btnEl.dataset.origLabel || btnEl.textContent;
+        btnEl.textContent = '■ Stop';
+    } else {
+        btnEl.classList.remove('ai-btn-running');
+        if (btnEl.dataset.origLabel) {
+            btnEl.textContent = btnEl.dataset.origLabel;
+            delete btnEl.dataset.origLabel;
+        }
+    }
+}
+
+async function _maybeCancelRunning(str_key) {
+    const entry = _runningAiTasks[str_key];
+    if (!entry) return false;
+    // task_id 가 아직 서버에서 돌아오지 않았는데 재클릭한 경우:
+    // pending_cancel 플래그만 세팅 → start 핸들러가 task_id 를 받는 즉시 cancelTask 호출.
+    // (null 을 URL 에 박아 쏘면 /task/null/cancel 로 405/404 나므로 금지)
+    if (!entry.task_id) {
+        entry.pending_cancel = true;
+        setStatus('중지 예약 — task 시작 직후 취소합니다...');
+        return true;
+    }
+    try {
+        await api.cancelTask(entry.task_id);
+        setStatus('중지 요청 전송 — 잠시 후 정리됩니다...');
+    } catch (e) {
+        console.warn('[cancel] failed', e);
+    }
+    return true;  // 호출자는 start 로직 건너뛰기
+}
+
 $btnDetect.addEventListener('click', startDetection);
 
 async function startDetection() {
     if (!currentSlideId) return;
-    $btnDetect.disabled = true;
+    if (await _maybeCancelRunning('detect')) return;
+
+    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect };
+    _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
     setStatus('검출 시작...');
@@ -1132,10 +1389,18 @@ async function startDetection() {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startDetection(currentSlideId, roiPolygons, tissueType);
+        if (_runningAiTasks['detect']) {
+            _runningAiTasks['detect'].task_id = task_id;
+            if (_runningAiTasks['detect'].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         // 폴링
         while (true) {
             await sleep(1000);
+            // 다른 코드가 _runningAiTasks 를 지웠으면 (예: 슬라이드 변경) 루프 탈출
+            if (!_runningAiTasks['detect']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -1155,13 +1420,21 @@ async function startDetection() {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('Cell Detection 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`검출 실패: ${err.message}`);
     } finally {
-        $btnDetect.disabled = false;
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks['detect'];
+        _setButtonRunning($btnDetect, false);
+        if ($progressLabel.textContent === 'Cell Detection...') {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
@@ -1175,13 +1448,15 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     // 내부 저장용으로 최신 결과 보존
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
+    _lastDetectionModel = 'HE-Fit';
+    _lastDetectionRoi = roiPolygons;
 
     // segmentation 데이터 저장 (Spatial Heatmap 시각화용)
     lastSegData = result.seg_data || null;
 
     // HE-Fit 은 기본 CLASS_COLORS 사용 (override 해제)
     viewer.classColorOverride = null;
-    viewer.defaultConfidence = 0.01;
+    viewer.defaultConfidence = 0.1;  // 고정 (SaMD 재현성)
 
     // ROI 폴리곤 내부 셀만 필터링하여 표시
     viewer.setDetectionResults(result.cells, roiPolygons);
@@ -1194,6 +1469,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 // ═══════════════════════════
@@ -1204,14 +1480,35 @@ const CLASS_COLORS = {
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
 
-// confidence 슬라이더 debounce용
-let _confDebounceTimer = null;
-function _debouncedRender() {
-    if (_confDebounceTimer) clearTimeout(_confDebounceTimer);
-    _confDebounceTimer = setTimeout(() => {
-        viewer._buildHeatmapCache();
-        viewer.requestRender();
-    }, 200);
+// ── 스코어 바 차트 유틸 ──
+function _renderScoreBar(barEl, segments) {
+    if (!barEl) return;
+    barEl.innerHTML = '';
+    const total = segments.reduce((s, seg) => s + seg.value, 0);
+    if (total === 0) { barEl.style.display = 'none'; return; }
+    barEl.style.display = '';
+    for (const seg of segments) {
+        const pct = seg.value / total * 100;
+        if (pct < 0.5) continue;
+        const el = document.createElement('div');
+        el.className = 'score-bar-seg';
+        el.style.width = `${pct}%`;
+        el.style.backgroundColor = seg.color;
+        if (pct > 8) el.setAttribute('data-label', seg.label || '');
+        barEl.appendChild(el);
+    }
+}
+
+function _renderScoreLegend(detailEl, items) {
+    const wrap = document.createElement('div');
+    wrap.className = 'score-card-legend';
+    for (const item of items) {
+        const el = document.createElement('span');
+        el.className = 'score-card-legend-item';
+        el.innerHTML = `<span class="score-card-legend-dot" style="background:${item.color}"></span>${item.label}: ${item.count.toLocaleString()}`;
+        wrap.appendChild(el);
+    }
+    detailEl.appendChild(wrap);
 }
 
 // 현재 confidence 임계값을 반영한 클래스별 카운트 계산
@@ -1240,6 +1537,7 @@ function _updateResultCounts() {
     _updatePdScoreDisplay(counts);
     _updateHer2ScoreDisplay(counts);
     _updateAllredScoreDisplay(counts);
+    _updateKi67ScoreDisplay(counts);
 }
 
 // Confidence 필터가 반영된 카운트로 CPS/TPS 재계산하여 스코어 카드 갱신
@@ -1253,16 +1551,24 @@ function _updatePdScoreDisplay(counts) {
     if (scoreType === 'CPS') {
         const posTumor = c[3] || 0;
         const posImmune = (c[4] || 0) + (c[5] || 0);
-        const viableTumor = (c[0] || 0) + (c[3] || 0);
+        const negTumor = c[0] || 0;
+        const viableTumor = negTumor + posTumor;
         const score = viableTumor === 0
             ? 0
             : Math.min(100, (posTumor + posImmune) / viableTumor * 100);
         $pdScoreLabel.textContent = 'CPS';
         $pdScoreValue.textContent = `${score.toFixed(1)}%`;
-        $pdScoreDetail.innerHTML =
-            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
-            `Positive Immune: ${posImmune}<br>` +
-            `Viable Tumor: ${viableTumor}`;
+        _renderScoreBar($pdScoreBar, [
+            { value: posTumor, color: '#e74c3c', label: `Pos T ${posTumor}` },
+            { value: posImmune, color: '#f39c12', label: `Pos I ${posImmune}` },
+            { value: negTumor, color: '#27ae60', label: `Neg ${negTumor}` },
+        ]);
+        $pdScoreDetail.innerHTML = '';
+        _renderScoreLegend($pdScoreDetail, [
+            { color: '#e74c3c', label: 'Pos Tumor', count: posTumor },
+            { color: '#f39c12', label: 'Pos Immune', count: posImmune },
+            { color: '#27ae60', label: 'Neg Tumor', count: negTumor },
+        ]);
     } else if (scoreType === 'TPS') {
         const posTumor = c[1] || 0;
         const negTumor = c[0] || 0;
@@ -1270,10 +1576,15 @@ function _updatePdScoreDisplay(counts) {
         const score = totalTumor === 0 ? 0 : posTumor / totalTumor * 100;
         $pdScoreLabel.textContent = 'TPS';
         $pdScoreValue.textContent = `${score.toFixed(1)}%`;
-        $pdScoreDetail.innerHTML =
-            `Positive Tumor: ${posTumor} &nbsp;·&nbsp; ` +
-            `Negative Tumor: ${negTumor}<br>` +
-            `Total Tumor: ${totalTumor}`;
+        _renderScoreBar($pdScoreBar, [
+            { value: posTumor, color: '#e74c3c', label: `Pos ${posTumor}` },
+            { value: negTumor, color: '#27ae60', label: `Neg ${negTumor}` },
+        ]);
+        $pdScoreDetail.innerHTML = '';
+        _renderScoreLegend($pdScoreDetail, [
+            { color: '#e74c3c', label: 'Positive', count: posTumor },
+            { color: '#27ae60', label: 'Negative', count: negTumor },
+        ]);
     }
 }
 
@@ -1287,10 +1598,20 @@ function _updateHer2ScoreDisplay(counts) {
     const dominant = total === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
     $ihcScoreLabel.textContent = 'HER2';
     $ihcScoreValue.textContent = `${dominant}+ (${weighted.toFixed(2)})`;
-    $ihcScoreDetail.innerHTML =
-        `0+: ${n0} &nbsp;·&nbsp; 1+: ${n1}<br>` +
-        `2+: ${n2} &nbsp;·&nbsp; 3+: ${n3}<br>` +
-        `Total: ${total}`;
+    const HER2_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
+    _renderScoreBar($ihcScoreBar, [
+        { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+        { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+        { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+        { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+    ]);
+    $ihcScoreDetail.innerHTML = '';
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: HER2_COLORS[0], label: '0+', count: n0 },
+        { color: HER2_COLORS[1], label: '1+', count: n1 },
+        { color: HER2_COLORS[2], label: '2+', count: n2 },
+        { color: HER2_COLORS[3], label: '3+', count: n3 },
+    ]);
 }
 
 function _computeAllredFromCounts(c) {
@@ -1323,14 +1644,51 @@ function _updateAllredScoreDisplay(counts) {
     if (!_lastDetectionResult || !_lastDetectionResult.allred_score) return;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
     const a = _computeAllredFromCounts(c);
-    const marker = _lastDetectionTissue || 'ER';
-    $ihcScoreLabel.textContent = `${marker} (Allred)`;
+    const marker = _lastDetectionTissue || 'ER/PR';
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
+    $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
     $ihcScoreValue.textContent = `${a.ts} / 8`;
+    const ALLRED_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
+    _renderScoreBar($ihcScoreBar, [
+        { value: a.n0, color: ALLRED_COLORS[0], label: `0+ ${a.n0}` },
+        { value: a.n1, color: ALLRED_COLORS[1], label: `1+ ${a.n1}` },
+        { value: a.n2, color: ALLRED_COLORS[2], label: `2+ ${a.n2}` },
+        { value: a.n3, color: ALLRED_COLORS[3], label: `3+ ${a.n3}` },
+    ]);
     $ihcScoreDetail.innerHTML =
         `PS: ${a.ps} &nbsp;·&nbsp; IS: ${a.is_} &nbsp;·&nbsp; <strong>${a.interpretation}</strong><br>` +
-        `Positive: ${a.posPct.toFixed(1)}% &nbsp;·&nbsp; Avg int: ${a.avg.toFixed(2)}<br>` +
-        `0+: ${a.n0} · 1+: ${a.n1} · 2+: ${a.n2} · 3+: ${a.n3}<br>` +
-        `Total: ${a.total}`;
+        `Positive: ${a.posPct.toFixed(1)}% &nbsp;·&nbsp; Avg intensity: ${a.avg.toFixed(2)}`;
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: ALLRED_COLORS[0], label: '0+', count: a.n0 },
+        { color: ALLRED_COLORS[1], label: '1+', count: a.n1 },
+        { color: ALLRED_COLORS[2], label: '2+', count: a.n2 },
+        { color: ALLRED_COLORS[3], label: '3+', count: a.n3 },
+    ]);
+}
+
+function _updateKi67ScoreDisplay(counts) {
+    if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
+    if (!_lastDetectionResult || !_lastDetectionResult.ki67_score) return;
+    const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
+    const total = n0 + n1 + n2 + n3;
+    const pos = n1 + n2 + n3;
+    const ki67Index = total === 0 ? 0 : pos / total * 100;
+    const interp = ki67Index >= 14 ? 'High' : 'Low';
+    const KI67_COLORS = ['#27ae60', '#e74c3c'];
+    $ihcScoreLabel.textContent = 'KI-67';
+    $ihcScoreValue.textContent = `${ki67Index.toFixed(1)}%`;
+    _renderScoreBar($ihcScoreBar, [
+        { value: n0, color: KI67_COLORS[0], label: `Neg ${n0}` },
+        { value: pos, color: KI67_COLORS[1], label: `Pos ${pos}` },
+    ]);
+    $ihcScoreDetail.innerHTML =
+        `Labeling Index: ${ki67Index.toFixed(1)}% &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
+        `Positive: ${pos.toLocaleString()} &nbsp;·&nbsp; Negative: ${n0.toLocaleString()} &nbsp;·&nbsp; Total: ${total.toLocaleString()}`;
+    _renderScoreLegend($ihcScoreDetail, [
+        { color: KI67_COLORS[0], label: 'Negative', count: n0 },
+        { color: KI67_COLORS[1], label: 'Positive', count: pos },
+    ]);
 }
 
 function buildResultList(result) {
@@ -1415,34 +1773,7 @@ function buildResultList(result) {
 
         item.append(cb, dot, nameSpan, countSpan);
         $resultList.appendChild(item);
-
-        // 개별 confidence 슬라이더
-        const sliderRow = document.createElement('div');
-        sliderRow.className = 'class-conf-slider';
-
-        const initConf = viewer.classConfidence[id] ?? viewer.defaultConfidence ?? 0.01;
-        const initConfStr = initConf.toFixed(2);
-
-        const sliderLabel = document.createElement('span');
-        sliderLabel.className = 'conf-label';
-        sliderLabel.textContent = initConfStr;
-
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = '0';
-        slider.max = '1';
-        slider.step = '0.01';
-        slider.value = initConfStr;
-        slider.addEventListener('input', () => {
-            const val = parseFloat(slider.value);
-            sliderLabel.textContent = val.toFixed(2);
-            viewer.classConfidence[id] = val;
-            _updateResultCounts();
-            _debouncedRender();
-        });
-
-        sliderRow.append(slider, sliderLabel);
-        $resultList.appendChild(sliderRow);
+        // confidence 임계값은 SaMD 재현성을 위해 고정 — UI 조절 슬라이더 제거됨
     }
 
     _resultCountRefs = { total: totalCount, perClass: perClassCountEls };
@@ -1453,10 +1784,13 @@ function clearResults() {
     $btnVisualize.disabled = true;
     $btnClearResults.disabled = true;
     $btnSaveResults.disabled = true;
+    if ($btnLoadResults) $btnLoadResults.disabled = true;
     viewer.setDetectionResults([]);
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
+    _lastDetectionModel = null;
+    _lastDetectionRoi = null;
 }
 
 $btnClearResults.addEventListener('click', clearResults);
@@ -1481,11 +1815,13 @@ $btnVisualize.addEventListener('click', () => {
     const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
-    const isIhc = isHer2 || isAllred;
+    const isKi67 = !!(_lastDetectionResult && _lastDetectionResult.ki67_score);
+    const isIhc = isHer2 || isAllred || isKi67;
     const modelType = isIhc ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
-    const scoreType = isHer2
-        ? 'HER2'
-        : (isAllred ? 'Allred' : (isPdScore ? _lastDetectionResult.pd_score.score_type : null));
+    const scoreType = isHer2 ? 'HER2'
+        : isAllred ? 'Allred'
+        : isKi67 ? 'KI67'
+        : (isPdScore ? _lastDetectionResult.pd_score.score_type : null);
     const classNames = _lastDetectionResult?.class_names || null;
     const classColors = _lastDetectionResult?.class_colors || null;
 
@@ -1495,23 +1831,196 @@ $btnVisualize.addEventListener('click', () => {
     });
 });
 
-// Detection Result 내부 저장 (서버 AI 결과 폴더로) — 다운로드 X
+// Detection Result 저장 — 현재 로그인한 사용자 전용 편집본으로 DB 저장
+// (원본 모델 추론 캐시는 건드리지 않음)
 $btnSaveResults?.addEventListener('click', async () => {
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
     }
     const tissue = _lastDetectionTissue || 'Stomach';
+    const aiMode = _lastDetectionModel || 'HE-Fit';
     try {
         $btnSaveResults.disabled = true;
-        const r = await api.saveDetectionResult(currentSlideId, tissue, _lastDetectionResult);
-        setStatus(`AI result saved: ${r.filename} (${r.total_cells} cells)`);
+        // 뷰어에서 편집된 셀을 결과 객체에 반영 (class_id 변경 등)
+        if (viewer?.detectionCells) {
+            _lastDetectionResult.cells = viewer.detectionCells;
+            _lastDetectionResult.total_cells = viewer.detectionCells.length;
+        }
+        // confidence 임계값은 SaMD 재현성을 위해 고정값만 사용.
+        // 과거 저장본과의 호환을 위해 레거시 필드는 저장하지 않음(있어도 로드 시 무시).
+        delete _lastDetectionResult.class_confidence;
+        delete _lastDetectionResult.default_confidence;
+        const r = await api.saveDetectionResult(
+            currentSlideId, tissue, _lastDetectionResult, aiMode,
+        );
+        console.log('[save-result]', r);
+        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells → ${r.user_name || 'me'}`);
     } catch (err) {
+        console.error('[save-result] failed', err);
         setStatus(`Save failed: ${err.message}`);
     } finally {
         $btnSaveResults.disabled = false;
     }
 });
+
+// ═══════════════════════════
+// Detection Result 로드 — 다른 사용자(또는 본인)의 저장본 선택
+// ═══════════════════════════
+const $loadUserEditDialog = $('#load-user-edit-dialog');
+const $loadUserEditList = $('#load-user-edit-list');
+const $loadUserEditMeta = $('#load-user-edit-meta');
+$('#close-load-user-edit')?.addEventListener('click', () => $loadUserEditDialog?.close());
+
+function _fmtDateIso(str) {
+    if (!str) return '';
+    try {
+        const d = new Date(str);
+        return d.toLocaleString();
+    } catch (_) { return str; }
+}
+
+async function _openLoadUserEditDialog() {
+    if (!currentSlideId) {
+        setStatus('슬라이드를 먼저 열어주세요');
+        return;
+    }
+    if (!_lastDetectionModel || !_lastDetectionTissue) {
+        setStatus('먼저 AI 모델을 실행해주세요 (어떤 모드를 로드할지 지정해야 합니다)');
+        return;
+    }
+    const aiMode = _lastDetectionModel;
+    const variant = _lastDetectionTissue;
+    $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
+    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading…</div>';
+    $loadUserEditDialog.showModal();
+
+    let users = [];
+    try {
+        const r = await api.listUserAiEdits(currentSlideId, aiMode, variant);
+        users = r.users || [];
+    } catch (err) {
+        $loadUserEditList.innerHTML = `<div style="padding:12px; color:#c66;">Failed: ${err.message}</div>`;
+        return;
+    }
+
+    $loadUserEditList.innerHTML = '';
+
+    // 편의 항목: "원본 모델 추론 결과" (기존 AI 버튼 재실행과 동일)
+    const originalRow = document.createElement('div');
+    originalRow.className = 'result-row';
+    originalRow.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+    originalRow.innerHTML = `
+        <div style="font-weight:600;">Original model inference</div>
+        <div style="font-size:11px; color:#888; margin-top:2px;">
+            원본 모델 추론 재실행 (${aiMode} / ${variant})
+        </div>`;
+    originalRow.addEventListener('click', async () => {
+        $loadUserEditDialog.close();
+        _rerunOriginalInference(aiMode, variant);
+    });
+    $loadUserEditList.appendChild(originalRow);
+
+    if (users.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:12px; color:#888; font-size:12px;';
+        empty.textContent = '저장된 사용자 편집본이 없습니다.';
+        $loadUserEditList.appendChild(empty);
+        return;
+    }
+
+    const myId = window.__currentUserId || '';
+    for (const u of users) {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.style.cssText = 'padding:10px 12px; border-bottom:1px solid #333; display:flex; align-items:center; gap:8px;';
+        const displayName = u.str_user_name || u.str_login_id || u.str_user_id;
+        const isMine = u.str_user_id && u.str_user_id === myId;
+
+        const info = document.createElement('div');
+        info.style.cssText = 'flex:1; cursor:pointer; min-width:0;';
+        info.innerHTML = `
+            <div style="font-weight:600;">
+                ${escapeHtml(displayName)}${isMine ? ' <span style="color:#6cf; font-size:10px;">(me)</span>' : ''}
+            </div>
+            <div style="font-size:11px; color:#888; margin-top:2px;">
+                ${u.int_total_cells.toLocaleString()} cells · ${_fmtDateIso(u.dt_updated_at)}
+            </div>`;
+        info.addEventListener('click', async () => {
+            $loadUserEditDialog.close();
+            try {
+                setStatus(`Loading ${displayName}'s analysis…`);
+                const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
+                _applyLoadedResult(aiMode, variant, r.result);
+                setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
+            } catch (err) {
+                setStatus(`Load failed: ${err.message}`);
+            }
+        });
+        row.appendChild(info);
+
+        if (isMine) {
+            const del = document.createElement('button');
+            del.className = 'small-btn';
+            del.title = 'Delete my saved analysis';
+            del.style.cssText = 'background:transparent; border:1px solid #555; padding:4px 8px; cursor:pointer;';
+            del.textContent = '🗑';
+            del.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                if (!confirm(`Delete your saved ${aiMode} / ${variant} analysis for this slide?`)) return;
+                try {
+                    del.disabled = true;
+                    await api.deleteMyUserAiEdit(currentSlideId, aiMode, variant);
+                    setStatus('Deleted your saved analysis');
+                    // 모달 다시 불러오기
+                    _openLoadUserEditDialog();
+                } catch (err) {
+                    setStatus(`Delete failed: ${err.message}`);
+                    del.disabled = false;
+                }
+            });
+            row.appendChild(del);
+        }
+
+        $loadUserEditList.appendChild(row);
+    }
+}
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+function _applyLoadedResult(aiMode, variant, result) {
+    if (!result) return;
+    const roi = _lastDetectionRoi || null;
+    if (aiMode === 'HE-Fit') {
+        onDetectionComplete(result, roi, variant);
+    } else if (aiMode === 'PD-Score') {
+        onPdScoreComplete(result, roi, variant);
+    } else if (aiMode === 'Precise-IHC') {
+        onPreciseIhcComplete(result, roi, variant);
+    }
+    // 레거시 저장본에 class_confidence / default_confidence 필드가 있어도 무시.
+    // 모든 결과는 현재 모델의 고정 임계값으로 표시된다 (SaMD 재현성).
+}
+
+function _rerunOriginalInference(aiMode, variant) {
+    // 기존 AI 버튼과 동일한 경로로 재실행 — 서버 디스크 캐시가 있으면 즉시 반환됨
+    if (aiMode === 'HE-Fit') {
+        // startDetection 은 버튼 핸들러 내부에 있으므로 버튼 클릭 트리거
+        $('#btn-detect')?.click();
+    } else if (aiMode === 'PD-Score') {
+        $('#btn-pd-score')?.click();
+    } else if (aiMode === 'Precise-IHC') {
+        if (variant === 'ER_PR') $('#btn-ihc-erpr')?.click();
+        else if (variant === 'KI_67') $('#btn-ihc-ki67')?.click();
+        else $('#btn-ihc-her2')?.click();
+    }
+}
+
+$btnLoadResults?.addEventListener('click', _openLoadUserEditDialog);
 
 // ═══════════════════════════
 // 유틸리티
@@ -2170,10 +2679,9 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
     { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
     { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
-    { model: 'Precise-IHC', variant: 'ER',      label: 'Precise-IHC · ER (Allred)' },
-    { model: 'Precise-IHC', variant: 'PR',      label: 'Precise-IHC · PR (Allred)' },
-    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC · Membrane (Virtual Stain)', mpp: true },
-    { model: 'VS-IHC',      variant: 'ihc_nucleus',  label: 'VS-IHC · Nucleus (Virtual Stain)',  mpp: true },
+    { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
+    { model: 'Precise-IHC', variant: 'KI_67',   label: 'Precise-IHC · KI-67' },
+    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC (Virtual Stain)', mpp: true },
 ];
 const VS_MPP_CHOICES = [
     { value: 4.0, label: '4.0 µm/px (x2.5)' },
@@ -2339,10 +2847,14 @@ $btnViewGrid.addEventListener('click', () => {
 // VS-IHC (Virtual Staining)
 // ═══════════════════════════
 async function startVirtualStain(stainType) {
-    if (!currentSlideId || _vsRunning) return;
+    if (!currentSlideId) return;
+    const str_key = 'vs-' + stainType;
+    if (await _maybeCancelRunning(str_key)) return;
+
+    const btnEl = $btnVsMembrane;
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
     _vsRunning = true;
-    $btnVsMembrane.disabled = true;
-    $btnVsNucleus.disabled = true;
+    _setButtonRunning(btnEl, true);
     $progressLabel.textContent = 'Virtual Staining...';
     setProgress(0);
     setStatus('Virtual staining 시작...');
@@ -2358,11 +2870,18 @@ async function startVirtualStain(stainType) {
 
     try {
         const { task_id } = await api.startVirtualStain(currentSlideId, stainType, roiPolygons, targetMpp);
+        if (_runningAiTasks[str_key]) {
+            _runningAiTasks[str_key].task_id = task_id;
+            if (_runningAiTasks[str_key].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
         // 결과 로딩 시 같은 mpp로 PNG 요청
         _vsLastTargetMpp = targetMpp;
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks[str_key]) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -2373,15 +2892,20 @@ async function startVirtualStain(stainType) {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('Virtual staining 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`Virtual staining 실패: ${err.message}`);
         $progressLabel.textContent = 'Virtual staining failed';
     } finally {
+        delete _runningAiTasks[str_key];
         _vsRunning = false;
-        $btnVsMembrane.disabled = false;
-        $btnVsNucleus.disabled = false;
+        _setButtonRunning(btnEl, false);
     }
 }
 
@@ -2436,7 +2960,6 @@ $vsMppSlider?.addEventListener('input', () => {
 });
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
-$btnVsNucleus?.addEventListener('click', () => startVirtualStain('ihc_nucleus'));
 
 // ═══════════════════════════
 // PD-Score (PD-L1) — CPS / TPS
@@ -2445,7 +2968,10 @@ $btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {
     if (!currentSlideId) return;
-    $btnPdScore.disabled = true;
+    if (await _maybeCancelRunning('pd-score')) return;
+
+    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore };
+    _setButtonRunning($btnPdScore, true);
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
     setProgress(0);
@@ -2459,9 +2985,16 @@ async function startPdScore() {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startPdScore(currentSlideId, roiPolygons, tissueType);
+        if (_runningAiTasks['pd-score']) {
+            _runningAiTasks['pd-score'].task_id = task_id;
+            if (_runningAiTasks['pd-score'].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks['pd-score']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
@@ -2473,13 +3006,21 @@ async function startPdScore() {
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus('PD-Score 중지됨 — 부분 결과 정리 완료');
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
         setStatus(`PD-Score 실패: ${err.message}`);
     } finally {
-        $btnPdScore.disabled = false;
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks['pd-score'];
+        _setButtonRunning($btnPdScore, false);
+        if ($progressLabel.textContent === 'PD-L1 Detection...') {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
@@ -2491,6 +3032,8 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
+    _lastDetectionModel = 'PD-Score';
+    _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
     // PD-Score 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
@@ -2501,7 +3044,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;
+    viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
@@ -2517,15 +3060,32 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         $pdScoreLabel.textContent = scoreLabel;
         $pdScoreValue.textContent = `${scoreValue}%`;
         if (score.score_type === 'CPS') {
-            $pdScoreDetail.innerHTML =
-                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
-                `Positive Immune: ${score.positive_immune}<br>` +
-                `Viable Tumor: ${score.viable_tumor}`;
+            const pt = score.positive_tumor || 0;
+            const pi = score.positive_immune || 0;
+            const nt = (score.viable_tumor || 0) - pt;
+            _renderScoreBar($pdScoreBar, [
+                { value: pt, color: '#e74c3c', label: `Pos T ${pt}` },
+                { value: pi, color: '#f39c12', label: `Pos I ${pi}` },
+                { value: Math.max(0, nt), color: '#27ae60', label: `Neg ${Math.max(0, nt)}` },
+            ]);
+            $pdScoreDetail.innerHTML = '';
+            _renderScoreLegend($pdScoreDetail, [
+                { color: '#e74c3c', label: 'Pos Tumor', count: pt },
+                { color: '#f39c12', label: 'Pos Immune', count: pi },
+                { color: '#27ae60', label: 'Neg Tumor', count: Math.max(0, nt) },
+            ]);
         } else {
-            $pdScoreDetail.innerHTML =
-                `Positive Tumor: ${score.positive_tumor} &nbsp;·&nbsp; ` +
-                `Negative Tumor: ${score.negative_tumor}<br>` +
-                `Total Tumor: ${score.total_tumor}`;
+            const pt = score.positive_tumor || 0;
+            const nt = score.negative_tumor || 0;
+            _renderScoreBar($pdScoreBar, [
+                { value: pt, color: '#e74c3c', label: `Pos ${pt}` },
+                { value: nt, color: '#27ae60', label: `Neg ${nt}` },
+            ]);
+            $pdScoreDetail.innerHTML = '';
+            _renderScoreLegend($pdScoreDetail, [
+                { color: '#e74c3c', label: 'Positive', count: pt },
+                { color: '#27ae60', label: 'Negative', count: nt },
+            ]);
         }
     }
 
@@ -2533,25 +3093,32 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
-$btnIhcEr?.addEventListener('click', () => startPreciseIhc('ER'));
-$btnIhcPr?.addEventListener('click', () => startPreciseIhc('PR'));
+$btnIhcErPr?.addEventListener('click', () => startPreciseIhc('ER_PR'));
+$btnIhcKi67?.addEventListener('click', () => startPreciseIhc('KI_67'));
 
 function _setIhcMarkerButtonsDisabled(disabled) {
     if ($btnIhcHer2) $btnIhcHer2.disabled = disabled;
-    if ($btnIhcEr) $btnIhcEr.disabled = disabled;
-    if ($btnIhcPr) $btnIhcPr.disabled = disabled;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = disabled;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = disabled;
 }
 
 async function startPreciseIhc(marker) {
     if (!currentSlideId) return;
-    _setIhcMarkerButtonsDisabled(true);
+    const str_key = 'ihc-' + marker;
+    if (await _maybeCancelRunning(str_key)) return;
+
+    const btnEl = marker === 'ER_PR' ? $btnIhcErPr : (marker === 'KI_67' ? $btnIhcKi67 : $btnIhcHer2);
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
+    _setButtonRunning(btnEl, true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
-    $progressLabel.textContent = `${marker} Detection...`;
+    $progressLabel.textContent = `${markerLabel} Detection...`;
     setProgress(0);
-    setStatus(`${marker} 시작...`);
+    setStatus(`${markerLabel} 시작...`);
 
     viewer.setDrawMode(null);
 
@@ -2562,38 +3129,56 @@ async function startPreciseIhc(marker) {
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
         const { task_id } = await api.startPreciseIhc(currentSlideId, roiPolygons, marker);
+        if (_runningAiTasks[str_key]) {
+            _runningAiTasks[str_key].task_id = task_id;
+            if (_runningAiTasks[str_key].pending_cancel) {
+                try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+            }
+        }
 
         while (true) {
             await sleep(1000);
+            if (!_runningAiTasks[str_key]) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
-            $progressLabel.textContent = `${marker} Detection`;
+            $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
                 onPreciseIhcComplete(st.result, roiPolygons, marker);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
+            } else if (st.status === 'cancelled') {
+                setStatus(`${markerLabel} 중지됨 — 부분 결과 정리 완료`);
+                $progressLabel.textContent = 'Cancelled';
+                setProgress(0);
+                return;
             }
         }
     } catch (err) {
-        setStatus(`${marker} 실패: ${err.message}`);
+        setStatus(`${markerLabel} 실패: ${err.message}`);
     } finally {
-        _setIhcMarkerButtonsDisabled(false);
-        $progressLabel.textContent = 'AI Progress';
+        delete _runningAiTasks[str_key];
+        _setButtonRunning(btnEl, false);
+        if ($progressLabel.textContent === `${markerLabel} Detection...`) {
+            $progressLabel.textContent = 'AI Progress';
+        }
     }
 }
 
 function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
-    $progressLabel.textContent = `${marker} Complete`;
+    const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
+    $progressLabel.textContent = `${markerLabel} Complete`;
 
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
     _lastDetectionResult = result;
     _lastDetectionTissue = marker;
+    _lastDetectionModel = 'Precise-IHC';
+    _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
     const colorMap = {};
@@ -2603,27 +3188,38 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;
+    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
+    const HER2_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
     if (result.her2_score) {
         const score = result.her2_score;
         const dominant = score.dominant_class ?? 0;
         const weighted = (score.score ?? 0).toFixed(2);
+        const cc = score.class_counts || {};
+        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
         setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
         if ($ihcScoreResult) {
             $ihcScoreResult.hidden = false;
             $ihcScoreLabel.textContent = 'HER2';
             $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
-            const cc = score.class_counts || {};
-            $ihcScoreDetail.innerHTML =
-                `0+: ${cc[0] || 0} &nbsp;·&nbsp; 1+: ${cc[1] || 0}<br>` +
-                `2+: ${cc[2] || 0} &nbsp;·&nbsp; 3+: ${cc[3] || 0}<br>` +
-                `Total: ${score.total_tumor || 0}`;
+            _renderScoreBar($ihcScoreBar, [
+                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+            ]);
+            $ihcScoreDetail.innerHTML = '';
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: HER2_COLORS[0], label: '0+', count: n0 },
+                { color: HER2_COLORS[1], label: '1+', count: n1 },
+                { color: HER2_COLORS[2], label: '2+', count: n2 },
+                { color: HER2_COLORS[3], label: '3+', count: n3 },
+            ]);
         }
     } else if (result.allred_score) {
         const score = result.allred_score;
@@ -2631,18 +3227,53 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         const ps = score.proportion_score ?? 0;
         const is_ = score.intensity_score ?? 0;
         const interp = score.interpretation || (ts >= 3 ? 'Positive' : 'Negative');
-        setStatus(`${marker} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
+        const cc = score.class_counts || {};
+        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
+        setStatus(`${markerLabel} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
         if ($ihcScoreResult) {
             $ihcScoreResult.hidden = false;
-            $ihcScoreLabel.textContent = `${marker} (Allred)`;
+            $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
             $ihcScoreValue.textContent = `${ts} / 8`;
-            const cc = score.class_counts || {};
+            _renderScoreBar($ihcScoreBar, [
+                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
+                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
+                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
+                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
+            ]);
             $ihcScoreDetail.innerHTML =
                 `PS: ${ps} &nbsp;·&nbsp; IS: ${is_} &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
-                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; ` +
-                `Avg int: ${(score.avg_intensity ?? 0).toFixed(2)}<br>` +
-                `0+: ${cc[0] || 0} · 1+: ${cc[1] || 0} · 2+: ${cc[2] || 0} · 3+: ${cc[3] || 0}<br>` +
-                `Total: ${score.total_tumor || 0}`;
+                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; Avg intensity: ${(score.avg_intensity ?? 0).toFixed(2)}`;
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: HER2_COLORS[0], label: '0+', count: n0 },
+                { color: HER2_COLORS[1], label: '1+', count: n1 },
+                { color: HER2_COLORS[2], label: '2+', count: n2 },
+                { color: HER2_COLORS[3], label: '3+', count: n3 },
+            ]);
+        }
+    } else if (result.ki67_score) {
+        const score = result.ki67_score;
+        const ki67Index = score.ki67_index ?? 0;
+        const interp = score.interpretation || (ki67Index >= 14 ? 'High' : 'Low');
+        const posCount = score.positive_count ?? 0;
+        const negCount = score.negative_count ?? 0;
+        const totalTumor = score.total_tumor ?? 0;
+        const KI67_COLORS = ['#27ae60', '#e74c3c'];
+        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
+        if ($ihcScoreResult) {
+            $ihcScoreResult.hidden = false;
+            $ihcScoreLabel.textContent = 'KI-67';
+            $ihcScoreValue.textContent = `${ki67Index.toFixed(1)}%`;
+            _renderScoreBar($ihcScoreBar, [
+                { value: negCount, color: KI67_COLORS[0], label: `Neg ${negCount}` },
+                { value: posCount, color: KI67_COLORS[1], label: `Pos ${posCount}` },
+            ]);
+            $ihcScoreDetail.innerHTML =
+                `Labeling Index: ${ki67Index.toFixed(1)}% &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
+                `Positive: ${posCount.toLocaleString()} &nbsp;·&nbsp; Negative: ${negCount.toLocaleString()} &nbsp;·&nbsp; Total: ${totalTumor.toLocaleString()}`;
+            _renderScoreLegend($ihcScoreDetail, [
+                { color: KI67_COLORS[0], label: 'Negative', count: negCount },
+                { color: KI67_COLORS[1], label: 'Positive', count: posCount },
+            ]);
         }
     }
 
@@ -2650,6 +3281,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
+    if ($btnLoadResults) $btnLoadResults.disabled = false;
 }
 
 // ─── VS toggle 헬퍼 ───
@@ -2705,9 +3337,27 @@ $btnVsSplit?.addEventListener('click', () => {
             const $linkAdmin = document.getElementById('link-admin');
             if ($linkAdmin) $linkAdmin.hidden = false;
         }
+        window.__currentUserRole = dict_me.str_role || 'viewer';
+        window.__currentUserId = String(dict_me._id || '');
+        if (window.__currentUserRole === 'viewer') {
+            _applyViewerRoleRestrictions();
+        }
     } catch (_) {
         // 인증 실패 — api.js 가 리다이렉트 처리. 슬라이드/폴링 시작 생략.
         return;
     }
-    loadSlideList();
+    // URL 파라미터로 슬라이드 자동 열기 (?slide=filename&path=rel_path)
+    const _urlParams = new URLSearchParams(location.search);
+    const _paramSlide = _urlParams.get('slide');
+    const _paramPath = _urlParams.get('path');
+    if (_paramPath !== null) currentBrowsePath = _paramPath;
+
+    await loadSlideList();
+
+    if (_paramSlide) {
+        // 슬라이드 목록 로드 후 자동 열기
+        openSavedSlide(_paramSlide, null);
+        // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
+        history.replaceState(null, '', '/app.html');
+    }
 })();

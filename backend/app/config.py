@@ -19,7 +19,8 @@ _SECRETS_FILE = Path(__file__).parent.parent / ".secrets.json"
 
 def _load_or_create_secrets() -> dict:
     dict_loaded: dict = {}
-    if _SECRETS_FILE.exists():
+    bool_existed = _SECRETS_FILE.exists()
+    if bool_existed:
         try:
             with open(_SECRETS_FILE, "r", encoding="utf-8") as f:
                 dict_loaded = json.load(f) or {}
@@ -33,6 +34,18 @@ def _load_or_create_secrets() -> dict:
     if not dict_loaded.get("field_encryption_key"):
         dict_loaded["field_encryption_key"] = secrets.token_urlsafe(32)
         bool_changed = True
+    # Pepper:
+    # - 새 설치(.secrets.json 이 존재하지 않던 경우)는 무작위 pepper 를 생성한다.
+    # - 이전 설치(파일은 있지만 pepper 키가 없는 경우)는 기존 유저 해시와의 호환을
+    #   위해 legacy 하드코딩 값을 그대로 파일로 이관한다 — 소스에서는 지우고
+    #   .secrets.json(0600) 으로만 존재하게 된다.
+    # - 환경변수 AUTH_PEPPER 가 있으면 항상 우선.
+    if not dict_loaded.get("pepper"):
+        if bool_existed:
+            dict_loaded["pepper"] = "MeDICus_2024_P3pp3r"  # legacy 호환
+        else:
+            dict_loaded["pepper"] = secrets.token_urlsafe(32)
+        bool_changed = True
 
     if bool_changed:
         try:
@@ -43,9 +56,9 @@ def _load_or_create_secrets() -> dict:
                 os.chmod(_SECRETS_FILE, 0o600)
             except Exception:
                 pass
-            print(f"[MeDICus SaaS] Persistent secrets written to {_SECRETS_FILE}")
+            print(f"[MeDIAuto SaaS] Persistent secrets written to {_SECRETS_FILE}")
         except Exception as e:
-            print(f"[MeDICus SaaS] WARN — failed to persist secrets: {e}")
+            print(f"[MeDIAuto SaaS] WARN — failed to persist secrets: {e}")
 
     return dict_loaded
 
@@ -73,9 +86,18 @@ class Settings:
     )
 
     # 타일 설정
-    TILE_SIZE: int = 512
+    TILE_SIZE: int = 1024
     TILE_FORMAT: str = "JPEG"  # JPEG이 PNG보다 빠르고 작음
     TILE_QUALITY: int = 85
+
+    # 타일 디스크 캐시 쿼터 (바이트, 기본 50 GB). 0 이하이면 janitor 비활성화.
+    # janitor 는 주기적으로 TILES_DIR 총량을 검사하고, 쿼터를 초과하면 LRU
+    # 기준으로 오래된 슬라이드 타일 디렉토리를 삭제 + DB 플래그 리셋한다.
+    # 현재 slide_manager 에 열려 있는 (활성) 슬라이드는 보호된다.
+    TILE_CACHE_QUOTA_BYTES: int = int(os.environ.get(
+        "TILE_CACHE_QUOTA_BYTES",
+        str(50 * 1024 * 1024 * 1024),
+    ))
 
     # 청크 업로드 설정
     CHUNK_SIZE: int = 5 * 1024 * 1024  # 5MB
@@ -102,13 +124,17 @@ class Settings:
         _dict_persistent_secrets["jwt_secret_key"],
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 360   # 6시간
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── 보안 설정 ──
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCK_MINUTES: int = 30
     SESSION_INACTIVE_MINUTES: int = 30
+
+    # CORS 허용 origin 목록 (쉼표 구분). 비어 있으면 same-origin 만 허용.
+    # 개발 시: CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+    CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "")
 
     # 업로드 크기 상한 (기본 20 GB — WSI 파일 고려). 환경변수 `MAX_UPLOAD_BYTES` 로 오버라이드.
     MAX_UPLOAD_BYTES: int = int(os.environ.get(
@@ -120,6 +146,15 @@ class Settings:
     FIELD_ENCRYPTION_KEY: str = os.environ.get(
         "FIELD_ENCRYPTION_KEY",
         _dict_persistent_secrets["field_encryption_key"],
+    )
+
+    # ── 비밀번호 해시용 pepper (bcrypt 입력에 사전 연결) ──
+    # 과거엔 models.py 에 하드코딩 — 소스 노출 위험. 이제는 환경변수 또는
+    # .secrets.json(0600) 에서 읽는다. 기존 배포에서는 legacy 값이 파일로
+    # 이관되어 기존 해시와의 호환이 유지된다.
+    AUTH_PEPPER: str = os.environ.get(
+        "AUTH_PEPPER",
+        _dict_persistent_secrets["pepper"],
     )
 
 

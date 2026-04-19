@@ -6,22 +6,30 @@
 import os
 import json
 import uuid
+import asyncio
 import hashlib
 import shutil
+from datetime import timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.auth import get_current_user
+from app.audit import get_client_ip, log_audit_event
+from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
 from app import tile_generator
 from app import slide_store
 from app import auto_ai
+from app.cpu_layout import bg_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+# 미디어(썸네일/프리뷰) 전용 서브 라우터 — Bearer JWT 또는 ?mt= 티켓 허용.
+# 부모 router 와 같은 prefix("/api/slides") 로 main.py 에서 별도 include 된다.
+media_router = APIRouter(dependencies=[Depends(get_media_user)])
 
 
 def _rel_path_for(file_path: str) -> str:
@@ -45,6 +53,10 @@ def _slide_response(slide_id: str, info, filename: str):
         "level_count": info.level_count,
         "level_dimensions": info.level_dimensions,
         "level_downsamples": info.level_downsamples,
+        # 3단계 stage 피라미드 (타일 생성/서빙 기준)
+        "stage_count": info.stage_count,
+        "stage_downsamples": info.stage_downsamples,
+        "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
         "mpp_x": info.mpp_x,
         "mpp_y": info.mpp_y,
@@ -61,14 +73,21 @@ async def _open_and_generate(
     file_path: str,
     filename: str,
     dict_user: Optional[dict] = None,
+    bool_wait_for_tiles: bool = False,
+    str_sha256: str = "",
 ):
-    """슬라이드 열기 + 타일 생성 시작 → DB 업서트 후 응답 반환"""
+    """슬라이드 열기 + 타일 생성 → DB 업서트 후 응답 반환.
+
+    `bool_wait_for_tiles=True` 면 업로드 경로에서 호출된 것으로, 타일 프리젠이
+    끝날 때까지 기다린 뒤 응답을 돌려준다. 터널/원격 환경에서 on-demand 타일
+    생성이 느려 사용자 경험이 나빠지는 것을 방지.
+    """
     # 이미 열려있으면 그대로
     existing = slide_manager.get(slide_id)
     if existing:
-        tile_generator.start_generation(filename, file_path)
+        await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
         resp = _slide_response(slide_id, existing, filename)
-        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user)
+        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user, str_sha256)
         return resp
 
     try:
@@ -76,11 +95,31 @@ async def _open_and_generate(
     except Exception as e:
         raise HTTPException(400, f"슬라이드 열기 실패: {e}")
 
-    # 백그라운드 타일 생성 시작
-    tile_generator.start_generation(filename, file_path)
+    await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
     resp = _slide_response(slide_id, info, filename)
-    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user)
+    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user, str_sha256)
     return resp
+
+
+async def _run_tile_gen(filename: str, file_path: str, bool_wait: bool) -> None:
+    """타일 생성 실행. wait 모드에서는 동기 실행 (bg_executor), 아니면 백그라운드 스레드."""
+    if tile_generator.tiles_ready(filename):
+        return
+    if not bool_wait:
+        tile_generator.start_generation(filename, file_path)
+        return
+    # 동기 실행 — bg_executor 에 올려 이벤트 루프는 안 막는다
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        bg_executor, tile_generator._generate_tiles, filename, file_path
+    )
+    # mark_tiles_ready 는 _generate_tiles 가 threadsafe 로 예약하지만,
+    # 업로드 응답 전에 DB 가 확실히 최신이 되도록 한 번 더 동기 마킹.
+    try:
+        str_rel = _rel_path_for(file_path)
+        await slide_store.mark_tiles_ready(str_rel, filename, True)
+    except Exception as e:
+        print(f"[slides] mark_tiles_ready post-upload failed ({filename}): {e}")
 
 
 async def _upsert_and_attach(
@@ -90,6 +129,7 @@ async def _upsert_and_attach(
     filename: str,
     info,
     dict_user: Optional[dict],
+    str_sha256: str = "",
 ):
     """slides 컬렉션에 upsert + 응답에 ai_results 플래그 부착 (DB 없으면 no-op)."""
     try:
@@ -112,7 +152,17 @@ async def _upsert_and_attach(
     )
     if dict_doc:
         resp["ai_results"] = slide_store.serialize_slide_doc(dict_doc).get("dict_ai_results")
-        resp["uploaded_at"] = dict_doc.get("dt_uploaded_at").isoformat() if dict_doc.get("dt_uploaded_at") else None
+        dt_up = dict_doc.get("dt_uploaded_at")
+        resp["uploaded_at"] = dt_up.replace(tzinfo=timezone.utc).isoformat() if dt_up and not dt_up.tzinfo else (dt_up.isoformat() if dt_up else None)
+        # SHA-256 체크섬 저장
+        if str_sha256 and not dict_doc.get("str_sha256"):
+            from app.database import get_db as _get_db
+            db = _get_db()
+            await db.slides.update_one(
+                {"str_slide_id": slide_id, "str_filename": filename},
+                {"$set": {"str_sha256": str_sha256}},
+            )
+        resp["sha256"] = str_sha256 or dict_doc.get("str_sha256", "")
 
 
 # ── 저장된 슬라이드/폴더 목록 ──
@@ -124,6 +174,44 @@ def _safe_subpath(subpath: str) -> Path:
     if not str(target).startswith(str(upload_dir)):
         raise HTTPException(400, "잘못된 경로")
     return target
+
+
+@router.get("/dashboard")
+async def dashboard():
+    """대시보드 홈: 최근 슬라이드 + AI/상태 통계."""
+    list_recent = await slide_store.get_recent_slides(12)
+    dict_stats = await slide_store.get_dashboard_stats()
+
+    list_recent_out = []
+    for dict_doc in list_recent:
+        dt_opened = dict_doc.get("dt_last_opened_at")
+        dict_ai = dict_doc.get("dict_ai_results") or slide_store._empty_ai_results()
+        # AI 결과 모델 이름만 추출
+        list_ai_done = [
+            str_k for str_k, v in dict_ai.items()
+            if v.get("bool_has_result")
+        ]
+        list_recent_out.append({
+            "slide_id": dict_doc.get("str_slide_id", ""),
+            "filename": dict_doc.get("str_filename", ""),
+            "rel_path": dict_doc.get("str_rel_path", ""),
+            "size_bytes": dict_doc.get("int_size_bytes", 0),
+            "mpp": dict_doc.get("float_mpp"),
+            "status": dict_doc.get("str_status", ""),
+            "last_opened_at": dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None),
+            "ai_done": list_ai_done,
+            "tiles_ready": bool(dict_doc.get("bool_tiles_ready")),
+        })
+
+    return {
+        "recent_slides": list_recent_out,
+        "total_slides": dict_stats["int_total_slides"],
+        "status_counts": dict_stats["dict_status_counts"],
+        "ai_counts": dict_stats["dict_ai_counts"],
+        "folder_count": dict_stats["int_folder_count"],
+        "storage_used_bytes": dict_stats["int_storage_used_bytes"],
+        "storage_total_bytes": dict_stats["int_storage_total_bytes"],
+    }
 
 
 @router.get("/browse")
@@ -165,7 +253,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 }
                 dict_item["uploaded_by"] = dict_db.get("str_uploaded_by") or ""
                 dt_opened = dict_db.get("dt_last_opened_at")
-                dict_item["last_opened_at"] = dt_opened.isoformat() if dt_opened else None
+                dict_item["last_opened_at"] = dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None)
                 dict_item["status"] = dict_db.get("str_status") or ""
             else:
                 dict_item["ai_results"] = None
@@ -173,6 +261,20 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
+
+
+@router.get("/folder-tree")
+async def folder_tree():
+    """uploads/ 하위 전체 폴더 트리를 flat list 로 반환 (업로드 폴더 선택용)."""
+    upload_root = Path(settings.UPLOAD_DIR)
+    list_folders: list[str] = []
+    for dirpath, dirnames, _ in os.walk(upload_root):
+        # 숨김/임시 폴더 제외
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and not d.startswith("_chunks_")]
+        for d in sorted(dirnames):
+            rel = os.path.relpath(os.path.join(dirpath, d), upload_root)
+            list_folders.append(rel.replace("\\", "/"))
+    return {"folders": sorted(list_folders)}
 
 
 @router.post("/folder/create")
@@ -385,6 +487,7 @@ async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_pat
 
 @router.post("/open")
 async def open_slide(
+    request: Request,
     filename: str = Form(...),
     path: str = Form(""),
     dict_user: dict = Depends(get_current_user),
@@ -397,6 +500,22 @@ async def open_slide(
     slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
     resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user)
     resp["exists"] = True
+
+    # 슬라이드 조회 감사 로그 — 활동 분석용
+    try:
+        await log_audit_event(
+            str_action="slide.view",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=slide_id,
+            str_detail=filename,
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={"str_rel_path": path or ""},
+        )
+    except Exception:
+        pass
     return resp
 
 
@@ -449,6 +568,7 @@ async def upload_complete(
     filename: str = Form(...),
     total_chunks: int = Form(...),
     path: str = Form(""),
+    wait_tiles: str = Form("false"),
     dict_user: dict = Depends(get_current_user),
 ):
     """업로드 완료 — 청크 조립 → 슬라이드 열기 + 타일 생성"""
@@ -485,20 +605,44 @@ async def upload_complete(
         final_path = save_dir / filename
 
         bool_newly_written = False
+        str_sha256 = ""
         if final_path.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
         else:
+            sha256_hash = hashlib.sha256()
             with open(final_path, "wb") as out:
                 for i in range(total_chunks):
                     chunk_path = chunk_dir / f"chunk_{i:06d}"
                     with open(chunk_path, "rb") as cf:
-                        shutil.copyfileobj(cf, out)
+                        while True:
+                            bytes_block = cf.read(8192)
+                            if not bytes_block:
+                                break
+                            out.write(bytes_block)
+                            sha256_hash.update(bytes_block)
+            str_sha256 = sha256_hash.hexdigest()
             shutil.rmtree(chunk_dir, ignore_errors=True)
             bool_newly_written = True
 
+        # 기존 파일의 체크섬도 계산 (DB에 미저장된 경우)
+        if not str_sha256 and final_path.exists():
+            sha256_hash = hashlib.sha256()
+            with open(final_path, "rb") as f:
+                while True:
+                    bytes_block = f.read(8192)
+                    if not bytes_block:
+                        break
+                    sha256_hash.update(bytes_block)
+            str_sha256 = sha256_hash.hexdigest()
+
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
+        bool_wait = wait_tiles.lower() in ("true", "1", "yes")
         try:
-            return await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+            return await _open_and_generate(
+                slide_id, str(final_path), filename, dict_user,
+                bool_wait_for_tiles=bool_wait,
+                str_sha256=str_sha256,
+            )
         except HTTPException:
             # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리
             if bool_newly_written and final_path.exists():
@@ -515,6 +659,7 @@ async def upload_complete(
 
 @router.post("/open-local")
 async def open_local_file(
+    request: Request,
     file_path: str = Form(...),
     dict_user: dict = Depends(get_current_user),
 ):
@@ -528,7 +673,22 @@ async def open_local_file(
         raise HTTPException(400, f"지원하지 않는 파일 형식: {ext}")
 
     slide_id = hashlib.md5(path.name.encode()).hexdigest()[:12]
-    return await _open_and_generate(slide_id, str(path), path.name, dict_user)
+    resp = await _open_and_generate(slide_id, str(path), path.name, dict_user)
+    try:
+        await log_audit_event(
+            str_action="slide.view",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=slide_id,
+            str_detail=path.name,
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={"str_source": "open-local"},
+        )
+    except Exception:
+        pass
+    return resp
 
 
 # ── 타일 생성 진행 상태 ──
@@ -562,12 +722,58 @@ async def get_slide_info(slide_id: str):
         "level_count": info.level_count,
         "level_dimensions": info.level_dimensions,
         "level_downsamples": info.level_downsamples,
+        "stage_count": info.stage_count,
+        "stage_downsamples": info.stage_downsamples,
+        "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
         "tiles_ready": tile_generator.tiles_ready(Path(info.file_path).name),
     }
 
 
-@router.get("/thumbnail-by-name")
+@router.get("/{slide_id}/verify-integrity")
+async def verify_slide_integrity(slide_id: str, dict_user: dict = Depends(get_current_user)):
+    """슬라이드 파일의 SHA-256 체크섬을 재계산하여 DB 저장값과 비교."""
+    from app.database import get_db as _get_db
+
+    db = _get_db()
+    dict_doc = await db.slides.find_one({"str_slide_id": slide_id})
+    if not dict_doc:
+        raise HTTPException(404, "슬라이드 DB 레코드 없음")
+
+    str_stored_hash = dict_doc.get("str_sha256", "")
+    str_file_path = dict_doc.get("str_full_path", "")
+    if not str_file_path or not Path(str_file_path).exists():
+        raise HTTPException(404, "슬라이드 파일을 찾을 수 없습니다")
+
+    # 재계산
+    sha256_hash = hashlib.sha256()
+    with open(str_file_path, "rb") as f:
+        while True:
+            bytes_block = f.read(8192)
+            if not bytes_block:
+                break
+            sha256_hash.update(bytes_block)
+    str_current_hash = sha256_hash.hexdigest()
+
+    bool_match = str_stored_hash == str_current_hash if str_stored_hash else False
+
+    # 저장된 해시가 없으면 이번에 저장
+    if not str_stored_hash:
+        await db.slides.update_one(
+            {"str_slide_id": slide_id},
+            {"$set": {"str_sha256": str_current_hash}},
+        )
+
+    return {
+        "slide_id": slide_id,
+        "filename": dict_doc.get("str_filename", ""),
+        "str_stored_hash": str_stored_hash or "(not set — saved now)",
+        "str_current_hash": str_current_hash,
+        "bool_integrity_ok": bool_match if str_stored_hash else True,
+    }
+
+
+@media_router.get("/thumbnail-by-name")
 async def get_thumbnail_by_name(
     filename: str = Query(...),
     path: str = Query(""),
@@ -615,7 +821,7 @@ async def get_thumbnail_by_name(
         raise HTTPException(500, f"썸네일 생성 실패: {e}")
 
 
-@router.get("/{slide_id}/preview")
+@media_router.get("/{slide_id}/preview")
 async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
     """고해상도 슬라이드 프리뷰 (PDF 리포트용, 캐시 미사용)"""
     info = slide_manager.get(slide_id)
@@ -630,7 +836,7 @@ async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
-@router.get("/{slide_id}/thumbnail")
+@media_router.get("/{slide_id}/thumbnail")
 async def get_thumbnail(slide_id: str, size: int = Query(300, ge=64, le=1024)):
     """slide_id 기반 썸네일 (하위 호환)"""
     info = slide_manager.get(slide_id)
@@ -697,7 +903,7 @@ async def get_folder_config(path: str = Query("")):
     }
 
 
-@router.post("/folder-config")
+@router.post("/folder-config", dependencies=[Depends(require_not_viewer)])
 async def save_folder_config(
     path: str = Form(""),
     enabled: bool = Form(True),
@@ -757,7 +963,7 @@ async def save_folder_config(
     return {"status": "saved", "path": str_norm, "enabled": enabled, "tasks": list_clean}
 
 
-@router.delete("/folder-config")
+@router.delete("/folder-config", dependencies=[Depends(require_not_viewer)])
 async def delete_folder_config(path: str = Query("")):
     """폴더의 AI 자동 추론 설정 삭제."""
     if not is_db_connected():
@@ -781,7 +987,7 @@ async def close_slide(slide_id: str):
 
 # ── Annotation 저장/불러오기 ──
 
-@router.post("/{slide_id}/annotations/save")
+@router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
 async def save_annotations(slide_id: str, data: str = Form(...)):
     """슬라이드별 annotation JSON 저장"""
     info = slide_manager.get(slide_id)
@@ -795,7 +1001,7 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
     return {"status": "saved", "count": len(json.loads(data))}
 
 
-@router.get("/{slide_id}/annotations/load")
+@router.get("/{slide_id}/annotations/load", dependencies=[Depends(require_not_viewer)])
 async def load_annotations(slide_id: str):
     """슬라이드별 annotation JSON 불러오기"""
     info = slide_manager.get(slide_id)

@@ -12,15 +12,18 @@ from enum import Enum
 
 import bcrypt
 
+from app.config import settings
+
 # ── 상수 ──
 BCRYPT_COST = 12
-PEPPER = "MeDICus_2024_P3pp3r"  # 운영 시 환경변수로 분리 권장
+# Pepper 는 더 이상 소스에 하드코딩하지 않는다. 환경변수 AUTH_PEPPER 또는
+# backend/.secrets.json 의 'pepper' 키에서 로드된다 (app.config 참조).
+_STR_PEPPER = settings.AUTH_PEPPER
 
 
 class UserRole(str, Enum):
     ADMIN = "admin"
     DOCTOR = "doctor"
-    TECHNICIAN = "technician"
     VIEWER = "viewer"
 
 
@@ -33,7 +36,7 @@ class ApprovalStatus(str, Enum):
 # ── 비밀번호 해싱 ──
 def hash_password(str_plain_password: str) -> str:
     """bcrypt + pepper 해싱"""
-    str_peppered = str_plain_password + PEPPER
+    str_peppered = str_plain_password + _STR_PEPPER
     bytes_hashed = bcrypt.hashpw(
         str_peppered.encode("utf-8"),
         bcrypt.gensalt(rounds=BCRYPT_COST),
@@ -43,7 +46,7 @@ def hash_password(str_plain_password: str) -> str:
 
 def verify_password(str_plain_password: str, str_hashed_password: str) -> bool:
     """bcrypt + pepper 검증"""
-    str_peppered = str_plain_password + PEPPER
+    str_peppered = str_plain_password + _STR_PEPPER
     return bcrypt.checkpw(
         str_peppered.encode("utf-8"),
         str_hashed_password.encode("utf-8"),

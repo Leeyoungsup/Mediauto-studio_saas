@@ -3,12 +3,24 @@ SlideManager — 열린 슬라이드 객체 관리 (세션 기반)
 OpenSlide 객체를 캐싱하여 매 타일 요청마다 다시 열지 않도록 함
 """
 
+import math
 import threading
 import time
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 import openslide
+
+# ── 3단계 타일 피라미드 ──
+# 모든 stage 는 level 0 에서 읽어 downsample 팩터만큼 리사이즈하여 1024x1024 로 저장.
+#   stage 0 : level0 에서 1024x1024 그대로 (downsample 1)
+#   stage 1 : level0 에서 4096x4096 읽어 1024x1024 로 리사이즈 (downsample 4)
+#   stage 2 : level0 에서 8192x8192 읽어 1024x1024 로 리사이즈 (downsample 8)
+# TileViewer 의 STAGE_DOWNSAMPLES / STAGE_READ_SIZE 와 반드시 동일해야 한다.
+STAGE_DOWNSAMPLES = [1, 4, 8]
+TILE_SIZE_OUT = 1024
+STAGE_READ_SIZE = [TILE_SIZE_OUT * ds for ds in STAGE_DOWNSAMPLES]  # [1024, 4096, 8192]
+STAGE_COUNT = len(STAGE_DOWNSAMPLES)
 
 
 class SlideInfo:
@@ -62,37 +74,28 @@ class SlideInfo:
         self.physical_width_mm = w * self.mpp_x / 1000.0
         self.physical_height_mm = h * self.mpp_y / 1000.0
 
-        # 4단계 레벨 매핑
-        self.level_stages = self._setup_level_stages()
+        # 3단계 stage 타일 피라미드 메타 (level 0 에서 고정 downsample [1,4,8])
+        self.stage_downsamples = list(STAGE_DOWNSAMPLES)
+        self.stage_count = STAGE_COUNT
+        # 각 stage 의 픽셀 해상도 — frontend 에서 nx/ny 계산에 사용
+        w0, h0 = self.dimensions
+        self.stage_dimensions = [
+            (max(1, math.ceil(w0 / ds)), max(1, math.ceil(h0 / ds)))
+            for ds in STAGE_DOWNSAMPLES
+        ]
 
-    def _setup_level_stages(self):
-        """기존 WSITileManager._setup_level_stages와 동일 로직"""
-        total = self.level_count
-        if total == 1:
-            return [0, 0, 0, 0]
-        elif total == 2:
-            return [0, 0, 1, 1]
-        elif total == 3:
-            return [0, 1, 2, 2]
-        else:
-            step = (total - 1) / 3.0
-            return [
-                0,
-                int(round(step)),
-                int(round(step * 2)),
-                min(total - 1, int(round(step * 3))),
-            ]
-
-    def get_stage_level(self, effective_mpp: float) -> int:
-        """effective MPP 기반 4단계 레벨 선택"""
+    def get_stage(self, effective_mpp: float) -> int:
+        """effective MPP 기반 stage index (0/1/2) 선택."""
         if effective_mpp < 2.0:
-            return self.level_stages[0]
+            return 0
         elif effective_mpp < 15.0:
-            return self.level_stages[1]
-        elif effective_mpp < 100.0:
-            return self.level_stages[2]
+            return 1
         else:
-            return self.level_stages[3]
+            return 2
+
+    # 하위 호환 — 기존 /stage-level 엔드포인트용. stage index 를 그대로 반환.
+    def get_stage_level(self, effective_mpp: float) -> int:
+        return self.get_stage(effective_mpp)
 
     def touch(self):
         self.last_accessed = time.time()
@@ -109,10 +112,18 @@ class SlideInfo:
 
 
 class SlideManager:
-    """열린 슬라이드 관리자 (thread-safe)"""
+    """열린 슬라이드 관리자 (thread-safe).
+
+    Generation counter:
+        각 slide_id 에 대해 단조 증가 generation 을 유지한다. close() 가 호출되면
+        해당 slide_id 의 generation 이 +1 된다. 워커 스레드가 thread-local
+        핸들을 재사용할 때 (app.thread_slide_pool) 이 generation 을 비교해
+        stale 이면 자기 핸들을 닫고 재오픈해 leak 을 방지한다.
+    """
 
     def __init__(self):
         self._slides: Dict[str, SlideInfo] = {}
+        self._generations: Dict[str, int] = {}
         self._lock = threading.Lock()
 
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
@@ -126,6 +137,8 @@ class SlideManager:
             slide = openslide.OpenSlide(file_path)
             info = SlideInfo(slide, file_path)
             self._slides[slide_id] = info
+            # 최초 open 시 generation 0 부여 (이미 있으면 유지)
+            self._generations.setdefault(slide_id, 0)
             return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
@@ -136,9 +149,15 @@ class SlideManager:
                 info.touch()
             return info
 
-    def close(self, slide_id: str):
-        """슬라이드 닫기"""
+    def get_generation(self, slide_id: str) -> int:
+        """주어진 slide_id 의 현재 generation. thread-local 핸들 무효화 판정용."""
         with self._lock:
+            return self._generations.get(slide_id, 0)
+
+    def close(self, slide_id: str):
+        """슬라이드 닫기 — generation 을 bump 하여 모든 thread-local 핸들을 무효화."""
+        with self._lock:
+            self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
             info = self._slides.pop(slide_id, None)
             if info:
                 try:
@@ -147,8 +166,10 @@ class SlideManager:
                     pass
 
     def close_all(self):
-        """모든 슬라이드 닫기"""
+        """모든 슬라이드 닫기 — 전체 generation bump."""
         with self._lock:
+            for str_sid in list(self._slides.keys()):
+                self._generations[str_sid] = self._generations.get(str_sid, 0) + 1
             for info in self._slides.values():
                 try:
                     info.slide.close()

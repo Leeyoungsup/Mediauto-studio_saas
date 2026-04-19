@@ -71,6 +71,9 @@ async def upsert_slide(
         "dt_uploaded_at": dt_now,
         "dt_created_at": dt_now,
         "dict_ai_results": _empty_ai_results(),
+        "bool_tiles_ready": False,
+        "dt_tiles_ready_at": None,
+        "str_sha256": "",
     }
     dict_set = {
         "str_full_path": str_full_path,
@@ -179,6 +182,77 @@ def mark_ai_result_threadsafe(
         )
     except Exception as e:
         print(f"[slide_store] schedule mark_ai_result failed: {e}")
+
+
+async def mark_tiles_ready(
+    str_rel_path: str,
+    str_filename: str,
+    bool_ready: bool = True,
+) -> None:
+    """뷰어 타일 생성 완료 플래그 설정."""
+    if not is_db_connected():
+        return
+    db = get_db()
+    str_rel_path = _norm_rel_path(str_rel_path)
+    dt_now = datetime.now(timezone.utc)
+    result = await db.slides.update_one(
+        {"str_rel_path": str_rel_path, "str_filename": str_filename},
+        {"$set": {
+            "bool_tiles_ready": bool(bool_ready),
+            "dt_tiles_ready_at": dt_now if bool_ready else None,
+            "dt_updated_at": dt_now,
+        }},
+    )
+    if result.matched_count == 0:
+        print(f"[slide_store] mark_tiles_ready: NO MATCH rel='{str_rel_path}' name='{str_filename}'")
+
+
+def mark_tiles_ready_threadsafe(str_full_slide_path: str) -> None:
+    """tile_generator 백그라운드 스레드에서 호출 — 메인 이벤트 루프에 스케줄."""
+    if not is_db_connected():
+        return
+    loop = get_main_loop()
+    if loop is None or not loop.is_running():
+        return
+    try:
+        from app.config import settings
+        p = Path(str_full_slide_path).resolve()
+        upload_dir = Path(settings.UPLOAD_DIR).resolve()
+        str_rel_path = str(p.parent.relative_to(upload_dir)).replace("\\", "/")
+        if str_rel_path in (".", ""):
+            str_rel_path = ""
+        str_filename = p.name
+    except Exception as e:
+        print(f"[slide_store] mark_tiles_ready path resolve failed: {e}")
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            mark_tiles_ready(str_rel_path, str_filename, True),
+            loop,
+        )
+    except Exception as e:
+        print(f"[slide_store] schedule mark_tiles_ready failed: {e}")
+
+
+async def list_slides_missing_tiles() -> list:
+    """뷰어 타일이 아직 준비 안 된 슬라이드 — 오래된 업로드부터."""
+    if not is_db_connected():
+        return []
+    db = get_db()
+    list_out = []
+    async for dict_doc in db.slides.find(
+        {"bool_tiles_ready": {"$ne": True}}
+    ).sort("dt_uploaded_at", 1):
+        list_out.append(dict_doc)
+    return list_out
+
+
+async def has_any_pending_tiles() -> bool:
+    """타일 생성이 끝나지 않은 슬라이드가 하나라도 있는지."""
+    if not is_db_connected():
+        return False
+    db = get_db()
+    return bool(await db.slides.find_one({"bool_tiles_ready": {"$ne": True}}))
 
 
 async def delete_slide(str_rel_path: str, str_filename: str) -> None:
@@ -312,6 +386,275 @@ async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
     return await db.slides.find_one(
         {"str_rel_path": str_rel_path, "str_filename": str_filename}
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 대시보드 — 최근 슬라이드 / AI 통계 집계
+# ═══════════════════════════════════════════════════════════════════
+
+async def get_recent_slides(int_limit: int = 12) -> list:
+    """최근 열어본 슬라이드 (dt_last_opened_at 내림차순).
+
+    실제 파일이 디스크에 존재하는 슬라이드만 반환.
+    """
+    if not is_db_connected():
+        return []
+    from app.config import settings
+
+    db = get_db()
+    upload_dir = Path(settings.UPLOAD_DIR).resolve()
+    list_out = []
+    # 삭제된 파일이 섞여 있을 수 있으므로 여유 있게 조회
+    async for dict_doc in db.slides.find(
+        {"dt_last_opened_at": {"$ne": None}},
+    ).sort("dt_last_opened_at", -1).limit(int_limit * 3):
+        file_path = upload_dir / (dict_doc.get("str_rel_path") or "") / dict_doc["str_filename"]
+        if not file_path.exists():
+            continue
+        list_out.append(dict_doc)
+        if len(list_out) >= int_limit:
+            break
+    return list_out
+
+
+_disk_cache: dict = {}
+_disk_cache_ts: float = 0.0
+_DISK_CACHE_TTL = 60.0  # 60초 캐시
+
+
+def _compute_disk_stats_sync() -> dict:
+    """디스크 통계 (동기) — 스레드풀에서 실행."""
+    from app.config import settings
+    import os
+    import shutil
+
+    upload_path = Path(settings.UPLOAD_DIR)
+    int_folders = 0
+    if upload_path.exists():
+        for _root, dirs, _files in os.walk(str(upload_path)):
+            dirs[:] = [d for d in dirs if not d.startswith("_chunks_") and not d.startswith(".")]
+            int_folders += len(dirs)
+
+    int_used = 0
+    for str_dir in [settings.UPLOAD_DIR, settings.TILES_DIR, settings.AI_RESULTS_DIR]:
+        dir_path = Path(str_dir)
+        if dir_path.exists():
+            for _root, _dirs, files in os.walk(str(dir_path)):
+                for f in files:
+                    try:
+                        int_used += os.path.getsize(os.path.join(_root, f))
+                    except OSError:
+                        pass
+
+    int_total = 0
+    try:
+        usage = shutil.disk_usage(str(upload_path) if upload_path.exists() else "/")
+        int_total = usage.total
+    except Exception:
+        pass
+
+    return {
+        "int_folder_count": int_folders,
+        "int_storage_used_bytes": int_used,
+        "int_storage_total_bytes": int_total,
+    }
+
+
+async def _get_disk_stats_cached() -> dict:
+    """디스크 통계를 캐시 + 스레드풀로 논블로킹 제공."""
+    import asyncio
+    import time
+    global _disk_cache, _disk_cache_ts
+
+    float_now = time.monotonic()
+    if _disk_cache and (float_now - _disk_cache_ts) < _DISK_CACHE_TTL:
+        return _disk_cache
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, _compute_disk_stats_sync)
+    _disk_cache = result
+    _disk_cache_ts = float_now
+    return result
+
+
+async def get_dashboard_stats() -> dict:
+    """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
+    dict_result = {
+        "int_total_slides": 0,
+        "dict_ai_counts": {},
+        "dict_status_counts": {},
+        "int_folder_count": 0,
+        "int_storage_used_bytes": 0,
+        "int_storage_total_bytes": 0,
+    }
+
+    # 디스크 통계 — 캐시 + 스레드풀 (이벤트 루프 블로킹 방지)
+    dict_disk = await _get_disk_stats_cached()
+    dict_result.update(dict_disk)
+
+    if not is_db_connected():
+        return dict_result
+
+    db = get_db()
+
+    # 단일 aggregation 파이프라인으로 총 슬라이드 수 + 상태별 + AI별 카운트 한 번에 조회
+    pipeline = [
+        {"$facet": {
+            "total": [{"$count": "n"}],
+            "by_status": [
+                {"$group": {
+                    "_id": {"$ifNull": ["$str_status", ""]},
+                    "n": {"$sum": 1},
+                }},
+            ],
+            **{
+                f"ai_{str_k.replace('-', '_')}": [
+                    {"$match": {f"dict_ai_results.{str_k}.bool_has_result": True}},
+                    {"$count": "n"},
+                ]
+                for str_k in LIST_AI_MODEL_KEYS
+            },
+        }},
+    ]
+    cursor = db.slides.aggregate(pipeline)
+    dict_facet = await cursor.to_list(length=1)
+    if dict_facet:
+        facet = dict_facet[0]
+        # 총 슬라이드 수
+        total_list = facet.get("total", [])
+        dict_result["int_total_slides"] = total_list[0]["n"] if total_list else 0
+
+        # 상태별 카운트
+        for doc in facet.get("by_status", []):
+            str_s = doc["_id"]
+            if str_s == "" or str_s is None:
+                dict_result["dict_status_counts"]["none"] = doc["n"]
+            else:
+                dict_result["dict_status_counts"][str_s] = doc["n"]
+
+        # AI 모델별 카운트
+        for str_k in LIST_AI_MODEL_KEYS:
+            safe_key = f"ai_{str_k.replace('-', '_')}"
+            ai_list = facet.get(safe_key, [])
+            dict_result["dict_ai_counts"][str_k] = ai_list[0]["n"] if ai_list else 0
+
+    return dict_result
+
+
+# ═══════════════════════════════════════════════════════════════════
+# user_ai_edits — 사용자별 세포 편집본 (원본 추론 캐시는 유지)
+# ═══════════════════════════════════════════════════════════════════
+
+async def upsert_user_ai_edit(
+    *,
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+    str_user_name: str,
+    str_login_id: str,
+    str_file_path: str,
+    int_total_cells: int,
+) -> None:
+    """현재 로그인한 사용자의 편집본 **메타** 를 `user_ai_edits` 에 upsert (최신본만 유지).
+
+    실제 셀 결과 JSON 은 디스크(str_file_path) 에 저장되고, 여기서는 경로/총 셀 수/
+    사용자/시각만 DB 에 기록한다.
+    """
+    if not is_db_connected():
+        return
+    if str_ai_mode not in LIST_AI_MODEL_KEYS:
+        return
+    db = get_db()
+    dt_now = datetime.now(timezone.utc)
+    dict_filter = {
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    }
+    dict_set = {
+        "str_user_name": str_user_name or "",
+        "str_login_id": str_login_id or "",
+        "str_file_path": str_file_path,
+        "int_total_cells": int(int_total_cells or 0),
+        "dt_updated_at": dt_now,
+    }
+    await db.user_ai_edits.update_one(
+        dict_filter,
+        {
+            "$set": dict_set,
+            "$setOnInsert": {"dt_created_at": dt_now, **dict_filter},
+        },
+        upsert=True,
+    )
+
+
+async def list_user_ai_edits(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+) -> list:
+    """특정 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    if not is_db_connected():
+        return []
+    db = get_db()
+    list_out = []
+    dict_query = {
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+    }
+    async for dict_doc in db.user_ai_edits.find(
+        dict_query,
+    ).sort("dt_updated_at", -1):
+        list_out.append({
+            "str_user_id": dict_doc.get("str_user_id", ""),
+            "str_user_name": dict_doc.get("str_user_name", ""),
+            "str_login_id": dict_doc.get("str_login_id", ""),
+            "int_total_cells": int(dict_doc.get("int_total_cells", 0) or 0),
+            "dt_updated_at": (
+                dict_doc["dt_updated_at"].isoformat()
+                if dict_doc.get("dt_updated_at") else None
+            ),
+        })
+    return list_out
+
+
+async def delete_user_ai_edit(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+) -> Optional[dict]:
+    """사용자 편집본 메타 삭제. 삭제된 문서(특히 str_file_path) 반환 — 호출자가 파일도 지움."""
+    if not is_db_connected():
+        return None
+    db = get_db()
+    return await db.user_ai_edits.find_one_and_delete({
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    })
+
+
+async def get_user_ai_edit(
+    str_slide_id: str,
+    str_ai_mode: str,
+    str_variant: str,
+    str_user_id: str,
+) -> Optional[dict]:
+    """특정 사용자의 편집본 전체 결과."""
+    if not is_db_connected():
+        return None
+    db = get_db()
+    return await db.user_ai_edits.find_one({
+        "str_slide_id": str_slide_id,
+        "str_ai_mode": str_ai_mode,
+        "str_variant": str_variant or "",
+        "str_user_id": str_user_id,
+    })
 
 
 def serialize_slide_doc(dict_doc: dict) -> dict:

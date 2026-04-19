@@ -1,10 +1,11 @@
 @echo off
 REM ============================================================
 REM  MeDICus Studio SaaS - Server Start Script
-REM  - conda env "yslee" activate
+REM  - conda env "medicus-saas" activate
 REM  - uvicorn FastAPI start
 REM ============================================================
 setlocal
+
 cd /d "%~dp0backend"
 
 set ENV_NAME=yslee
@@ -26,6 +27,21 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM --- Resolve conda env python path ---
+for /f "tokens=*" %%i in ('conda run -n %ENV_NAME% python -c "import sys; print(sys.executable)"') do set ENV_PYTHON=%%i
+
+if not exist "%ENV_PYTHON%" (
+    echo [ERROR] python not found in conda env: %ENV_PYTHON%
+    pause
+    exit /b 1
+)
+
+REM --- Avoid pollution from any active .venv / user site-packages ---
+set VIRTUAL_ENV=
+set PYTHONHOME=
+set PYTHONPATH=
+set PYTHONNOUSERSITE=1
+
 echo.
 echo ============================================================
 echo  MeDICus Studio SaaS
@@ -34,6 +50,6 @@ echo  Press Ctrl+C to stop.
 echo ============================================================
 echo.
 
-call conda run --no-capture-output -n %ENV_NAME% python -m uvicorn main:app --host %HOST% --port %PORT%
+"%ENV_PYTHON%" -m uvicorn main:app --host %HOST% --port %PORT%
 
 endlocal

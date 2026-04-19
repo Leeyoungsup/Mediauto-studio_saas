@@ -1,5 +1,5 @@
 """
-MeDICus Studio SaaS — FastAPI Backend
+MeDIAuto Studio SaaS — FastAPI Backend
 WSI 타일 서빙 + AI 분석 API
 """
 
@@ -10,15 +10,19 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 
-# ── 200 OK 로그 숨기기 (에러만 출력) ──
+# ── 불필요한 액세스 로그 숨기기 ──
 class _SuccessFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        # 정상 응답(2xx, 3xx)은 숨기고 에러(4xx, 5xx)만 출력
-        if "HTTP/1.1" in msg:
-            for code in ("200", "204", "304"):
-                if f'" {code}' in msg:
-                    return False
+        if "HTTP/1.1" not in msg:
+            return True
+        # 정상 응답(2xx, 3xx)은 숨김
+        for code in ("200", "204", "304"):
+            if f'" {code}' in msg:
+                return False
+        # 토큰 갱신/폴링 경로의 401 은 정상 동작 — 숨김
+        if '" 401' in msg and ("/api/auth/refresh" in msg or "/api/ai/active-tasks" in msg):
+            return False
         return True
 
 
@@ -56,67 +60,106 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.csrf import CSRFMiddleware
+from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
+from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, startup 에서 affinity 적용
 from app.routers import slides, tiles, ai, auth, users
 from app import auto_ai
+from app import tile_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 리소스 관리"""
+    # CPU 파티셔닝 적용 — 메인 프로세스 affinity 를 AI cores 로 설정.
+    # viewer / bg pool 은 자체 initializer 로 자기 cores 를 override.
+    cpu_layout.setup_process_affinity()
+
     # MongoDB 연결
     await connect_db()
 
     # 디렉토리 생성
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.TILES_DIR, exist_ok=True)
-    print(f"[MeDICus SaaS] Upload dir: {settings.UPLOAD_DIR}")
-    print(f"[MeDICus SaaS] Tiles dir:  {settings.TILES_DIR}")
-    print(f"[MeDICus SaaS] Server ready")
+    print(f"[MeDIAuto SaaS] Upload dir: {settings.UPLOAD_DIR}")
+    print(f"[MeDIAuto SaaS] Tiles dir:  {settings.TILES_DIR}")
+    print(f"[MeDIAuto SaaS] Server ready")
 
+    # 뷰어 타일 생성 워커 시작 (사용자 활동 무관, 최우선 백그라운드)
+    await tile_worker.start_tile_worker()
     # AI 자동 추론 워커 시작 (1분 스캔, 10분 idle)
     await auto_ai.start_auto_worker()
 
     yield
     # 종료 시 워커 중단
     await auto_ai.stop_auto_worker()
+    await tile_worker.stop_tile_worker()
     # 종료 시 열린 슬라이드 정리
     from app.slide_manager import slide_manager
     slide_manager.close_all()
     # MongoDB 연결 해제
     await disconnect_db()
-    print("[MeDICus SaaS] Shutdown complete")
+    print("[MeDIAuto SaaS] Shutdown complete")
 
 
 app = FastAPI(
-    title="MeDICus Studio SaaS",
+    title="MeDIAuto Studio SaaS",
     description="병리 AI 분석 SaaS API",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# CORS 설정 (개발 중에는 모든 origin 허용)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS 설정 — 환경변수 CORS_ORIGINS 로 허용 origin 지정
+# 비어 있으면 same-origin 전용 (StaticFiles 서빙이므로 CORS 불필요)
+_cors_origins = [
+    o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
+] if settings.CORS_ORIGINS else []
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# CSRF 방어 — 상태 변경 요청에 X-Requested-With 헤더 필수
+# Rate Limiting — IP별 요청 제한 (로그인: 10회/5분, API: 200회/분)
+# 순수 ASGI 미들웨어 — BaseHTTPMiddleware 의 body 버퍼링 오버헤드 제거
+app.add_middleware(CSRFMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 # 라우터 등록
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
+app.include_router(slides.media_router, prefix="/api/slides", tags=["slides-media"])
 app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])
 
 # 프론트엔드 정적 파일 서빙
+# 주의: .js/.html/.css 는 Cache-Control: no-cache 로 강제 재검증.
+# ETag/Last-Modified 기반 304 는 유지되므로 실제 바이트 재전송은 파일이 바뀐 경우에만.
+# 이 설정이 없으면 브라우저가 오래된 JS 를 붙잡고 있어 api 계약이 바뀐 뒤에도
+# 사용자가 "하드 리프레시 해도 안 먹는" 상황이 발생한다.
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        str_lower = path.lower()
+        if str_lower.endswith((".js", ".mjs", ".html", ".css")):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
 if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "MeDICus Studio SaaS"}
+    return {"status": "ok", "service": "MeDIAuto Studio SaaS"}

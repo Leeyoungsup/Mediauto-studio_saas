@@ -7,14 +7,17 @@
 - 감사 로그 기록
 """
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 
 from app.audit import get_client_ip, log_audit_event
+from app.geo import enrich_audit_with_geo
 from app.auth import (
     create_access_token,
     create_refresh_token,
@@ -25,7 +28,9 @@ from app.auth import (
 )
 from app.config import settings
 from app.database import get_db
+from app.encryption import encrypt_field, decrypt_field
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password, verify_password
+from app.totp import generate_totp_secret, verify_totp, build_totp_uri
 
 router = APIRouter()
 
@@ -34,6 +39,20 @@ PASSWORD_MIN_LENGTH = 8
 PASSWORD_PATTERN = re.compile(
     r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{8,}$"
 )
+
+# Refresh token rotation grace window.
+# 프론트가 여러 API 를 병렬로 호출해 동시에 /auth/refresh 가 여러 번 들어오는 경우,
+# 첫 호출만 성공하고 나머지는 "이미 revoked 된 토큰" 으로 reuse-detection 에 걸려
+# 전체 세션이 무효화되는 레이스 컨디션 방지용 유예 시간.
+# 이 시간 안에 들어오는 "방금 rotated 된" 토큰은 replacement 세션의 토큰을 그대로
+# 돌려주어 정상 동작하게 한다. 이보다 오래된 revoked 토큰으로 오면 실제 reuse 공격으로
+# 간주해 기존 로직대로 사용자 세션을 모두 revoke 한다.
+# Refresh rotation grace window.
+# 구: 30s — 단일 탭 동시 요청만 커버
+# 현: 300s — 모바일/백그라운드 탭이 suspend 후 깨어나 이전 토큰으로 /refresh
+#        를 재시도하는 케이스까지 커버. 더 늘리면 진짜 reuse 공격 탐지 창이
+#        좁아지므로 5분으로 제한.
+REFRESH_ROTATION_GRACE_SECONDS = 300
 
 
 # ── 요청/응답 스키마 ──
@@ -50,6 +69,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     str_login_id: str = Field(..., min_length=1, max_length=30)
     str_password: str = Field(..., min_length=1, max_length=128)
+    str_totp_code: str = Field(default="", max_length=6)
 
 
 class TokenResponse(BaseModel):
@@ -250,6 +270,31 @@ async def login(body: LoginRequest, request: Request):
             detail="가입 요청이 거부된 계정입니다. 관리자에게 문의하세요.",
         )
 
+    # ── MFA 검증 (활성화된 경우) ──
+    str_encrypted_totp = dict_user.get("str_totp_secret_enc", "")
+    bool_mfa_enabled = dict_user.get("bool_mfa_enabled", False)
+    if bool_mfa_enabled and str_encrypted_totp:
+        if not body.str_totp_code:
+            # 비밀번호는 맞지만 TOTP 코드 미제출 → MFA 필요 응답
+            return {
+                "bool_mfa_required": True,
+                "str_message": "2차 인증 코드를 입력해 주세요.",
+            }
+        str_totp_secret = decrypt_field(str_encrypted_totp)
+        if not verify_totp(str_totp_secret, body.str_totp_code):
+            await log_audit_event(
+                str_action="user.mfa_failed",
+                str_user_id=str_user_id,
+                str_user_email=str_login_id_lower,
+                str_detail="Invalid TOTP code",
+                str_ip_address=get_client_ip(request),
+                str_user_agent=request.headers.get("User-Agent", ""),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="2차 인증 코드가 올바르지 않습니다.",
+            )
+
     # 로그인 성공 → 실패 카운터 초기화
     await db.users.update_one(
         {"_id": dict_user["_id"]},
@@ -277,14 +322,17 @@ async def login(body: LoginRequest, request: Request):
         "bool_is_revoked": False,
     })
 
-    await log_audit_event(
+    str_client_ip = get_client_ip(request)
+    str_login_log_id = await log_audit_event(
         str_action="user.login_success",
         str_user_id=str_user_id,
         str_user_email=str_login_id_lower,
         str_detail="Login successful",
-        str_ip_address=get_client_ip(request),
+        str_ip_address=str_client_ip,
         str_user_agent=request.headers.get("User-Agent", ""),
     )
+    # 로그 저장 직후 geo 조회 — 응답 경로를 블록하지 않도록 백그라운드로.
+    asyncio.create_task(enrich_audit_with_geo(str_login_log_id, str_client_ip))
 
     return TokenResponse(
         str_access_token=str_access_token,
@@ -303,7 +351,17 @@ async def login(body: LoginRequest, request: Request):
 # ── 토큰 갱신 ──
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(body: RefreshRequest, request: Request):
-    """Refresh Token → 새 Access + Refresh Token"""
+    """Refresh Token → 새 Access + Refresh Token (원자적 CAS 기반 rotation)
+
+    동시 호출 레이스 방지:
+        과거엔 세션을 먼저 read → 검사 → write 하는 방식이라 두 요청이 동시에
+        같은 토큰으로 들어오면 둘 다 "active" 라고 판정하고 각자 rotate 해
+        중복 세션이 생기거나 replacement 포인터가 덮어쓰였다. 지금은
+        `find_one_and_update` 로 CAS (filter: `bool_is_revoked: False`) 를 걸어
+        한 요청만 rotation 을 획득하게 한다. 경합에서 진 요청은 자연스럽게
+        "이미 revoked" 분기로 떨어져 grace window 검사를 거쳐 동일한 새 토큰을
+        돌려받는다.
+    """
     dict_payload = decode_token(body.str_refresh_token)
     if dict_payload is None or dict_payload.get("type") != TOKEN_TYPE_REFRESH:
         raise HTTPException(
@@ -314,36 +372,7 @@ async def refresh_token(body: RefreshRequest, request: Request):
     str_user_id = dict_payload.get("sub")
     db = get_db()
 
-    # DB에서 토큰 유효성 확인
-    dict_session = await db.sessions.find_one({
-        "str_refresh_token": body.str_refresh_token,
-        "bool_is_revoked": False,
-    })
-    if not dict_session:
-        # 재사용 탐지: 이미 사용된 토큰 → 해당 사용자의 모든 세션 무효화
-        await db.sessions.update_many(
-            {"str_user_id": str_user_id},
-            {"$set": {"bool_is_revoked": True}},
-        )
-        await log_audit_event(
-            str_action="security.token_reuse_detected",
-            str_user_id=str_user_id,
-            str_detail="Refresh token reuse detected — all sessions revoked",
-            str_ip_address=get_client_ip(request),
-            str_user_agent=request.headers.get("User-Agent", ""),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token reuse detected. All sessions revoked.",
-        )
-
-    # 이전 refresh token 폐기 (rotation)
-    await db.sessions.update_one(
-        {"_id": dict_session["_id"]},
-        {"$set": {"bool_is_revoked": True}},
-    )
-
-    # 사용자 정보 조회
+    # 사용자 정보 먼저 조회 (비활성 사용자면 rotation 자체를 하지 않음).
     dict_user = await db.users.find_one(
         {"_id": ObjectId(str_user_id)},
         {"str_hashed_password": 0},
@@ -354,31 +383,120 @@ async def refresh_token(body: RefreshRequest, request: Request):
             detail="User not found or deactivated",
         )
 
-    # 새 토큰 발급
+    # 새 토큰 미리 생성 — CAS 에서 replaced_by 로 기록할 필요 때문.
     str_new_access = create_access_token(str_user_id, dict_user["str_role"])
     str_new_refresh, dt_new_expires = create_refresh_token(str_user_id)
+    dt_now = datetime.now(timezone.utc)
 
-    await db.sessions.insert_one({
-        "str_user_id": str_user_id,
-        "str_refresh_token": str_new_refresh,
-        "str_ip_address": get_client_ip(request),
-        "str_user_agent": request.headers.get("User-Agent", ""),
-        "dt_created_at": datetime.now(timezone.utc),
-        "dt_expires_at": dt_new_expires,
-        "bool_is_revoked": False,
+    # ── 원자적 CAS: active 세션을 revoked 로 뒤집으면서 replacement 포인터 기록 ──
+    dict_claimed = await db.sessions.find_one_and_update(
+        {
+            "str_refresh_token": body.str_refresh_token,
+            "bool_is_revoked": False,
+        },
+        {"$set": {
+            "bool_is_revoked": True,
+            "dt_rotated_at": dt_now,
+            "str_replaced_by": str_new_refresh,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if dict_claimed is not None:
+        # CAS 승리 — 이 요청이 rotation 을 획득. 새 세션 insert 후 토큰 반환.
+        await db.sessions.insert_one({
+            "str_user_id": str_user_id,
+            "str_refresh_token": str_new_refresh,
+            "str_ip_address": get_client_ip(request),
+            "str_user_agent": request.headers.get("User-Agent", ""),
+            "dt_created_at": dt_now,
+            "dt_expires_at": dt_new_expires,
+            "bool_is_revoked": False,
+        })
+
+        return TokenResponse(
+            str_access_token=str_new_access,
+            str_refresh_token=str_new_refresh,
+            int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            dict_user={
+                "str_id": str_user_id,
+                "str_login_id": dict_user["str_login_id"],
+                "str_name": dict_user["str_name"],
+                "str_role": dict_user["str_role"],
+                "str_department": dict_user.get("str_department", ""),
+            },
+        )
+
+    # ── CAS 실패 경로: 토큰이 존재하지 않거나 이미 revoked ──
+    # 세션을 revoked 여부 무관하게 단건 조회.
+    dict_session = await db.sessions.find_one({
+        "str_refresh_token": body.str_refresh_token,
     })
 
-    return TokenResponse(
-        str_access_token=str_new_access,
-        str_refresh_token=str_new_refresh,
-        int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        dict_user={
-            "str_id": str_user_id,
-            "str_login_id": dict_user["str_login_id"],
-            "str_name": dict_user["str_name"],
-            "str_role": dict_user["str_role"],
-            "str_department": dict_user.get("str_department", ""),
-        },
+    if dict_session is None:
+        # 토큰 자체가 DB 에 없음 → 진짜 위조/폐기 후 재사용.
+        await db.sessions.update_many(
+            {"str_user_id": str_user_id},
+            {"$set": {"bool_is_revoked": True}},
+        )
+        await log_audit_event(
+            str_action="security.token_reuse_detected",
+            str_user_id=str_user_id,
+            str_detail="Unknown refresh token presented",
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token reuse detected. All sessions revoked.",
+        )
+
+    # 세션은 존재하지만 이미 revoked: (a) 동시 호출에서 내가 진 경우,
+    # (b) 레거시 grace window 내 slow client 호출, (c) 진짜 reuse.
+    dt_rotated = dict_session.get("dt_rotated_at")
+    str_replaced_by = dict_session.get("str_replaced_by")
+    if dt_rotated is not None and dt_rotated.tzinfo is None:
+        dt_rotated = dt_rotated.replace(tzinfo=timezone.utc)
+    bool_in_grace = (
+        dt_rotated is not None
+        and str_replaced_by
+        and (dt_now - dt_rotated).total_seconds() < REFRESH_ROTATION_GRACE_SECONDS
+    )
+    if bool_in_grace:
+        dict_repl = await db.sessions.find_one({
+            "str_refresh_token": str_replaced_by,
+            "bool_is_revoked": False,
+        })
+        if dict_repl is not None:
+            # replacement 세션이 살아있음 → 새 access_token 만 재발급하고
+            # 동일한 refresh_token 을 그대로 돌려준다. rotation 은 연쇄하지 않음.
+            str_grace_access = create_access_token(str_user_id, dict_user["str_role"])
+            return TokenResponse(
+                str_access_token=str_grace_access,
+                str_refresh_token=str_replaced_by,
+                int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                dict_user={
+                    "str_id": str_user_id,
+                    "str_login_id": dict_user["str_login_id"],
+                    "str_name": dict_user["str_name"],
+                    "str_role": dict_user["str_role"],
+                    "str_department": dict_user.get("str_department", ""),
+                },
+            )
+    # 유예 밖 또는 replacement 사라짐 → 의심스럽지만 전체 revoke 는 과잉.
+    # 알려진(DB 에 존재하는) 세션이므로 진짜 위조가 아닐 가능성이 높다
+    # (오래 suspended 되었던 탭 등). 이 요청만 401 로 거부하고 다른 세션은 건드리지 않는다.
+    # 감사 로그는 남겨 패턴 분석이 가능하도록 한다.
+    await log_audit_event(
+        str_action="security.refresh_stale_rotation",
+        str_user_id=str_user_id,
+        str_detail="Refresh presented outside rotation grace window — single request rejected",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh token rotated — re-authenticate",
     )
 
 
@@ -405,6 +523,20 @@ async def logout(request: Request, dict_current_user: dict = Depends(get_current
     )
 
     return {"str_message": "Logged out successfully"}
+
+
+# ── 미디어 티켓 발급 (타일/썸네일 <img src> 용) ──
+@router.get("/media-ticket")
+async def issue_media_ticket(dict_current_user: dict = Depends(get_current_user)):
+    """단기 HMAC 미디어 티켓 발급.
+
+    브라우저의 <img src> 는 Authorization 헤더를 설정할 수 없으므로,
+    타일/썸네일 URL 에는 이 티켓을 `?mt=` 쿼리로 붙여 사용한다.
+    티켓은 10분 TTL, 사용자 바인딩, 미디어 엔드포인트에만 유효.
+    """
+    from app.url_signer import sign_media_ticket
+
+    return sign_media_ticket(str(dict_current_user["_id"]))
 
 
 # ── 현재 사용자 정보 ──
@@ -476,3 +608,108 @@ async def change_password(
     )
 
     return {"str_message": "Password changed successfully. Please login again."}
+
+
+# ── MFA 설정 ──
+@router.post("/mfa/setup")
+async def mfa_setup(
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """TOTP 시크릿 생성 → otpauth URI 반환 (QR 코드용).
+
+    아직 활성화되지 않음 — /mfa/verify 로 첫 코드를 검증해야 활성화.
+    """
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    # 이미 활성화된 경우
+    if dict_current_user.get("bool_mfa_enabled", False):
+        raise HTTPException(400, "MFA is already enabled. Disable first.")
+
+    str_secret = generate_totp_secret()
+    str_encrypted = encrypt_field(str_secret)
+
+    # 임시 시크릿 저장 (아직 미활성 — bool_mfa_enabled 은 건드리지 않음)
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"str_totp_secret_enc": str_encrypted}},
+    )
+
+    str_uri = build_totp_uri(str_secret, dict_current_user.get("str_login_id", ""))
+    return {
+        "str_secret": str_secret,
+        "str_uri": str_uri,
+    }
+
+
+class MfaVerifyRequest(BaseModel):
+    str_totp_code: str = Field(..., min_length=6, max_length=6)
+
+
+@router.post("/mfa/verify")
+async def mfa_verify(
+    body: MfaVerifyRequest,
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """첫 TOTP 코드 검증 후 MFA 활성화."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    dict_user_full = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    str_encrypted = dict_user_full.get("str_totp_secret_enc", "")
+    if not str_encrypted:
+        raise HTTPException(400, "Call /mfa/setup first.")
+
+    str_secret = decrypt_field(str_encrypted)
+    if not verify_totp(str_secret, body.str_totp_code):
+        raise HTTPException(400, "Invalid TOTP code. Please try again.")
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"bool_mfa_enabled": True}},
+    )
+
+    await log_audit_event(
+        str_action="user.mfa_enabled",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_detail="TOTP MFA activated",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+
+    return {"str_message": "MFA enabled successfully."}
+
+
+@router.post("/mfa/disable")
+async def mfa_disable(
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """MFA 비활성화 (현재 비밀번호 재확인 없이 — 이미 인증된 세션에서만 호출 가능)."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {"$set": {"bool_mfa_enabled": False, "str_totp_secret_enc": ""}},
+    )
+
+    await log_audit_event(
+        str_action="user.mfa_disabled",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_detail="TOTP MFA deactivated",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+    )
+
+    return {"str_message": "MFA disabled."}
+
+
+@router.get("/mfa/status")
+async def mfa_status(dict_current_user: dict = Depends(get_current_user)):
+    """현재 사용자의 MFA 활성화 상태 조회."""
+    return {"bool_mfa_enabled": dict_current_user.get("bool_mfa_enabled", False)}

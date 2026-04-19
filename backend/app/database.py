@@ -34,6 +34,15 @@ async def connect_db():
         await _db.sessions.create_index("dt_expires_at", expireAfterSeconds=0)
         await _db.audit_logs.create_index("dt_created_at")
         await _db.audit_logs.create_index("str_user_id")
+        await _db.audit_logs.create_index("str_action")
+        await _db.audit_logs.create_index(
+            [("str_user_id", 1), ("str_action", 1), ("dt_created_at", -1)]
+        )
+        await _db.audit_logs.create_index("str_hmac")
+
+        # ── ip_geo_cache: MongoDB TTL 인덱스 (dt_expires_at 지난 문서 자동 제거) ──
+        await _db.ip_geo_cache.create_index("str_ip", unique=True)
+        await _db.ip_geo_cache.create_index("dt_expires_at", expireAfterSeconds=0)
 
         # ── slides 컬렉션 인덱스 ──
         await _db.slides.create_index(
@@ -45,6 +54,20 @@ async def connect_db():
         # ── folder_ai_configs 컬렉션 ──
         await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
         await _db.folder_ai_configs.create_index("bool_enabled")
+
+        # ── user_ai_edits 컬렉션 (사용자별 세포 편집본 — 최신본만 유지) ──
+        await _db.user_ai_edits.create_index(
+            [
+                ("str_slide_id", 1),
+                ("str_ai_mode", 1),
+                ("str_variant", 1),
+                ("str_user_id", 1),
+            ],
+            unique=True,
+        )
+        await _db.user_ai_edits.create_index(
+            [("str_slide_id", 1), ("str_ai_mode", 1), ("str_variant", 1)]
+        )
 
         # ── 승인 상태 마이그레이션 ──
         # str_approval_status 필드 없는 기존 사용자 처리:
@@ -78,17 +101,30 @@ async def connect_db():
         )).modified_count
         if int_migrated_admin or int_migrated_pending:
             print(
-                f"[MeDICus SaaS] Approval migration — "
+                f"[MeDIAuto SaaS] Approval migration — "
                 f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
             )
 
+        # ── technician 역할 제거 마이그레이션 ──
+        # 제품 정책 변경: technician 역할 폐지. 기존 technician 사용자는
+        # viewer 로 downgrade (권한 확대 방지를 위해 doctor 가 아닌 viewer 로).
+        int_migrated_tech = (await _db.users.update_many(
+            {"str_role": "technician"},
+            {"$set": {"str_role": "viewer"}},
+        )).modified_count
+        if int_migrated_tech:
+            print(
+                f"[MeDIAuto SaaS] Role migration — "
+                f"technician → viewer: {int_migrated_tech}"
+            )
+
         _connected = True
-        print(f"[MeDICus SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")
+        print(f"[MeDIAuto SaaS] MongoDB connected: {settings.MONGO_DB_NAME}")
     except Exception as e:
         _client = None
         _db = None
         _connected = False
-        print(f"[MeDICus SaaS] MongoDB unavailable ({e}). Auth features disabled.")
+        print(f"[MeDIAuto SaaS] MongoDB unavailable ({e}). Auth features disabled.")
 
 
 async def disconnect_db():
@@ -99,7 +135,7 @@ async def disconnect_db():
         _client = None
         _db = None
         _connected = False
-    print("[MeDICus SaaS] MongoDB disconnected")
+    print("[MeDIAuto SaaS] MongoDB disconnected")
 
 
 def is_db_connected() -> bool:

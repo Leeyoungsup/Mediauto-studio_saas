@@ -98,6 +98,8 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     } else if (_activeModelType === 'Precise-IHC') {
         if (_activeScoreType === 'Allred') {
             _renderAllredAnalysis(countsByClass);
+        } else if (_activeScoreType === 'KI67') {
+            _renderKi67Analysis(countsByClass);
         } else {
             _renderHer2Analysis(countsByClass);
         }
@@ -134,7 +136,7 @@ function _configureTabs(modelType) {
     const hideHeatmap = isPdScore || isIhc;
     let tumorLabel = 'Tumor Analysis';
     if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
-    else if (isIhc) tumorLabel = (_activeScoreType === 'Allred') ? 'Allred Analysis' : 'HER2 Analysis';
+    else if (isIhc) tumorLabel = (_activeScoreType === 'Allred') ? 'Allred Analysis' : (_activeScoreType === 'KI67') ? 'KI-67 Analysis' : 'HER2 Analysis';
 
     const tabButtons = $vizDialog.querySelectorAll('.viz-tab');
     tabButtons.forEach(tab => {
@@ -860,6 +862,146 @@ function _drawAllredCard(ctx, w, h, a, tsColor, elastic) {
     }
 }
 
+// ── KI-67 Analysis 탭 ──
+function _renderKi67Analysis(countsByClass) {
+    const panel = document.getElementById('viz-tumor');
+    panel.innerHTML = '';
+
+    const n0 = countsByClass[0] || 0;
+    const pos = (countsByClass[1] || 0) + (countsByClass[2] || 0) + (countsByClass[3] || 0);
+    const total = n0 + pos;
+    const ki67Index = total === 0 ? 0 : pos / total * 100;
+    const interp = ki67Index >= 14 ? 'High' : 'Low';
+    const indexColor = ki67Index >= 14 ? '#E84040' : '#2E7D32';
+
+    const row = document.createElement('div');
+    row.className = 'viz-chart-row';
+    panel.appendChild(row);
+
+    const summary = document.createElement('div');
+    summary.className = 'viz-summary';
+    panel.appendChild(summary);
+
+    const panelW = panel.clientWidth || 780;
+    const cardH = 320;
+
+    const cardW1 = Math.floor(panelW * 0.5 - 8);
+    const cv1 = _createHiDPICanvas(cardW1, cardH);
+    row.appendChild(cv1);
+
+    const cardW2 = Math.floor(panelW * 0.5 - 8);
+    const cv2 = _createHiDPICanvas(cardW2, cardH);
+    row.appendChild(cv2);
+
+    _animate(900, (t) => {
+        const ease = _easeOutCubic(t);
+        const elastic = t < 0.5 ? _easeOutCubic(t * 2) : _easeOutElastic((t - 0.5) * 2) * 0.5 + 0.5;
+
+        const ctx1 = cv1.getContext('2d');
+        _drawKi67Card(ctx1, cardW1, cardH, ki67Index, interp, indexColor, pos, n0, total, elastic);
+
+        const ctx2 = cv2.getContext('2d');
+        _drawKi67Bars(ctx2, cardW2, cardH, [n0, pos], ease);
+    }, () => {
+        summary.innerHTML =
+            `<strong>KI-67 Labeling Index:</strong> <span style="color:${indexColor};font-weight:700">${ki67Index.toFixed(1)}%</span> ` +
+            `&nbsp;|&nbsp; <span style="color:${indexColor};font-weight:700">${interp}</span> ` +
+            `&nbsp;|&nbsp; Positive ${pos.toLocaleString()} &nbsp;|&nbsp; Negative ${n0.toLocaleString()} ` +
+            `&nbsp;|&nbsp; Total ${total.toLocaleString()}`;
+        summary.style.animation = 'fadeIn 0.3s ease';
+    });
+}
+
+function _drawKi67Card(ctx, w, h, ki67Index, interp, indexColor, pos, neg, total, elastic) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('KI-67 Labeling Index', cx, 24);
+
+    ctx.fillStyle = '#666';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Positive / Total × 100 (%) — Cutoff: 14%', cx, 42);
+
+    // Big index number
+    const cyTs = 130;
+    const animVal = ki67Index * elastic;
+    ctx.fillStyle = indexColor;
+    ctx.font = 'bold 64px sans-serif';
+    ctx.fillText(`${animVal.toFixed(1)}%`, cx, cyTs);
+
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(interp, cx, cyTs + 24);
+
+    // Detail rows
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
+    let dy = 200;
+    const items = [
+        ['Positive Cells', pos.toLocaleString()],
+        ['Negative Cells', neg.toLocaleString()],
+        ['Total Cells', total.toLocaleString()],
+        ['Cutoff (St Gallen 2013)', '14%'],
+    ];
+    for (const [k, v] of items) {
+        ctx.fillStyle = '#666';
+        ctx.fillText(k, 24, dy);
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'right';
+        ctx.fillText(v, w - 24, dy);
+        ctx.textAlign = 'left';
+        dy += 24;
+    }
+}
+
+function _drawKi67Bars(ctx, w, h, counts, ease) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Cell Distribution', cx, 24);
+
+    const labels = ['Negative', 'Positive'];
+    const colors = ['#27ae60', '#e74c3c'];
+    const max = Math.max(1, ...counts);
+    const padL = 80, padR = 20, padT = 50, padB = 40;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const bw = plotW / counts.length * 0.6;
+    const gap = plotW / counts.length * 0.4;
+
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    counts.forEach((cnt, i) => {
+        const x = padL + i * (bw + gap) + gap / 2;
+        const targetH = (cnt / max) * plotH * ease;
+        const y = padT + plotH - targetH;
+        ctx.fillStyle = colors[i];
+        ctx.fillRect(x, y, bw, targetH);
+
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(labels[i], x + bw / 2, padT + plotH + 18);
+
+        if (targetH > 18) {
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillText(cnt.toLocaleString(), x + bw / 2, y + targetH / 2 + 5);
+        }
+    });
+}
+
 function _drawHer2Bars(ctx, w, h, counts, ease) {
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2;
@@ -1302,11 +1444,13 @@ async function _exportPDF(state) {
             _pdfDrawConfidence(state),
         ];
     } else if (str_model_type === 'Precise-IHC') {
-        const isAllred = (_activeScoreType === 'Allred');
+        const analysisPage = (_activeScoreType === 'Allred') ? _pdfDrawAllredAnalysis(state)
+            : (_activeScoreType === 'KI67') ? _pdfDrawKi67Analysis(state)
+            : _pdfDrawHer2Analysis(state);
         list_pages = [
             _pdfDrawCover(state),
             _pdfDrawClassDist(state),
-            isAllred ? _pdfDrawAllredAnalysis(state) : _pdfDrawHer2Analysis(state),
+            analysisPage,
             _pdfDrawConfidence(state),
         ];
     } else {
@@ -1403,7 +1547,7 @@ function _pdfHeader(ctx, title) {
     ctx.font = '20px Segoe UI, Arial, sans-serif';
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
-    ctx.fillText('MeDICus Studio · AI Detection Report', 60, PDF_H - 35);
+    ctx.fillText('MeDIAuto Studio · AI Detection Report', 60, PDF_H - 35);
     ctx.textAlign = 'right';
     ctx.fillText('Generated by AI Visualization', PDF_W - 60, PDF_H - 35);
 }
@@ -1474,6 +1618,14 @@ function _pdfDrawCover(state) {
             if (int_total > 0) {
                 str_metric_value = `${a.ts} / 8`;
                 str_metric_color = a.ts >= 3 ? '#E84040' : '#2E7D32';
+            }
+        } else if (_activeScoreType === 'KI67') {
+            const int_pos = int_n1 + int_n2 + int_n3;
+            const float_ki67 = int_total === 0 ? 0 : int_pos / int_total * 100;
+            str_metric_label = 'KI-67 Labeling Index';
+            if (int_total > 0) {
+                str_metric_value = `${float_ki67.toFixed(1)}%`;
+                str_metric_color = float_ki67 >= 14 ? '#E84040' : '#2E7D32';
             }
         } else {
             str_metric_label = 'HER2 Score (dominant / weighted)';
@@ -2142,6 +2294,112 @@ function _pdfDrawAllredAnalysis(state) {
         ctx.fillText(
             `${list_bins[i].toLocaleString()} (${int_pct.toFixed(1)}%)`,
             int_chart_x + int_local_w + 14, int_yc
+        );
+    });
+
+    return c;
+}
+
+function _pdfDrawKi67Analysis(state) {
+    const { countsByClass } = state;
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, 'KI-67 Analysis');
+
+    const n0 = countsByClass[0] || 0;
+    const pos = (countsByClass[1] || 0) + (countsByClass[2] || 0) + (countsByClass[3] || 0);
+    const total = n0 + pos;
+    const ki67Index = total === 0 ? 0 : pos / total * 100;
+    const interp = ki67Index >= 14 ? 'High' : 'Low';
+    const indexColor = ki67Index >= 14 ? '#E84040' : '#2E7D32';
+
+    // Left card — KI-67 score summary
+    const gx = 100, gy = 200, gw = 950, gh = 1170;
+    _pdfPanel(ctx, gx, gy, gw, gh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('KI-67 Labeling Index', gx + 40, gy + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '24px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Positive / Total × 100 (%) — Cutoff: 14% (St Gallen 2013)', gx + 40, gy + 90);
+
+    // Big index number
+    ctx.fillStyle = total > 0 ? indexColor : PDF_COL.subtext;
+    ctx.font = 'bold 220px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(total > 0 ? `${ki67Index.toFixed(1)}%` : 'N/A', gx + gw / 2, gy + 380);
+
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = '32px Segoe UI, Arial, sans-serif';
+    ctx.fillText(total > 0 ? interp : '—', gx + gw / 2, gy + 560);
+
+    // Stat rows
+    const statX = gx + 60;
+    let statY = gy + 700;
+    const rowH = 62;
+    const rows = [
+        ['Positive Cells', pos.toLocaleString()],
+        ['Negative Cells', n0.toLocaleString()],
+        ['Total Cells', total.toLocaleString()],
+        ['Cutoff', '14% (St Gallen 2013)'],
+    ];
+    ctx.font = '28px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    for (const [k, v] of rows) {
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.textAlign = 'left';
+        ctx.fillText(k, statX, statY);
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(v, gx + gw - 60, statY);
+        ctx.font = '28px Segoe UI, Arial, sans-serif';
+        statY += rowH;
+    }
+
+    // Right card — Negative vs Positive bars
+    const bx = 1100, by = 200, bw = 900, bh = 1170;
+    _pdfPanel(ctx, bx, by, bw, bh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 44px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Cell Distribution', bx + 40, by + 30);
+
+    const bins = [n0, pos];
+    const labels = ['Negative', 'Positive'];
+    const colors = ['#27ae60', '#e74c3c'];
+    const maxBin = Math.max(...bins, 1);
+    const chartX = bx + 200;
+    const chartY = by + 200;
+    const chartW = bw - 300;
+    const chartH = bh - 360;
+    const barRowH = chartH / 2;
+
+    labels.forEach((lbl, i) => {
+        const yc = chartY + i * barRowH + barRowH / 2;
+        const barH = Math.min(barRowH * 0.6, 120);
+        const localW = (bins[i] / maxBin) * chartW;
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 32px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, chartX - 20, yc);
+
+        ctx.fillStyle = colors[i];
+        ctx.fillRect(chartX, yc - barH / 2, localW, barH);
+
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        const pct = total > 0 ? (bins[i] / total * 100) : 0;
+        ctx.fillText(
+            `${bins[i].toLocaleString()} (${pct.toFixed(1)}%)`,
+            chartX + localW + 14, yc
         );
     });
 

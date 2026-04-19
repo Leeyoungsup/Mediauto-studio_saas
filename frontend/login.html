@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MeDICus Studio — Login</title>
+    <title>MeDIAuto Studio — Login</title>
     <link rel="icon" href="assets/app_icon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -101,7 +101,7 @@
 <body>
     <div class="login-wrapper">
         <div class="login-card">
-            <img src="assets/logo.png" alt="MeDICus Studio" class="login-logo">
+            <img src="assets/logo.png" alt="MeDIAuto Studio" class="login-logo">
             <h1 class="login-title" id="page-title">Sign In</h1>
             <p class="login-subtitle" id="page-subtitle">병리 AI 분석 플랫폼에 로그인하세요</p>
 
@@ -135,6 +135,12 @@
                     </div>
                 </div>
 
+                <!-- MFA TOTP 입력 (MFA 활성화 사용자만 표시) -->
+                <div class="form-group" id="mfa-group" style="display:none;">
+                    <label for="totp-code">2차 인증 코드 (6자리)</label>
+                    <input type="text" id="totp-code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code">
+                </div>
+
                 <button type="submit" class="btn-primary" id="btn-submit">로그인</button>
             </form>
 
@@ -165,7 +171,7 @@
 
         // 이미 로그인 되어있으면 메인으로
         if (localStorage.getItem('access_token')) {
-            window.location.href = '/app.html';
+            window.location.href = '/home.html';
         }
 
         function showAlert(message, type = 'error') {
@@ -242,14 +248,25 @@
             }
         });
 
+        let mfaPending = false;
+
         async function doLogin() {
+            const $mfaGroup = document.getElementById('mfa-group');
+            const $totpCode = document.getElementById('totp-code');
+
+            const body = {
+                str_login_id: $loginId.value.trim(),
+                str_password: $password.value,
+            };
+            // MFA 코드가 표시되어 있으면 함께 전송
+            if (mfaPending && $totpCode.value.trim()) {
+                body.str_totp_code = $totpCode.value.trim();
+            }
+
             const res = await fetch(`${API_BASE}/login`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    str_login_id: $loginId.value.trim(),
-                    str_password: $password.value,
-                }),
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(body),
             });
 
             const data = await res.json();
@@ -262,13 +279,23 @@
                 throw new Error(msg);
             }
 
+            // MFA 필요 응답
+            if (data.bool_mfa_required) {
+                mfaPending = true;
+                $mfaGroup.style.display = 'block';
+                $totpCode.focus();
+                showAlert(data.str_message || '2차 인증 코드를 입력해 주세요.', 'success');
+                return;
+            }
+
             // 토큰 저장
             localStorage.setItem('access_token', data.str_access_token);
             localStorage.setItem('refresh_token', data.str_refresh_token);
             localStorage.setItem('user', JSON.stringify(data.dict_user));
             localStorage.setItem('token_expires', Date.now() + data.int_expires_in * 1000);
+            mfaPending = false;
 
-            window.location.href = '/app.html';
+            window.location.href = '/home.html';
         }
 
         async function doRegister() {

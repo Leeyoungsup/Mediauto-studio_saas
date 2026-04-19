@@ -8,15 +8,17 @@ import sys
 import json
 import uuid
 import queue
+import asyncio
 import threading
 from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends, HTTPException, Form, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Form, Query, Request
+from fastapi.responses import JSONResponse, FileResponse, Response
 
-from app.auth import get_current_user
+from app.audit import get_client_ip, log_audit_event
+from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.slide_manager import slide_manager
 from app.priority import wait_if_viewer_busy
@@ -26,14 +28,51 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+# Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
+router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
+
+
+async def _log_ai_analyze(
+    request: Request,
+    dict_user: dict,
+    str_model: str,
+    str_variant: str,
+    str_slide_id: str,
+    str_filename: str,
+    str_task_id: str,
+) -> None:
+    """AI 분석 트리거 감사 로그 — 관리자 활동 추적용."""
+    try:
+        await log_audit_event(
+            str_action="ai.analyze",
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type="slide",
+            str_resource_id=str_slide_id,
+            str_detail=f"{str_model}/{str_variant} on {str_filename}",
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra={
+                "str_model": str_model,
+                "str_variant": str_variant,
+                "str_task_id": str_task_id,
+                "str_slide_filename": str_filename,
+            },
+        )
+    except Exception:
+        pass
+
+# Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
+# main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
+media_router = APIRouter(dependencies=[Depends(get_media_user)])
 
 # AI 작업 상태 추적
 _tasks = {}
 _tasks_lock = threading.Lock()
 
-# I/O 워커 스레드별 독립 OpenSlide 객체 (thread-safe)
-_patch_thread_local = threading.local()
+# I/O 워커 스레드별 독립 OpenSlide 핸들은 app.thread_slide_pool 이 관리한다.
+# generation 검증 + LRU eviction 포함 (SlideManager.close() 시 자동 무효화).
+from app.thread_slide_pool import get_thread_slide as _get_thread_slide
 
 
 def _update_task(task_id, **kwargs):
@@ -47,6 +86,41 @@ def _update_task(task_id, **kwargs):
             auto_ai.ping_ai_activity()
         except Exception:
             pass
+
+
+class TaskCancelled(Exception):
+    """사용자가 추론을 중단 요청했을 때 워커가 raise 하는 예외."""
+    pass
+
+
+def _is_cancel_requested(task_id: str) -> bool:
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        return bool(task and task.get("cancel_requested"))
+
+
+def _check_cancel(task_id: str) -> None:
+    """체크포인트 — 취소 요청이 있으면 TaskCancelled 발생."""
+    if _is_cancel_requested(task_id):
+        raise TaskCancelled()
+
+
+def _cleanup_cache_paths(list_paths) -> None:
+    """취소 시 부분 저장된 캐시 파일/폴더 전부 삭제. 충돌 방지용."""
+    import shutil
+    for p in list_paths:
+        if p is None:
+            continue
+        try:
+            path_obj = Path(p)
+            if path_obj.is_file():
+                path_obj.unlink()
+                print(f"[cancel] removed file: {path_obj}")
+            elif path_obj.is_dir():
+                shutil.rmtree(path_obj)
+                print(f"[cancel] removed dir: {path_obj}")
+        except Exception as e:
+            print(f"[cancel] cleanup failed for {p}: {e}")
 
 
 def _get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
@@ -78,6 +152,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
     2. 멀티스레드 I/O 프리페치 (ThreadPoolExecutor)
     3. 배치 GPU 추론 (8장씩)
     """
+    list_cleanup_on_cancel = []
     try:
         import torch
         import numpy as np
@@ -90,6 +165,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── 캐시된 AI 결과 확인 (전체/ROI 무관 — 있으면 가져와서 표시) ──
         cache_path = _get_ai_cache_path(info.file_path, tissue_type)
+        list_cleanup_on_cancel.append(cache_path)
         if cache_path.exists():
             try:
                 _update_task(task_id, status="running", progress=10,
@@ -147,7 +223,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── 조직 마스크 (배경 스킵) ──
         _update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
-        thumb_mask = _create_tissue_mask(slide)
+        thumb_mask = _create_tissue_mask(slide, icc_transform=info.icc_transform)
         _update_task(task_id, progress=5)
 
         # ── Pre-scan: 유효 패치 수집 ──
@@ -193,12 +269,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
         def _read_patch_tensor(patch_x, patch_y):
             try:
                 wait_if_viewer_busy()
-                if (not hasattr(_patch_thread_local, 'slide') or
-                        _patch_thread_local.slide_path != slide_path):
-                    import openslide
-                    _patch_thread_local.slide = openslide.OpenSlide(slide_path)
-                    _patch_thread_local.slide_path = slide_path
-                local_slide = _patch_thread_local.slide
+                local_slide = _get_thread_slide(slide_id, slide_path)
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
@@ -265,6 +336,8 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
                 with ThreadPoolExecutor(max_workers=IO_WORKERS) as pool:
                     pending = []
                     for px, py in valid_patch_list:
+                        if _is_cancel_requested(task_id):
+                            break
                         future = pool.submit(_read_patch_tensor, px, py)
                         pending.append((px, py, future))
 
@@ -280,7 +353,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
                             pending.clear()
 
                     # 남은 패치
-                    if pending:
+                    if pending and not _is_cancel_requested(task_id):
                         coords, tensors = [], []
                         for bpx, bpy, f in pending:
                             t = f.result(timeout=60)
@@ -300,6 +373,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         # ── GPU 추론 루프 ──
         while True:
+            _check_cancel(task_id)
             try:
                 item = prefetch_q.get(timeout=120)
             except queue.Empty:
@@ -337,6 +411,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
             all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
+        _check_cancel(task_id)
         _update_task(task_id, progress=50,
                      status_msg=f"Detection complete: {detected_count} cells")
 
@@ -379,6 +454,7 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
             "seg_data": seg_data,
         }
 
+        _check_cancel(task_id)
         # ── 전체 추론(폴리곤 없음)인 경우만 캐시 저장 ──
         if roi_polygons is None:
             try:
@@ -393,13 +469,28 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
         _update_task(task_id, status="completed", progress=100, result=result)
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] _run_detection cancelled task={task_id}")
     except Exception as e:
         import traceback
         _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
 
 
-def _create_tissue_mask(slide):
-    """조직 마스크 생성 (기존 DetectionWorker._create_tissue_mask와 동일)"""
+def _create_tissue_mask(slide, icc_transform=None):
+    """조직 마스크 생성 — H-DAB 분리 후 (Hem ∪ DAB ∪ 텍스처) − 확실한 배경.
+
+    단일 Hematoxylin Otsu 만으로는 DAB 가 강하게 덮인 영역(H 가 억제됨)이나
+    염색이 거의 없지만 구조가 있는 조직이 빠질 수 있음. 따라서:
+      1) H-DAB color deconvolution (Ruifrok & Johnston 2001) → H / DAB 채널 분리
+      2) 각 채널 Otsu → 염색 영역 검출
+      3) 국소 표준편차(텍스처) Otsu → 무염색 조직 보완
+      4) Union 후, 확실한 유리 배경(그레이 히스토그램 최고 피크의 95% 이상) 강제 제외
+
+    icc_transform 이 주어지면 썸네일에 적용해 다른 AI 경로와 색상 일관성 유지.
+    """
     import numpy as np
     import cv2
 
@@ -409,16 +500,79 @@ def _create_tissue_mask(slide):
             slide.dimensions[0] // downsample,
             slide.dimensions[1] // downsample,
         ))
+        if icc_transform is not None:
+            from PIL import ImageCms
+            thumbnail = thumbnail.convert('RGB')
+            ImageCms.applyTransform(thumbnail, icc_transform, inPlace=True)
         thumbnail = np.array(thumbnail)
-
         if len(thumbnail.shape) == 3:
-            gray = cv2.cvtColor(thumbnail[:, :, :3], cv2.COLOR_RGB2GRAY)
+            rgb = thumbnail[:, :, :3]
         else:
-            gray = thumbnail
+            rgb = cv2.cvtColor(thumbnail, cv2.COLOR_GRAY2RGB)
 
-        mask = cv2.threshold(255 - gray, 30, 255, cv2.THRESH_BINARY)[1]
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        # ── H-DAB color deconvolution (Ruifrok & Johnston, 2001) ──
+        stain_matrix = np.array([
+            [0.650, 0.704, 0.286],   # Hematoxylin
+            [0.268, 0.570, 0.776],   # DAB
+            [0.711, 0.423, 0.500],   # Residual
+        ], dtype=np.float64)
+        stain_matrix = stain_matrix / np.linalg.norm(stain_matrix, axis=1, keepdims=True)
+        deconv_matrix = np.linalg.inv(stain_matrix)
+
+        rgb_f = np.maximum(rgb.astype(np.float64), 1.0)
+        od = -np.log(rgb_f / 255.0)
+        h, w = rgb.shape[:2]
+        stain_od = (od.reshape(-1, 3) @ deconv_matrix.T).reshape(h, w, 3)
+
+        hematoxylin_od = np.clip(stain_od[:, :, 0], 0, None)
+        dab_od = np.clip(stain_od[:, :, 1], 0, None)
+
+        hem_max = max(np.percentile(hematoxylin_od, 99.5), 0.01)
+        dab_max = max(np.percentile(dab_od, 99.5), 0.01)
+        hem_u8 = np.clip(hematoxylin_od / hem_max * 255, 0, 255).astype(np.uint8)
+        dab_u8 = np.clip(dab_od / dab_max * 255, 0, 255).astype(np.uint8)
+
+        _, hem_mask = cv2.threshold(hem_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, dab_mask = cv2.threshold(dab_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # ── 텍스처(국소 std) — 무염색이지만 구조 있는 조직 보완 ──
+        np_gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        gray_f = np_gray.astype(np.float32)
+        ksize = (15, 15)
+        local_mean = cv2.blur(gray_f, ksize)
+        local_sq_mean = cv2.blur(gray_f ** 2, ksize)
+        local_std = np.sqrt(np.maximum(local_sq_mean - local_mean ** 2, 0))
+        std_scaled = np.clip(local_std * 10, 0, 255).astype(np.uint8)
+        _, texture_mask = cv2.threshold(
+            std_scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+
+        # ── 확실한 유리 배경 제거 (히스토그램 상단 피크의 95% 이상) ──
+        hist = cv2.calcHist([np_gray], [0], None, [256], [0, 256]).flatten()
+        bg_peak = int(np.argmax(hist[128:]) + 128)
+        definite_bg = (np_gray >= int(bg_peak * 0.95))
+
+        mask = (hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)
+        mask[definite_bg] = False
+        mask = (mask.astype(np.uint8)) * 255
+
+        # 조각난 마스크를 넓게 CLOSE 해서 인접 조직 조각들을 하나로 묶음
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+        # ── 외곽 컨투어만 뽑아 솔리드로 채움 ──
+        # → 내부 구멍(염색 옅어서 빠진 세포 간극)도 전부 tissue 로 포함
+        # → 작은 면적 컨투어는 노이즈로 간주해 드랍
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        filled = np.zeros_like(mask)
+        int_min_area = max(int(h * w * 0.0005), 50)  # 썸네일 면적의 0.05% 이상
+        for cnt in contours:
+            if cv2.contourArea(cnt) < int_min_area:
+                continue
+            cv2.drawContours(filled, [cnt], -1, 255, thickness=cv2.FILLED)
+        mask = filled
 
         target_w = slide.dimensions[0] // 64
         target_h = slide.dimensions[1] // 64
@@ -796,12 +950,17 @@ def _run_marker_detection_pipeline(
     score_fn, score_key,
     extra_fields, log_label,
     str_variant: str = "",
-    float_score_conf_threshold: float = 0.1,
+    float_score_conf_threshold: float = 0.5,
 ):
     """
     YOLOv11m 기반 marker detection 공용 파이프라인.
     PD-Score / Precise-IHC 가 공유.
+    임계값은 모델별로 고정 — 인허가(SaMD) 재현성을 위해 사용자 조절 금지.
+      - PD-Score (Stomach/Lung): 0.1
+      - Precise-IHC (HER2/ER_PR): 0.5
+    각 wrapper 에서 명시적으로 전달한다.
     """
+    list_cleanup_on_cancel = [cache_path]
     try:
         import torch
         import numpy as np
@@ -917,7 +1076,7 @@ def _run_marker_detection_pipeline(
 
         # ── 조직 마스크 ──
         _update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
-        thumb_mask = _create_tissue_mask(slide)
+        thumb_mask = _create_tissue_mask(slide, icc_transform=info.icc_transform)
         _update_task(task_id, progress=5)
 
         # ── 유효 패치 수집 ──
@@ -965,12 +1124,7 @@ def _run_marker_detection_pipeline(
         def _read_patch_tensor(patch_x, patch_y):
             try:
                 wait_if_viewer_busy()
-                if (not hasattr(_patch_thread_local, 'slide') or
-                        _patch_thread_local.slide_path != slide_path):
-                    import openslide
-                    _patch_thread_local.slide = openslide.OpenSlide(slide_path)
-                    _patch_thread_local.slide_path = slide_path
-                local_slide = _patch_thread_local.slide
+                local_slide = _get_thread_slide(slide_id, slide_path)
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
                 patch_rgb = patch.convert('RGB')
@@ -1032,6 +1186,8 @@ def _run_marker_detection_pipeline(
                 with ThreadPoolExecutor(max_workers=IO_WORKERS) as pool:
                     pending = []
                     for px, py in valid_patch_list:
+                        if _is_cancel_requested(task_id):
+                            break
                         future = pool.submit(_read_patch_tensor, px, py)
                         pending.append((px, py, future))
 
@@ -1046,7 +1202,7 @@ def _run_marker_detection_pipeline(
                                 prefetch_q.put((coords, tensors, len(pending)), timeout=30)
                             pending.clear()
 
-                    if pending:
+                    if pending and not _is_cancel_requested(task_id):
                         coords, tensors = [], []
                         for bpx, bpy, f in pending:
                             t = f.result(timeout=60)
@@ -1065,6 +1221,7 @@ def _run_marker_detection_pipeline(
         producer_thread.start()
 
         while True:
+            _check_cancel(task_id)
             try:
                 item = prefetch_q.get(timeout=120)
             except queue.Empty:
@@ -1124,10 +1281,8 @@ def _run_marker_detection_pipeline(
             for i in range(n_cells)
         ]
 
-        # Score 는 프론트엔드 기본 confidence 필터(0.1)와 동일한 임계값으로 계산.
-        # PD-Score/Precise-IHC 모델은 표시 시 conf < 0.1 셀을 숨기므로,
-        # 초기 노출되는 CPS/TPS/HER2 점수도 같은 필터를 거친 cells 로부터 구해야 일관적이다.
-        # (cells 리스트 전체는 그대로 저장 — 사용자가 임계값을 낮추면 셀은 더 표시됨)
+        # Score 는 모델별 고정 confidence 임계값으로 계산 (PD=0.1, Precise-IHC=0.5).
+        # SaMD 인허가 재현성을 위해 사용자 조절 불가.
         if len(all_conf) > 0:
             mask_score = all_conf >= float_score_conf_threshold
             cls_for_score = all_cls[mask_score]
@@ -1145,6 +1300,7 @@ def _run_marker_detection_pipeline(
             **(extra_fields or {}),
         }
 
+        _check_cancel(task_id)
         if roi_polygons is None:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
@@ -1160,6 +1316,11 @@ def _run_marker_detection_pipeline(
 
         _update_task(task_id, status="completed", progress=100, result=result)
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] {log_label} cancelled task={task_id}")
     except Exception as e:
         import traceback
         _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
@@ -1184,11 +1345,12 @@ def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         extra_fields={"tissue_type": tissue_type},
         log_label="PD-Score",
         str_variant=tissue_type,
+        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung 고정 (SaMD 재현성)
     )
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Precise-IHC — HER2 / ER-PR / KI-67 (현재 HER2 만 활성화)
+# Precise-IHC — HER2 / ER-PR / KI-67
 # ═══════════════════════════════════════════════════════════════════
 
 PRECISE_IHC_CONFIG = {
@@ -1213,16 +1375,16 @@ PRECISE_IHC_CONFIG = {
         "score_type": "HER2",
         "exclude_classes": [4],
     },
-    # ER / PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other)
-    # 동일한 .pt 파일을 공유하지만 cache key (marker) 가 다르므로 별도 캐시.
-    "ER": {
+    # ER/PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other).
+    # ER 과 PR 은 동일 .pt 를 공유하고 추론 결과도 동일하므로 단일 marker("ER_PR") 로 통합.
+    "ER_PR": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
         "num_classes": 5,
         "class_names": {
-            0: "ER 0+",
-            1: "ER 1+",
-            2: "ER 2+",
-            3: "ER 3+",
+            0: "ER/PR 0+",
+            1: "ER/PR 1+",
+            2: "ER/PR 2+",
+            3: "ER/PR 3+",
             4: "Other",
         },
         "class_colors": {
@@ -1235,24 +1397,26 @@ PRECISE_IHC_CONFIG = {
         "score_type": "Allred",
         "exclude_classes": [4],
     },
-    "PR": {
+    # KI-67: ER/PR 모델을 임시 사용. class 0 = Negative, class 1/2/3 = Positive.
+    # KI-67 Index = Positive / Total × 100 (%).
+    "KI_67": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
         "num_classes": 5,
         "class_names": {
-            0: "PR 0+",
-            1: "PR 1+",
-            2: "PR 2+",
-            3: "PR 3+",
+            0: "Negative",
+            1: "Positive (1+)",
+            2: "Positive (2+)",
+            3: "Positive (3+)",
             4: "Other",
         },
         "class_colors": {
-            0: "#27ae60",
-            1: "#f1c40f",
-            2: "#e67e22",
-            3: "#c0392b",
-            4: "#95a5a6",
+            0: "#27ae60",   # green (Negative)
+            1: "#e67e22",   # orange (Positive weak)
+            2: "#e74c3c",   # red (Positive moderate)
+            3: "#c0392b",   # deep red (Positive strong)
+            4: "#95a5a6",   # other (hidden)
         },
-        "score_type": "Allred",
+        "score_type": "KI67",
         "exclude_classes": [4],
     },
 }
@@ -1371,8 +1535,46 @@ def _compute_allred_score(all_cls) -> dict:
     }
 
 
+def _compute_ki67_score(all_cls) -> dict:
+    """
+    KI-67 Labeling Index:
+      - class 0 = Negative, class 1/2/3 = Positive
+      - KI-67 Index = Positive / Total × 100 (%)
+      - 해석: ≥14% → High, <14% → Low (St Gallen 2013 기준)
+    """
+    import numpy as np
+    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
+    n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
+    int_total = n0 + n1 + n2 + n3
+    int_pos = n1 + n2 + n3
+
+    if int_total == 0:
+        return {
+            "score_type": "KI67",
+            "ki67_index": 0.0,
+            "positive_count": 0,
+            "negative_count": 0,
+            "total_tumor": 0,
+            "interpretation": "Low",
+            "class_counts": int_counts,
+        }
+
+    float_index = int_pos / int_total * 100.0
+    str_interp = "High" if float_index >= 14.0 else "Low"
+
+    return {
+        "score_type": "KI67",
+        "ki67_index": round(float_index, 2),
+        "positive_count": int_pos,
+        "negative_count": n0,
+        "total_tumor": int_total,
+        "interpretation": str_interp,
+        "class_counts": int_counts,
+    }
+
+
 def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Precise-IHC 파이프라인 wrapper — HER2 / ER / PR 지원."""
+    """Precise-IHC 파이프라인 wrapper — HER2 / ER_PR / KI_67 지원."""
     if marker not in PRECISE_IHC_CONFIG:
         _update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
         return
@@ -1386,12 +1588,18 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
     if marker == "HER2":
         score_fn = _compute_her2_score
         score_key = "her2_score"
-    elif marker in ("ER", "PR"):
+    elif marker == "ER_PR":
         score_fn = _compute_allred_score
         score_key = "allred_score"
+    elif marker == "KI_67":
+        score_fn = _compute_ki67_score
+        score_key = "ki67_score"
     else:
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
+
+    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR/KI_67=0.3
+    float_conf = 0.3 if marker in ("ER_PR", "KI_67") else 0.5
 
     _run_marker_detection_pipeline(
         task_id=task_id,
@@ -1404,6 +1612,7 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         extra_fields={"marker": marker},
         log_label=f"Precise-IHC/{marker}",
         str_variant=marker,
+        float_score_conf_threshold=float_conf,
     )
 
 
@@ -1411,9 +1620,11 @@ def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
 
 @router.post("/detect")
 async def start_detection(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     tissue_type: str = Form("Stomach"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """검출 작업 시작 (비동기)"""
     info = slide_manager.get(slide_id)
@@ -1439,14 +1650,17 @@ async def start_detection(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "HE-Fit", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
 @router.post("/pd-score")
 async def start_pd_score(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     tissue_type: str = Form("Stomach"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """PD-Score 추론 시작 (Stomach → CPS, Lung → TPS)"""
     info = slide_manager.get(slide_id)
@@ -1474,16 +1688,19 @@ async def start_pd_score(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "PD-Score", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
 @router.post("/precise-ihc")
 async def start_precise_ihc(
+    request: Request,
     slide_id: str = Form(...),
     roi_polygons: Optional[str] = Form(None),
     marker: str = Form("HER2"),
+    dict_user: dict = Depends(get_current_user),
 ):
-    """Precise-IHC 추론 시작 (현재 HER2 만 지원)"""
+    """Precise-IHC 추론 시작 (marker: HER2 / ER_PR / KI_67)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -1509,6 +1726,7 @@ async def start_precise_ihc(
     )
     t.start()
 
+    await _log_ai_analyze(request, dict_user, "Precise-IHC", marker, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -1537,7 +1755,12 @@ async def get_active_tasks():
 
 @router.get("/task/{task_id}")
 async def get_task_status(task_id: str):
-    """AI 작업 상태 조회"""
+    """AI 작업 상태 조회.
+
+    완료된 작업의 `result` 는 수백 MB dict 가 될 수 있으므로 JSON 직렬화를
+    스레드풀로 오프로드한다. 이벤트 루프에서 직렬화하면 같은 시간 동안
+    타일 서빙이 밀린다.
+    """
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
@@ -1553,19 +1776,65 @@ async def get_task_status(task_id: str):
         response["result"] = task["result"]
     elif task["status"] == "error":
         response["error"] = task["error"]
-    return response
+
+    loop = asyncio.get_running_loop()
+    bytes_body = await loop.run_in_executor(
+        None, lambda: json.dumps(response).encode("utf-8")
+    )
+    return Response(content=bytes_body, media_type="application/json")
+
+
+@router.post("/task/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """실행 중인 AI 작업 취소 요청.
+
+    - queued/running 이면 cancel_requested 플래그 세팅 → 워커가 다음 체크포인트에서 중단
+    - 워커는 부분 저장된 캐시(JSON/PNG/타일 폴더)를 삭제해 다음 실행 시 충돌 방지
+    """
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        if not task:
+            raise HTTPException(404, "작업을 찾을 수 없습니다")
+        str_status = task.get("status")
+        if str_status in ("completed", "error", "cancelled"):
+            return {"task_id": task_id, "status": str_status, "msg": "already finished"}
+        task["cancel_requested"] = True
+        task["status_msg"] = "Cancelling..."
+    print(f"[cancel] requested for task {task_id}")
+    return {"task_id": task_id, "status": "cancelling"}
 
 
 @router.get("/task/{task_id}/result")
 async def get_task_result(task_id: str):
-    """AI 작업 결과 조회"""
+    """AI 작업 결과 조회. 대용량 result dict 는 스레드풀에서 직렬화."""
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
         raise HTTPException(404, "작업을 찾을 수 없습니다")
     if task["status"] != "completed":
         raise HTTPException(400, f"작업 미완료 (status: {task['status']})")
-    return task["result"]
+
+    obj_result = task["result"]
+    loop = asyncio.get_running_loop()
+    bytes_body = await loop.run_in_executor(
+        None, lambda: json.dumps(obj_result).encode("utf-8")
+    )
+    return Response(content=bytes_body, media_type="application/json")
+
+
+_USER_EDIT_MODES = {"HE-Fit", "PD-Score", "Precise-IHC"}
+
+
+def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: str) -> Path:
+    """사용자별 편집본 JSON 저장 경로:
+       AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
+    """
+    safe_user = "".join(c for c in (user_id or "anon") if c.isalnum() or c in "-_")
+    safe_variant = "".join(c for c in (variant or "default") if c.isalnum() or c in "-_")
+    base_dir = Path(settings.AI_RESULTS_DIR) / "user_edits" / safe_user / ai_mode
+    base_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(slide_path).stem
+    return base_dir / f"{stem}_{safe_variant}.json"
 
 
 @router.post("/save-result")
@@ -1573,45 +1842,161 @@ async def save_detection_result(
     slide_id: str = Form(...),
     tissue_type: str = Form("Stomach"),
     result: str = Form(...),
+    ai_mode: str = Form("HE-Fit"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """
-    검출 결과를 서버 내부 AI 결과 폴더에 저장 (다운로드 X).
-    파일: AI_RESULTS_DIR/{slide_stem}_HE-Fit_{tissue_type}.json
+    세포 편집본을 **현재 로그인한 사용자 전용**으로 DB 에 저장한다.
+    원본 디스크 캐시 (ai_results/...) 는 건드리지 않는다.
     """
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
 
+    # 대용량 AI 결과(수십~수백 MB) — JSON 파싱/쓰기를 스레드풀로 오프로드해
+    # 이벤트 루프가 타일 서빙 등 다른 요청을 블로킹하지 않게 한다.
+    loop = asyncio.get_running_loop()
     try:
-        result_obj = json.loads(result)
+        result_obj = await loop.run_in_executor(None, json.loads, result)
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"Invalid JSON: {e}")
 
-    cache_path = _get_ai_cache_path(info.file_path, tissue_type)
-    try:
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(result_obj, f)
-    except Exception as e:
-        raise HTTPException(500, f"Save failed: {e}")
-
-    # DB 에 AI 결과 플래그 기록 (async 컨텍스트 — 직접 await)
     from app import slide_store
-    from pathlib import Path as _P
+    str_user_id = str(dict_user.get("_id") or "")
+    str_user_name = str(dict_user.get("str_name") or "")
+    str_login_id = str(dict_user.get("str_login_id") or "")
+    if not str_user_id:
+        raise HTTPException(401, "사용자 식별 실패")
+
+    # 1) 디스크에 사용자별 JSON 저장 (스레드풀에서)
+    file_path = _get_user_edit_path(info.file_path, ai_mode, tissue_type or "", str_user_id)
+
+    def _write_json_to_disk():
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(result_obj, f)
+
     try:
-        p = _P(info.file_path).resolve()
-        upload_dir = _P(settings.UPLOAD_DIR).resolve()
-        str_rel_path = str(p.parent.relative_to(upload_dir)).replace("\\", "/")
-        if str_rel_path in (".", ""):
-            str_rel_path = ""
-        await slide_store.mark_ai_result(str_rel_path, p.name, "HE-Fit", tissue_type)
+        await loop.run_in_executor(None, _write_json_to_disk)
     except Exception as e:
-        print(f"[ai] mark_ai_result (save-result) failed: {e}")
+        print(f"[ai/save-result] disk write failed: {e}")
+        raise HTTPException(500, f"Save failed (disk): {e}")
+
+    # 2) DB 에는 메타만 기록 (유무/경로/셀 수/시간)
+    int_total_cells = int(result_obj.get("total_cells", 0) or 0)
+    try:
+        await slide_store.upsert_user_ai_edit(
+            str_slide_id=slide_id,
+            str_ai_mode=ai_mode,
+            str_variant=tissue_type or "",
+            str_user_id=str_user_id,
+            str_user_name=str_user_name,
+            str_login_id=str_login_id,
+            str_file_path=str(file_path),
+            int_total_cells=int_total_cells,
+        )
+        print(f"[ai/save-result] saved slide={slide_id} mode={ai_mode} "
+              f"variant={tissue_type} user={str_user_name or str_login_id} "
+              f"cells={int_total_cells} path={file_path}")
+    except Exception as e:
+        print(f"[ai/save-result] meta upsert failed: {e}")
+        raise HTTPException(500, f"Save failed (meta): {e}")
 
     return {
         "saved": True,
-        "path": str(cache_path),
-        "filename": cache_path.name,
-        "total_cells": result_obj.get("total_cells", 0),
+        "ai_mode": ai_mode,
+        "variant": tissue_type or "",
+        "user_id": str_user_id,
+        "user_name": str_user_name,
+        "filename": file_path.name,
+        "total_cells": int_total_cells,
+    }
+
+
+@router.get("/user-edits/list")
+async def list_user_edits(
+    slide_id: str,
+    ai_mode: str,
+    variant: str = "",
+):
+    """해당 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+    from app import slide_store
+    list_users = await slide_store.list_user_ai_edits(slide_id, ai_mode, variant)
+    return {"users": list_users}
+
+
+@router.delete("/user-edits")
+async def delete_user_edit(
+    slide_id: str,
+    ai_mode: str,
+    variant: str = "",
+    dict_user: dict = Depends(get_current_user),
+):
+    """현재 로그인한 **본인** 의 편집본만 삭제 (타인 것은 절대 불가)."""
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+    str_user_id = str(dict_user.get("_id") or "")
+    if not str_user_id:
+        raise HTTPException(401, "사용자 식별 실패")
+    from app import slide_store
+    dict_doc = await slide_store.delete_user_ai_edit(
+        slide_id, ai_mode, variant, str_user_id,
+    )
+    if not dict_doc:
+        raise HTTPException(404, "저장본이 없습니다")
+    # 디스크 파일도 제거
+    str_file_path = dict_doc.get("str_file_path") or ""
+    if str_file_path:
+        try:
+            Path(str_file_path).unlink(missing_ok=True)
+        except Exception as e:
+            print(f"[ai/user-edits delete] file unlink failed: {e}")
+    print(f"[ai/user-edits] deleted slide={slide_id} mode={ai_mode} "
+          f"variant={variant} user={str_user_id}")
+    return {"deleted": True}
+
+
+@router.get("/user-edits/load")
+async def load_user_edit(
+    slide_id: str,
+    ai_mode: str,
+    user_id: str,
+    variant: str = "",
+):
+    """특정 사용자의 저장본 전체 결과 — DB 메타에서 경로 조회 후 디스크 JSON 반환."""
+    if ai_mode not in _USER_EDIT_MODES:
+        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+    from app import slide_store
+    dict_doc = await slide_store.get_user_ai_edit(slide_id, ai_mode, variant, user_id)
+    if not dict_doc:
+        raise HTTPException(404, "저장본이 없습니다")
+
+    str_file_path = dict_doc.get("str_file_path") or ""
+    if not str_file_path or not Path(str_file_path).exists():
+        raise HTTPException(404, "저장 파일이 누락되었습니다")
+
+    # 대용량 AI 결과 JSON — 스레드풀로 오프로드해 이벤트 루프 블로킹 방지.
+    # 수백 MB 결과도 타일 서빙과 병렬로 처리된다.
+    def _read_json_from_disk():
+        with open(str_file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    loop = asyncio.get_running_loop()
+    try:
+        result_obj = await loop.run_in_executor(None, _read_json_from_disk)
+    except Exception as e:
+        raise HTTPException(500, f"Load failed: {e}")
+
+    return {
+        "ai_mode": ai_mode,
+        "variant": variant or "",
+        "user_id": user_id,
+        "user_name": dict_doc.get("str_user_name", ""),
+        "result": result_obj,
     }
 
 
@@ -1621,15 +2006,17 @@ async def save_detection_result(
 
 VS_MODEL_FILES = {
     "ihc_membrane": "IHC_HnE_virtual_stain_membrane.pth",
-    "ihc_nucleus": "IHC_HnE_virtual_stain_nucleus.pth",
 }
 
 
-def _get_vs_cache_paths(slide_path: str, stain_type: str, target_mpp: float = 2.0):
+def _get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0):
     """
-    Virtual stain 결과 캐시: ai_results/VS-IHC/{slide_stem}_VS-IHC_{stain}_mpp{p}.{png|json}
+    Virtual stain 결과 캐시: ai_results/VS-IHC/{slide_stem}_VS-IHC_mpp{p}.{png|json}
     타일 피라미드는 sibling 폴더: ..._tile/{level}/{tx}_{ty}.jpeg
-    레거시 (ai_results 루트) 경로가 있으면 새 위치로 자동 이동.
+
+    마이그레이션 2단계:
+      1) 레거시 `ai_results/` 루트 → `ai_results/VS-IHC/`
+      2) stain_type (`_ihc_membrane`) 제거 — VS-IHC 가 단일 모델로 통합됨
     """
     p = Path(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "VS-IHC"
@@ -1638,32 +2025,51 @@ def _get_vs_cache_paths(slide_path: str, stain_type: str, target_mpp: float = 2.
     except Exception:
         pass
     mpp_str = f"{target_mpp:g}".replace(".", "p")
-    base_name = f"{p.stem}_VS-IHC_{stain_type}_mpp{mpp_str}"
+    base_name = f"{p.stem}_VS-IHC_mpp{mpp_str}"
     new_png = (cache_dir / base_name).with_suffix(".png")
     new_meta = (cache_dir / base_name).with_suffix(".json")
+    new_tile = cache_dir / f"{base_name}_tile"
 
-    legacy_dir = Path(settings.AI_RESULTS_DIR)
-    legacy_png = (legacy_dir / base_name).with_suffix(".png")
-    legacy_meta = (legacy_dir / base_name).with_suffix(".json")
-    legacy_tile = legacy_dir / f"{base_name}_tile"
-
-    for src, dst in ((legacy_png, new_png), (legacy_meta, new_meta)):
+    # ── 1) stain_type suffix 마이그레이션 (membrane 파일 → 새 이름) ──
+    old_stain_base = f"{p.stem}_VS-IHC_ihc_membrane_mpp{mpp_str}"
+    old_stain_png = (cache_dir / old_stain_base).with_suffix(".png")
+    old_stain_meta = (cache_dir / old_stain_base).with_suffix(".json")
+    old_stain_tile = cache_dir / f"{old_stain_base}_tile"
+    for src, dst in ((old_stain_png, new_png), (old_stain_meta, new_meta)):
         if src.exists() and not dst.exists():
             try:
                 src.replace(dst)
             except Exception as e:
-                print(f"[ai] VS legacy migration failed ({src.name}): {e}")
-    if legacy_tile.exists() and not (cache_dir / f"{base_name}_tile").exists():
+                print(f"[ai] VS stain-suffix migration failed ({src.name}): {e}")
+    if old_stain_tile.exists() and not new_tile.exists():
         try:
-            legacy_tile.replace(cache_dir / f"{base_name}_tile")
+            old_stain_tile.replace(new_tile)
         except Exception as e:
-            print(f"[ai] VS legacy tile dir migration failed: {e}")
+            print(f"[ai] VS stain-suffix tile dir migration failed: {e}")
+
+    # ── 2) ai_results 루트 레거시 (새/구 이름 둘 다 체크) ──
+    legacy_dir = Path(settings.AI_RESULTS_DIR)
+    for legacy_base in (base_name, old_stain_base):
+        legacy_png = (legacy_dir / legacy_base).with_suffix(".png")
+        legacy_meta = (legacy_dir / legacy_base).with_suffix(".json")
+        legacy_tile = legacy_dir / f"{legacy_base}_tile"
+        for src, dst in ((legacy_png, new_png), (legacy_meta, new_meta)):
+            if src.exists() and not dst.exists():
+                try:
+                    src.replace(dst)
+                except Exception as e:
+                    print(f"[ai] VS legacy migration failed ({src.name}): {e}")
+        if legacy_tile.exists() and not new_tile.exists():
+            try:
+                legacy_tile.replace(new_tile)
+            except Exception as e:
+                print(f"[ai] VS legacy tile dir migration failed: {e}")
     return new_png, new_meta
 
 
-def _get_vs_tile_dir(slide_path: str, stain_type: str, target_mpp: float = 2.0) -> Path:
+def _get_vs_tile_dir(slide_path: str, target_mpp: float = 2.0) -> Path:
     """VS 타일 피라미드 폴더: {png_parent}/{png_stem}_tile/"""
-    png_path, _ = _get_vs_cache_paths(slide_path, stain_type, target_mpp)
+    png_path, _ = _get_vs_cache_paths(slide_path, target_mpp)
     return png_path.parent / f"{png_path.stem}_tile"
 
 
@@ -1748,6 +2154,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
     desktop ai/virtual_stain.py 의 VirtualStainWorker.run() 로직을 그대로 옮김.
     Qt 시그널 대신 _update_task() 사용.
     """
+    list_cleanup_on_cancel = []
     try:
         import torch
         import numpy as np
@@ -1774,7 +2181,9 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         roi_polygons = None  # 전체 추론 강제
 
         # ── 캐시 확인 ──
-        png_path, meta_path = _get_vs_cache_paths(info.file_path, stain_type, target_mpp)
+        png_path, meta_path = _get_vs_cache_paths(info.file_path, target_mpp)
+        # 캐시 hit 경로에서는 cleanup 등록 금지 (기존 멀쩡한 캐시를 지울 수 있음).
+        # 새 추론이 실제로 파일을 쓰기 직전 아래에서만 등록한다.
         if png_path.exists() and meta_path.exists():
             try:
                 _update_task(task_id, status="running", progress=10,
@@ -1783,7 +2192,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                     cached_meta = json.load(f)
 
                 # 레거시 캐시: 타일 피라미드가 없으면 PNG에서 1회 업그레이드 생성
-                tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+                tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
                 if (not cached_meta.get("levels")) or (not tile_dir.exists()):
                     try:
                         _update_task(task_id, progress=30,
@@ -1966,12 +2375,14 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
             for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:
+                _check_cancel(task_id)
                 wait_if_viewer_busy()
                 f = pool.submit(_read_patch, slide_path, x0, y0,
                                 best_level, level_read, ps, icc_tf, None)
                 futures.append(f)
 
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
+                _check_cancel(task_id)
                 region_np = futures[patch_idx].result()
                 input_acc[py_c:py_c + ps, px:px + ps] += region_np * blend_3ch
 
@@ -2007,6 +2418,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
             tissue_count += len(tissue_batch)
             tissue_batch.clear()
 
+        _check_cancel(task_id)
         _update_task(task_id, progress=96, status_msg="Composing final image...")
 
         # ── Compose ──
@@ -2040,10 +2452,14 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         tile_size_px = 512
         try:
             _update_task(task_id, progress=97, status_msg="Saving composite PNG...")
+            # 여기서 비로소 PNG/meta 가 새로 작성됨 → 취소 시에만 이 파일들 정리.
+            # (타일 디렉터리는 아래 generate_vs_tiles 가 끝난 뒤에만 존재하며,
+            #  그 단계엔 취소 체크포인트가 없으므로 정리 대상에 넣지 않는다.)
+            list_cleanup_on_cancel.extend([png_path, meta_path])
             Image.fromarray(rgba, 'RGBA').save(str(png_path), format='PNG', optimize=False)
 
             _update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
-            tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+            tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
             levels_meta = _generate_vs_tiles(
                 output_canvas, tile_dir,
                 tile_size=tile_size_px, n_levels=4,
@@ -2094,6 +2510,17 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    except TaskCancelled:
+        _cleanup_cache_paths(list_cleanup_on_cancel)
+        _update_task(task_id, status="cancelled", progress=0,
+                     status_msg="Cancelled by user", error=None)
+        print(f"[cancel] _run_virtual_stain cancelled task={task_id}")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
     except Exception as e:
         import traceback
         _update_task(task_id, status="error",
@@ -2102,10 +2529,12 @@ def _run_virtual_stain(task_id: str, slide_id: str,
 
 @router.post("/virtual-stain")
 async def start_virtual_stain(
+    request: Request,
     slide_id: str = Form(...),
     stain_type: str = Form("ihc_membrane"),
     target_mpp: float = Form(2.0),
     roi_polygons: Optional[str] = Form(None),
+    dict_user: dict = Depends(get_current_user),
 ):
     """Virtual stain (VS-IHC) 작업 시작 (비동기)"""
     info = slide_manager.get(slide_id)
@@ -2132,6 +2561,7 @@ async def start_virtual_stain(
         daemon=True,
     )
     t.start()
+    await _log_ai_analyze(request, dict_user, "VS-IHC", stain_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -2142,13 +2572,13 @@ async def get_virtual_stain_image(slide_id: str, stain_type: str,
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
-    png_path, _ = _get_vs_cache_paths(info.file_path, stain_type, target_mpp)
+    png_path, _ = _get_vs_cache_paths(info.file_path, target_mpp)
     if not png_path.exists():
         raise HTTPException(404, "Virtual stain image not found")
     return FileResponse(str(png_path), media_type="image/png")
 
 
-@router.get("/virtual-stain/{slide_id}/{stain_type}/tile/{level}/{tx}_{ty}.jpeg")
+@media_router.get("/virtual-stain/{slide_id}/{stain_type}/tile/{level}/{tx}_{ty}.jpeg")
 async def get_virtual_stain_tile(
     slide_id: str,
     stain_type: str,
@@ -2164,7 +2594,7 @@ async def get_virtual_stain_tile(
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
-    tile_dir = _get_vs_tile_dir(info.file_path, stain_type, target_mpp)
+    tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
     tile_path = tile_dir / str(level) / f"{tx}_{ty}.jpeg"
     if not tile_path.exists():
         raise HTTPException(404, "tile not found")
