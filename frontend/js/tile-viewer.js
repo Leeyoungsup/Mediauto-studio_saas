@@ -288,8 +288,9 @@ export class TileViewer {
         }
 
         for (const t of list_tasks) {
-            this._loadTile(t.level, t.tx, t.ty);
+            this._loadQueue.push(t);
         }
+        this._processLoadQueue();
     }
 
     _markPreloadTileDone(key) {
