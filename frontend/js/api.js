@@ -143,7 +143,15 @@ async function _ensureMediaTicket() {
 }
 
 function _getMediaTicketSync() {
-    return (_mediaTicket && _mediaTicket.str_token) || '';
+    if (!_mediaTicket || !_mediaTicket.str_token) return '';
+    // 만료 임박(120초 이내)이면 백그라운드 갱신 트리거
+    const int_now = Math.floor(Date.now() / 1000);
+    if (_mediaTicket.int_exp - int_now <= 120) {
+        _ensureMediaTicket();  // fire-and-forget (async)
+    }
+    // 완전히 만료된 토큰은 반환하지 않음 — 401 방지
+    if (_mediaTicket.int_exp <= int_now) return '';
+    return _mediaTicket.str_token;
 }
 
 function _clearMediaTicket() {
