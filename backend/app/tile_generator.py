@@ -36,6 +36,8 @@ from app.slide_manager import (
     STAGE_READ_SIZE,
     STAGE_COUNT,
     TILE_SIZE_OUT,
+    apply_color_correction,
+    build_color_correction,
 )
 
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
@@ -50,19 +52,17 @@ COMPLETE_MARKER_NAME = ".complete"
 
 
 def _slide_icc_hash(slide) -> Optional[str]:
-    """슬라이드의 ICC 프로파일 바이트 md5 해시. 프로파일이 없거나 읽기 실패 시 None."""
+    """슬라이드에 적용될 색 보정의 md5 해시 — 캐시 무효화용.
+
+    ICC 가 있으면 ICC profile 기반 해시를, 없고 Hamamatsu fallback 이 적용될
+    경우 (CCT, Target.White.Intensity) 기반 해시를 반환한다. 보정이 없으면 None.
+    이름은 하위 호환 위해 유지 — 의미는 "color correction hash" 로 확장됨.
+    """
     try:
-        obj_profile = getattr(slide, "color_profile", None)
-        if obj_profile is None:
-            return None
-        if hasattr(obj_profile, "tobytes"):
-            return hashlib.md5(obj_profile.tobytes()).hexdigest()
-        # Fallback: description 기반 (재현 가능성 보장은 약하지만 없는 것보단 낫다)
-        from PIL import ImageCms
-        str_desc = ImageCms.getProfileDescription(obj_profile) or ""
-        return hashlib.md5(("desc:" + str_desc).encode("utf-8")).hexdigest()
+        _, str_hash, _ = build_color_correction(slide)
+        return str_hash
     except Exception as e:
-        print(f"[tile_generator] icc hash 계산 실패: {e}")
+        print(f"[tile_generator] 보정 해시 계산 실패: {e}")
         return None
 
 
@@ -233,30 +233,15 @@ def _generate_tiles(filename: str, file_path: str):
     try:
         slide = openslide.OpenSlide(file_path)
 
-        # ICC profile → sRGB transform (있으면 픽셀 한 번 변환 후 plain JPEG 저장)
-        # 마커에 기록할 해시는 buildTransform 성공 여부와 무관하게 "소스에 존재한 프로파일"
-        # 기준으로 계산한다. 그래야 환경이 바뀌었을 때 재생성 트리거가 정확히 걸린다.
-        str_icc_hash = _slide_icc_hash(slide)
-        icc_transform = None
-        try:
-            obj_profile = getattr(slide, "color_profile", None)
-            if obj_profile is not None:
-                from PIL import ImageCms
-                obj_srgb = ImageCms.createProfile("sRGB")
-                icc_transform = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
-        except Exception as e:
-            print(f"[tile_generator] ICC transform 실패 ({filename}): {e}")
-        if str_icc_hash is not None and icc_transform is None:
-            print(f"[tile_generator] WARN {filename}: ICC 프로파일이 존재하지만 transform 빌드 실패 — ICC 미적용 상태로 타일 생성")
+        # 색 보정 — ICC 있으면 ICC, 없고 Hamamatsu 면 CAT+gain 매트릭스. build_color_correction
+        # 이 해시와 applied 플래그까지 함께 돌려준다. 마커와 동일 소스에서 계산되므로
+        # tiles_are_valid 의 재생성 판정과 일치.
+        obj_correction, str_icc_hash, bool_corr_applied = build_color_correction(slide)
+        if str_icc_hash is not None and not bool_corr_applied:
+            print(f"[tile_generator] WARN {filename}: 보정 파라미터는 존재하나 빌드 실패 — 미보정 상태로 타일 생성")
 
         def _to_srgb(img_rgb):
-            if icc_transform is None:
-                return img_rgb
-            try:
-                from PIL import ImageCms
-                return ImageCms.applyTransform(img_rgb, icc_transform)
-            except Exception:
-                return img_rgb
+            return apply_color_correction(img_rgb, obj_correction)
 
         # 3단계 stage 피라미드 — 모두 level 0 에서 읽어 downsample [1, 4, 8] 로 생성
         int_w0, int_h0 = slide.dimensions
@@ -375,11 +360,11 @@ def _generate_tiles(filename: str, file_path: str):
                 obj_region.close()
                 del obj_region, obj_rgb
 
-        # 완료 마커 — 현재 슬라이드의 ICC 해시 + 실제 적용 여부 기록
+        # 완료 마커 — 현재 슬라이드의 보정 해시 + 실제 적용 여부 기록
         _write_complete_marker(
             tiles_dir,
             str_icc_hash=str_icc_hash,
-            bool_icc_applied=(icc_transform is not None),
+            bool_icc_applied=bool_corr_applied,
         )
         bool_completed = True
         progress.status = "completed"

@@ -3,6 +3,7 @@ SlideManager — 열린 슬라이드 객체 관리 (세션 기반)
 OpenSlide 객체를 캐싱하여 매 타일 요청마다 다시 열지 않도록 함
 """
 
+import hashlib
 import math
 import threading
 import time
@@ -21,6 +22,181 @@ STAGE_DOWNSAMPLES = [1, 4, 8]
 TILE_SIZE_OUT = 1024
 STAGE_READ_SIZE = [TILE_SIZE_OUT * ds for ds in STAGE_DOWNSAMPLES]  # [1024, 4096, 8192]
 STAGE_COUNT = len(STAGE_DOWNSAMPLES)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hamamatsu color correction (ICC 없는 NDPI 용 fallback)
+#
+# NDPI 는 ICC profile 을 임베드하지 않는 경우가 많아 OpenSlide 의 raw RGB 가
+# NDP.view2 의 디스플레이 결과와 달라진다 (어둡고 노란 tone). 두 가지를 보정:
+#   A) hamamatsu.Target.White.Intensity 로 white point gain (예: 255/235≈1.085)
+#   B) hamamatsu.LightSource.ColorTemperature.Micro 로 Bradford CAT (CCT→D65)
+# 결합된 3x3 행렬을 PIL Image.convert("RGB", matrix=...) 에 쓸 4x3 튜플로
+# 리턴한다. 가우스급 정확도는 아니지만 C-optimized 경로로 1024² 에서 수 ms.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _cct_to_xyz(float_cct: float):
+    """CCT(Kelvin) → normalized XYZ (Y=1).
+
+    Planckian locus 근사 (CIE standard). 4000-25000K 범위에서 충분히 정확.
+    """
+    import numpy as np
+    float_t = float(float_cct)
+    if float_t <= 7000.0:
+        float_xc = (
+            -4.6070e9 / float_t**3
+            + 2.9678e6 / float_t**2
+            + 0.09911e3 / float_t
+            + 0.244063
+        )
+    else:
+        float_xc = (
+            -2.0064e9 / float_t**3
+            + 1.9018e6 / float_t**2
+            + 0.24748e3 / float_t
+            + 0.237040
+        )
+    float_yc = -3.000 * float_xc**2 + 2.870 * float_xc - 0.275
+    return np.array([float_xc / float_yc, 1.0, (1.0 - float_xc - float_yc) / float_yc])
+
+
+def _bradford_cat(np_src_xyz, np_dst_xyz):
+    """Bradford CAT 3x3 매트릭스: src whitepoint XYZ → dst whitepoint XYZ."""
+    import numpy as np
+    np_m_bfd = np.array([
+        [0.8951, 0.2664, -0.1614],
+        [-0.7502, 1.7135, 0.0367],
+        [0.0389, -0.0685, 1.0296],
+    ])
+    np_src_lms = np_m_bfd @ np_src_xyz
+    np_dst_lms = np_m_bfd @ np_dst_xyz
+    np_diag = np.diag(np_dst_lms / np_src_lms)
+    return np.linalg.inv(np_m_bfd) @ np_diag @ np_m_bfd
+
+
+def _get_hamamatsu_params(slide) -> Optional[Tuple[float, int]]:
+    """슬라이드에서 Hamamatsu 보정 파라미터를 추출. 실패 시 None.
+
+    Returns:
+      (float_cct, int_white_intensity) — 둘 중 하나라도 없으면 기본값 사용.
+      둘 다 기본값 (D65, 255) 이면 보정 불필요 → None 리턴.
+    """
+    str_vendor = slide.properties.get("openslide.vendor", "")
+    if str_vendor.lower() != "hamamatsu":
+        return None
+    str_white = slide.properties.get("hamamatsu.Target.White.Intensity")
+    str_cct = slide.properties.get("hamamatsu.LightSource.ColorTemperature.Micro")
+    try:
+        int_white = int(float(str_white)) if str_white else 255
+    except Exception:
+        int_white = 255
+    try:
+        float_cct = float(str_cct) if str_cct else 6500.0
+    except Exception:
+        float_cct = 6500.0
+    # 보정이 의미 있을 때만 반환 (기본값이면 no-op)
+    if int_white >= 255 and 6400 <= float_cct <= 6600:
+        return None
+    return (float_cct, int_white)
+
+
+def build_hamamatsu_matrix(float_cct: float, int_white_intensity: int):
+    """Hamamatsu 보정용 PIL 4x3 매트릭스 (sRGB-encoded 공간에서 직접 적용).
+
+    pipeline: sRGB(D65) → XYZ → Bradford(CCT→D65) → XYZ → sRGB → gain scale.
+    gamma decode 는 생략 — 디스플레이 톤 보정 목적상 시각차는 미미하고
+    PIL C 경로가 훨씬 빠르다.
+
+    Returns:
+      (a,b,c,d, e,f,g,h, i,j,k,l) — Image.convert("RGB", matrix=...) 인자.
+    """
+    import numpy as np
+    np_m_srgb_to_xyz = np.array([
+        [0.4124564, 0.3575761, 0.1804375],
+        [0.2126729, 0.7151522, 0.0721750],
+        [0.0193339, 0.1191920, 0.9503041],
+    ])
+    np_m_xyz_to_srgb = np.linalg.inv(np_m_srgb_to_xyz)
+    np_src = _cct_to_xyz(float_cct)
+    np_dst = _cct_to_xyz(6500.0)
+    np_cat = _bradford_cat(np_src, np_dst)
+    np_m = np_m_xyz_to_srgb @ np_cat @ np_m_srgb_to_xyz
+    float_gain = 255.0 / max(1.0, float(int_white_intensity))
+    np_m = np_m * float_gain
+    return (
+        float(np_m[0, 0]), float(np_m[0, 1]), float(np_m[0, 2]), 0.0,
+        float(np_m[1, 0]), float(np_m[1, 1]), float(np_m[1, 2]), 0.0,
+        float(np_m[2, 0]), float(np_m[2, 1]), float(np_m[2, 2]), 0.0,
+    )
+
+
+def build_color_correction(slide):
+    """슬라이드에 맞는 색 보정 객체를 빌드.
+
+    우선순위:
+      1) ICC profile 존재 → ImageCms transform
+      2) vendor=hamamatsu + 기본 아닌 params → PIL 4x3 매트릭스 (CAT+gain)
+      3) 둘 다 없으면 None (원본 그대로)
+
+    Returns:
+      (obj_correction, str_hash, bool_applied)
+      - obj_correction: ICC transform 객체 또는 4x3 tuple 또는 None
+      - str_hash: 캐시 무효화용 해시 (None 이면 보정 없음을 의미)
+      - bool_applied: 실제로 적용 가능한 보정이 빌드됐는지
+    """
+    # 1) ICC profile
+    try:
+        obj_profile = getattr(slide, "color_profile", None)
+        if obj_profile is not None:
+            from PIL import ImageCms
+            obj_srgb = ImageCms.createProfile("sRGB")
+            obj_transform = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
+            # 해시 — 프로파일 bytes 우선, 없으면 description
+            if hasattr(obj_profile, "tobytes"):
+                str_hash = hashlib.md5(obj_profile.tobytes()).hexdigest()
+            else:
+                str_desc = ImageCms.getProfileDescription(obj_profile) or ""
+                str_hash = hashlib.md5(("desc:" + str_desc).encode("utf-8")).hexdigest()
+            return (obj_transform, str_hash, True)
+    except Exception as e:
+        print(f"[color_correction] ICC transform 실패: {e}")
+
+    # 2) Hamamatsu fallback
+    tuple_params = _get_hamamatsu_params(slide)
+    if tuple_params is not None:
+        float_cct, int_white = tuple_params
+        try:
+            tuple_matrix = build_hamamatsu_matrix(float_cct, int_white)
+            str_hash = hashlib.md5(
+                f"hama:CCT={float_cct:.1f},WI={int_white}".encode("utf-8")
+            ).hexdigest()
+            return (tuple_matrix, str_hash, True)
+        except Exception as e:
+            print(f"[color_correction] Hamamatsu matrix 빌드 실패: {e}")
+
+    # 3) 보정 없음
+    return (None, None, False)
+
+
+def apply_color_correction(img_rgb, obj_correction):
+    """빌드된 보정 객체를 RGB 이미지에 적용. 객체 타입을 자동 판별.
+
+    - tuple(12) → PIL convert("RGB", matrix=...) 경로 (Hamamatsu)
+    - 그 외 (ImageCmsTransform) → ImageCms.applyTransform 경로
+    """
+    if obj_correction is None:
+        return img_rgb
+    if isinstance(obj_correction, tuple):
+        try:
+            return img_rgb.convert("RGB", obj_correction)
+        except Exception:
+            return img_rgb
+    try:
+        from PIL import ImageCms
+        return ImageCms.applyTransform(img_rgb, obj_correction)
+    except Exception:
+        return img_rgb
 
 
 class SlideInfo:
@@ -54,20 +230,16 @@ class SlideInfo:
         self.vendor = slide.properties.get("openslide.vendor", "Unknown")
         self.objective_power = slide.properties.get("openslide.objective-power", "Unknown")
 
-        # ICC color profile (openslide-python ≥ 1.3) → sRGB ImageCms transform 캐싱.
-        # 이 transform 을 PIL 이미지에 적용하면 한 번의 픽셀 변환으로 sRGB 가 되고
-        # JPEG 에 ICC 를 임베드할 필요가 없어 파일 크기/IO 폭증을 막는다.
-        self.icc_transform = None
-        try:
-            obj_profile = getattr(slide, "color_profile", None)
-            if obj_profile is not None:
-                from PIL import ImageCms
-                obj_srgb = ImageCms.createProfile("sRGB")
-                self.icc_transform = ImageCms.buildTransform(
-                    obj_profile, obj_srgb, "RGB", "RGB"
-                )
-        except Exception as e:
-            print(f"[slide_manager] ICC transform 생성 실패: {e}")
+        # 색 보정 — ICC 있으면 ICC transform, 없고 Hamamatsu 면 CAT+gain 매트릭스.
+        # 둘 다 아니면 원본 그대로 (None). build_color_correction 참조.
+        obj_corr, str_hash, bool_applied = build_color_correction(slide)
+        self.color_correction = obj_corr
+        self.color_correction_hash = str_hash
+        self.color_correction_applied = bool_applied
+        # icc_transform 속성은 AI 모듈이 직접 ImageCms.applyTransform 에 넘기므로
+        # "ICC 객체 또는 None" 으로 엄격히 유지. Hamamatsu 매트릭스(tuple) 는 포함 X.
+        # AI 분석은 학습 시의 색 공간을 보존하기 위해 Hamamatsu fallback 을 건너뛰는 편이 안전.
+        self.icc_transform = obj_corr if not isinstance(obj_corr, tuple) else None
 
         # 물리적 크기 (mm)
         w, h = self.dimensions
@@ -101,14 +273,12 @@ class SlideInfo:
         self.last_accessed = time.time()
 
     def apply_icc(self, img_rgb):
-        """RGB PIL 이미지에 ICC → sRGB 변환을 in-place 로 적용 (없으면 그대로 반환)."""
-        if self.icc_transform is None:
-            return img_rgb
-        try:
-            from PIL import ImageCms
-            return ImageCms.applyTransform(img_rgb, self.icc_transform)
-        except Exception:
-            return img_rgb
+        """RGB PIL 이미지에 색 보정을 적용 (ICC 또는 Hamamatsu CAT+gain).
+
+        이름은 하위 호환을 위해 apply_icc 로 유지하지만, 내부적으로
+        ICC 없을 때 Hamamatsu fallback 도 처리한다.
+        """
+        return apply_color_correction(img_rgb, self.color_correction)
 
 
 class SlideManager:
