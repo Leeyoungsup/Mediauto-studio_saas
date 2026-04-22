@@ -13,9 +13,11 @@
 import { api } from './api.js';
 
 const TILE_SIZE = 1024;
-// 타일 동시 로딩 상한 — 브라우저 연결 6개보다 넉넉하게 잡아 파이프라인 빈틈 방지.
-// _processLoadQueue 가 onload 마다 호출되므로 배치 경계 딜레이 없이 스트리밍 처리.
-const MAX_CONCURRENT_LOADS = 24;
+// 타일 동시 로딩 상한 — 브라우저 HTTP/1.1 per-origin 제한(6)에 맞춘다.
+// 이보다 크게 잡으면 남는 요청이 브라우저 큐에 박혀 abort 불가 상태가 되고,
+// 팬/줌으로 더 이상 필요 없어진 좀비 요청들이 _activeLoads 슬롯을 계속 점유해
+// 새 타일이 못 나가는 stall 이 발생했다.
+const MAX_CONCURRENT_LOADS = 6;
 
 // 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
 //   stage 0: level0 1024x1024 그대로   (downsample 1)
