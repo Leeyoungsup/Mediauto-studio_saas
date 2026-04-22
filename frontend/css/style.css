@@ -590,11 +590,6 @@ input[type="color"], input[type="file"], select {
 .slide-loading-title {
     font-size: 14px; font-weight: 600;
     color: #111827;
-    margin-bottom: 6px;
-}
-.slide-loading-progress {
-    font-size: 12px; color: #6b7280;
-    font-variant-numeric: tabular-nums;
 }
 
 /* 미니맵 */
