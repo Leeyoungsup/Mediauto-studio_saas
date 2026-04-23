@@ -10,3 +10,4 @@ __pycache__/
 project.tar
 /mongo_backup/*
 tools/
+certs/

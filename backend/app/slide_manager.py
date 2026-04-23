@@ -6,39 +6,9 @@ OpenSlide 객체를 캐싱하여 매 타일 요청마다 다시 열지 않도록
 import math
 import threading
 import time
-from pathlib import Path
 from typing import Optional, Dict, Tuple
 
-import numpy as np
 import openslide
-
-# ── Hamamatsu NDP-match LUT ──
-# ICC 프로파일이 없는 Hamamatsu 슬라이드에 NDP.view2 와 유사한 색감을 주기 위한
-# per-channel 히스토그램 매칭 LUT. backend/fit_ndp_transform.py 로 피팅해
-# backend/app/resources/hamamatsu_ndp_lut.npy 에 저장해둔 결과를 로드한다.
-# shape (3, 256) — [channel][in_value] = out_value
-_PATH_HAMAMATSU_LUT = Path(__file__).parent / "resources" / "hamamatsu_ndp_lut.npy"
-_np_hamamatsu_lut: Optional[np.ndarray] = None
-
-
-def _get_hamamatsu_lut() -> Optional[np.ndarray]:
-    """Hamamatsu NDP-match LUT 를 지연 로드 (모듈 import 실패 방지)."""
-    global _np_hamamatsu_lut
-    if _np_hamamatsu_lut is not None:
-        return _np_hamamatsu_lut
-    if not _PATH_HAMAMATSU_LUT.exists():
-        return None
-    try:
-        np_lut = np.load(str(_PATH_HAMAMATSU_LUT))
-        if np_lut.shape != (3, 256):
-            print(f"[slide_manager] Hamamatsu LUT shape 비정상: {np_lut.shape}")
-            return None
-        _np_hamamatsu_lut = np_lut.astype(np.uint8)
-        print(f"[slide_manager] Hamamatsu NDP-match LUT 로드: {_PATH_HAMAMATSU_LUT.name}")
-        return _np_hamamatsu_lut
-    except Exception as e:
-        print(f"[slide_manager] Hamamatsu LUT 로드 실패: {e}")
-        return None
 
 # ── 3단계 타일 피라미드 ──
 # 모든 stage 는 level 0 에서 읽어 downsample 팩터만큼 리사이즈하여 1024x1024 로 저장.
@@ -97,14 +67,7 @@ class SlideInfo:
         except Exception as e:
             print(f"[slide_manager] ICC transform 생성 실패: {e}")
 
-        # Hamamatsu 는 보통 proprietary 색 보정을 파일 내부에 박아두지만
-        # OpenSlide 가 노출해주지 않아 raw 가 NDP.view2 색감과 다르게 보인다.
-        # ICC 없고 vendor=hamamatsu 면 사전에 피팅한 per-channel 히스토그램 매칭
-        # LUT 를 apply_icc() 경로에서 적용한다 (fallback).
         self.vendor = slide.properties.get("openslide.vendor", "Unknown")
-        self._np_color_lut: Optional[np.ndarray] = None
-        if self.icc_transform is None and str(self.vendor).lower() == "hamamatsu":
-            self._np_color_lut = _get_hamamatsu_lut()
 
         # 물리적 크기 (mm)
         w, h = self.dimensions
@@ -138,33 +101,13 @@ class SlideInfo:
         self.last_accessed = time.time()
 
     def apply_icc(self, img_rgb):
-        """RGB PIL 이미지에 색 보정 적용.
-
-        우선순위:
-        1. ICC transform 이 있으면 그걸로 sRGB 변환 (정석).
-        2. 없고 Hamamatsu NDP-match LUT 가 로드돼 있으면 per-channel LUT 적용.
-        3. 둘 다 없으면 그대로 반환.
-        """
+        """RGB PIL 이미지에 ICC 색 보정 적용. transform 이 없으면 그대로 반환."""
         if self.icc_transform is not None:
             try:
                 from PIL import ImageCms
                 return ImageCms.applyTransform(img_rgb, self.icc_transform)
             except Exception:
                 return img_rgb
-
-        if self._np_color_lut is not None:
-            try:
-                from PIL import Image
-                np_img = np.asarray(img_rgb, dtype=np.uint8)
-                np_out = np.empty_like(np_img)
-                np_out[..., 0] = self._np_color_lut[0][np_img[..., 0]]
-                np_out[..., 1] = self._np_color_lut[1][np_img[..., 1]]
-                np_out[..., 2] = self._np_color_lut[2][np_img[..., 2]]
-                return Image.fromarray(np_out, "RGB")
-            except Exception as e:
-                print(f"[slide_manager] NDP LUT 적용 실패: {e}")
-                return img_rgb
-
         return img_rgb
 
 
