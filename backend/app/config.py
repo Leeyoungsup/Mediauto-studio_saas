@@ -124,8 +124,10 @@ class Settings:
         _dict_persistent_secrets["jwt_secret_key"],
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 360   # 6시간
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # 외부망 배포 기본값 = main 과 동일한 15분/7일.
+    # on-premise 편의를 위해 길게 쓰려면 env 로 오버라이드: 예) ACCESS_TOKEN_EXPIRE_MINUTES=360
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", 7))
 
     # ── 보안 설정 ──
     MAX_LOGIN_ATTEMPTS: int = 5
