@@ -18,8 +18,18 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 _vs_thread_local = threading.local()
 
-from skimage.morphology import closing as _sk_closing, opening as _sk_opening, disk
-from scipy.ndimage import binary_fill_holes
+# skimage.morphology / scipy.ndimage.binary_fill_holes 는 VS-IHC tissue grid 에서
+# 쓰이던 closing/opening/fill-holes 후처리 의존이었으나, γ 전처리 도입 후 제거됨.
+
+# ── Tissue grid 감마 전처리 ──
+# VS-IHC tissue grid (색 분리 전에 적용) — γ=4.0 으로 배경 피크를 내려 definite_bg
+# 제외를 덜 공격적으로. app/routers/ai.py 의 _create_tissue_mask 와 동일 값.
+FLOAT_VS_TISSUE_GAMMA = 4.0
+_NP_VS_TISSUE_GAMMA_LUT = np.clip(
+    np.power(np.arange(256, dtype=np.float32) / 255.0,
+             FLOAT_VS_TISSUE_GAMMA) * 255.0,
+    0, 255,
+).astype(np.uint8)
 
 
 # ── CycleGAN Generator Architecture ──
@@ -450,6 +460,10 @@ class VirtualStainWorker(QThread):
         mask_region = slide.read_region((x_min, y_min), mask_level, (mask_rw, mask_rh))
         mask_np = np.array(mask_region.convert('RGB'), dtype=np.uint8)
 
+        # ── γ 전처리 (γ=4.0) ──
+        # 색 분리 전에 적용. 배경 피크가 아래로 당겨져 옅은 조직까지 union 에 포함된다.
+        mask_np = _NP_VS_TISSUE_GAMMA_LUT[mask_np]
+
         # ── Color Deconvolution (H-DAB) ──
         # Stain vectors (Ruifrok & Johnston, Analytical and Quantitative
         # Cytology and Histology, 2001) — hardcoded, well-established
@@ -507,11 +521,9 @@ class VirtualStainWorker(QThread):
         definite_bg = (gray >= int(bg_peak * 0.95))  # 거의 흰색인 영역만
 
         # 조직 = (Hematoxylin OR DAB OR 텍스처) AND NOT 확실한_배경
+        # 모폴로지(closing/fill_holes/opening) 는 γ 전처리 도입 후 생략 —
+        # 작은 구멍 채움 / 노이즈 제거가 조직 경계를 너무 부풀리는 경향이 있어 실측 검증 후 제거.
         pixel_tissue = ((hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)) & (~definite_bg)
-
-        pixel_tissue = _sk_closing(pixel_tissue, disk(5))
-        pixel_tissue = binary_fill_holes(pixel_tissue)
-        pixel_tissue = _sk_opening(pixel_tissue, disk(3))
 
         tissue_full = np.array(
             Image.fromarray(pixel_tissue.astype(np.uint8) * 255).resize(
