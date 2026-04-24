@@ -591,6 +591,58 @@ input[type="color"], input[type="file"], select {
     font-size: 14px; font-weight: 600;
     color: #111827;
 }
+.slide-loading-progress {
+    margin-top: 12px;
+    width: 220px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.slide-loading-bar {
+    width: 100%; height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.slide-loading-bar-fill {
+    height: 100%;
+    background: var(--accent, #2563eb);
+    width: 0%;
+    transition: width 200ms ease-out;
+}
+.slide-loading-pct {
+    font-size: 12px;
+    color: #6b7280;
+    font-variant-numeric: tabular-nums;
+}
+
+/* NDP 색보정 toggle — 뷰어 왼쪽 위 */
+.ndp-color-toggle {
+    position: absolute; top: 12px; left: 12px; z-index: 50;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: rgba(17, 24, 39, 0.75);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.12s;
+}
+.ndp-color-toggle:hover { background: rgba(30, 41, 59, 0.9); }
+.ndp-color-toggle[hidden] { display: none; }
+.ndp-color-toggle.active {
+    background: rgba(37, 99, 235, 0.9);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+.ndp-color-toggle .ndp-color-label { letter-spacing: 0.2px; }
+.ndp-color-toggle .ndp-color-state {
+    font-size: 11px; font-weight: 600;
+    padding: 1px 5px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.15);
+}
+.ndp-color-toggle.active .ndp-color-state {
+    background: rgba(255, 255, 255, 0.3);
+}
 
 /* 미니맵 */
 #minimap-container {

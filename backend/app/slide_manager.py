@@ -8,7 +8,107 @@ import threading
 import time
 from typing import Optional, Dict, Tuple
 
+import numpy as np
 import openslide
+
+# ── Hamamatsu NDP.view2 호환 색 보정 상수 ──
+# NDP.view2 는 표시 gamma = 1.8 고정 + 배경을 Target.White.Intensity 로 맞춘다.
+# ICC 프로파일이 임베드되지 않은 Hamamatsu 슬라이드에 한해
+#   v_out = 255 * (v_in / Target.White.Intensity) ^ (1/1.8)
+# 를 적용해 raw 를 NDP.view2 와 같은 톤으로 끌어올린다.
+# Target.White.Intensity 는 슬라이드 header 에서 직접 읽음 — .npy 외부 파일 의존 없음.
+FLOAT_NDP_GAMMA = 1.8
+FLOAT_NDP_DEFAULT_WHITE = 235.0
+
+
+def _build_ndp_lut(float_raw_white: float) -> np.ndarray:
+    """raw_white → 255, gamma=1.8 매핑의 256-entry uint8 LUT."""
+    if float_raw_white <= 0:
+        float_raw_white = FLOAT_NDP_DEFAULT_WHITE
+    np_x = np.clip(np.arange(256, dtype=np.float32) / float_raw_white, 0.0, 1.0)
+    np_y = np.power(np_x, 1.0 / FLOAT_NDP_GAMMA) * 255.0
+    return np.clip(np_y, 0, 255).astype(np.uint8)
+
+
+def build_color_corrector(slide: "openslide.OpenSlide"):
+    """OpenSlide 핸들에 대해 통일된 색 보정 callable 을 구성한다.
+
+    우선순위:
+      1) ICC profile 이 있으면 sRGB ImageCms transform 적용
+      2) ICC 가 없고 vendor=hamamatsu 면 Target.White.Intensity + γ=1.8 LUT 적용
+      3) 둘 다 없으면 pass-through
+
+    반환: `(apply, dict_meta)`
+      - apply(img_rgb: PIL.Image) -> PIL.Image
+      - dict_meta:
+          {
+            "icc_applied": bool,
+            "ndp_applied": bool,
+            "ndp_white": float | None,
+            "str_tag": "icc" | "ndp:<white>" | "raw",
+          }
+
+    이 함수 하나로 `SlideInfo`, `tile_generator`, `thumbnail-by-name` 이 모두
+    같은 색 보정 로직을 공유하게 된다.
+    """
+    # 1) ICC transform
+    icc_transform = None
+    try:
+        obj_profile = getattr(slide, "color_profile", None)
+        if obj_profile is not None:
+            from PIL import ImageCms
+            obj_srgb = ImageCms.createProfile("sRGB")
+            icc_transform = ImageCms.buildTransform(
+                obj_profile, obj_srgb, "RGB", "RGB"
+            )
+    except Exception as e:
+        print(f"[slide_manager] ICC transform 실패: {e}")
+        icc_transform = None
+
+    # 2) NDP LUT (ICC 없고 vendor=hamamatsu 일 때만)
+    np_lut: Optional[np.ndarray] = None
+    float_ndp_white: Optional[float] = None
+    if icc_transform is None:
+        str_vendor = str(slide.properties.get("openslide.vendor", "")).lower()
+        if str_vendor == "hamamatsu":
+            try:
+                float_ndp_white = float(slide.properties.get(
+                    "hamamatsu.Target.White.Intensity", FLOAT_NDP_DEFAULT_WHITE
+                ))
+            except (TypeError, ValueError):
+                float_ndp_white = FLOAT_NDP_DEFAULT_WHITE
+            np_lut = _build_ndp_lut(float_ndp_white)
+
+    # 3) apply callable
+    def _apply(img_rgb):
+        if icc_transform is not None:
+            try:
+                from PIL import ImageCms
+                return ImageCms.applyTransform(img_rgb, icc_transform)
+            except Exception:
+                return img_rgb
+        if np_lut is not None:
+            try:
+                from PIL import Image
+                np_img = np.asarray(img_rgb, dtype=np.uint8)
+                np_out = np_lut[np_img]
+                return Image.fromarray(np_out, "RGB")
+            except Exception as e:
+                print(f"[slide_manager] NDP LUT 적용 실패: {e}")
+                return img_rgb
+        return img_rgb
+
+    dict_meta = {
+        "icc_applied": icc_transform is not None,
+        "ndp_applied": np_lut is not None,
+        "ndp_white": float_ndp_white,
+        "str_tag": (
+            "icc" if icc_transform is not None
+            else (f"ndp:{int(float_ndp_white)}" if np_lut is not None else "raw")
+        ),
+    }
+    return _apply, dict_meta
+
 
 # ── 3단계 타일 피라미드 ──
 # 모든 stage 는 level 0 에서 읽어 downsample 팩터만큼 리사이즈하여 1024x1024 로 저장.
@@ -52,9 +152,13 @@ class SlideInfo:
         # 추가 메타데이터
         self.objective_power = slide.properties.get("openslide.objective-power", "Unknown")
 
-        # ICC color profile (openslide-python ≥ 1.3) → sRGB ImageCms transform 캐싱.
-        # 이 transform 을 PIL 이미지에 적용하면 한 번의 픽셀 변환으로 sRGB 가 되고
-        # JPEG 에 ICC 를 임베드할 필요가 없어 파일 크기/IO 폭증을 막는다.
+        self.vendor = slide.properties.get("openslide.vendor", "Unknown")
+
+        # 통합 색 보정기 — ICC → NDP LUT → raw 우선순위.
+        # AI 추론 워커들은 여전히 `icc_transform` 을 직접 받아 쓰므로 해당 속성은
+        # 실제 ImageCms transform 을 담아 둔다. 뷰어/타일/썸네일 경로는
+        # `apply_icc()` 를 통해 통합 callable (ICC + NDP LUT) 을 쓴다.
+        self._color_apply, self._color_meta = build_color_corrector(slide)
         self.icc_transform = None
         try:
             obj_profile = getattr(slide, "color_profile", None)
@@ -64,10 +168,14 @@ class SlideInfo:
                 self.icc_transform = ImageCms.buildTransform(
                     obj_profile, obj_srgb, "RGB", "RGB"
                 )
-        except Exception as e:
-            print(f"[slide_manager] ICC transform 생성 실패: {e}")
-
-        self.vendor = slide.properties.get("openslide.vendor", "Unknown")
+        except Exception:
+            self.icc_transform = None
+        if self._color_meta.get("ndp_applied"):
+            print(
+                f"[slide_manager] NDP LUT 적용 — "
+                f"white={self._color_meta['ndp_white']:.1f}, "
+                f"gamma={FLOAT_NDP_GAMMA}, file={file_path}"
+            )
 
         # 물리적 크기 (mm)
         w, h = self.dimensions
@@ -101,14 +209,8 @@ class SlideInfo:
         self.last_accessed = time.time()
 
     def apply_icc(self, img_rgb):
-        """RGB PIL 이미지에 ICC 색 보정 적용. transform 이 없으면 그대로 반환."""
-        if self.icc_transform is not None:
-            try:
-                from PIL import ImageCms
-                return ImageCms.applyTransform(img_rgb, self.icc_transform)
-            except Exception:
-                return img_rgb
-        return img_rgb
+        """RGB PIL 이미지에 색 보정 적용 (ICC → NDP LUT → raw 순)."""
+        return self._color_apply(img_rgb)
 
 
 class SlideManager:

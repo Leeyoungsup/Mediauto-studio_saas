@@ -36,6 +36,7 @@ from app.slide_manager import (
     STAGE_READ_SIZE,
     STAGE_COUNT,
     TILE_SIZE_OUT,
+    build_color_corrector,
 )
 
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
@@ -45,7 +46,9 @@ TILE_SIZE = TILE_SIZE_OUT
 # .complete marker schema version. Bump when the on-disk tile format changes
 # in a way that requires regeneration.
 # v2: 3단계 stage 피라미드 (level 0 리샘플링) — 이전 level-index 기반 타일 무효화
-COMPLETE_MARKER_VERSION = 2
+# v3: Hamamatsu NDP.view2 호환 gamma=1.8 + Target.White.Intensity LUT 도입 —
+#     이전 raw-pass-through 타일은 색감이 달라 자동 재생성 필요.
+COMPLETE_MARKER_VERSION = 3
 COMPLETE_MARKER_NAME = ".complete"
 
 
@@ -233,30 +236,20 @@ def _generate_tiles(filename: str, file_path: str):
     try:
         slide = openslide.OpenSlide(file_path)
 
-        # ICC profile → sRGB transform (있으면 픽셀 한 번 변환 후 plain JPEG 저장)
-        # 마커에 기록할 해시는 buildTransform 성공 여부와 무관하게 "소스에 존재한 프로파일"
-        # 기준으로 계산한다. 그래야 환경이 바뀌었을 때 재생성 트리거가 정확히 걸린다.
+        # 통합 색 보정 callable (ICC → NDP LUT → raw 우선순위).
+        # 마커에 기록할 ICC 해시는 "소스에 존재한 프로파일" 기준 — transform 빌드
+        # 실패와 무관하게 환경 변경 감지가 되도록.
         str_icc_hash = _slide_icc_hash(slide)
-        icc_transform = None
-        try:
-            obj_profile = getattr(slide, "color_profile", None)
-            if obj_profile is not None:
-                from PIL import ImageCms
-                obj_srgb = ImageCms.createProfile("sRGB")
-                icc_transform = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
-        except Exception as e:
-            print(f"[tile_generator] ICC transform 실패 ({filename}): {e}")
-        if str_icc_hash is not None and icc_transform is None:
-            print(f"[tile_generator] WARN {filename}: ICC 프로파일이 존재하지만 transform 빌드 실패 — ICC 미적용 상태로 타일 생성")
-
-        def _to_srgb(img_rgb):
-            if icc_transform is None:
-                return img_rgb
-            try:
-                from PIL import ImageCms
-                return ImageCms.applyTransform(img_rgb, icc_transform)
-            except Exception:
-                return img_rgb
+        _to_srgb, dict_color_meta = build_color_corrector(slide)
+        bool_icc_applied = bool(dict_color_meta.get("icc_applied"))
+        bool_ndp_applied = bool(dict_color_meta.get("ndp_applied"))
+        if str_icc_hash is not None and not bool_icc_applied:
+            print(f"[tile_generator] WARN {filename}: ICC 프로파일 존재하지만 transform 빌드 실패 — ICC 미적용")
+        if bool_ndp_applied:
+            print(
+                f"[tile_generator] {filename}: NDP LUT 적용 — "
+                f"white={dict_color_meta['ndp_white']:.1f}, gamma=1.8"
+            )
 
         # 3단계 stage 피라미드 — 모두 level 0 에서 읽어 downsample [1, 4, 8] 로 생성
         int_w0, int_h0 = slide.dimensions
@@ -379,7 +372,7 @@ def _generate_tiles(filename: str, file_path: str):
         _write_complete_marker(
             tiles_dir,
             str_icc_hash=str_icc_hash,
-            bool_icc_applied=(icc_transform is not None),
+            bool_icc_applied=bool_icc_applied,
         )
         bool_completed = True
         progress.status = "completed"

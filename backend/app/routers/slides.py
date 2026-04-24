@@ -794,20 +794,15 @@ async def get_thumbnail_by_name(
         raise HTTPException(404, "파일을 찾을 수 없습니다")
 
     try:
+        from app.slide_manager import build_color_corrector
+
         slide = openslide.OpenSlide(str(file_path))
         thumb = slide.get_thumbnail((size, size))
         thumb_rgb = thumb.convert("RGB")
 
-        # ICC → sRGB 픽셀 변환 (한 번만, JPEG 임베드 X)
-        try:
-            obj_profile = getattr(slide, "color_profile", None)
-            if obj_profile is not None:
-                from PIL import ImageCms
-                obj_srgb = ImageCms.createProfile("sRGB")
-                obj_tx = ImageCms.buildTransform(obj_profile, obj_srgb, "RGB", "RGB")
-                thumb_rgb = ImageCms.applyTransform(thumb_rgb, obj_tx)
-        except Exception:
-            pass
+        # 통합 색 보정 — ICC → NDP LUT → raw 순. slide_manager 와 동일 로직.
+        _apply_color, _ = build_color_corrector(slide)
+        thumb_rgb = _apply_color(thumb_rgb)
 
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         thumb_rgb.save(str(thumb_path), "JPEG", quality=85)

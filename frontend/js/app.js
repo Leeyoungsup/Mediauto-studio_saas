@@ -90,10 +90,54 @@ viewer.onViewChange = () => updateMinimap();
 
 // ── 슬라이드 초기 3-stage 프리로드 로딩창 ──
 const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
+const $slideLoadingBarFill = document.getElementById('slide-loading-bar-fill');
+const $slideLoadingPct = document.getElementById('slide-loading-pct');
+
+let _slideLoadingPollTimer = null;
+
+function _setSlideLoadingProgress(pct) {
+    const int_pct = Math.max(0, Math.min(100, Math.round(pct)));
+    if ($slideLoadingBarFill) $slideLoadingBarFill.style.width = int_pct + '%';
+    if ($slideLoadingPct) $slideLoadingPct.textContent = int_pct + '%';
+}
+
+function _stopSlideLoadingPoll() {
+    if (_slideLoadingPollTimer) {
+        clearInterval(_slideLoadingPollTimer);
+        _slideLoadingPollTimer = null;
+    }
+}
+
 viewer.onPreloadStart = () => {
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = false;
+    _setSlideLoadingProgress(0);
+    _stopSlideLoadingPoll();
+
+    // 서버의 타일 프리제네 진행률을 주기적으로 폴링해 바에 반영.
+    // tiles_ready 상태에선 첫 호출에서 바로 100 이 와서 자연스레 바 사라짐.
+    const _poll = async () => {
+        if (!currentSlideId) return;
+        try {
+            const progress = await api.getTileProgress(currentSlideId);
+            if (!progress) return;
+            if (typeof progress.progress === 'number') {
+                _setSlideLoadingProgress(progress.progress);
+            }
+            if (progress.status === 'completed') {
+                _setSlideLoadingProgress(100);
+                _stopSlideLoadingPoll();
+            } else if (progress.status === 'error') {
+                _stopSlideLoadingPoll();
+            }
+        } catch { /* 네트워크 흔들림은 조용히 무시, 다음 tick 재시도 */ }
+    };
+    _poll();
+    _slideLoadingPollTimer = setInterval(_poll, 600);
 };
+
 viewer.onPreloadComplete = () => {
+    _stopSlideLoadingPoll();
+    _setSlideLoadingProgress(100);
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
 };
 
@@ -316,12 +360,42 @@ function _updateScannerBadge(slideInfo) {
     $slideScanner.hidden = false;
 }
 
+// ── NDP 색보정 toggle (Hamamatsu 전용) ──
+// 피팅값: γ=1.094, white=247.91, affine 3x4 — color_match_analysis.ipynb 에서
+// MeDIAuto Studio 타일 픽셀 ↔ NDP.view2 픽셀 5쌍 정합 후 최소제곱으로 유도.
+// RMSE 4.21. color-correction.js 의 NDP_FIT 에서 관리.
+const $btnNdpColor = document.getElementById('btn-ndp-color');
+const $ndpColorState = $btnNdpColor ? $btnNdpColor.querySelector('.ndp-color-state') : null;
+
+function _updateNdpColorToggleVisibility(slideInfo) {
+    if (!$btnNdpColor) return;
+    const str_vendor = String(slideInfo?.vendor || '').toLowerCase();
+    const bool_is_hamamatsu = str_vendor === 'hamamatsu';
+    $btnNdpColor.hidden = !bool_is_hamamatsu;
+    if (!bool_is_hamamatsu) {
+        // 비-Hamamatsu 슬라이드: 항상 OFF 상태로 되돌림
+        viewer.setColorCorrectionEnabled(false);
+        $btnNdpColor.classList.remove('active');
+        if ($ndpColorState) $ndpColorState.textContent = 'OFF';
+    }
+}
+
+if ($btnNdpColor) {
+    $btnNdpColor.addEventListener('click', () => {
+        const bool_new = !$btnNdpColor.classList.contains('active');
+        viewer.setColorCorrectionEnabled(bool_new);
+        $btnNdpColor.classList.toggle('active', bool_new);
+        if ($ndpColorState) $ndpColorState.textContent = bool_new ? 'ON' : 'OFF';
+    });
+}
+
 function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
 
     $slideName.textContent = filename;
     _updateScannerBadge(slideInfo);
+    _updateNdpColorToggleVisibility(slideInfo);
     setStatus(`Loaded: ${slideInfo.dimensions[0]}x${slideInfo.dimensions[1]} (${slideInfo.level_count} levels)`);
 
     // 버튼 활성화
