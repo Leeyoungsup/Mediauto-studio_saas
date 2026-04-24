@@ -99,11 +99,13 @@ def _make_blend_weight(size, overlap):
     return np.outer(w, w)
 
 
-def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=None, calibration_flat_lut=None):
+def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=None,
+                 calibration_flat_lut=None, bool_svs_to_hamamatsu=False):
     """Read a single patch from the slide (runs in I/O thread).
     Uses thread-local OpenSlide for safe parallel I/O.
     Out-of-bounds pixels are composited onto a white background.
-    Applies ICC color profile and Aperio calibration if provided."""
+    Applies ICC color profile, SVS→Hamamatsu 역변환, 그리고 flat LUT (순서대로).
+    """
     # 뷰어 타일 로딩 우선 양보 — 데스크톱 전용 메커니즘, SaaS 백엔드에선 no-op
 
     import openslide as _openslide
@@ -122,6 +124,14 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
     if icc_transform:
         from PIL import ImageCms
         ImageCms.applyTransform(white_bg, icc_transform, inPlace=True)
+
+    # SVS → Hamamatsu raw 역변환 (학습 분포 정규화)
+    # Leica(ICC) ≈ Hamamatsu(Stage1+Stage2) 가정 하에 두 단계 역변환 적용.
+    if bool_svs_to_hamamatsu:
+        from app.svs_to_hamamatsu import apply_svs_to_hamamatsu
+        arr = np.asarray(white_bg)
+        arr = apply_svs_to_hamamatsu(arr)
+        white_bg = Image.fromarray(arr, 'RGB')
 
     # Aperio calibration via PIL.point() — C-optimized, no NumPy roundtrip
     if calibration_flat_lut is not None:

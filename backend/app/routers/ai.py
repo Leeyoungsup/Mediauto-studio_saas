@@ -2392,19 +2392,10 @@ def _run_virtual_stain(task_id: str, slide_id: str,
 
         icc_tf = info.icc_transform
 
-        # ── SVS 전용 γ=2.0 입력 전처리 (테스트) ──
-        # Aperio SVS 슬라이드에 한해 VS-IHC 모델 입력 전에 γ=2.0 감마 커브를 씌워 본다.
-        # v_out = 255 * (v_in/255) ^ 2.0  (어두워지는 방향 — 옅은 톤을 더 진하게)
-        # _read_patch 의 calibration_flat_lut 경로를 재사용해 PIL .point() 로 C-optimized
-        # 적용. NDPI/기타 포맷은 기존과 동일 (None).
-        list_svs_gamma_flat_lut = None
-        if Path(slide_path).suffix.lower() == ".svs":
-            float_svs_gamma = 2.0
-            list_gamma = [
-                int(max(0, min(255, round(((i / 255.0) ** float_svs_gamma) * 255))))
-                for i in range(256)
-            ]
-            list_svs_gamma_flat_lut = list_gamma * 3  # RGB 3채널 동일 커브, 768 elements
+        # ── SVS → Hamamatsu raw 역변환 ──
+        # 학습 데이터가 Hamamatsu raw 이므로 Aperio SVS 는 ICC 적용 후 두 단계 역변환
+        # (inverse Stage2 + inverse Stage1) 으로 분포를 맞춘다. NDPI/기타는 그대로.
+        bool_svs_inv = Path(slide_path).suffix.lower() == ".svs"
 
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
@@ -2413,7 +2404,7 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                 wait_if_viewer_busy()
                 f = pool.submit(_read_patch, slide_path, x0, y0,
                                 best_level, level_read, ps, icc_tf,
-                                list_svs_gamma_flat_lut)
+                                None, bool_svs_inv)
                 futures.append(f)
 
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
