@@ -11,3 +11,4 @@ project.tar
 /mongo_backup/*
 tools/
 certs/
+/backend/certs/*
