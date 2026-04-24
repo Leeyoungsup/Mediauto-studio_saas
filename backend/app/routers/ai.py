@@ -2395,7 +2395,17 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         # ── SVS → Hamamatsu raw 역변환 ──
         # 학습 데이터가 Hamamatsu raw 이므로 Aperio SVS 는 ICC 적용 후 두 단계 역변환
         # (inverse Stage2 + inverse Stage1) 으로 분포를 맞춘다. NDPI/기타는 그대로.
-        bool_svs_inv = Path(slide_path).suffix.lower() == ".svs"
+        # 중요: I/O 스레드 안에서 PIL + numpy + ImageCms 체인이 뒤엉키면 native crash
+        # (세그폴트) 가능 — future.result() 후 **메인 스레드에서** 적용한다.
+        # env VS_SVS_INVERSE_CHAIN=0 으로 즉시 비활성 가능.
+        bool_svs_inv = (
+            Path(slide_path).suffix.lower() == ".svs"
+            and os.environ.get("VS_SVS_INVERSE_CHAIN", "1") != "0"
+        )
+        _svs_to_ham = None
+        if bool_svs_inv:
+            from app.svs_to_hamamatsu import apply_svs_to_hamamatsu_float
+            _svs_to_ham = apply_svs_to_hamamatsu_float
 
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
@@ -2403,13 +2413,18 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                 _check_cancel(task_id)
                 wait_if_viewer_busy()
                 f = pool.submit(_read_patch, slide_path, x0, y0,
-                                best_level, level_read, ps, icc_tf,
-                                None, bool_svs_inv)
+                                best_level, level_read, ps, icc_tf, None)
                 futures.append(f)
 
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
                 _check_cancel(task_id)
                 region_np = futures[patch_idx].result()
+                # ── 메인 스레드에서 inverse chain 적용 (tissue 패치에만 적용해 비용 절약) ──
+                if _svs_to_ham is not None and is_tissue:
+                    try:
+                        region_np = _svs_to_ham(region_np)
+                    except Exception as e:
+                        print(f"[vs-ihc] svs_to_hamamatsu failed at ({x0},{y0}): {e!r}")
                 input_acc[py_c:py_c + ps, px:px + ps] += region_np * blend_3ch
 
                 if not is_tissue:

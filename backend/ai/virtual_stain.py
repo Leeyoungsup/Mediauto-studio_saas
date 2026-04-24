@@ -99,13 +99,11 @@ def _make_blend_weight(size, overlap):
     return np.outer(w, w)
 
 
-def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=None,
-                 calibration_flat_lut=None, bool_svs_to_hamamatsu=False):
+def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=None, calibration_flat_lut=None):
     """Read a single patch from the slide (runs in I/O thread).
     Uses thread-local OpenSlide for safe parallel I/O.
     Out-of-bounds pixels are composited onto a white background.
-    Applies ICC color profile, SVS→Hamamatsu 역변환, 그리고 flat LUT (순서대로).
-    """
+    Applies ICC color profile and Aperio calibration if provided."""
     # 뷰어 타일 로딩 우선 양보 — 데스크톱 전용 메커니즘, SaaS 백엔드에선 no-op
 
     import openslide as _openslide
@@ -124,14 +122,6 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
     if icc_transform:
         from PIL import ImageCms
         ImageCms.applyTransform(white_bg, icc_transform, inPlace=True)
-
-    # SVS → Hamamatsu raw 역변환 (학습 분포 정규화)
-    # Leica(ICC) ≈ Hamamatsu(Stage1+Stage2) 가정 하에 두 단계 역변환 적용.
-    if bool_svs_to_hamamatsu:
-        from app.svs_to_hamamatsu import apply_svs_to_hamamatsu
-        arr = np.asarray(white_bg)
-        arr = apply_svs_to_hamamatsu(arr)
-        white_bg = Image.fromarray(arr, 'RGB')
 
     # Aperio calibration via PIL.point() — C-optimized, no NumPy roundtrip
     if calibration_flat_lut is not None:
@@ -460,9 +450,12 @@ class VirtualStainWorker(QThread):
         """
         import cv2 as _cv2
 
-        mask_level = slide.get_best_level_for_downsample(
-            canvas_l0_w / max(out_w // 4, 1)
-        )
+        # ── 고정 downsample 기반 mask 읽기 (target_mpp 무관) ──
+        # patch-level (is_tissue 판정) 에는 /64 해상도면 충분. 예전엔 out_w 에 연동돼
+        # target_mpp 에 따라 mask 가 달라졌는데, 고정으로 바꿔 일관성 확보 + 고배율 target
+        # 에서 과도하게 큰 mask 를 만드는 비용도 제거. canvas_l0_w/h 는 ROI 크롭 그대로 유지.
+        INT_MASK_DS = 64
+        mask_level = slide.get_best_level_for_downsample(INT_MASK_DS)
         mask_ds = slide.level_downsamples[mask_level]
         mask_rw = max(int(canvas_l0_w / mask_ds), 1)
         mask_rh = max(int(canvas_l0_h / mask_ds), 1)
