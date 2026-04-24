@@ -527,12 +527,10 @@ class VirtualStainWorker(QThread):
         pixel_tissue = ((hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)) & (~definite_bg)
 
         # ── 모폴로지 (최소) ──
-        # /64 mask 기준이라 kernel 3~5 는 level-0 환산 ~200~320 px = 50~80 µm.
-        #   opening(3): 흩어진 노이즈 speckle 제거 (가장 중요)
-        #   closing(5): 얇게 끊긴 조직을 연결
-        # fill_holes 는 조직 내부 luminal 영역까지 채워 tissue 영역을 과잉 팽창시키므로 생략.
+        # /64 mask 기준 5×5 kernel = level-0 환산 ~320 px (~80 µm).
+        # closing 만 적용 — 얇게 끊긴 조직을 연결해 놓침 방지. opening 은 tissue 경계를
+        # erode 하는 부작용 때문에 제외. fill_holes 도 luminal 영역까지 과잉 팽창시키므로 제외.
         np_u8 = pixel_tissue.astype(np.uint8) * 255
-        np_u8 = _cv2.morphologyEx(np_u8, _cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
         np_u8 = _cv2.morphologyEx(np_u8, _cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         pixel_tissue = np_u8 > 0
 
