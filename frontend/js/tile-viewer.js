@@ -11,7 +11,6 @@
  */
 
 import { api } from './api.js';
-import { colorCorrectBitmap } from './color-correction.js';
 
 const TILE_SIZE = 1024;
 // 타일 동시 로딩 상한 — 브라우저 HTTP/1.1 per-origin 제한(6)에 맞춘다.
@@ -89,18 +88,18 @@ export class TileViewer {
         this.minZoom = 0.001;
         this.maxZoom = 40.0;
 
-        // 타일 캐시 — 모든 레벨의 타일을 보관 (fallback용)
-        this._tileCache = new Map();  // "level/tx/ty" -> HTMLImageElement (raw, 서버 프리프로세싱된 픽셀)
-        this._tileCacheCorrected = new Map();  // key -> HTMLCanvasElement (NDP-match 보정본)
+        // 타일 캐시 — 모든 레벨의 타일을 보관 (fallback용). NDP 토글 시 비우고 재로드.
+        this._tileCache = new Map();  // "level/tx/ty" -> HTMLImageElement
         this._tileLoading = new Set();
         // 타일 페이드인 — key → fade start timestamp (ms). 새로 도착한 current-level
         // child 타일을 alpha 0 → 1 로 램프해 OSD 처럼 부드럽게 레이어 전환을 보이게 한다.
         this._tileFadeStart = new Map();
         this._fadeDurationMs = 250;
-        this._thumbnailBitmap = null;  // 렌더에 실제로 쓰이는 썸네일 (보정 ON 이면 보정본, OFF 면 raw)
-        this._thumbnailRaw = null;     // 원본 raw 포인터 — 토글 시 보정 재생성용
+        this._thumbnailBitmap = null;  // 전역 폴백용 고해상도 썸네일 (slide 열 때 1회 로드)
         // ── NDP 색보정 toggle (Hamamatsu 전용) ──
         // app.js 가 setColorCorrectionEnabled() 로 제어. 기본 OFF.
+        // ON 시 타일/썸네일 URL 에 ?ndp=true 또는 /ndp/ 서브경로 사용 — 서버가
+        // ndpmatch 변형 JPEG 을 디스크 캐시에 두고 반환. 클라이언트 CPU 부담 없음.
         this._colorCorrectionEnabled = false;
         this._maxCacheTiles = 3000;
         this._loadQueue = [];         // 우선순위 로드 큐
@@ -212,13 +211,11 @@ export class TileViewer {
         this.slideInfo = slideInfo;
 
         this._tileCache.clear();
-        this._tileCacheCorrected.clear();
         this._tileLoading.clear();
         this._tileFadeStart.clear();
         this._loadQueue = [];
         this._activeLoads = 0;
         this._thumbnailBitmap = null;
-        this._thumbnailRaw = null;
         this.detectionCells = [];
         this._thumbnailBitmap = null;
 
@@ -239,49 +236,39 @@ export class TileViewer {
         if (!this.slideId) return;
         const str_slide_id = this.slideId;
 
-        // 썸네일 세팅 — raw 는 _thumbnailRaw 에 보존하고, 색보정 ON 이면 보정본을
-        // 즉석 생성해 _thumbnailBitmap 으로 내건다. 토글 시 이 두 참조를 swap.
-        const _setThumb = (src) => {
-            this._thumbnailRaw = src;
-            if (this._colorCorrectionEnabled) {
-                try {
-                    const cc = colorCorrectBitmap(src);
-                    this._thumbnailBitmap = cc || src;
-                } catch (e) { this._thumbnailBitmap = src; }
-            } else {
-                this._thumbnailBitmap = src;
-            }
-        };
+        // ndpMatch 상태를 URL 에 반영 — 서버가 ndpmatch 변형을 리턴
+        const bool_ndp = !!this._colorCorrectionEnabled;
 
-        // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms)
+        // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms).
+        // 사이드바 썸네일은 ndp 보정 안 된 raw 라 색보정 ON 상태라면 사용 안 함.
         const el_sidebar_thumb = document.querySelector(
             `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
         );
-        if (el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
-            _setThumb(el_sidebar_thumb);
+        if (!bool_ndp && el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
+            this._thumbnailBitmap = el_sidebar_thumb;
         }
 
-        // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드 (사이드바는 96px 이라 좀 더 선명)
+        // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드
         const img_small = new Image();
         img_small.onload = () => {
             if (this.slideId !== str_slide_id) return;
-            if (!this._thumbnailRaw || this._thumbnailRaw.naturalWidth <= 300) {
-                _setThumb(img_small);
+            if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
+                this._thumbnailBitmap = img_small;
                 this.requestRender();
             }
         };
         img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
-        img_small.src = api.thumbnailUrl(str_slide_id, 300);
+        img_small.src = api.thumbnailUrl(str_slide_id, 300, bool_ndp);
 
-        // 2단계 — 2048px 고해상도 preview 로 업그레이드 (on-demand 생성, 수 초 소요 가능)
+        // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
         const img_hi = new Image();
         img_hi.onload = () => {
             if (this.slideId !== str_slide_id) return;
-            _setThumb(img_hi);
+            this._thumbnailBitmap = img_hi;
             this.requestRender();
         };
         img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
-        img_hi.src = api.previewUrl(str_slide_id, 2048);
+        img_hi.src = api.previewUrl(str_slide_id, 2048, bool_ndp);
     }
 
     _preloadAllStageLevels() {
@@ -858,8 +845,8 @@ export class TileViewer {
             for (let pty = int_pty_min; pty <= int_pty_max; pty++) {
                 for (let ptx = int_ptx_min; ptx <= int_ptx_max; ptx++) {
                     const key = `${l}/${ptx}/${pty}`;
-                    const img = this._drawableTile(key);
-                    if (img) {
+                    const img = this._tileCache.get(key);
+                    if (img && img.complete && img.naturalWidth > 0) {
                         list_hits.push({
                             img,
                             srcSceneX: ptx * tileScene,
@@ -938,14 +925,14 @@ export class TileViewer {
         for (let ty = tyMin; ty <= tyMax; ty++) {
             for (let tx = txMin; tx <= txMax; tx++) {
                 const key = `${level}/${tx}/${ty}`;
-                const img = this._drawableTile(key);
+                const img = this._tileCache.get(key);
 
                 const sceneX = tx * tileSceneSize;
                 const sceneY = ty * tileSceneSize;
                 const [canvasX, canvasY] = this.sceneToCanvas(sceneX, sceneY);
                 const canvasSize = tileSceneSize * this.zoom;
 
-                if (img) {
+                if (img && img.complete && img.naturalWidth > 0) {
                     list_present_children.push({ img, canvasX, canvasY, canvasSize, key, sceneX, sceneY });
                     // 아직 페이드 중이면 부모를 아래에 깔아 블랙→타일 블렌딩 깜빡임 방지
                     const float_fs = this._tileFadeStart.get(key);
@@ -1049,20 +1036,8 @@ export class TileViewer {
         const float_fade_dur = this._fadeDurationMs;
         let bool_any_fading = false;
         for (const c of list_present_children) {
-            // LRU touch — raw 캐시를 key 로 재조회해 원본 HTMLImageElement 를 다시 뒤로.
-            // c.img 를 그대로 쓰면 보정 ON 일 때 canvas(보정본) 가 raw 자리에 덮어씌워져
-            // 토글 OFF 시 raw 가 사라지거나, 재 ON 시 2중 보정이 누적되는 버그가 난다.
-            const raw_img = this._tileCache.get(c.key);
-            if (raw_img) {
-                this._tileCache.delete(c.key);
-                this._tileCache.set(c.key, raw_img);
-            }
-            // corrected 캐시도 같이 touch — 보정 상태 유지용
-            const corr_img = this._tileCacheCorrected.get(c.key);
-            if (corr_img) {
-                this._tileCacheCorrected.delete(c.key);
-                this._tileCacheCorrected.set(c.key, corr_img);
-            }
+            this._tileCache.delete(c.key);
+            this._tileCache.set(c.key, c.img);
             let float_alpha = 1;
             const float_fade_start = this._tileFadeStart.get(c.key);
             if (float_fade_start !== undefined) {
@@ -1450,7 +1425,7 @@ export class TileViewer {
             this._markPreloadTileDone(key);
             this._processLoadQueue();
         };
-        img.src = api.tileUrl(this.slideId, level, tx, ty);
+        img.src = api.tileUrl(this.slideId, level, tx, ty, this._colorCorrectionEnabled);
     }
 
     _putCache(key, img) {
@@ -1459,95 +1434,42 @@ export class TileViewer {
             // 가장 오래된 (Map 첫 번째) 항목 제거
             const oldest = this._tileCache.keys().next().value;
             this._tileCache.delete(oldest);
-            this._tileCacheCorrected.delete(oldest);
             this._tileFadeStart.delete(oldest);
         }
         this._tileCache.set(key, img);
-        // 색보정 ON 이면 보정본도 미리 만들어 둔다 (draw 시 flicker 없게).
-        if (this._colorCorrectionEnabled) {
-            try {
-                const canvas = colorCorrectBitmap(img);
-                if (canvas) this._tileCacheCorrected.set(key, canvas);
-            } catch (e) { /* 보정 실패 시 raw 로 fallback */ }
-        }
-    }
-
-    /**
-     * 화면에 실제로 그릴 타일 소스 (보정 ON + 보정본 준비됨이면 canvas 보정본,
-     * 아니면 raw HTMLImageElement). 준비된(ready) 소스만 반환하며 None 이면
-     * 아직 로드 전이거나 실패한 것.
-     *
-     * 드로 경로에서 `_tileCache.get(key)` + `img.complete && img.naturalWidth > 0`
-     * 대신 이 함수 하나로 처리한다 (canvas 엔 `complete` 속성이 없음).
-     */
-    _drawableTile(key) {
-        if (this._colorCorrectionEnabled) {
-            const c = this._tileCacheCorrected.get(key);
-            if (c && c.width > 0) return c;  // canvas — 항상 ready
-        }
-        const img = this._tileCache.get(key);
-        if (img && img.complete && img.naturalWidth > 0) return img;
-        return null;
     }
 
     /**
      * NDP 색보정 ON/OFF. Hamamatsu 슬라이드 뷰어의 toggle 버튼에서 호출.
-     * ON 전환 시 이미 캐시에 있는 raw 타일 + 썸네일을 일괄 보정.
-     * OFF 전환 시 보정 캐시만 비우고 raw 를 그대로 렌더.
+     *
+     * 이 토글이 바뀌면 타일/썸네일 URL 이 바뀌므로 (서버가 /ndp/ 경로에서 보정본
+     * JPEG 을 디스크 캐시로 반환) 현재 캐시를 비우고 재로드를 트리거한다. 첫 전환
+     * 시엔 서버가 보정 타일을 생성하느라 약간 느리지만, 그 이후엔 브라우저
+     * HTTP 캐시 + 서버 디스크 캐시 둘 다 활용되어 즉답 수준이 된다.
      */
     setColorCorrectionEnabled(bool_enabled) {
         bool_enabled = !!bool_enabled;
         if (this._colorCorrectionEnabled === bool_enabled) return;
         this._colorCorrectionEnabled = bool_enabled;
-
-        if (bool_enabled) {
-            // 이미 캐시된 raw 타일들 일괄 보정 (UI 블록 방지 위해 chunk 단위로)
-            const list_keys = Array.from(this._tileCache.keys());
-            let int_idx = 0;
-            const _correctChunk = () => {
-                const int_deadline = performance.now() + 8; // ~8ms budget
-                while (int_idx < list_keys.length && performance.now() < int_deadline) {
-                    const k = list_keys[int_idx++];
-                    if (this._tileCacheCorrected.has(k)) continue;
-                    const img = this._tileCache.get(k);
-                    if (!img) continue;
-                    try {
-                        const canvas = colorCorrectBitmap(img);
-                        if (canvas) this._tileCacheCorrected.set(k, canvas);
-                    } catch (e) { /* skip */ }
-                }
-                if (int_idx < list_keys.length) {
-                    requestAnimationFrame(_correctChunk);
-                } else {
-                    this.requestRender();
-                }
-            };
-            requestAnimationFrame(_correctChunk);
-
-            // 썸네일 보정본 — 없으면 raw 를 보존해 두고 보정본으로 교체
-            if (this._thumbnailBitmap && !this._thumbnailRaw) {
-                this._thumbnailRaw = this._thumbnailBitmap;
-            }
-            if (this._thumbnailRaw) {
-                try {
-                    const cc = colorCorrectBitmap(this._thumbnailRaw);
-                    if (cc) this._thumbnailBitmap = cc;
-                } catch (e) { /* keep raw */ }
-            }
-        } else {
-            // OFF — 보정본은 버리고 raw 복구
-            this._tileCacheCorrected.clear();
-            if (this._thumbnailRaw) {
-                this._thumbnailBitmap = this._thumbnailRaw;
-            }
+        // 이전 URL 로 받은 타일/썸네일은 전부 버리고 현재 flag 기준으로 재로드
+        this._loadGeneration++;
+        for (const img of this._inflightImages) {
+            try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
         }
+        this._inflightImages.clear();
+        this._tileCache.clear();
+        this._tileLoading.clear();
+        this._tileFadeStart.clear();
+        this._loadQueue = [];
+        this._activeLoads = 0;
+        this._thumbnailBitmap = null;
+        this._loadThumbnailFallback();
         this.requestRender();
     }
 
     /** 타일 캐시 비우고 다시 렌더 (타일 생성 완료 후 호출) */
     clearCacheAndRender() {
         this._tileCache.clear();
-        this._tileCacheCorrected.clear();
         this._tileLoading.clear();
         this._tileFadeStart.clear();
         this._loadQueue = [];

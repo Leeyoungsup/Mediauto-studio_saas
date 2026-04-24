@@ -345,14 +345,17 @@ export const api = {
         return res.json();
     },
 
-    /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후) */
-    thumbnailUrl(slideId, size = 300) {
-        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+    /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후).
+     *  ndpMatch=true 면 NDP 색 매칭 2차 보정본을 받는다 (Hamamatsu 토글용). */
+    thumbnailUrl(slideId, size = 300, ndpMatch = false) {
+        const str_ndp = ndpMatch ? '&ndp=true' : '';
+        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}${str_ndp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
-    /** 고해상도 프리뷰 URL (PDF 리포트용) */
-    previewUrl(slideId, size = 2048) {
-        return `${API_BASE}/slides/${slideId}/preview?size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+    /** 고해상도 프리뷰 URL (PDF 리포트용).  ndpMatch 동일. */
+    previewUrl(slideId, size = 2048, ndpMatch = false) {
+        const str_ndp = ndpMatch ? '&ndp=true' : '';
+        return `${API_BASE}/slides/${slideId}/preview?size=${size}${str_ndp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
@@ -367,9 +370,12 @@ export const api = {
 
     // ── 타일 ──
 
-    /** 타일 이미지 URL (프리제네레이트된 정적 타일) */
-    tileUrl(slideId, level, tileX, tileY) {
-        return `${API_BASE}/tiles/${slideId}/${level}/${tileX}/${tileY}.jpeg?mt=${encodeURIComponent(_getMediaTicketSync())}`;
+    /** 타일 이미지 URL (프리제네레이트된 정적 타일).
+     *  ndpMatch=true → /ndp/ 서브경로로 NDP 색 매칭 변형본을 받는다.
+     *  서버는 ndpmatch 캐시가 없으면 raw 타일에 apply_ndp_fit 을 적용해 생성+저장 후 반환. */
+    tileUrl(slideId, level, tileX, tileY, ndpMatch = false) {
+        const str_variant = ndpMatch ? `${slideId}/ndp/${level}` : `${slideId}/${level}`;
+        return `${API_BASE}/tiles/${str_variant}/${tileX}/${tileY}.jpeg?mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
     /** stage level 조회 */

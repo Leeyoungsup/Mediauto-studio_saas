@@ -817,7 +817,11 @@ async def get_thumbnail_by_name(
 
 
 @media_router.get("/{slide_id}/preview")
-async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
+async def get_preview(
+    slide_id: str,
+    size: int = Query(2048, ge=512, le=8192),
+    ndp: bool = Query(False, description="true 면 NDP 색 매칭 2차 보정 적용"),
+):
     """고해상도 슬라이드 프리뷰 (PDF 리포트용, 캐시 미사용)"""
     info = slide_manager.get(slide_id)
     if not info:
@@ -825,6 +829,9 @@ async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
     import io
     thumb = info.slide.get_thumbnail((size, size))
     thumb_rgb = info.apply_icc(thumb.convert("RGB"))
+    if ndp:
+        from app.ndp_color_match import apply_ndp_fit
+        thumb_rgb = apply_ndp_fit(thumb_rgb)
     buf = io.BytesIO()
     thumb_rgb.save(buf, format="JPEG", quality=92)
     buf.seek(0)
@@ -832,21 +839,54 @@ async def get_preview(slide_id: str, size: int = Query(2048, ge=512, le=8192)):
 
 
 @media_router.get("/{slide_id}/thumbnail")
-async def get_thumbnail(slide_id: str, size: int = Query(300, ge=64, le=1024)):
-    """slide_id 기반 썸네일 (하위 호환)"""
+async def get_thumbnail(
+    slide_id: str,
+    size: int = Query(300, ge=64, le=1024),
+    ndp: bool = Query(False, description="true 면 NDP 색 매칭 2차 보정본 반환"),
+):
+    """slide_id 기반 썸네일 (하위 호환). `?ndp=true` 면 ndpmatch 버전."""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
     filename = Path(info.file_path).name
-    thumb_path = tile_generator.get_tiles_dir(filename) / "thumbnail.jpeg"
-    if thumb_path.exists():
-        return StreamingResponse(open(thumb_path, "rb"), media_type="image/jpeg")
+    tiles_root = tile_generator.get_tiles_dir(filename)
+    thumb_path_raw = tiles_root / "thumbnail.jpeg"
+    thumb_path_ndp = tiles_root / "ndpmatch" / "thumbnail.jpeg"
+
+    # NDP 변형 요청 — 있으면 바로, 없으면 raw 썸네일 → apply → 저장
+    if ndp:
+        if thumb_path_ndp.exists():
+            return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+
+        from PIL import Image as _Image
+        from app.ndp_color_match import apply_ndp_fit
+        # raw 썸네일 확보 (없으면 slide 에서 즉석 생성)
+        if thumb_path_raw.exists():
+            obj_rgb = _Image.open(str(thumb_path_raw)).convert("RGB")
+        else:
+            obj_thumb = info.slide.get_thumbnail((size, size))
+            obj_rgb = info.apply_icc(obj_thumb.convert("RGB"))
+            thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+            obj_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
+
+        obj_ndp = apply_ndp_fit(obj_rgb)
+        thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
+        obj_ndp.save(str(thumb_path_ndp), "JPEG", quality=85)
+        import io
+        buf = io.BytesIO()
+        obj_ndp.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
+
+    # raw 경로
+    if thumb_path_raw.exists():
+        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
 
     import io
     thumb = info.slide.get_thumbnail((size, size))
     thumb_rgb = info.apply_icc(thumb.convert("RGB"))
-    thumb_path.parent.mkdir(parents=True, exist_ok=True)
-    thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
+    thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+    thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
     buf = io.BytesIO()
     thumb_rgb.save(buf, format="JPEG", quality=85)
     buf.seek(0)

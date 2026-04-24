@@ -80,6 +80,91 @@ def _find_and_open(slide_id: str):
     return None
 
 
+# ── NDP 색 매칭 변형 타일 ──
+# /ndp/ 서브경로 — stored raw 타일에 ndp_color_match.apply_ndp_fit 을 적용해
+# tiles/<stem>/ndpmatch/<level>/<x>_<y>.jpeg 로 지연 저장 후 서빙.
+# Hamamatsu 뷰어의 "NDP 색보정 ON" 토글이 이 URL 을 사용한다.
+@router.get("/{slide_id}/ndp/{level}/{tile_x}/{tile_y}.jpeg")
+async def get_tile_ndp(
+    slide_id: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+    dict_user: dict = Depends(get_media_user),
+):
+    """NDP.view2 색 매칭 보정이 적용된 타일.
+
+    캐시: tiles/<stem>/ndpmatch/<level>/<x>_<y>.jpeg
+      - 존재하면 그대로 서빙 (disk → static)
+      - 없으면 raw 타일을 (필요 시 생성 후) 읽어 apply_ndp_fit 적용 → 저장 → 서빙
+    """
+    from app.ndp_color_match import apply_ndp_fit
+
+    notify_viewer_activity()
+
+    info = _find_and_open(slide_id)
+    if not info:
+        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+    if level < 0 or level >= STAGE_COUNT:
+        raise HTTPException(400, f"잘못된 stage: {level}")
+
+    filename = Path(info.file_path).name
+    tiles_root = get_tiles_dir(filename)
+    _touch_slide_access(slide_id, tiles_root)
+
+    path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
+    if path_ndp_tile.exists():
+        return FileResponse(
+            path_ndp_tile,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+
+    # raw 경로 확보 (없으면 즉석 생성 후 사용)
+    path_raw_tile = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
+    int_read_size = STAGE_READ_SIZE[level]
+
+    def _make_ndp_variant() -> bytes:
+        # (1) raw 먼저 확보
+        if not path_raw_tile.exists():
+            obj_slide = get_thread_slide(slide_id, info.file_path)
+            obj_region = obj_slide.read_region(
+                (tile_x * int_read_size, tile_y * int_read_size),
+                0,
+                (int_read_size, int_read_size),
+            )
+            obj_rgb = obj_region.convert("RGB")
+            obj_rgb = info.apply_icc(obj_rgb)
+            if int_read_size != TILE_SIZE:
+                obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
+            path_raw_tile.parent.mkdir(parents=True, exist_ok=True)
+            obj_rgb.save(str(path_raw_tile), "JPEG", quality=settings.TILE_QUALITY)
+            obj_region.close()
+        else:
+            obj_rgb = Image.open(str(path_raw_tile)).convert("RGB")
+
+        # (2) NDP fit 적용 → 저장
+        obj_ndp = apply_ndp_fit(obj_rgb)
+        path_ndp_tile.parent.mkdir(parents=True, exist_ok=True)
+        obj_ndp.save(str(path_ndp_tile), "JPEG", quality=settings.TILE_QUALITY)
+
+        # (3) 응답 바이트
+        buf = io.BytesIO()
+        obj_ndp.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+        return buf.getvalue()
+
+    try:
+        loop = asyncio.get_running_loop()
+        content = await loop.run_in_executor(viewer_executor, _make_ndp_variant)
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+    except Exception as e:
+        raise HTTPException(500, f"NDP 변형 타일 생성 실패: {e}")
+
+
 @router.get("/{slide_id}/{level}/{tile_x}/{tile_y}.jpeg")
 async def get_tile(
     slide_id: str,
