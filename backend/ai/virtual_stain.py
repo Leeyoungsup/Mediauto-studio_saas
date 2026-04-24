@@ -524,9 +524,17 @@ class VirtualStainWorker(QThread):
         definite_bg = (gray >= int(bg_peak * 0.95))  # 거의 흰색인 영역만
 
         # 조직 = (Hematoxylin OR DAB OR 텍스처) AND NOT 확실한_배경
-        # 모폴로지(closing/fill_holes/opening) 는 γ 전처리 도입 후 생략 —
-        # 작은 구멍 채움 / 노이즈 제거가 조직 경계를 너무 부풀리는 경향이 있어 실측 검증 후 제거.
         pixel_tissue = ((hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)) & (~definite_bg)
+
+        # ── 모폴로지 (최소) ──
+        # /64 mask 기준이라 kernel 3~5 는 level-0 환산 ~200~320 px = 50~80 µm.
+        #   opening(3): 흩어진 노이즈 speckle 제거 (가장 중요)
+        #   closing(5): 얇게 끊긴 조직을 연결
+        # fill_holes 는 조직 내부 luminal 영역까지 채워 tissue 영역을 과잉 팽창시키므로 생략.
+        np_u8 = pixel_tissue.astype(np.uint8) * 255
+        np_u8 = _cv2.morphologyEx(np_u8, _cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        np_u8 = _cv2.morphologyEx(np_u8, _cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        pixel_tissue = np_u8 > 0
 
         tissue_full = np.array(
             Image.fromarray(pixel_tissue.astype(np.uint8) * 255).resize(

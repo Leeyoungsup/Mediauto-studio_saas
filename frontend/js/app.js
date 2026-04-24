@@ -89,11 +89,16 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
 viewer.onViewChange = () => updateMinimap();
 
 // ── 슬라이드 초기 3-stage 프리로드 로딩창 ──
+// 프로그래스 바가 가리키는 것은 **클라이언트 측 stage 2 타일 다운로드 진행률** 이다.
+// 서버의 tile_generator 진행률은 따로 있지만 (지금은 미사용), 사용자가 실제로
+// "기다리는" 시간은 서버 생성 + 클라이언트 HTTP 다운로드 둘 다. 그래서 바 자체가
+// 클라이언트 preload 에만 매핑되도록 해두면:
+//   - 이미 타일이 디스크에 있는 슬라이드: 다운로드가 빠르게 → 바 빠르게 찬다
+//   - 아직 생성 중인 슬라이드: 서버 생성 대기로 HTTP 가 느리게 → 바 느리게 찬다
+// "바 100% = 화면 준비 완료" 라는 직관과 일치.
 const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
 const $slideLoadingBarFill = document.getElementById('slide-loading-bar-fill');
 const $slideLoadingPct = document.getElementById('slide-loading-pct');
-
-let _slideLoadingPollTimer = null;
 
 function _setSlideLoadingProgress(pct) {
     const int_pct = Math.max(0, Math.min(100, Math.round(pct)));
@@ -101,42 +106,18 @@ function _setSlideLoadingProgress(pct) {
     if ($slideLoadingPct) $slideLoadingPct.textContent = int_pct + '%';
 }
 
-function _stopSlideLoadingPoll() {
-    if (_slideLoadingPollTimer) {
-        clearInterval(_slideLoadingPollTimer);
-        _slideLoadingPollTimer = null;
-    }
-}
-
 viewer.onPreloadStart = () => {
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = false;
     _setSlideLoadingProgress(0);
-    _stopSlideLoadingPoll();
+};
 
-    // 서버의 타일 프리제네 진행률을 주기적으로 폴링해 바에 반영.
-    // tiles_ready 상태에선 첫 호출에서 바로 100 이 와서 자연스레 바 사라짐.
-    const _poll = async () => {
-        if (!currentSlideId) return;
-        try {
-            const progress = await api.getTileProgress(currentSlideId);
-            if (!progress) return;
-            if (typeof progress.progress === 'number') {
-                _setSlideLoadingProgress(progress.progress);
-            }
-            if (progress.status === 'completed') {
-                _setSlideLoadingProgress(100);
-                _stopSlideLoadingPoll();
-            } else if (progress.status === 'error') {
-                _stopSlideLoadingPoll();
-            }
-        } catch { /* 네트워크 흔들림은 조용히 무시, 다음 tick 재시도 */ }
-    };
-    _poll();
-    _slideLoadingPollTimer = setInterval(_poll, 600);
+viewer.onPreloadProgress = (int_done, int_total) => {
+    if (int_total > 0) {
+        _setSlideLoadingProgress((int_done / int_total) * 100);
+    }
 };
 
 viewer.onPreloadComplete = () => {
-    _stopSlideLoadingPoll();
     _setSlideLoadingProgress(100);
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
 };
