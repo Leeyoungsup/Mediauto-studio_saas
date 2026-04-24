@@ -28,6 +28,20 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# ── tissue_mask 감마 전처리 상수 ──
+# 썸네일에 v_out = 255 * (v_in/255) ^ γ 를 적용한 뒤 H-DAB/Otsu/텍스처 파이프라인을 돌린다.
+# γ 가 커질수록 배경 피크가 더 많이 내려가 definite_bg 제외 범위가 좁아져 옅은 조직까지
+# 포획된다. ai_mask_test.ipynb 스윕 결과 γ=4.0 이 옅은 stroma/조직 경계까지 확실히
+# 잡으면서 실제 운용 슬라이드에서 과잉 포함이 허용 범위 내에 머무는 값으로 확인됨.
+FLOAT_TISSUE_MASK_GAMMA = 4.0
+import numpy as _np_init
+_NP_TISSUE_MASK_GAMMA_LUT = _np_init.clip(
+    _np_init.power(_np_init.arange(256, dtype=_np_init.float32) / 255.0,
+                    FLOAT_TISSUE_MASK_GAMMA) * 255.0,
+    0, 255,
+).astype(_np_init.uint8)
+del _np_init
+
 # Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
 router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
 
@@ -480,10 +494,11 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
 
 
 def _create_tissue_mask(slide, icc_transform=None):
-    """조직 마스크 생성 — H-DAB 분리 후 (Hem ∪ DAB ∪ 텍스처) − 확실한 배경.
+    """조직 마스크 생성 — γ 전처리 후 H-DAB 분리 → (Hem ∪ DAB ∪ 텍스처) − 확실한 배경.
 
     단일 Hematoxylin Otsu 만으로는 DAB 가 강하게 덮인 영역(H 가 억제됨)이나
     염색이 거의 없지만 구조가 있는 조직이 빠질 수 있음. 따라서:
+      0) 썸네일에 γ=4.0 감마 전처리 — 배경 피크를 내려 definite_bg 제외를 덜 공격적으로
       1) H-DAB color deconvolution (Ruifrok & Johnston 2001) → H / DAB 채널 분리
       2) 각 채널 Otsu → 염색 영역 검출
       3) 국소 표준편차(텍스처) Otsu → 무염색 조직 보완
@@ -509,6 +524,10 @@ def _create_tissue_mask(slide, icc_transform=None):
             rgb = thumbnail[:, :, :3]
         else:
             rgb = cv2.cvtColor(thumbnail, cv2.COLOR_GRAY2RGB)
+
+        # ── 감마 전처리 (γ=4.0) ──
+        # rgb 는 uint8 이므로 LUT 인덱싱 한 번이면 끝. 하위 단계 모두 γ 적용본을 본다.
+        rgb = _NP_TISSUE_MASK_GAMMA_LUT[rgb]
 
         # ── H-DAB color deconvolution (Ruifrok & Johnston, 2001) ──
         stain_matrix = np.array([
