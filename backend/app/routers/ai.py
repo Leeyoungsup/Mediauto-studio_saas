@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
+from PIL import Image
+
 from fastapi import APIRouter, Depends, HTTPException, Form, Query, Request
 from fastapi.responses import JSONResponse, FileResponse, Response
 
@@ -34,13 +37,11 @@ if str(PROJECT_ROOT) not in sys.path:
 # 포획된다. ai_mask_test.ipynb 스윕 결과 γ=4.0 이 옅은 stroma/조직 경계까지 확실히
 # 잡으면서 실제 운용 슬라이드에서 과잉 포함이 허용 범위 내에 머무는 값으로 확인됨.
 FLOAT_TISSUE_MASK_GAMMA = 4.0
-import numpy as _np_init
-_NP_TISSUE_MASK_GAMMA_LUT = _np_init.clip(
-    _np_init.power(_np_init.arange(256, dtype=_np_init.float32) / 255.0,
-                    FLOAT_TISSUE_MASK_GAMMA) * 255.0,
+_NP_TISSUE_MASK_GAMMA_LUT = np.clip(
+    np.power(np.arange(256, dtype=np.float32) / 255.0,
+             FLOAT_TISSUE_MASK_GAMMA) * 255.0,
     0, 255,
-).astype(_np_init.uint8)
-del _np_init
+).astype(np.uint8)
 
 # Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
 router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
@@ -2092,6 +2093,226 @@ def _get_vs_tile_dir(slide_path: str, target_mpp: float = 2.0) -> Path:
     return png_path.parent / f"{png_path.stem}_tile"
 
 
+class VSTileStreamer:
+    """VS-IHC level-0 타일 스트리밍 누적기.
+
+    기존엔 (out_h, out_w) 크기의 output_acc / input_acc / weight_acc float32 를
+    통째로 메모리에 들고 blending 후 PNG 로 저장했다. 큰 SVS 에선 3~5 GB RAM.
+    이 클래스는 patch 가 실제로 덮는 타일만 활성으로 유지하고, 더 이상 덮일 일 없는
+    타일은 즉시 JPEG 로 flush 해서 메모리 상한을 ~100 MB 수준으로 묶는다.
+
+    블렌딩 의미는 기존과 동일:
+      - input/output 둘 다 `patch * blend_3ch` 누적
+      - weight 는 patch 하나당 한 번만 누적 (input 기준)
+      - finalize 시 `acc / max(weight, 1e-10)` 로 blend 평균
+      - tissue_pixel_mask 로 픽셀 단위 output ↔ input 치환
+      - roi_mask 로 폴리곤 외부 흰색 처리
+
+    finalize 트리거: yi-major 로 patch 가 오는 전제 하에, `flush_rows_up_to(done_y)`
+    를 호출하면 타일 하단이 `done_y` 이하인 타일을 모두 disk 에 쓰고 메모리에서 제거.
+    """
+
+    def __init__(self, out_w: int, out_h: int, tile_size: int,
+                 tile_dir: Path, blend_3ch: np.ndarray, blend_weight: np.ndarray,
+                 int_quality: int = 88):
+        self.out_w = int(out_w)
+        self.out_h = int(out_h)
+        self.TS = int(tile_size)
+        self.nx = (self.out_w + self.TS - 1) // self.TS
+        self.ny = (self.out_h + self.TS - 1) // self.TS
+        self.tile_dir = Path(tile_dir)
+        self.int_quality = int_quality
+        self.blend_3ch = blend_3ch
+        self.blend_weight = blend_weight
+        self.ps = int(blend_weight.shape[0])
+        self.active: dict = {}  # (tx, ty) -> {'out', 'inp', 'w'}
+        self.finalized_keys: set = set()
+        self.int_saved_tiles = 0
+        # level 0 출력 디렉터리 준비
+        (self.tile_dir / '0').mkdir(parents=True, exist_ok=True)
+
+        # finalize 시점에 pixel-level mask 로 output ↔ input 치환.
+        # tissue_pixel_mask 는 (out_h, out_w) bool, roi_mask_u8 는 (out_h, out_w) uint8.
+        self._tissue_mask: Optional[np.ndarray] = None
+        self._roi_mask_u8: Optional[np.ndarray] = None
+
+    def set_finalization_masks(self, tissue_pixel_mask: np.ndarray,
+                                 roi_mask_u8: Optional[np.ndarray]) -> None:
+        self._tissue_mask = tissue_pixel_mask
+        self._roi_mask_u8 = roi_mask_u8
+
+    def _get_tile(self, tx: int, ty: int):
+        if tx < 0 or tx >= self.nx or ty < 0 or ty >= self.ny:
+            return None
+        key = (tx, ty)
+        if key in self.finalized_keys:
+            # 이미 finalize 된 타일에 뒤늦은 splat → 순서 가정이 깨진 것. raise 해서 버그 드러내기.
+            raise RuntimeError(
+                f"VSTileStreamer: tile {key} already finalized but splat called again"
+            )
+        tile = self.active.get(key)
+        if tile is None:
+            tile = {
+                'out': np.zeros((self.TS, self.TS, 3), dtype=np.float32),
+                'inp': np.zeros((self.TS, self.TS, 3), dtype=np.float32),
+                'w':   np.zeros((self.TS, self.TS),   dtype=np.float32),
+            }
+            self.active[key] = tile
+        return tile
+
+    def splat(self, int_px: int, int_py: int,
+              np_input_patch: np.ndarray, np_output_patch: np.ndarray) -> None:
+        """하나의 patch (input + output 쌍) 를 덮는 모든 타일에 blending 누적.
+        weight 는 patch 단 한 번만 누적된다."""
+        ps = self.ps
+        TS = self.TS
+        tx0 = max(0, int_px // TS)
+        ty0 = max(0, int_py // TS)
+        tx1 = min(self.nx - 1, (int_px + ps - 1) // TS)
+        ty1 = min(self.ny - 1, (int_py + ps - 1) // TS)
+        for ty in range(ty0, ty1 + 1):
+            for tx in range(tx0, tx1 + 1):
+                tile = self._get_tile(tx, ty)
+                if tile is None:
+                    continue
+                t_left = tx * TS
+                t_top = ty * TS
+                # 글로벌 교집합
+                ix_s = max(int_px, t_left)
+                iy_s = max(int_py, t_top)
+                ix_e = min(int_px + ps, t_left + TS, self.out_w)
+                iy_e = min(int_py + ps, t_top + TS, self.out_h)
+                if ix_e <= ix_s or iy_e <= iy_s:
+                    continue
+                # patch-local
+                plx = ix_s - int_px; ply = iy_s - int_py
+                prx = ix_e - int_px; pry = iy_e - int_py
+                # tile-local
+                tlx = ix_s - t_left; tly = iy_s - t_top
+                trx = ix_e - t_left; trr = iy_e - t_top
+                np_b3 = self.blend_3ch[ply:pry, plx:prx]
+                np_bw = self.blend_weight[ply:pry, plx:prx]
+                tile['inp'][tly:trr, tlx:trx] += np_input_patch[ply:pry, plx:prx] * np_b3
+                tile['out'][tly:trr, tlx:trx] += np_output_patch[ply:pry, plx:prx] * np_b3
+                tile['w']  [tly:trr, tlx:trx] += np_bw
+
+    def flush_rows_up_to(self, int_safe_y_max: int) -> None:
+        """타일의 하단(`(ty+1)*TS`) 이 `int_safe_y_max` 이하인 타일을 모두 disk 로 flush.
+        더 이상 patch 가 touch 하지 않을 것이 보장되는 타일만 호출 측이 넘겨야 한다."""
+        list_keys = [k for k in self.active if (k[1] + 1) * self.TS <= int_safe_y_max]
+        for key in list_keys:
+            self._finalize(key)
+
+    def flush_all(self) -> None:
+        """남은 모든 타일을 disk 로 flush (처리 종료 시 호출)."""
+        for key in list(self.active.keys()):
+            self._finalize(key)
+
+    def _finalize(self, tuple_key) -> None:
+        tx, ty = tuple_key
+        tile = self.active.pop(tuple_key)
+        self.finalized_keys.add(tuple_key)
+        TS = self.TS
+        # blending normalize
+        np_w = np.maximum(tile['w'], 1e-10)
+        np_out = (tile['out'] / np_w[..., None]).clip(0, 255).astype(np.uint8)
+        np_inp = (tile['inp'] / np_w[..., None]).clip(0, 255).astype(np.uint8)
+        np_uncov = tile['w'] < 0.01
+        np_out[np_uncov] = 255
+        np_inp[np_uncov] = 255
+        # tile 이 슬라이드 가장자리에 걸리면 실제 유효 범위 < TS
+        t_left = tx * TS
+        t_top = ty * TS
+        t_right = min(t_left + TS, self.out_w)
+        t_bottom = min(t_top + TS, self.out_h)
+        int_th = t_bottom - t_top
+        int_tw = t_right - t_left
+        np_out = np_out[:int_th, :int_tw].copy()
+        np_inp = np_inp[:int_th, :int_tw]
+        # pixel-level tissue mask: tissue 가 아닌 픽셀은 input pass-through 로 치환
+        if self._tissue_mask is not None:
+            np_tmask = self._tissue_mask[t_top:t_bottom, t_left:t_right]
+            np_out[~np_tmask] = np_inp[~np_tmask]
+        # ROI 바깥은 흰색 (alpha 대신 JPEG 에선 255 로 칠해 표시)
+        if self._roi_mask_u8 is not None:
+            np_rmask = self._roi_mask_u8[t_top:t_bottom, t_left:t_right]
+            np_out[np_rmask == 0] = 255
+        # 전부 흰색이면 저장 스킵 (디스크 + 서빙 비용 절감; 뷰어에서 404 = 흰 타일)
+        if np_out.size == 0 or np_out.min() >= 248:
+            return
+        path_out = self.tile_dir / '0' / f'{tx}_{ty}.jpeg'
+        Image.fromarray(np_out, 'RGB').save(str(path_out), 'JPEG', quality=self.int_quality)
+        self.int_saved_tiles += 1
+
+
+def _build_vs_pyramid_from_disk(path_tile_dir: Path, int_tile_size: int,
+                                  int_n_levels: int, int_level0_w: int, int_level0_h: int,
+                                  int_quality: int = 88) -> list[dict]:
+    """Level 0 타일은 이미 disk 에 있다고 가정. Level 1..n-1 을 on-disk 2×2 다운샘플로 빌드.
+    메모리 상한: 한 번에 1024×1024 (2×2 타일 merge) RGB = ~3 MB."""
+    import cv2 as _cv2
+
+    list_meta = []
+    for int_lv in range(int_n_levels):
+        int_lvl_w = max(1, int_level0_w // (2 ** int_lv))
+        int_lvl_h = max(1, int_level0_h // (2 ** int_lv))
+        int_lvl_nx = (int_lvl_w + int_tile_size - 1) // int_tile_size
+        int_lvl_ny = (int_lvl_h + int_tile_size - 1) // int_tile_size
+
+        if int_lv == 0:
+            # level 0 은 스트리머가 이미 다 저장. count 는 실제 파일 수
+            int_count = sum(1 for _ in (path_tile_dir / '0').glob('*.jpeg')) if (path_tile_dir / '0').exists() else 0
+        else:
+            path_src = path_tile_dir / str(int_lv - 1)
+            path_dst = path_tile_dir / str(int_lv)
+            path_dst.mkdir(parents=True, exist_ok=True)
+            int_src_w = max(1, int_level0_w // (2 ** (int_lv - 1)))
+            int_src_h = max(1, int_level0_h // (2 ** (int_lv - 1)))
+            int_src_nx = (int_src_w + int_tile_size - 1) // int_tile_size
+            int_src_ny = (int_src_h + int_tile_size - 1) // int_tile_size
+            int_count = 0
+            for dty in range(int_lvl_ny):
+                for dtx in range(int_lvl_nx):
+                    # merged 2×2 버퍼 (누락된 타일은 흰색)
+                    np_merged = np.full(
+                        (2 * int_tile_size, 2 * int_tile_size, 3), 255, dtype=np.uint8
+                    )
+                    bool_any = False
+                    for dy in range(2):
+                        for dx in range(2):
+                            sx = 2 * dtx + dx
+                            sy = 2 * dty + dy
+                            if sx >= int_src_nx or sy >= int_src_ny:
+                                continue
+                            path_jp = path_src / f'{sx}_{sy}.jpeg'
+                            if not path_jp.exists():
+                                continue
+                            bool_any = True
+                            np_src = np.asarray(Image.open(path_jp).convert('RGB'))
+                            ah, aw = np_src.shape[:2]
+                            np_merged[dy * int_tile_size:dy * int_tile_size + ah,
+                                       dx * int_tile_size:dx * int_tile_size + aw] = np_src
+                    if not bool_any:
+                        continue
+                    np_down = _cv2.resize(np_merged, (int_tile_size, int_tile_size),
+                                            interpolation=_cv2.INTER_AREA)
+                    if np_down.min() >= 248:
+                        continue
+                    Image.fromarray(np_down, 'RGB').save(
+                        str(path_dst / f'{dtx}_{dty}.jpeg'), 'JPEG', quality=int_quality
+                    )
+                    int_count += 1
+        list_meta.append({
+            "level": int_lv,
+            "width": int_lvl_w,
+            "height": int_lvl_h,
+            "nx": int_lvl_nx,
+            "ny": int_lvl_ny,
+            "tile_count": int_count,
+        })
+    return list_meta
+
+
 def _generate_vs_tiles(output_canvas, tile_dir: Path,
                        tile_size: int = 512, n_levels: int = 4,
                        quality: int = 88) -> list[dict]:
@@ -2200,19 +2421,26 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         roi_polygons = None  # 전체 추론 강제
 
         # ── 캐시 확인 ──
+        # 새 파이프라인은 PNG 를 만들지 않고 meta.json + 타일 피라미드만 저장한다.
+        # 따라서 캐시 hit 조건은 (meta.json 존재) AND (level-0 타일 디렉터리에 파일 있음).
+        # 레거시 캐시 (PNG + meta 만 있고 타일 X) 는 PNG 에서 한 번 빌드해 업그레이드.
         png_path, meta_path = _get_vs_cache_paths(info.file_path, target_mpp)
-        # 캐시 hit 경로에서는 cleanup 등록 금지 (기존 멀쩡한 캐시를 지울 수 있음).
-        # 새 추론이 실제로 파일을 쓰기 직전 아래에서만 등록한다.
-        if png_path.exists() and meta_path.exists():
+        tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
+        path_lvl0 = tile_dir / '0'
+
+        bool_meta_ok = meta_path.exists()
+        bool_tiles_ok = path_lvl0.exists() and any(path_lvl0.glob('*.jpeg'))
+        bool_png_legacy = png_path.exists()
+
+        if bool_meta_ok and (bool_tiles_ok or bool_png_legacy):
             try:
                 _update_task(task_id, status="running", progress=10,
-                             status_msg=f"Loading cached virtual stain: {png_path.name}")
+                             status_msg="Loading cached virtual stain")
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     cached_meta = json.load(f)
 
-                # 레거시 캐시: 타일 피라미드가 없으면 PNG에서 1회 업그레이드 생성
-                tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
-                if (not cached_meta.get("levels")) or (not tile_dir.exists()):
+                # 레거시: PNG 만 있고 타일 디렉터리가 비어 있으면 PNG → 타일 1회 빌드
+                if not bool_tiles_ok and bool_png_legacy:
                     try:
                         _update_task(task_id, progress=30,
                                      status_msg="Upgrading legacy cache → tile pyramid...")
@@ -2378,25 +2606,47 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                 all_patches.append((xi, yi, x0, y0,
                                     xi * stride, yi * stride, is_tissue))
 
-        # ── 누적 캔버스 ──
+        # ── 타일 스트리밍 누적기 (full canvas 제거) ──
+        # 예전엔 (out_h, out_w) output/input/weight float32 3개 (~3.3GB) 를 들고 있다가
+        # PNG 저장 → 타일화. 이제는 활성 타일만 메모리에 두고 flush-row 패턴으로 즉시 저장.
         blend_weight = _make_blend_weight(ps, overlap)
         blend_3ch = blend_weight[:, :, None]
-        output_acc = np.zeros((out_h, out_w, 3), dtype=np.float32)
-        input_acc = np.zeros((out_h, out_w, 3), dtype=np.float32)
-        weight_acc = np.zeros((out_h, out_w), dtype=np.float32)
+        tile_size_px = 512
+        tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
+        # 재추론일 때 이전 타일 청소
+        if tile_dir.exists():
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(tile_dir)
+            except Exception:
+                pass
+        streamer = VSTileStreamer(
+            out_w=out_w, out_h=out_h, tile_size=tile_size_px,
+            tile_dir=tile_dir, blend_3ch=blend_3ch, blend_weight=blend_weight,
+        )
+        # finalize 시점에 픽셀 단위 조직 마스크 + ROI polygon 마스크 사용
+        import cv2
+        np_roi_mask_u8 = None
+        if roi_polygons:
+            scale_x = out_w / canvas_l0_w
+            scale_y = out_h / canvas_l0_h
+            np_roi_mask_u8 = np.zeros((out_h, out_w), dtype=np.uint8)
+            for poly_coords in roi_polygons:
+                np_pts = np.array([
+                    [round((x - x_min) * scale_x), round((y - y_min) * scale_y)]
+                    for x, y in poly_coords
+                ], dtype=np.int32)
+                cv2.fillPoly(np_roi_mask_u8, [np_pts], 255)
+        streamer.set_finalization_masks(tissue_pixel_mask, np_roi_mask_u8)
 
         tissue_count = 0
         bs = batch_size
         io_workers = min(max(2, os.cpu_count() or 4), 8)
-        tissue_batch = []
+        tissue_batch = []   # [(px, py, tensor, input_np), ...]
 
         icc_tf = info.icc_transform
 
         # ── SVS → Hamamatsu raw 역변환 ──
-        # 학습 데이터가 Hamamatsu raw 이므로 Aperio SVS 는 ICC 적용 후 두 단계 역변환
-        # (inverse Stage2 + inverse Stage1) 으로 분포를 맞춘다. NDPI/기타는 그대로.
-        # 중요: I/O 스레드 안에서 PIL + numpy + ImageCms 체인이 뒤엉키면 native crash
-        # (세그폴트) 가능 — future.result() 후 **메인 스레드에서** 적용한다.
         # env VS_SVS_INVERSE_CHAIN=0 으로 즉시 비활성 가능.
         bool_svs_inv = (
             Path(slide_path).suffix.lower() == ".svs"
@@ -2406,6 +2656,22 @@ def _run_virtual_stain(task_id: str, slide_id: str,
         if bool_svs_inv:
             from app.svs_to_hamamatsu import apply_svs_to_hamamatsu_float
             _svs_to_ham = apply_svs_to_hamamatsu_float
+
+        def _gan_flush(list_batch):
+            """tissue_batch 를 GPU 로 돌려 GAN output 계산 → streamer.splat."""
+            if not list_batch:
+                return 0
+            tensors = [item[2] for item in list_batch]
+            batch = torch.stack(tensors).to(device, non_blocking=True)
+            if use_fp16:
+                batch = batch.half()
+            fake_batch = generator(batch)
+            fake_batch = fake_batch.float().cpu()
+            fake_batch = (fake_batch * 0.5 + 0.5).clamp_(0, 1)
+            for i, (int_px, int_py, _t, np_inp) in enumerate(list_batch):
+                np_fake = (fake_batch[i].permute(1, 2, 0).numpy() * 255.0)
+                streamer.splat(int_px, int_py, np_inp, np_fake)
+            return len(list_batch)
 
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             futures = []
@@ -2419,91 +2685,52 @@ def _run_virtual_stain(task_id: str, slide_id: str,
             for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
                 _check_cancel(task_id)
                 region_np = futures[patch_idx].result()
-                # ── 메인 스레드에서 inverse chain 적용 (tissue 패치에만 적용해 비용 절약) ──
+                # 메인 스레드에서 inverse chain 적용 (tissue 패치만)
                 if _svs_to_ham is not None and is_tissue:
                     try:
                         region_np = _svs_to_ham(region_np)
                     except Exception as e:
                         print(f"[vs-ihc] svs_to_hamamatsu failed at ({x0},{y0}): {e!r}")
-                input_acc[py_c:py_c + ps, px:px + ps] += region_np * blend_3ch
 
                 if not is_tissue:
-                    output_acc[py_c:py_c + ps, px:px + ps] += region_np * blend_3ch
-                    weight_acc[py_c:py_c + ps, px:px + ps] += blend_weight
+                    # GAN 불필요 — input=output=region_np 로 바로 splat.
+                    streamer.splat(px, py_c, region_np, region_np)
                 else:
                     t = torch.from_numpy(region_np).permute(2, 0, 1)
                     t = t / 255.0 * 2.0 - 1.0
-                    tissue_batch.append((px, py_c, t))
+                    tissue_batch.append((px, py_c, t, region_np))
 
                 is_end_of_row = (xi == n_px - 1)
                 batch_full = len(tissue_batch) >= bs
                 if tissue_batch and (batch_full or is_end_of_row):
-                    VirtualStainWorker._run_batch(
-                        generator, device, use_fp16, tissue_batch,
-                        output_acc, weight_acc, blend_3ch, blend_weight, ps,
-                    )
-                    tissue_count += len(tissue_batch)
+                    tissue_count += _gan_flush(tissue_batch)
                     tissue_batch.clear()
 
                 if is_end_of_row:
+                    # 이 yi 행 처리 끝 — 다음 행은 py ≥ (yi+1)*stride 부터라 해당 범위 이전 타일은 안전.
+                    int_safe_y = (yi + 1) * stride
+                    streamer.flush_rows_up_to(int_safe_y)
+
                     pct = 8 + int(87 * (yi + 1) / n_py)
                     _update_task(task_id, progress=pct,
                                  status_msg=f"Virtual staining... row {yi + 1}/{n_py} "
                                             f"({tissue_count} tissue patches)")
 
         if tissue_batch:
-            VirtualStainWorker._run_batch(
-                generator, device, use_fp16, tissue_batch,
-                output_acc, weight_acc, blend_3ch, blend_weight, ps,
-            )
-            tissue_count += len(tissue_batch)
+            tissue_count += _gan_flush(tissue_batch)
             tissue_batch.clear()
 
         _check_cancel(task_id)
-        _update_task(task_id, progress=96, status_msg="Composing final image...")
+        _update_task(task_id, progress=96, status_msg="Finalizing tiles...")
+        streamer.flush_all()
 
-        # ── Compose ──
-        uncovered = weight_acc < 0.01
-        weight_acc = np.maximum(weight_acc, 1e-10)
-        output_canvas = (output_acc / weight_acc[:, :, None]).clip(0, 255).astype(np.uint8)
-        input_canvas = (input_acc / weight_acc[:, :, None]).clip(0, 255).astype(np.uint8)
-        output_canvas[uncovered] = 255
-        input_canvas[uncovered] = 255
-        output_canvas[~tissue_pixel_mask] = input_canvas[~tissue_pixel_mask]
-
-        # ── Polygon ROI 마스킹 → RGBA ──
-        import cv2
-        alpha = np.full((out_h, out_w), 255, dtype=np.uint8)
-        if roi_polygons:
-            scale_x = out_w / canvas_l0_w
-            scale_y = out_h / canvas_l0_h
-            poly_mask = np.zeros((out_h, out_w), dtype=np.uint8)
-            for poly_coords in roi_polygons:
-                pts = np.array([
-                    [round((x - x_min) * scale_x), round((y - y_min) * scale_y)]
-                    for x, y in poly_coords
-                ], dtype=np.int32)
-                cv2.fillPoly(poly_mask, [pts], 255)
-            alpha = poly_mask
-
-        rgba = np.dstack([output_canvas, alpha])
-
-        # ── 캐시 저장 (전체 추론만 도달; ROI는 위에서 캐시 hit 또는 폴리곤 무시) ──
+        # ── On-disk 피라미드 빌드 (level 1+) ──
+        _update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
         levels_meta = []
-        tile_size_px = 512
         try:
-            _update_task(task_id, progress=97, status_msg="Saving composite PNG...")
-            # 여기서 비로소 PNG/meta 가 새로 작성됨 → 취소 시에만 이 파일들 정리.
-            # (타일 디렉터리는 아래 generate_vs_tiles 가 끝난 뒤에만 존재하며,
-            #  그 단계엔 취소 체크포인트가 없으므로 정리 대상에 넣지 않는다.)
-            list_cleanup_on_cancel.extend([png_path, meta_path])
-            Image.fromarray(rgba, 'RGBA').save(str(png_path), format='PNG', optimize=False)
-
-            _update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
-            tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
-            levels_meta = _generate_vs_tiles(
-                output_canvas, tile_dir,
-                tile_size=tile_size_px, n_levels=4,
+            levels_meta = _build_vs_pyramid_from_disk(
+                tile_dir, int_tile_size=tile_size_px, int_n_levels=4,
+                int_level0_w=out_w, int_level0_h=out_h,
             )
 
             meta = {
@@ -2518,9 +2745,12 @@ def _run_virtual_stain(task_id: str, slide_id: str,
                 "tile_size": tile_size_px,
                 "levels": levels_meta,
             }
+            # meta 만 기록 (PNG 는 생성하지 않음 — 뷰어는 타일만 사용)
+            list_cleanup_on_cancel.append(meta_path)
             with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(meta, f)
-            print(f"VS result cached: {png_path} + {len(levels_meta)} pyramid levels")
+            print(f"VS cached: {streamer.int_saved_tiles} level-0 tiles, "
+                  f"{len(levels_meta)} pyramid levels total")
             from app import slide_store
             slide_store.mark_ai_result_threadsafe(info.file_path, "VS-IHC", stain_type)
         except Exception as e:
