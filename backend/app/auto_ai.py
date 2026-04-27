@@ -176,8 +176,30 @@ async def _run_auto_inference(
     print(f"[auto_ai] done {str_model}/{str_variant} on {str_filename}")
 
 
+def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
+    """_run_virtual_stain 의 캐시 hit 조건과 동일 — meta.json + (level-0 타일 OR 레거시 PNG).
+
+    auto_ai 가 사이클마다 슬라이드를 검사할 때 이 조건을 미리 보고 hit 면 스킵해야
+    "inferring/done" 로그가 캐시 검증 때문에 매번 찍히는 것을 방지한다.
+    """
+    from app.routers.ai import _get_vs_cache_paths, _get_vs_tile_dir
+    png_path, meta_path = _get_vs_cache_paths(str_full_path, float_target_mpp)
+    if not meta_path.exists():
+        return False
+    path_lvl0 = _get_vs_tile_dir(str_full_path, float_target_mpp) / '0'
+    bool_tiles_ok = path_lvl0.exists() and any(path_lvl0.glob('*.jpeg'))
+    bool_png_legacy = png_path.exists()
+    return bool_tiles_ok or bool_png_legacy
+
+
 async def _scan_and_infer_once() -> None:
-    """1 사이클 — 모든 활성 folder config 를 돌며 누락된 추론을 순차 수행."""
+    """1 사이클 — 모든 활성 folder config 를 돌며 누락된 추론을 순차 수행.
+
+    조용한 정책:
+      - 캐시 hit 슬라이드는 로그 없이 스킵
+      - 실제 추론이 발생한 슬라이드만 inferring/done 로그
+      - 사이클 끝(또는 중단) 시 1 줄 요약 (실제 추론이 있었던 경우만)
+    """
     from app.database import is_db_connected, get_db
     from app import slide_store
 
@@ -195,6 +217,9 @@ async def _scan_and_infer_once() -> None:
     list_configs = []
     async for dict_cfg in db.folder_ai_configs.find({"bool_enabled": True}):
         list_configs.append(dict_cfg)
+
+    int_scanned = 0    # 이번 사이클에 검사한 슬라이드 수 (캐시 hit + 추론 + 스킵 포함)
+    int_inferred = 0   # 실제로 추론을 돌린 슬라이드 수
 
     for dict_cfg in list_configs:
         str_rel_path = dict_cfg.get("str_rel_path", "")
@@ -228,28 +253,35 @@ async def _scan_and_infer_once() -> None:
                 if not str_full_path or not Path(str_full_path).exists():
                     continue
 
-                if str_model == "VS-IHC":
-                    from app.routers.ai import _get_vs_cache_paths
-                    png_path, _ = _get_vs_cache_paths(str_full_path, float_target_mpp)
-                    if png_path.exists():
-                        continue
+                int_scanned += 1
+
+                if str_model == "VS-IHC" and _vs_cache_exists(str_full_path, float_target_mpp):
+                    # 캐시 있음 → 조용히 스킵 (로그 X)
+                    continue
 
                 # 매 추론 전 idle 재확인 — 사용자 활동 / 업로드 끼어들면 중단
                 if not is_system_idle():
-                    print("[auto_ai] activity detected — pausing cycle")
+                    if int_inferred > 0:
+                        print(f"[auto_ai] activity detected — paused after {int_inferred}/{int_scanned} inferred")
                     return
                 # 새로 업로드된 슬라이드 타일링이 끼어들면 양보
                 if await slide_store.has_any_pending_tiles():
-                    print("[auto_ai] new tile job pending — yielding cycle")
+                    if int_inferred > 0:
+                        print(f"[auto_ai] new tile job — yielded after {int_inferred}/{int_scanned} inferred")
                     return
 
                 try:
                     await _run_auto_inference(str_full_path, str_model, str_variant, float_target_mpp)
+                    int_inferred += 1
                 except Exception as e:
                     print(f"[auto_ai] inference error: {e}")
 
                 # DB 갱신 대기 (mark_ai_result_threadsafe 는 다른 루프에 스케줄)
                 await asyncio.sleep(0.5)
+
+    # 사이클 종료 요약 — 실제 추론이 발생했을 때만. 매 분 0/N 로그를 띄우지 않음.
+    if int_inferred > 0:
+        print(f"[auto_ai] cycle done — {int_inferred}/{int_scanned} inferred")
 
 
 async def _worker_loop() -> None:

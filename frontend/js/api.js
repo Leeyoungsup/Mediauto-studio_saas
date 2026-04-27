@@ -181,16 +181,22 @@ async function _authFetch(url, options = {}) {
     //   - access 토큰이 예상보다 일찍 만료 (clock drift / 탭 suspend)
     //   - 다른 탭이 rotation 중이라 localStorage 동기화 지연
     // 재시도까지 실패하면 그때 토큰 정리 + 로그인 페이지.
-    if (res.status === 401 && _getRefreshToken()) {
-        const bool_refreshed = await _refreshTokenIfNeeded(true, true);
-        if (bool_refreshed) {
-            const headers_retry = { ...(options.headers || {}), ..._authHeaders() };
-            res = await fetch(url, { ...options, headers: headers_retry });
+    // refresh 토큰이 아예 없는 경우(완전 미로그인 / 만료 후 정리됨) 도
+    // 똑같이 로그인 페이지로 보내야 호출 측이 빈 뷰어에 머무는 것을 막는다.
+    if (res.status === 401) {
+        if (_getRefreshToken()) {
+            const bool_refreshed = await _refreshTokenIfNeeded(true, true);
+            if (bool_refreshed) {
+                const headers_retry = { ...(options.headers || {}), ..._authHeaders() };
+                res = await fetch(url, { ...options, headers: headers_retry });
+            }
         }
         if (res.status === 401) {
             _clearTokens();
             _clearMediaTicket();
-            window.location.href = '/login.html';
+            if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login.html')) {
+                window.location.href = '/login.html';
+            }
             throw new Error('Authentication required');
         }
     }

@@ -7,6 +7,17 @@ import { api } from './api.js';
 import { TileViewer } from './tile-viewer.js';
 import { showVisualization } from './visualization.js';
 
+// ── 미로그인 가드 ──
+// 토큰 없는 상태에서 /app.html 로 직접 들어오면 뷰어 UI 가 잠깐 그려진 뒤 api.me()
+// 의 401 까지 보고서야 리다이렉트가 일어나 깜빡임이 생긴다. home.js 와 동일한
+// 패턴으로 첫 줄에서 차단. replace() 로 history 에 이 broken state 가 안 남게.
+if (!localStorage.getItem('access_token')) {
+    window.location.replace('/login.html');
+    // 모듈 본체는 곧 navigation 으로 unload 되지만, 이후 코드가 실행되면서 발생하는
+    // null 참조를 막기 위해 명시적으로 throw — 콘솔 에러 한 줄로 끝난다.
+    throw new Error('Not authenticated — redirecting to /login.html');
+}
+
 // HTML escape — innerHTML 에 들어갈 신뢰 불가 문자열 (filename, annotation name,
 // vendor 등) 에 반드시 통과시켜 stored XSS 차단.
 function _esc(s) {
