@@ -366,8 +366,14 @@ function _updateNdpColorToggleVisibility(slideInfo) {
     const str_vendor = String(slideInfo?.vendor || '').toLowerCase();
     const bool_is_hamamatsu = str_vendor === 'hamamatsu';
     $btnNdpColor.hidden = !bool_is_hamamatsu;
-    if (!bool_is_hamamatsu) {
-        // 비-Hamamatsu 슬라이드: 항상 OFF 상태로 되돌림
+    if (bool_is_hamamatsu) {
+        // Hamamatsu 슬라이드: 기본 ON — NDP.view2 색감이 표준이고
+        // 보정 없이 보면 푸르스름하게 보여 사용자 첫 인상이 나쁘다.
+        viewer.setColorCorrectionEnabled(true);
+        $btnNdpColor.classList.add('active');
+        if ($ndpColorState) $ndpColorState.textContent = 'ON';
+    } else {
+        // 비-Hamamatsu 슬라이드: 항상 OFF 로 되돌림 (피팅이 의미 없음)
         viewer.setColorCorrectionEnabled(false);
         $btnNdpColor.classList.remove('active');
         if ($ndpColorState) $ndpColorState.textContent = 'OFF';

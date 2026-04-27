@@ -162,15 +162,17 @@
             <canvas id="wsi-canvas"></canvas>
             <canvas id="overlay-canvas"></canvas>
 
-            <!-- Hamamatsu NDP 색보정 toggle (왼쪽 위) — Hamamatsu 슬라이드에서만 표시 -->
-            <button id="btn-ndp-color" class="ndp-color-toggle" type="button" hidden
+            <!-- Hamamatsu NDP 색보정 toggle (왼쪽 위) — Hamamatsu 슬라이드에서만 표시.
+                 기본값 ON: app.js 의 _updateNdpColorToggleVisibility 가 활성화하지만,
+                 hidden 해제와 active 클래스 부착 사이의 짧은 깜빡임 방지를 위해 정적 상태도 ON. -->
+            <button id="btn-ndp-color" class="ndp-color-toggle active" type="button" hidden
                     title="NDP.view2 색감으로 보정 (Hamamatsu 전용)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="9"/>
                     <path d="M12 3 A9 9 0 0 1 12 21 Z" fill="currentColor" stroke="none"/>
                 </svg>
                 <span class="ndp-color-label">NDP 색보정</span>
-                <span class="ndp-color-state">OFF</span>
+                <span class="ndp-color-state">ON</span>
             </button>
 
             <!-- 슬라이드 초기 3-stage 프리로드 오버레이 -->
