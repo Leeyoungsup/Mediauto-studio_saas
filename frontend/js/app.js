@@ -1880,6 +1880,12 @@ function buildResultList(result) {
     // ROI 필터링 결과(total)와 일관성 — result.total_cells 는 전체 슬라이드 합이라 ROI 추론 시 어긋난다.
     totalCount.textContent = total.toLocaleString();
 
+    totalItem.style.cursor = 'pointer';
+    totalItem.addEventListener('click', (e) => {
+        if (e.target === totalCb) return;
+        totalCb.click();
+    });
+
     totalItem.append(totalCb, totalName, totalCount);
     $resultList.appendChild(totalItem);
 
@@ -1921,6 +1927,12 @@ function buildResultList(result) {
         countSpan.className = 'class-count';
         countSpan.textContent = _formatCountWithRatio(count, total);
         perClassCountEls[id] = countSpan;
+
+        item.style.cursor = 'pointer';
+        item.addEventListener('click', (e) => {
+            if (e.target === cb) return;
+            cb.click();
+        });
 
         item.append(cb, dot, nameSpan, countSpan);
         $resultList.appendChild(item);
