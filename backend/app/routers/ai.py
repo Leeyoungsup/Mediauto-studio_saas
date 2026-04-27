@@ -31,17 +31,12 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# ── tissue_mask 감마 전처리 상수 ──
-# 썸네일에 v_out = 255 * (v_in/255) ^ γ 를 적용한 뒤 H-DAB/Otsu/텍스처 파이프라인을 돌린다.
-# γ 가 커질수록 배경 피크가 더 많이 내려가 definite_bg 제외 범위가 좁아져 옅은 조직까지
-# 포획된다. ai_mask_test.ipynb 스윕 결과 γ=4.0 이 옅은 stroma/조직 경계까지 확실히
-# 잡으면서 실제 운용 슬라이드에서 과잉 포함이 허용 범위 내에 머무는 값으로 확인됨.
-FLOAT_TISSUE_MASK_GAMMA = 4.0
-_NP_TISSUE_MASK_GAMMA_LUT = np.clip(
-    np.power(np.arange(256, dtype=np.float32) / 255.0,
-             FLOAT_TISSUE_MASK_GAMMA) * 255.0,
-    0, 255,
-).astype(np.uint8)
+# tissue_mask γ LUT 와 마스크 생성 함수는 ai_pipelines.tissue_mask 가 단일 소스.
+from app.ai_pipelines.tissue_mask import (
+    FLOAT_TISSUE_MASK_GAMMA,
+    _NP_TISSUE_MASK_GAMMA_LUT,
+    create_tissue_mask as _create_tissue_mask,
+)
 
 # Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
 router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
@@ -81,83 +76,31 @@ async def _log_ai_analyze(
 # main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
 media_router = APIRouter(dependencies=[Depends(get_media_user)])
 
-# AI 작업 상태 추적
-_tasks = {}
-_tasks_lock = threading.Lock()
+# AI 작업 상태 — ai_pipelines.task_state 가 단일 소스.
+# 기존 호출자(_tasks, _tasks_lock, _update_task, ...) 호환을 위해 모듈 레벨에 재바인딩.
+from app.ai_pipelines.task_state import (
+    TaskCancelled,
+    _tasks,
+    _tasks_lock,
+    update_task as _update_task,
+    is_cancel_requested as _is_cancel_requested,
+    check_cancel as _check_cancel,
+    cleanup_cache_paths as _cleanup_cache_paths,
+)
 
 # I/O 워커 스레드별 독립 OpenSlide 핸들은 app.thread_slide_pool 이 관리한다.
 # generation 검증 + LRU eviction 포함 (SlideManager.close() 시 자동 무효화).
 from app.thread_slide_pool import get_thread_slide as _get_thread_slide
 
 
-def _update_task(task_id, **kwargs):
-    with _tasks_lock:
-        _tasks[task_id].update(kwargs)
-    # 사용자 AI 진행 업데이트는 idle 타이머를 리셋 (auto_ 접두어 task 는 제외).
-    # → 사용자가 추론 중이면 auto_ai 가 끼어들지 않음.
-    if not task_id.startswith("auto_"):
-        try:
-            from app import auto_ai
-            auto_ai.ping_ai_activity()
-        except Exception:
-            pass
-
-
-class TaskCancelled(Exception):
-    """사용자가 추론을 중단 요청했을 때 워커가 raise 하는 예외."""
-    pass
-
-
-def _is_cancel_requested(task_id: str) -> bool:
-    with _tasks_lock:
-        task = _tasks.get(task_id)
-        return bool(task and task.get("cancel_requested"))
-
-
-def _check_cancel(task_id: str) -> None:
-    """체크포인트 — 취소 요청이 있으면 TaskCancelled 발생."""
-    if _is_cancel_requested(task_id):
-        raise TaskCancelled()
-
-
-def _cleanup_cache_paths(list_paths) -> None:
-    """취소 시 부분 저장된 캐시 파일/폴더 전부 삭제. 충돌 방지용."""
-    import shutil
-    for p in list_paths:
-        if p is None:
-            continue
-        try:
-            path_obj = Path(p)
-            if path_obj.is_file():
-                path_obj.unlink()
-                print(f"[cancel] removed file: {path_obj}")
-            elif path_obj.is_dir():
-                shutil.rmtree(path_obj)
-                print(f"[cancel] removed dir: {path_obj}")
-        except Exception as e:
-            print(f"[cancel] cleanup failed for {p}: {e}")
-
-
-def _get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
-    """
-    HE-Fit 결과 캐시: ai_results/HE-Fit/{slide_stem}_HE-Fit_{tissue_type}.json
-    레거시 경로 (ai_results/{slide_stem}_HE-Fit_{tissue_type}.json) 가 있으면
-    새 위치로 자동 이동한다.
-    """
-    p = Path(slide_path)
-    cache_dir = Path(settings.AI_RESULTS_DIR) / "HE-Fit"
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    new_path = cache_dir / f"{p.stem}_HE-Fit_{tissue_type}.json"
-    legacy_path = Path(settings.AI_RESULTS_DIR) / f"{p.stem}_HE-Fit_{tissue_type}.json"
-    if not new_path.exists() and legacy_path.exists():
-        try:
-            legacy_path.replace(new_path)
-        except Exception as e:
-            print(f"[ai] HE-Fit legacy migration failed: {e}")
-    return new_path
+# 캐시 경로 helpers — ai_pipelines.cache_paths 가 단일 소스. 기존 호출자 호환을 위해 alias.
+from app.ai_pipelines.cache_paths import (
+    get_ai_cache_path as _get_ai_cache_path,
+    get_pd_score_cache_path as _get_pd_score_cache_path,
+    get_precise_ihc_cache_path as _get_precise_ihc_cache_path,
+    get_vs_cache_paths as _get_vs_cache_paths,
+    get_vs_tile_dir as _get_vs_tile_dir,
+)
 
 
 def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tissue_type: str):
@@ -494,115 +437,6 @@ def _run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], ti
         _update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
 
 
-def _create_tissue_mask(slide, icc_transform=None):
-    """조직 마스크 생성 — γ 전처리 후 H-DAB 분리 → (Hem ∪ DAB ∪ 텍스처) − 확실한 배경.
-
-    단일 Hematoxylin Otsu 만으로는 DAB 가 강하게 덮인 영역(H 가 억제됨)이나
-    염색이 거의 없지만 구조가 있는 조직이 빠질 수 있음. 따라서:
-      0) 썸네일에 γ=4.0 감마 전처리 — 배경 피크를 내려 definite_bg 제외를 덜 공격적으로
-      1) H-DAB color deconvolution (Ruifrok & Johnston 2001) → H / DAB 채널 분리
-      2) 각 채널 Otsu → 염색 영역 검출
-      3) 국소 표준편차(텍스처) Otsu → 무염색 조직 보완
-      4) Union 후, 확실한 유리 배경(그레이 히스토그램 최고 피크의 95% 이상) 강제 제외
-
-    icc_transform 이 주어지면 썸네일에 적용해 다른 AI 경로와 색상 일관성 유지.
-    """
-    import numpy as np
-    import cv2
-
-    try:
-        downsample = 128
-        thumbnail = slide.get_thumbnail((
-            slide.dimensions[0] // downsample,
-            slide.dimensions[1] // downsample,
-        ))
-        if icc_transform is not None:
-            from PIL import ImageCms
-            thumbnail = thumbnail.convert('RGB')
-            ImageCms.applyTransform(thumbnail, icc_transform, inPlace=True)
-        thumbnail = np.array(thumbnail)
-        if len(thumbnail.shape) == 3:
-            rgb = thumbnail[:, :, :3]
-        else:
-            rgb = cv2.cvtColor(thumbnail, cv2.COLOR_GRAY2RGB)
-
-        # ── 감마 전처리 (γ=4.0) ──
-        # rgb 는 uint8 이므로 LUT 인덱싱 한 번이면 끝. 하위 단계 모두 γ 적용본을 본다.
-        rgb = _NP_TISSUE_MASK_GAMMA_LUT[rgb]
-
-        # ── H-DAB color deconvolution (Ruifrok & Johnston, 2001) ──
-        stain_matrix = np.array([
-            [0.650, 0.704, 0.286],   # Hematoxylin
-            [0.268, 0.570, 0.776],   # DAB
-            [0.711, 0.423, 0.500],   # Residual
-        ], dtype=np.float64)
-        stain_matrix = stain_matrix / np.linalg.norm(stain_matrix, axis=1, keepdims=True)
-        deconv_matrix = np.linalg.inv(stain_matrix)
-
-        rgb_f = np.maximum(rgb.astype(np.float64), 1.0)
-        od = -np.log(rgb_f / 255.0)
-        h, w = rgb.shape[:2]
-        stain_od = (od.reshape(-1, 3) @ deconv_matrix.T).reshape(h, w, 3)
-
-        hematoxylin_od = np.clip(stain_od[:, :, 0], 0, None)
-        dab_od = np.clip(stain_od[:, :, 1], 0, None)
-
-        hem_max = max(np.percentile(hematoxylin_od, 99.5), 0.01)
-        dab_max = max(np.percentile(dab_od, 99.5), 0.01)
-        hem_u8 = np.clip(hematoxylin_od / hem_max * 255, 0, 255).astype(np.uint8)
-        dab_u8 = np.clip(dab_od / dab_max * 255, 0, 255).astype(np.uint8)
-
-        _, hem_mask = cv2.threshold(hem_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        _, dab_mask = cv2.threshold(dab_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # ── 텍스처(국소 std) — 무염색이지만 구조 있는 조직 보완 ──
-        np_gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-        gray_f = np_gray.astype(np.float32)
-        ksize = (15, 15)
-        local_mean = cv2.blur(gray_f, ksize)
-        local_sq_mean = cv2.blur(gray_f ** 2, ksize)
-        local_std = np.sqrt(np.maximum(local_sq_mean - local_mean ** 2, 0))
-        std_scaled = np.clip(local_std * 10, 0, 255).astype(np.uint8)
-        _, texture_mask = cv2.threshold(
-            std_scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-        )
-
-        # ── 확실한 유리 배경 제거 (히스토그램 상단 피크의 95% 이상) ──
-        hist = cv2.calcHist([np_gray], [0], None, [256], [0, 256]).flatten()
-        bg_peak = int(np.argmax(hist[128:]) + 128)
-        definite_bg = (np_gray >= int(bg_peak * 0.95))
-
-        mask = (hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)
-        mask[definite_bg] = False
-        mask = (mask.astype(np.uint8)) * 255
-
-        # 조각난 마스크를 넓게 CLOSE 해서 인접 조직 조각들을 하나로 묶음
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-
-        # ── 외곽 컨투어만 뽑아 솔리드로 채움 ──
-        # → 내부 구멍(염색 옅어서 빠진 세포 간극)도 전부 tissue 로 포함
-        # → 작은 면적 컨투어는 노이즈로 간주해 드랍
-        contours, _ = cv2.findContours(
-            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        filled = np.zeros_like(mask)
-        int_min_area = max(int(h * w * 0.0005), 50)  # 썸네일 면적의 0.05% 이상
-        for cnt in contours:
-            if cv2.contourArea(cnt) < int_min_area:
-                continue
-            cv2.drawContours(filled, [cnt], -1, 255, thickness=cv2.FILLED)
-        mask = filled
-
-        target_w = slide.dimensions[0] // 64
-        target_h = slide.dimensions[1] // 64
-        mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
-        return mask
-    except Exception:
-        w, h = slide.dimensions
-        return np.ones((h // 64, w // 64), dtype=np.uint8) * 255
-
-
 def _run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y, all_cls,
                                     tissue_type, roi_polygons, device):
     """
@@ -857,111 +691,16 @@ def _build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bound
 
 
 # ═══════════════════════════════════════════════════════════════════
-# PD-Score (PD-L1) — Stomach: CPS / Lung: TPS
+# PD-Score / Precise-IHC — config + score 함수는 ai_pipelines.scoring 가 단일 소스.
 # ═══════════════════════════════════════════════════════════════════
-
-PD_SCORE_CONFIG = {
-    "Stomach": {
-        "model_file": "PDL1_ST_CPS_detection.pt",
-        "num_classes": 7,
-        "class_names": {
-            0: "Negative Epithelial",
-            1: "Negative Lymphocyte",
-            2: "Negative Macrophage",
-            3: "Positive Epithelial",
-            4: "Positive Lymphocyte",
-            5: "Positive Macrophage",
-            6: "Other",
-        },
-        "class_colors": {
-            0: "#1e8449",
-            1: "#27ae60",
-            2: "#16a085",
-            3: "#922b21",
-            4: "#e74c3c",
-            5: "#ec7063",
-            6: "#95a5a6",
-        },
-        "score_type": "CPS",
-        "exclude_classes": [6],
-    },
-    "Lung": {
-        "model_file": "PDL1_TPS_detection.pt",
-        "num_classes": 3,
-        "class_names": {
-            0: "PD-L1 Negative Tumor",
-            1: "PD-L1 Positive Tumor",
-            2: "Non-Tumor Cell",
-        },
-        "class_colors": {
-            0: "#3498db",
-            1: "#e74c3c",
-            2: "#95a5a6",
-        },
-        "score_type": "TPS",
-        "exclude_classes": [],
-    },
-}
-
-
-def _get_pd_score_cache_path(slide_path: str, tissue_type: str) -> Path:
-    """PD-Score 결과 캐시: ai_results/PD-Score/{slide_stem}_PD-Score_{tissue_type}.json"""
-    p = Path(slide_path)
-    cache_dir = Path(settings.AI_RESULTS_DIR) / "PD-Score"
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    return cache_dir / f"{p.stem}_PD-Score_{tissue_type}.json"
-
-
-def _compute_pd_score(all_cls, tissue_type: str) -> dict:
-    """
-    CPS (Stomach): (positive tumor + positive immune) / viable tumor * 100, capped at 100
-                   - positive tumor = cls 3 (positive Epithelial)
-                   - positive immune = cls 4 + cls 5 (positive lymphocyte/macrophage)
-                   - viable tumor = cls 0 + cls 3 (all epithelial)
-    TPS  (Lung):   positive tumor / (positive + negative tumor) * 100
-                   - positive tumor = cls 1
-                   - negative tumor = cls 0
-    """
-    import numpy as np
-
-    score_type = PD_SCORE_CONFIG[tissue_type]["score_type"]
-    int_counts = {int(c): int((all_cls == c).sum()) for c in range(PD_SCORE_CONFIG[tissue_type]["num_classes"])}
-
-    if score_type == "CPS":
-        int_pos_tumor = int_counts.get(3, 0)
-        int_pos_immune = int_counts.get(4, 0) + int_counts.get(5, 0)
-        int_viable_tumor = int_counts.get(0, 0) + int_counts.get(3, 0)
-        if int_viable_tumor == 0:
-            float_score = 0.0
-        else:
-            float_score = min(100.0, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100.0)
-        return {
-            "score_type": "CPS",
-            "score": round(float_score, 2),
-            "positive_tumor": int_pos_tumor,
-            "positive_immune": int_pos_immune,
-            "viable_tumor": int_viable_tumor,
-            "class_counts": int_counts,
-        }
-    else:  # TPS
-        int_pos_tumor = int_counts.get(1, 0)
-        int_neg_tumor = int_counts.get(0, 0)
-        int_total_tumor = int_pos_tumor + int_neg_tumor
-        if int_total_tumor == 0:
-            float_score = 0.0
-        else:
-            float_score = int_pos_tumor / int_total_tumor * 100.0
-        return {
-            "score_type": "TPS",
-            "score": round(float_score, 2),
-            "positive_tumor": int_pos_tumor,
-            "negative_tumor": int_neg_tumor,
-            "total_tumor": int_total_tumor,
-            "class_counts": int_counts,
-        }
+from app.ai_pipelines.scoring import (
+    PD_SCORE_CONFIG,
+    PRECISE_IHC_CONFIG,
+    compute_pd_score as _compute_pd_score,
+    compute_her2_score as _compute_her2_score,
+    compute_allred_score as _compute_allred_score,
+    compute_ki67_score as _compute_ki67_score,
+)
 
 
 def _run_marker_detection_pipeline(
@@ -1367,230 +1106,6 @@ def _run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         str_variant=tissue_type,
         float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung 고정 (SaMD 재현성)
     )
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Precise-IHC — HER2 / ER-PR / KI-67
-# ═══════════════════════════════════════════════════════════════════
-
-PRECISE_IHC_CONFIG = {
-    "HER2": {
-        "model_file": "Precise_IHC_HER2_detection.pt",
-        "num_classes": 5,
-        "class_names": {
-            0: "HER2 0+",
-            1: "HER2 1+",
-            2: "HER2 2+",
-            3: "HER2 3+",
-            4: "Other",
-        },
-        # class0 (0+) 초록 → class3 (3+) 새빨강. class 숫자 ↑ → red ↑
-        "class_colors": {
-            0: "#27ae60",  # green (0+)
-            1: "#f1c40f",  # yellow (1+)
-            2: "#e67e22",  # orange (2+)
-            3: "#c0392b",  # deep red (3+)
-            4: "#95a5a6",  # other (hidden)
-        },
-        "score_type": "HER2",
-        "exclude_classes": [4],
-    },
-    # ER/PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other).
-    # ER 과 PR 은 동일 .pt 를 공유하고 추론 결과도 동일하므로 단일 marker("ER_PR") 로 통합.
-    "ER_PR": {
-        "model_file": "Precise_IHC_ER_PR_detection.pt",
-        "num_classes": 5,
-        "class_names": {
-            0: "ER/PR 0+",
-            1: "ER/PR 1+",
-            2: "ER/PR 2+",
-            3: "ER/PR 3+",
-            4: "Other",
-        },
-        "class_colors": {
-            0: "#27ae60",
-            1: "#f1c40f",
-            2: "#e67e22",
-            3: "#c0392b",
-            4: "#95a5a6",
-        },
-        "score_type": "Allred",
-        "exclude_classes": [4],
-    },
-    # KI-67: ER/PR 모델을 임시 사용. class 0 = Negative, class 1/2/3 = Positive.
-    # KI-67 Index = Positive / Total × 100 (%).
-    "KI_67": {
-        "model_file": "Precise_IHC_ER_PR_detection.pt",
-        "num_classes": 5,
-        "class_names": {
-            0: "Negative",
-            1: "Positive (1+)",
-            2: "Positive (2+)",
-            3: "Positive (3+)",
-            4: "Other",
-        },
-        "class_colors": {
-            0: "#27ae60",   # green (Negative)
-            1: "#e67e22",   # orange (Positive weak)
-            2: "#e74c3c",   # red (Positive moderate)
-            3: "#c0392b",   # deep red (Positive strong)
-            4: "#95a5a6",   # other (hidden)
-        },
-        "score_type": "KI67",
-        "exclude_classes": [4],
-    },
-}
-
-
-def _get_precise_ihc_cache_path(slide_path: str, marker: str) -> Path:
-    """Precise-IHC 결과 캐시: ai_results/Precise-IHC/{slide_stem}_Precise-IHC_{marker}.json"""
-    p = Path(slide_path)
-    cache_dir = Path(settings.AI_RESULTS_DIR) / "Precise-IHC"
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    return cache_dir / f"{p.stem}_Precise-IHC_{marker}.json"
-
-
-def _compute_her2_score(all_cls) -> dict:
-    """
-    HER2 score:
-      - 클래스 0~3 은 intensity 0+/1+/2+/3+
-      - 가중 평균 = Σ(i * n_i) / Σ(n_i)  (i = 0..3)
-      - dominant_class = 가장 많은 intensity
-    """
-    import numpy as np
-    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
-    int_total = sum(int_counts.values())
-    if int_total == 0:
-        return {
-            "score_type": "HER2",
-            "score": 0.0,
-            "dominant_class": 0,
-            "total_tumor": 0,
-            "class_counts": int_counts,
-        }
-    float_weighted = sum(i * int_counts[i] for i in range(4)) / int_total
-    int_dominant = max(int_counts, key=lambda k: int_counts[k])
-    return {
-        "score_type": "HER2",
-        "score": round(float_weighted, 3),
-        "dominant_class": int_dominant,
-        "total_tumor": int_total,
-        "class_counts": int_counts,
-    }
-
-
-def _compute_allred_score(all_cls) -> dict:
-    """
-    Allred score (ER/PR):
-      - intensity 클래스 0~3 (none / weak / intermediate / strong)
-      - Proportion Score (PS): 양성 비율 (positive / total tumor)
-          0=0%, 1=<1%, 2=1-10%, 3=10-33%, 4=33-66%, 5=>66%
-      - Intensity Score (IS): 양성 세포 평균 강도 → bin 0/1/2/3
-          (avg < 0.5: 0, 0.5–1.5: 1, 1.5–2.5: 2, ≥2.5: 3)
-      - Total Score (TS) = PS + IS (0~8). 3 이상 → Positive.
-    """
-    import numpy as np
-    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
-    n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
-    int_total = n0 + n1 + n2 + n3
-    int_pos = n1 + n2 + n3
-
-    if int_total == 0:
-        return {
-            "score_type": "Allred",
-            "proportion_score": 0,
-            "intensity_score": 0,
-            "total_score": 0,
-            "positive_pct": 0.0,
-            "avg_intensity": 0.0,
-            "interpretation": "Negative",
-            "total_tumor": 0,
-            "class_counts": int_counts,
-        }
-
-    float_pos_pct = int_pos / int_total * 100.0
-    if int_pos == 0:
-        int_ps = 0
-    elif float_pos_pct < 1.0:
-        int_ps = 1
-    elif float_pos_pct < 10.0:
-        int_ps = 2
-    elif float_pos_pct < 33.0:
-        int_ps = 3
-    elif float_pos_pct < 66.0:
-        int_ps = 4
-    else:
-        int_ps = 5
-
-    if int_pos == 0:
-        float_avg = 0.0
-        int_is = 0
-    else:
-        float_avg = (1 * n1 + 2 * n2 + 3 * n3) / int_pos
-        if float_avg < 0.5:
-            int_is = 0
-        elif float_avg < 1.5:
-            int_is = 1
-        elif float_avg < 2.5:
-            int_is = 2
-        else:
-            int_is = 3
-
-    int_ts = int_ps + int_is
-    str_interp = "Positive" if int_ts >= 3 else "Negative"
-
-    return {
-        "score_type": "Allred",
-        "proportion_score": int_ps,
-        "intensity_score": int_is,
-        "total_score": int_ts,
-        "positive_pct": round(float_pos_pct, 2),
-        "avg_intensity": round(float_avg, 3),
-        "interpretation": str_interp,
-        "total_tumor": int_total,
-        "class_counts": int_counts,
-    }
-
-
-def _compute_ki67_score(all_cls) -> dict:
-    """
-    KI-67 Labeling Index:
-      - class 0 = Negative, class 1/2/3 = Positive
-      - KI-67 Index = Positive / Total × 100 (%)
-      - 해석: ≥14% → High, <14% → Low (St Gallen 2013 기준)
-    """
-    import numpy as np
-    int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
-    n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
-    int_total = n0 + n1 + n2 + n3
-    int_pos = n1 + n2 + n3
-
-    if int_total == 0:
-        return {
-            "score_type": "KI67",
-            "ki67_index": 0.0,
-            "positive_count": 0,
-            "negative_count": 0,
-            "total_tumor": 0,
-            "interpretation": "Low",
-            "class_counts": int_counts,
-        }
-
-    float_index = int_pos / int_total * 100.0
-    str_interp = "High" if float_index >= 14.0 else "Low"
-
-    return {
-        "score_type": "KI67",
-        "ki67_index": round(float_index, 2),
-        "positive_count": int_pos,
-        "negative_count": n0,
-        "total_tumor": int_total,
-        "interpretation": str_interp,
-        "class_counts": int_counts,
-    }
 
 
 def _run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
@@ -2027,70 +1542,6 @@ async def load_user_edit(
 VS_MODEL_FILES = {
     "ihc_membrane": "IHC_HnE_virtual_stain_membrane.pth",
 }
-
-
-def _get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0):
-    """
-    Virtual stain 결과 캐시: ai_results/VS-IHC/{slide_stem}_VS-IHC_mpp{p}.{png|json}
-    타일 피라미드는 sibling 폴더: ..._tile/{level}/{tx}_{ty}.jpeg
-
-    마이그레이션 2단계:
-      1) 레거시 `ai_results/` 루트 → `ai_results/VS-IHC/`
-      2) stain_type (`_ihc_membrane`) 제거 — VS-IHC 가 단일 모델로 통합됨
-    """
-    p = Path(slide_path)
-    cache_dir = Path(settings.AI_RESULTS_DIR) / "VS-IHC"
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    mpp_str = f"{target_mpp:g}".replace(".", "p")
-    base_name = f"{p.stem}_VS-IHC_mpp{mpp_str}"
-    new_png = (cache_dir / base_name).with_suffix(".png")
-    new_meta = (cache_dir / base_name).with_suffix(".json")
-    new_tile = cache_dir / f"{base_name}_tile"
-
-    # ── 1) stain_type suffix 마이그레이션 (membrane 파일 → 새 이름) ──
-    old_stain_base = f"{p.stem}_VS-IHC_ihc_membrane_mpp{mpp_str}"
-    old_stain_png = (cache_dir / old_stain_base).with_suffix(".png")
-    old_stain_meta = (cache_dir / old_stain_base).with_suffix(".json")
-    old_stain_tile = cache_dir / f"{old_stain_base}_tile"
-    for src, dst in ((old_stain_png, new_png), (old_stain_meta, new_meta)):
-        if src.exists() and not dst.exists():
-            try:
-                src.replace(dst)
-            except Exception as e:
-                print(f"[ai] VS stain-suffix migration failed ({src.name}): {e}")
-    if old_stain_tile.exists() and not new_tile.exists():
-        try:
-            old_stain_tile.replace(new_tile)
-        except Exception as e:
-            print(f"[ai] VS stain-suffix tile dir migration failed: {e}")
-
-    # ── 2) ai_results 루트 레거시 (새/구 이름 둘 다 체크) ──
-    legacy_dir = Path(settings.AI_RESULTS_DIR)
-    for legacy_base in (base_name, old_stain_base):
-        legacy_png = (legacy_dir / legacy_base).with_suffix(".png")
-        legacy_meta = (legacy_dir / legacy_base).with_suffix(".json")
-        legacy_tile = legacy_dir / f"{legacy_base}_tile"
-        for src, dst in ((legacy_png, new_png), (legacy_meta, new_meta)):
-            if src.exists() and not dst.exists():
-                try:
-                    src.replace(dst)
-                except Exception as e:
-                    print(f"[ai] VS legacy migration failed ({src.name}): {e}")
-        if legacy_tile.exists() and not new_tile.exists():
-            try:
-                legacy_tile.replace(new_tile)
-            except Exception as e:
-                print(f"[ai] VS legacy tile dir migration failed: {e}")
-    return new_png, new_meta
-
-
-def _get_vs_tile_dir(slide_path: str, target_mpp: float = 2.0) -> Path:
-    """VS 타일 피라미드 폴더: {png_parent}/{png_stem}_tile/"""
-    png_path, _ = _get_vs_cache_paths(slide_path, target_mpp)
-    return png_path.parent / f"{png_path.stem}_tile"
 
 
 class VSTileStreamer:
