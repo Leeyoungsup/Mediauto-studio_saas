@@ -501,11 +501,13 @@ export class TileViewer {
 
             // Shift + 좌클릭: 새 셀 추가 (drawMode 가 아닌 경우만 — drawMode 는 자체 click 처리).
             // detection 결과가 있을 때만 의미 — class_names 가 결정되어 있어야 클래스 선택 가능.
+            // Ctrl/Cmd + Shift + 좌클릭: popup 강제 (sticky class 무시) — 클래스 변경용.
             if (e.shiftKey && e.button === 0 && !this.drawMode &&
                     this.onCellAddRequested && this.detectionCells.length > 0) {
                 this._shiftAddPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
+                    forcePicker: !!(e.ctrlKey || e.metaKey),
                 };
                 e.preventDefault();
                 return;
@@ -766,6 +768,27 @@ export class TileViewer {
             }
             if (e.key === 'Delete' && this.selectedAnnotationId) {
                 this.deleteAnnotation(this.selectedAnnotationId);
+            }
+            // Shift 누르면 셀 추가 가능 — 십자 커서로 바꿔 클릭 위치를 정확히 보이게.
+            // (drawMode/패닝 등 다른 상태가 아닐 때만, 그리고 detectionCells 가 있을 때만.)
+            if (e.key === 'Shift' && this.onCellAddRequested && !this.drawMode &&
+                    !this._isPanning && this.detectionCells.length > 0) {
+                this.canvas.style.cursor = 'crosshair';
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') {
+                // 다른 cursor 상태 (drawMode/패닝/이동) 가 아니면 grab 으로 복귀.
+                if (!this.drawMode && !this._isPanning && !this._dragControlPoint &&
+                        !this._dragAnnotation) {
+                    this.canvas.style.cursor = 'grab';
+                }
+            }
+        });
+        // 창 포커스가 빠진 사이 Shift 가 떼져도 keyup 을 못 받을 수 있어 blur 시 복원.
+        window.addEventListener('blur', () => {
+            if (!this.drawMode && !this._isPanning) {
+                this.canvas.style.cursor = 'grab';
             }
         });
 
