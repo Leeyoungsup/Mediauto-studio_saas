@@ -3207,51 +3207,30 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
-    const score = result.pd_score || {};
-    const scoreLabel = score.score_type || 'Score';
-    const scoreValue = (score.score ?? 0).toFixed(1);
-    setStatus(`${scoreLabel}: ${scoreValue}% | ${displayCount.toLocaleString()} cells`);
 
-    if ($pdScoreResult) {
-        $pdScoreResult.hidden = false;
-        $pdScoreLabel.textContent = scoreLabel;
-        $pdScoreValue.textContent = `${scoreValue}%`;
-        if (score.score_type === 'CPS') {
-            const pt = score.positive_tumor || 0;
-            const pi = score.positive_immune || 0;
-            const nt = (score.viable_tumor || 0) - pt;
-            _renderScoreBar($pdScoreBar, [
-                { value: pt, color: '#e74c3c', label: `Pos T ${pt}` },
-                { value: pi, color: '#f39c12', label: `Pos I ${pi}` },
-                { value: Math.max(0, nt), color: '#27ae60', label: `Neg ${Math.max(0, nt)}` },
-            ]);
-            $pdScoreDetail.innerHTML = '';
-            _renderScoreLegend($pdScoreDetail, [
-                { color: '#e74c3c', label: 'Pos Tumor', count: pt },
-                { color: '#f39c12', label: 'Pos Immune', count: pi },
-                { color: '#27ae60', label: 'Neg Tumor', count: Math.max(0, nt) },
-            ]);
-        } else {
-            const pt = score.positive_tumor || 0;
-            const nt = score.negative_tumor || 0;
-            _renderScoreBar($pdScoreBar, [
-                { value: pt, color: '#e74c3c', label: `Pos ${pt}` },
-                { value: nt, color: '#27ae60', label: `Neg ${nt}` },
-            ]);
-            $pdScoreDetail.innerHTML = '';
-            _renderScoreLegend($pdScoreDetail, [
-                { color: '#e74c3c', label: 'Positive', count: pt },
-                { color: '#27ae60', label: 'Negative', count: nt },
-            ]);
-        }
+    // Score 카드는 polygon-ROI + confidence 필터링된 viewer.detectionCells 로만 그린다.
+    // backend 의 result.pd_score 는 bbox-ROI 기반이라 영역 그렸을 때 어긋남 — 절대 사용 X.
+    // 카드 visibility 만 켜고 내용은 buildResultList → _updateResultCounts 로 채운다.
+    if ($pdScoreResult) $pdScoreResult.hidden = false;
+
+    // status bar 텍스트도 polygon-ROI 카운트로 계산
+    const { counts: dict_counts_status } = _computeFilteredCounts(viewer.detectionCells);
+    const str_score_type = (result.pd_score && result.pd_score.score_type) || 'Score';
+    let float_status_score = 0;
+    if (str_score_type === 'CPS') {
+        const pt = dict_counts_status[3] || 0;
+        const pi = (dict_counts_status[4] || 0) + (dict_counts_status[5] || 0);
+        const viable = (dict_counts_status[0] || 0) + pt;
+        float_status_score = viable === 0 ? 0 : Math.min(100, (pt + pi) / viable * 100);
+    } else if (str_score_type === 'TPS') {
+        const pt = dict_counts_status[1] || 0;
+        const tot = pt + (dict_counts_status[0] || 0);
+        float_status_score = tot === 0 ? 0 : pt / tot * 100;
     }
+    setStatus(`${str_score_type}: ${float_status_score.toFixed(1)}% | ${displayCount.toLocaleString()} cells`);
 
     buildResultList(result);
-    // Score 카드를 polygon-ROI + confidence 필터 기반으로 재계산.
-    // 위에서 result.pd_score (backend bbox-ROI 계산값) 으로 초기 렌더했지만,
-    // viewer.detectionCells 는 polygon 정밀 필터링되어 패널/시각화와 어긋난다.
-    // _updateResultCounts 가 _updatePdScoreDisplay 까지 다시 호출해 일관성을 맞춘다.
-    _updateResultCounts();
+    _updateResultCounts();   // _updatePdScoreDisplay 가 polygon-ROI 기반으로 카드 채움
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -3357,92 +3336,57 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
-    const HER2_COLORS = ['#27ae60', '#f1c40f', '#e67e22', '#c0392b'];
-    if (result.her2_score) {
-        const score = result.her2_score;
-        const dominant = score.dominant_class ?? 0;
-        const weighted = (score.score ?? 0).toFixed(2);
-        const cc = score.class_counts || {};
-        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
-        setStatus(`HER2: ${dominant}+ (${weighted}) | ${displayCount.toLocaleString()} cells`);
-        if ($ihcScoreResult) {
-            $ihcScoreResult.hidden = false;
+    // Score 카드는 polygon-ROI + confidence 필터된 viewer.detectionCells 기반으로만 그린다.
+    // backend 의 result.{her2,allred,ki67}_score 는 bbox-ROI 기반이라 영역 그렸을 때
+    // 패널/시각화와 어긋남 — 절대 사용 X. visibility 만 켜고 _updateResultCounts() 가
+    // 폴리곤 카운트로 카드 내용 (점수/막대/범례) 을 채우도록 위임.
+    if ($ihcScoreResult) {
+        $ihcScoreResult.hidden = false;
+        // 마커별 라벨 — _updateXxxScoreDisplay 가 다시 덮어쓰기는 하지만 첫 프레임 빈 라벨 방지.
+        if (result.her2_score) {
             $ihcScoreLabel.textContent = 'HER2';
-            $ihcScoreValue.textContent = `${dominant}+ (${weighted})`;
-            _renderScoreBar($ihcScoreBar, [
-                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
-                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
-                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
-                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
-            ]);
-            $ihcScoreDetail.innerHTML = '';
-            _renderScoreLegend($ihcScoreDetail, [
-                { color: HER2_COLORS[0], label: '0+', count: n0 },
-                { color: HER2_COLORS[1], label: '1+', count: n1 },
-                { color: HER2_COLORS[2], label: '2+', count: n2 },
-                { color: HER2_COLORS[3], label: '3+', count: n3 },
-            ]);
-        }
-    } else if (result.allred_score) {
-        const score = result.allred_score;
-        const ts = score.total_score ?? 0;
-        const ps = score.proportion_score ?? 0;
-        const is_ = score.intensity_score ?? 0;
-        const interp = score.interpretation || (ts >= 3 ? 'Positive' : 'Negative');
-        const cc = score.class_counts || {};
-        const n0 = cc[0] || 0, n1 = cc[1] || 0, n2 = cc[2] || 0, n3 = cc[3] || 0;
-        setStatus(`${markerLabel} Allred: ${ts} (PS ${ps} + IS ${is_}) — ${interp} | ${displayCount.toLocaleString()} cells`);
-        if ($ihcScoreResult) {
-            $ihcScoreResult.hidden = false;
+        } else if (result.allred_score) {
             $ihcScoreLabel.textContent = `${markerLabel} (Allred)`;
-            $ihcScoreValue.textContent = `${ts} / 8`;
-            _renderScoreBar($ihcScoreBar, [
-                { value: n0, color: HER2_COLORS[0], label: `0+ ${n0}` },
-                { value: n1, color: HER2_COLORS[1], label: `1+ ${n1}` },
-                { value: n2, color: HER2_COLORS[2], label: `2+ ${n2}` },
-                { value: n3, color: HER2_COLORS[3], label: `3+ ${n3}` },
-            ]);
-            $ihcScoreDetail.innerHTML =
-                `PS: ${ps} &nbsp;·&nbsp; IS: ${is_} &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
-                `Positive: ${(score.positive_pct ?? 0).toFixed(1)}% &nbsp;·&nbsp; Avg intensity: ${(score.avg_intensity ?? 0).toFixed(2)}`;
-            _renderScoreLegend($ihcScoreDetail, [
-                { color: HER2_COLORS[0], label: '0+', count: n0 },
-                { color: HER2_COLORS[1], label: '1+', count: n1 },
-                { color: HER2_COLORS[2], label: '2+', count: n2 },
-                { color: HER2_COLORS[3], label: '3+', count: n3 },
-            ]);
-        }
-    } else if (result.ki67_score) {
-        const score = result.ki67_score;
-        const ki67Index = score.ki67_index ?? 0;
-        const interp = score.interpretation || (ki67Index >= 14 ? 'High' : 'Low');
-        const posCount = score.positive_count ?? 0;
-        const negCount = score.negative_count ?? 0;
-        const totalTumor = score.total_tumor ?? 0;
-        const KI67_COLORS = ['#27ae60', '#e74c3c'];
-        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
-        if ($ihcScoreResult) {
-            $ihcScoreResult.hidden = false;
+        } else if (result.ki67_score) {
             $ihcScoreLabel.textContent = 'KI-67';
-            $ihcScoreValue.textContent = `${ki67Index.toFixed(1)}%`;
-            _renderScoreBar($ihcScoreBar, [
-                { value: negCount, color: KI67_COLORS[0], label: `Neg ${negCount}` },
-                { value: posCount, color: KI67_COLORS[1], label: `Pos ${posCount}` },
-            ]);
-            $ihcScoreDetail.innerHTML =
-                `Labeling Index: ${ki67Index.toFixed(1)}% &nbsp;·&nbsp; <strong>${interp}</strong><br>` +
-                `Positive: ${posCount.toLocaleString()} &nbsp;·&nbsp; Negative: ${negCount.toLocaleString()} &nbsp;·&nbsp; Total: ${totalTumor.toLocaleString()}`;
-            _renderScoreLegend($ihcScoreDetail, [
-                { color: KI67_COLORS[0], label: 'Negative', count: negCount },
-                { color: KI67_COLORS[1], label: 'Positive', count: posCount },
-            ]);
         }
     }
 
+    // status bar 텍스트도 polygon-ROI 카운트로 재계산 (backend 점수 X).
+    const { counts: dict_counts_ihc } = _computeFilteredCounts(viewer.detectionCells);
+    const n0 = dict_counts_ihc[0] || 0, n1 = dict_counts_ihc[1] || 0;
+    const n2 = dict_counts_ihc[2] || 0, n3 = dict_counts_ihc[3] || 0;
+    if (result.her2_score) {
+        const tot = n0 + n1 + n2 + n3;
+        const weighted = tot === 0 ? 0 : (n1 + 2 * n2 + 3 * n3) / tot;
+        const dominant = tot === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
+        setStatus(`HER2: ${dominant}+ (${weighted.toFixed(2)}) | ${displayCount.toLocaleString()} cells`);
+    } else if (result.allred_score) {
+        const pos = n1 + n2 + n3;
+        const tot = n0 + pos;
+        const pos_pct = tot === 0 ? 0 : pos / tot * 100;
+        let int_ps = 0;
+        if (pos === 0) int_ps = 0;
+        else if (pos_pct < 1) int_ps = 1;
+        else if (pos_pct < 10) int_ps = 2;
+        else if (pos_pct < 33) int_ps = 3;
+        else if (pos_pct < 66) int_ps = 4;
+        else int_ps = 5;
+        const avg = pos === 0 ? 0 : (n1 + 2 * n2 + 3 * n3) / pos;
+        const int_is = avg < 0.5 ? 0 : avg < 1.5 ? 1 : avg < 2.5 ? 2 : 3;
+        const ts = int_ps + int_is;
+        const interp = ts >= 3 ? 'Positive' : 'Negative';
+        setStatus(`${markerLabel} Allred: ${ts} (PS ${int_ps} + IS ${int_is}) — ${interp} | ${displayCount.toLocaleString()} cells`);
+    } else if (result.ki67_score) {
+        const pos = n1 + n2 + n3;
+        const tot = n0 + pos;
+        const ki67Index = tot === 0 ? 0 : pos / tot * 100;
+        const interp = ki67Index >= 14 ? 'High' : 'Low';
+        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
+    }
+
     buildResultList(result);
-    // HER2/Allred/KI-67 스코어를 polygon-ROI + confidence 필터 기반으로 재계산
-    // (위 초기 렌더는 backend 의 bbox-ROI 결과라 패널/시각화와 어긋남).
-    _updateResultCounts();
+    _updateResultCounts();   // _updateXxxScoreDisplay 가 polygon-ROI 기반으로 카드 채움
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
