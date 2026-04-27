@@ -1822,18 +1822,21 @@ function _updateKi67ScoreDisplay(counts) {
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
-    // ROI 가 지정된 추론에서는 viewer.setDetectionResults 가 폴리곤 내부 셀만 남긴다.
-    // result.cells (원본 = 전체 슬라이드) 가 아니라 그 필터링 결과로 카운트해야
-    // 영역 시각화와 패널 숫자가 일치한다.
-    const list_cells_for_count = (viewer.detectionCells && viewer.detectionCells.length)
-        ? viewer.detectionCells
-        : (result.cells || []);
-
-    const counts = {};
-    let total = 0;
-    for (const cell of list_cells_for_count) {
-        counts[cell.class_id] = (counts[cell.class_id] || 0) + 1;
-        total++;
+    // viewer.detectionCells 는 ROI 폴리곤 내부 셀만 남아 있지만 (setDetectionResults),
+    // confidence 임계값 미만 셀도 그대로 보관한다 (슬라이더 조절을 허용하기 위해).
+    // 렌더링/시각화/스코어 카드는 모두 _computeFilteredCounts (ROI + confidence) 를
+    // 거치므로 패널 숫자도 같은 기준으로 맞춰야 일관성이 유지된다.
+    let counts, total;
+    if (viewer.detectionCells && viewer.detectionCells.length) {
+        ({ counts, total } = _computeFilteredCounts(viewer.detectionCells));
+    } else {
+        // fallback — viewer 가 아직 초기화 전인 엣지 케이스 (저장본 직접 로드 등)
+        counts = {};
+        total = 0;
+        for (const cell of (result.cells || [])) {
+            counts[cell.class_id] = (counts[cell.class_id] || 0) + 1;
+            total++;
+        }
     }
 
     // 클래스별 체크박스 참조 저장
