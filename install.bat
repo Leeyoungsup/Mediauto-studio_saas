@@ -112,7 +112,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo ============================================================
+echo =========================================ㄴ===================
 echo [STEP 4/6] Backend requirements
 echo ============================================================
 call conda run -n %ENV_NAME% pip install -r "%~dp0backend\requirements.txt"
