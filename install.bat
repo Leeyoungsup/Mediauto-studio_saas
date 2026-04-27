@@ -6,6 +6,7 @@ REM  - Create/update conda env
 REM  - Install PyTorch with CUDA
 REM  - Install backend/requirements.txt
 REM  - Verify MongoDB connectivity
+REM  - Optional: restore mongo_dump if present (migration)
 REM ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -25,7 +26,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 1/5] MongoDB Setup
+echo [STEP 1/6] MongoDB Setup
 echo ============================================================
 where mongod >nul 2>&1
 if errorlevel 1 (
@@ -84,7 +85,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 2/5] Conda environment "%ENV_NAME%"
+echo [STEP 2/6] Conda environment "%ENV_NAME%"
 echo ============================================================
 call conda env list | findstr /b /c:"%ENV_NAME% " >nul
 if errorlevel 1 (
@@ -101,7 +102,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 3/5] PyTorch ^(CUDA %CUDA_TAG%^)
+echo [STEP 3/6] PyTorch ^(CUDA %CUDA_TAG%^)
 echo ============================================================
 call conda run -n %ENV_NAME% pip install --upgrade pip
 call conda run -n %ENV_NAME% pip install torch torchvision --index-url https://download.pytorch.org/whl/%CUDA_TAG%
@@ -112,7 +113,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 4/5] Backend requirements
+echo [STEP 4/6] Backend requirements
 echo ============================================================
 call conda run -n %ENV_NAME% pip install -r "%~dp0backend\requirements.txt"
 if errorlevel 1 (
@@ -123,7 +124,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 5/5] MongoDB connectivity test
+echo [STEP 5/6] MongoDB connectivity test
 echo ============================================================
 REM Use the same default URI as backend/app/config.py — env var override respected.
 call conda run -n %ENV_NAME% python -c "import os; from pymongo import MongoClient; uri=os.environ.get('MONGO_URI','mongodb://localhost:27017'); MongoClient(uri, serverSelectionTimeoutMS=3000).admin.command('ping'); print('[OK] MongoDB ping succeeded @', uri)"
@@ -135,6 +136,86 @@ if errorlevel 1 (
     echo          - firewall / auth required     ^(check mongod logs^)
     echo        Backend will still install but won't start without a reachable MongoDB.
 )
+
+echo.
+echo ============================================================
+echo [STEP 6/6] Optional: restore MongoDB dump
+echo ============================================================
+set DUMP_DB_NAME=medicus_studio
+if defined MONGO_DB_NAME set DUMP_DB_NAME=%MONGO_DB_NAME%
+set DUMP_FOLDER=%~dp0mongo_dump\%DUMP_DB_NAME%
+set DUMP_ARCHIVE_GZ=%~dp0mongo_dump.archive.gz
+set DUMP_ARCHIVE=%~dp0mongo_dump.archive
+set DUMP_TYPE=
+set DUMP_PATH=
+if exist "%DUMP_FOLDER%\" (
+    set DUMP_TYPE=folder
+    set DUMP_PATH=%DUMP_FOLDER%
+) else if exist "%DUMP_ARCHIVE_GZ%" (
+    set DUMP_TYPE=archive_gz
+    set DUMP_PATH=%DUMP_ARCHIVE_GZ%
+) else if exist "%DUMP_ARCHIVE%" (
+    set DUMP_TYPE=archive
+    set DUMP_PATH=%DUMP_ARCHIVE%
+)
+
+if not defined DUMP_PATH (
+    echo [INFO] No dump found at expected locations — skipping restore.
+    echo        Looked for:
+    echo          %DUMP_FOLDER%\
+    echo          %DUMP_ARCHIVE_GZ%
+    echo          %DUMP_ARCHIVE%
+    goto AFTER_RESTORE
+)
+
+where mongorestore >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Found dump at !DUMP_PATH! but mongorestore is not installed.
+    echo        Install MongoDB Database Tools:
+    echo          winget install MongoDB.DatabaseTools
+    echo        Or download: https://www.mongodb.com/try/download/database-tools
+    echo        Then re-run this script, or restore manually.
+    goto AFTER_RESTORE
+)
+
+REM Count existing collections in target DB — guard against accidental --drop on live data.
+set EXISTING_COUNT=0
+for /f "usebackq delims=" %%i in (`call conda run -n %ENV_NAME% python -c "import os; from pymongo import MongoClient; uri=os.environ.get('MONGO_URI','mongodb://localhost:27017'); db=os.environ.get('MONGO_DB_NAME','%DUMP_DB_NAME%'); print(len(MongoClient(uri,serverSelectionTimeoutMS=3000)[db].list_collection_names()))" 2^>nul`) do set EXISTING_COUNT=%%i
+
+echo [INFO] Found dump: !DUMP_PATH! ^(!DUMP_TYPE!^)
+if not "%EXISTING_COUNT%"=="0" (
+    echo [WARN] Target DB "%DUMP_DB_NAME%" already has %EXISTING_COUNT% collections.
+    echo        Restoring with --drop will WIPE existing data.
+    choice /C YN /M "Drop existing and restore from dump"
+    if errorlevel 2 (
+        echo [INFO] Restore skipped. Existing data preserved.
+        goto AFTER_RESTORE
+    )
+) else (
+    choice /C YN /M "Restore %DUMP_DB_NAME% from dump"
+    if errorlevel 2 (
+        echo [INFO] Restore skipped.
+        goto AFTER_RESTORE
+    )
+)
+
+set MONGO_URI_USE=mongodb://localhost:27017
+if defined MONGO_URI set MONGO_URI_USE=%MONGO_URI%
+
+if "!DUMP_TYPE!"=="folder" (
+    mongorestore --uri="!MONGO_URI_USE!" --db=%DUMP_DB_NAME% --drop "!DUMP_PATH!"
+) else if "!DUMP_TYPE!"=="archive_gz" (
+    mongorestore --uri="!MONGO_URI_USE!" --archive="!DUMP_PATH!" --gzip --drop --nsInclude=%DUMP_DB_NAME%.*
+) else if "!DUMP_TYPE!"=="archive" (
+    mongorestore --uri="!MONGO_URI_USE!" --archive="!DUMP_PATH!" --drop --nsInclude=%DUMP_DB_NAME%.*
+)
+if errorlevel 1 (
+    echo [WARN] mongorestore exited with non-zero status — check output above.
+) else (
+    echo [OK]   Restore complete.
+)
+
+:AFTER_RESTORE
 
 echo.
 echo ============================================================
@@ -153,8 +234,15 @@ echo    Copy these from the original install:
 echo      - backend\.secrets.json   ^(password pepper, AES key - CRITICAL^)
 echo      - backend\uploads\        ^(WSI files, tile cache^)
 echo      - backend\model\          ^(AI weights^)
-echo      - MongoDB dump            ^(mongodump on old / mongorestore on new^)
+echo      - MongoDB dump            ^(see below^)
 echo    Losing .secrets.json breaks all existing user passwords.
+echo.
+echo    Dump on the OLD machine ^(any of these formats^):
+echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=./mongo_dump
+echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip
+echo.
+echo    Then on the NEW machine, drop the dump folder/archive at the project root
+echo    and re-run this script - STEP 6 will auto-restore.
 echo.
 echo  MongoDB defaults:
 echo    URI    = mongodb://localhost:27017   ^(override: set MONGO_URI=...^)

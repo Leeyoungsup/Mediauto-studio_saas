@@ -7,6 +7,7 @@
 #  - Install PyTorch with CUDA
 #  - Install backend/requirements.txt
 #  - Verify MongoDB connectivity
+#  - Optional: restore mongo_dump if present (migration)
 # ============================================================
 set -uo pipefail
 
@@ -59,7 +60,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # ── STEP 1: MongoDB ──
-section "[STEP 1/6] MongoDB Setup"
+section "[STEP 1/7] MongoDB Setup"
 if command -v mongod >/dev/null 2>&1; then
     log_info "mongod found: $(command -v mongod)"
 else
@@ -132,7 +133,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # ── STEP 2: OpenSlide system library ──
-section "[STEP 2/6] OpenSlide system library"
+section "[STEP 2/7] OpenSlide system library"
 # openslide-python wraps libopenslide.so.0. Wheel doesn't bundle it on Linux.
 if ldconfig -p 2>/dev/null | grep -q "libopenslide\.so"; then
     log_ok "libopenslide already installed."
@@ -155,7 +156,7 @@ else
 fi
 
 # ── STEP 3: Conda env ──
-section "[STEP 3/6] Conda environment \"$ENV_NAME\""
+section "[STEP 3/7] Conda environment \"$ENV_NAME\""
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
     log_info "env \"$ENV_NAME\" already exists."
 else
@@ -167,7 +168,7 @@ else
 fi
 
 # ── STEP 4: PyTorch ──
-section "[STEP 4/6] PyTorch (CUDA $CUDA_TAG)"
+section "[STEP 4/7] PyTorch (CUDA $CUDA_TAG)"
 conda run -n "$ENV_NAME" pip install --upgrade pip
 if ! conda run -n "$ENV_NAME" pip install torch torchvision \
         --index-url "https://download.pytorch.org/whl/$CUDA_TAG"; then
@@ -176,14 +177,14 @@ if ! conda run -n "$ENV_NAME" pip install torch torchvision \
 fi
 
 # ── STEP 5: backend requirements ──
-section "[STEP 5/6] Backend requirements"
+section "[STEP 5/7] Backend requirements"
 if ! conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/backend/requirements.txt"; then
     log_error "pip install failed."
     exit 1
 fi
 
 # ── STEP 6: connectivity test ──
-section "[STEP 6/6] MongoDB connectivity test"
+section "[STEP 6/7] MongoDB connectivity test"
 MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
 if conda run -n "$ENV_NAME" python -c "
 import os
@@ -202,6 +203,96 @@ else
     echo "        Backend will still install but won't start without a reachable MongoDB."
 fi
 
+# ── STEP 7: optional dump restore (migration) ──
+section "[STEP 7/7] Optional: restore MongoDB dump"
+DUMP_DB_NAME="${MONGO_DB_NAME:-medicus_studio}"
+DUMP_FOLDER="$SCRIPT_DIR/mongo_dump/$DUMP_DB_NAME"
+DUMP_ARCHIVE_GZ="$SCRIPT_DIR/mongo_dump.archive.gz"
+DUMP_ARCHIVE="$SCRIPT_DIR/mongo_dump.archive"
+DUMP_TYPE=""
+DUMP_PATH=""
+if [[ -d "$DUMP_FOLDER" ]]; then
+    DUMP_TYPE="folder"; DUMP_PATH="$DUMP_FOLDER"
+elif [[ -f "$DUMP_ARCHIVE_GZ" ]]; then
+    DUMP_TYPE="archive_gz"; DUMP_PATH="$DUMP_ARCHIVE_GZ"
+elif [[ -f "$DUMP_ARCHIVE" ]]; then
+    DUMP_TYPE="archive"; DUMP_PATH="$DUMP_ARCHIVE"
+fi
+
+if [[ -z "$DUMP_PATH" ]]; then
+    log_info "No dump found at expected locations — skipping restore."
+    echo "        Looked for:"
+    echo "          $DUMP_FOLDER/         (mongodump --out=./mongo_dump)"
+    echo "          $DUMP_ARCHIVE_GZ      (mongodump --archive=... --gzip)"
+    echo "          $DUMP_ARCHIVE         (mongodump --archive=...)"
+elif ! command -v mongorestore >/dev/null 2>&1; then
+    log_warn "Found dump at $DUMP_PATH but mongorestore is not installed."
+    echo "        Install MongoDB Database Tools:"
+    if is_debian_family; then
+        echo "          sudo apt install -y mongodb-database-tools"
+    elif is_rhel_family; then
+        echo "          sudo dnf install -y mongodb-database-tools"
+    elif is_arch_family; then
+        echo "          yay -S mongodb-tools-bin"
+    else
+        echo "          https://www.mongodb.com/try/download/database-tools"
+    fi
+    echo "        Then re-run this script, or restore manually."
+else
+    # 대상 DB 에 컬렉션이 이미 있는지 확인 — --drop 은 파괴적이라 명시적 확인 필요.
+    EXISTING_COLLECTIONS=$(conda run -n "$ENV_NAME" python - <<PYEOF 2>/dev/null || echo "0"
+import os
+from pymongo import MongoClient
+uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+db_name = os.environ.get("MONGO_DB_NAME", "$DUMP_DB_NAME")
+try:
+    cli = MongoClient(uri, serverSelectionTimeoutMS=3000)
+    print(len(cli[db_name].list_collection_names()))
+except Exception:
+    print(0)
+PYEOF
+)
+    EXISTING_COLLECTIONS="${EXISTING_COLLECTIONS//[!0-9]/}"
+    EXISTING_COLLECTIONS="${EXISTING_COLLECTIONS:-0}"
+
+    log_info "Found dump: $DUMP_PATH ($DUMP_TYPE)"
+    if [[ "$EXISTING_COLLECTIONS" -gt 0 ]]; then
+        log_warn "Target DB '$DUMP_DB_NAME' already has $EXISTING_COLLECTIONS collections."
+        echo "        Restoring with --drop will WIPE existing data."
+        if ! confirm "Drop existing '$DUMP_DB_NAME' and restore from dump"; then
+            log_info "Restore skipped. Existing data preserved."
+            DUMP_PATH=""
+        fi
+    else
+        if ! confirm "Restore '$DUMP_DB_NAME' from $DUMP_PATH"; then
+            log_info "Restore skipped."
+            DUMP_PATH=""
+        fi
+    fi
+
+    if [[ -n "$DUMP_PATH" ]]; then
+        MONGO_URI_USE="${MONGO_URI:-mongodb://localhost:27017}"
+        case "$DUMP_TYPE" in
+            folder)
+                mongorestore --uri="$MONGO_URI_USE" --db="$DUMP_DB_NAME" --drop "$DUMP_PATH"
+                ;;
+            archive_gz)
+                mongorestore --uri="$MONGO_URI_USE" --archive="$DUMP_PATH" --gzip --drop \
+                    --nsInclude="$DUMP_DB_NAME.*"
+                ;;
+            archive)
+                mongorestore --uri="$MONGO_URI_USE" --archive="$DUMP_PATH" --drop \
+                    --nsInclude="$DUMP_DB_NAME.*"
+                ;;
+        esac
+        if [[ $? -eq 0 ]]; then
+            log_ok "Restore complete."
+        else
+            log_warn "mongorestore exited with non-zero status — check output above."
+        fi
+    fi
+fi
+
 # ── Done ──
 echo
 echo "${C_BOLD}============================================================${C_RESET}"
@@ -214,8 +305,15 @@ echo "   Copy these from the original install:"
 echo "     - backend/.secrets.json   (password pepper, AES key — CRITICAL)"
 echo "     - backend/uploads/        (WSI files, tile cache)"
 echo "     - backend/model/          (AI weights)"
-echo "     - MongoDB dump            (mongodump on old / mongorestore on new)"
+echo "     - MongoDB dump            (see below)"
 echo "   Losing .secrets.json breaks all existing user passwords."
+echo
+echo "   Dump on the OLD machine (any of these formats):"
+echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=./mongo_dump"
+echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip"
+echo
+echo "   Then on the NEW machine, drop the dump folder/archive at the project root"
+echo "   and re-run this script — STEP 7 will auto-restore."
 echo
 echo " MongoDB defaults:"
 echo "   URI    = mongodb://localhost:27017   (override: export MONGO_URI=...)"
