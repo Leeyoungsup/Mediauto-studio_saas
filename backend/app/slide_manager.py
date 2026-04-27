@@ -170,12 +170,7 @@ class SlideInfo:
                 )
         except Exception:
             self.icc_transform = None
-        if self._color_meta.get("ndp_applied"):
-            print(
-                f"[slide_manager] NDP LUT 적용 — "
-                f"white={self._color_meta['ndp_white']:.1f}, "
-                f"gamma={FLOAT_NDP_GAMMA}, file={file_path}"
-            )
+        # NDP LUT 적용 메타는 self._color_meta 에 보존 — 노이즈 방지 위해 별도 로그 X.
 
         # 물리적 크기 (mm)
         w, h = self.dimensions

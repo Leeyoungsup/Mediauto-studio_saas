@@ -140,10 +140,28 @@ async def mark_ai_result(
             f"dict_ai_results.{str_model}.list_variants": str_variant
         }
 
-    await db.slides.update_one(
-        {"str_rel_path": str_rel_path, "str_filename": str_filename},
-        dict_update,
-    )
+    try:
+        result = await db.slides.update_one(
+            {"str_rel_path": str_rel_path, "str_filename": str_filename},
+            dict_update,
+        )
+    except Exception as e:
+        # MongoDB write error (예: dict_ai_results.HE-Fit 가 array 가 아니라 다른 타입)
+        # 가 코루틴에서 발생하면 main loop 의 unhandled exception 으로 묻혀버린다.
+        # 여기서 잡아 명시적으로 출력 → auto_ai 가 같은 슬라이드를 매 사이클 다시
+        # 추론하는 원인을 즉시 알 수 있다.
+        print(f"[slide_store] mark_ai_result update failed "
+              f"rel='{str_rel_path}' name='{str_filename}' model={str_model} "
+              f"variant={str_variant}: {e!r}")
+        return
+
+    if result.matched_count == 0:
+        # auto_ai 가 list_slides_missing_variant 로 슬라이드를 찾았는데 mark_ai_result
+        # 의 동일 path 검색이 매칭되지 않으면 다음 사이클에서 같은 슬라이드를 또 추론한다.
+        # 보통 rel_path 정규화 차이 때문 — 진단 위해 출력.
+        print(f"[slide_store] mark_ai_result NO MATCH "
+              f"rel='{str_rel_path}' name='{str_filename}' model={str_model} "
+              f"variant={str_variant} — slide doc not found, AI flag NOT persisted")
 
 
 def mark_ai_result_threadsafe(

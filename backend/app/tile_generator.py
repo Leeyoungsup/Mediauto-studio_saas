@@ -242,14 +242,9 @@ def _generate_tiles(filename: str, file_path: str):
         str_icc_hash = _slide_icc_hash(slide)
         _to_srgb, dict_color_meta = build_color_corrector(slide)
         bool_icc_applied = bool(dict_color_meta.get("icc_applied"))
-        bool_ndp_applied = bool(dict_color_meta.get("ndp_applied"))
         if str_icc_hash is not None and not bool_icc_applied:
             print(f"[tile_generator] WARN {filename}: ICC 프로파일 존재하지만 transform 빌드 실패 — ICC 미적용")
-        if bool_ndp_applied:
-            print(
-                f"[tile_generator] {filename}: NDP LUT 적용 — "
-                f"white={dict_color_meta['ndp_white']:.1f}, gamma=1.8"
-            )
+        # NDP LUT 적용 정보 로그는 슬라이드마다 찍혀 노이즈만 됨 — 제거.
 
         # 3단계 stage 피라미드 — 모두 level 0 에서 읽어 downsample [1, 4, 8] 로 생성
         int_w0, int_h0 = slide.dimensions
