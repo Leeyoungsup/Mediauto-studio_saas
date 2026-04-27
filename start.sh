@@ -2,7 +2,7 @@
 
 # ============================================================
 #  MeDICus Studio SaaS - Server Start Script
-#  - conda env "medicus-saas" activate (via conda run)
+#  - conda env "yslee" activate (via conda run)
 #  - uvicorn FastAPI start
 # ============================================================
 
@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/backend"
 
-ENV_NAME="medicus-saas"
+ENV_NAME="yslee"
 HOST="0.0.0.0"
 PORT="8092"
 
