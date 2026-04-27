@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/backend"
 
-ENV_NAME="yslee"
+ENV_NAME="medicus-saas"
 HOST="0.0.0.0"
 PORT="8092"
 
