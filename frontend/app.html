@@ -38,6 +38,7 @@
 
     <!-- ═══ 툴바 ═══ -->
     <nav id="toolbar">
+        <!-- 파일 -->
         <div class="toolbar-group">
             <button id="btn-open" class="toolbar-btn" title="Open WSI">
                 <img src="assets/Open.png" alt="Open">
@@ -47,14 +48,28 @@
             </button>
         </div>
         <div class="toolbar-separator"></div>
+        <!-- 뷰 -->
         <div class="toolbar-group">
             <button id="btn-fit" class="toolbar-btn" title="Fit to Window">
                 <img src="assets/ScreenFill.png" alt="Fit">
             </button>
-            <button id="btn-zoom-in" class="toolbar-btn" title="Zoom In">+</button>
-            <button id="btn-zoom-out" class="toolbar-btn" title="Zoom Out">&minus;</button>
+            <button id="btn-zoom-in" class="toolbar-btn" title="Zoom In" aria-label="Zoom In">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="9" r="6"/>
+                    <path d="m17 17-3.5-3.5"/>
+                    <path d="M9 6v6M6 9h6"/>
+                </svg>
+            </button>
+            <button id="btn-zoom-out" class="toolbar-btn" title="Zoom Out" aria-label="Zoom Out">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="9" r="6"/>
+                    <path d="m17 17-3.5-3.5"/>
+                    <path d="M6 9h6"/>
+                </svg>
+            </button>
         </div>
         <div class="toolbar-separator"></div>
+        <!-- 자유 드로잉 -->
         <div class="toolbar-group">
             <button id="btn-draw-polygon" class="toolbar-btn toggle-btn" title="Draw Polygon" disabled>
                 <img src="assets/Polygon.png" alt="Polygon">
@@ -65,12 +80,43 @@
             <button id="btn-draw-point" class="toolbar-btn toggle-btn" title="Draw Point" disabled>
                 <img src="assets/Point.png" alt="Point">
             </button>
-            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">?</button>
+        </div>
+        <div class="toolbar-separator"></div>
+        <!-- 고정 크기 드로잉 (1mm²) -->
+        <div class="toolbar-group">
+            <button id="btn-draw-rect-1mm2" class="toolbar-btn toggle-btn fixed-area-btn"
+                    title="Draw 1mm² Rectangle (1mm × 1mm)" aria-label="Draw 1mm² Rectangle" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                    <rect x="2.5" y="3.5" width="15" height="11" rx="0.5"/>
+                    <text x="10" y="12.5" font-size="6.5" font-weight="700" text-anchor="middle"
+                          fill="currentColor" stroke="none">1mm²</text>
+                </svg>
+            </button>
+            <button id="btn-draw-circle-1mm2" class="toolbar-btn toggle-btn fixed-area-btn"
+                    title="Draw 1mm² Circle (area = 1mm²)" aria-label="Draw 1mm² Circle" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <circle cx="10" cy="10" r="8"/>
+                    <text x="10" y="12.5" font-size="6.5" font-weight="700" text-anchor="middle"
+                          fill="currentColor" stroke="none">1mm²</text>
+                </svg>
+            </button>
         </div>
         <div class="toolbar-spacer"></div>
+        <!-- 상태 -->
         <div class="toolbar-group">
             <span id="slide-scanner" class="slide-scanner" hidden></span>
             <span id="zoom-info" class="zoom-info-text"></span>
+        </div>
+        <div class="toolbar-separator"></div>
+        <!-- 헬프 -->
+        <div class="toolbar-group">
+            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="8"/>
+                    <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
+                    <circle cx="10" cy="15.3" r="0.6" fill="currentColor" stroke="none"/>
+                </svg>
+            </button>
         </div>
     </nav>
 

@@ -58,6 +58,8 @@ let _lastDetectionRoi = null;
 const $btnDrawPolygon = $('#btn-draw-polygon');
 const $btnDrawRect = $('#btn-draw-rect');
 const $btnDrawPoint = $('#btn-draw-point');
+const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
+const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 
 // VS-IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
@@ -538,7 +540,8 @@ function _applyViewerRoleRestrictions() {
     document.body.classList.add('role-viewer');
 
     // Annotation 그리기 도구 (상단 툴바)
-    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point'];
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point',
+                            'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2'];
     list_draw_btns.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -695,19 +698,27 @@ $btnFit.addEventListener('click', () => viewer.fitToWindow());
 // ═══════════════════════════
 // Annotation 그리기 도구
 // ═══════════════════════════
-const drawButtons = { polygon: $btnDrawPolygon, rectangle: $btnDrawRect, point: $btnDrawPoint };
+const drawButtons = {
+    polygon: $btnDrawPolygon,
+    rectangle: $btnDrawRect,
+    point: $btnDrawPoint,
+    'rect-1mm2': $btnDrawRect1mm2,
+    'circle-1mm2': $btnDrawCircle1mm2,
+};
 
 function setDrawMode(mode) {
     // 같은 버튼 다시 클릭 → 해제
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
-    Object.values(drawButtons).forEach(b => b.classList.remove('active'));
+    Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
     if (newMode && drawButtons[newMode]) drawButtons[newMode].classList.add('active');
 }
 
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
+if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
+if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
 
 // ── UX 기능 설명 모달 ──
 const $btnUxHelp = $('#btn-ux-help');
@@ -759,7 +770,7 @@ window.matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
 
 // ESC 등으로 drawMode가 변경될 때 버튼 동기화
 viewer.onDrawModeChange = (mode) => {
-    Object.values(drawButtons).forEach(b => b.classList.remove('active'));
+    Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
     if (mode && drawButtons[mode]) drawButtons[mode].classList.add('active');
 };
 

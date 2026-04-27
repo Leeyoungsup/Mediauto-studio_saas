@@ -194,13 +194,16 @@ input[type="color"], input[type="file"], select {
 }
 .toolbar-btn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
 .toolbar-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.toolbar-btn img { width: 20px; height: 20px; }
+.toolbar-btn img,
+.toolbar-btn svg { width: 20px; height: 20px; display: block; }
 .toolbar-btn.toggle-btn.active {
     background: var(--accent); color: #fff;
     box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(108,92,231,0.55);
     position: relative;
 }
 .toolbar-btn.toggle-btn.active img { filter: brightness(0) invert(1); }
+/* 1mm² 고정 크기 버튼은 SVG 안 라벨 가독성을 위해 살짝 큰 아이콘 */
+.toolbar-btn.fixed-area-btn svg { width: 22px; height: 22px; }
 .toolbar-btn.toggle-btn.active::after {
     content: ''; position: absolute;
     left: 50%; bottom: -6px; transform: translateX(-50%);

@@ -608,6 +608,11 @@ export class TileViewer {
                 this._onDrawMouseMove(sx, sy, cx, cy);
                 return;
             }
+            // 1mm² 고정 크기 모드는 클릭 없이도 커서 따라가는 미리보기 표시
+            if (this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2') {
+                this._drawingCurrent = [sx, sy];
+                this.requestRender();
+            }
 
             // 패닝
             if (!this._isPanning) return;
@@ -2335,11 +2340,48 @@ export class TileViewer {
     // ── Annotation 그리기 ──
 
     setDrawMode(mode) {
-        // mode: 'polygon' | 'rectangle' | 'point' | null
+        // mode: 'polygon' | 'rectangle' | 'point' | 'rect-1mm2' | 'circle-1mm2' | null
         this._cancelDrawing();
         this.drawMode = mode;
         this.canvas.style.cursor = mode ? 'crosshair' : 'grab';
         if (this.onDrawModeChange) this.onDrawModeChange(mode);
+    }
+
+    /**
+     * 슬라이드 좌표계 기준 1mm 가 몇 px 인지. mpp(µm/px) 가 0.25 면 4000 px = 1mm.
+     * slideInfo 가 없거나 mpp 가 없으면 null — 호출 측에서 가드 필요.
+     */
+    _pixelsPerMM() {
+        if (!this.slideInfo || !this.slideInfo.mpp) return null;
+        return 1000 / this.slideInfo.mpp;  // 1mm = 1000 µm
+    }
+
+    /** 중심(cx,cy) 기준 1mm × 1mm 정사각형 4 꼭짓점 (scene 좌표). */
+    _makeRect1mm2Coords(cx, cy) {
+        const ppm = this._pixelsPerMM();
+        if (ppm == null) return null;
+        const half = ppm / 2;  // 1mm 변의 절반
+        return [
+            [cx - half, cy - half],
+            [cx + half, cy - half],
+            [cx + half, cy + half],
+            [cx - half, cy + half],
+        ];
+    }
+
+    /** 중심(cx,cy) 기준 면적 1mm² 인 원의 64각형 근사 (scene 좌표). */
+    _makeCircle1mm2Coords(cx, cy) {
+        const ppm = this._pixelsPerMM();
+        if (ppm == null) return null;
+        // 면적 = π r² = 1mm²  →  r = √(1/π) mm  →  px 로 환산
+        const radiusPx = Math.sqrt(1 / Math.PI) * ppm;
+        const N = 64;
+        const pts = [];
+        for (let i = 0; i < N; i++) {
+            const t = (i / N) * Math.PI * 2;
+            pts.push([cx + Math.cos(t) * radiusPx, cy + Math.sin(t) * radiusPx]);
+        }
+        return pts;
     }
 
     _onDrawMouseDown(sx, sy, cx, cy, e) {
@@ -2356,6 +2398,15 @@ export class TileViewer {
             this._isDrawing = true;
         } else if (this.drawMode === 'point') {
             this._createAnnotation('point', [[sx, sy]]);
+        } else if (this.drawMode === 'rect-1mm2') {
+            // 클릭 위치를 중심으로 1mm × 1mm 정사각형 즉시 배치.
+            const coords = this._makeRect1mm2Coords(sx, sy);
+            if (coords) this._createAnnotation('rectangle', coords);
+        } else if (this.drawMode === 'circle-1mm2') {
+            // 면적 1mm² 원 (64각형 근사) — 기존 polygon 파이프라인에 그대로 들어가
+            // 편집/ROI 내보내기/저장 모두 자동 동작.
+            const coords = this._makeCircle1mm2Coords(sx, sy);
+            if (coords) this._createAnnotation('polygon', coords);
         }
     }
 
@@ -2622,6 +2673,44 @@ export class TileViewer {
             octx.setLineDash([6, 3]);
             octx.strokeRect(x, y, w, h);
             octx.setLineDash([]);
+        }
+
+        // 1mm² 고정 크기 미리보기 — 마우스 위치 중심으로 따라간다.
+        if ((this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2')
+                && this._drawingCurrent) {
+            const [sx, sy] = this._drawingCurrent;
+            const coords = this.drawMode === 'rect-1mm2'
+                ? this._makeRect1mm2Coords(sx, sy)
+                : this._makeCircle1mm2Coords(sx, sy);
+            if (coords) {
+                const fillColor = this.drawMode === 'rect-1mm2'
+                    ? 'rgba(255,0,0,0.10)' : 'rgba(0,128,255,0.10)';
+                const strokeColor = this.drawMode === 'rect-1mm2'
+                    ? 'rgba(255,0,0,0.85)' : 'rgba(0,128,255,0.85)';
+                octx.beginPath();
+                const [c0x, c0y] = this.sceneToCanvas(coords[0][0], coords[0][1]);
+                octx.moveTo(c0x, c0y);
+                for (let i = 1; i < coords.length; i++) {
+                    const [cx, cy] = this.sceneToCanvas(coords[i][0], coords[i][1]);
+                    octx.lineTo(cx, cy);
+                }
+                octx.closePath();
+                octx.fillStyle = fillColor;
+                octx.fill();
+                octx.strokeStyle = strokeColor;
+                octx.lineWidth = 2;
+                octx.setLineDash([6, 3]);
+                octx.stroke();
+                octx.setLineDash([]);
+                // 중심 십자선
+                const [ccx, ccy] = this.sceneToCanvas(sx, sy);
+                octx.strokeStyle = strokeColor;
+                octx.lineWidth = 1;
+                octx.beginPath();
+                octx.moveTo(ccx - 6, ccy); octx.lineTo(ccx + 6, ccy);
+                octx.moveTo(ccx, ccy - 6); octx.lineTo(ccx, ccy + 6);
+                octx.stroke();
+            }
         }
     }
 
