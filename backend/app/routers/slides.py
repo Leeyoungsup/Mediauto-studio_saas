@@ -517,6 +517,17 @@ async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_pat
 
 # ── 서버에 파일 존재 확인 후 바로 열기 ──
 
+@router.post("/open-by-name")
+async def open_slide_by_name(
+    filename: str = Form(...),
+    path: str = Form(""),
+):
+    """업로드 사전 검사용 — 파일 존재 여부만 반환. 슬라이드 열기/타일 생성/감사 로그 없음."""
+    filename = _safe_filename(filename)
+    final_path = _safe_subpath(path) / filename
+    return {"exists": final_path.exists()}
+
+
 @router.post("/open")
 async def open_slide(
     request: Request,
