@@ -142,14 +142,35 @@ async def log_audit_event(
     return str(result.inserted_id)
 
 
+def _get_trusted_proxies() -> set:
+    """env TRUSTED_PROXIES 에 적힌 IP/CIDR 들 — 이 목록에 들어 있는 peer 만
+    X-Forwarded-For / X-Real-IP 헤더의 값을 신뢰한다. 빈 값(기본) 이면 헤더 무시.
+
+    예: TRUSTED_PROXIES=127.0.0.1,10.0.0.5
+    """
+    import os as _os
+    raw = _os.environ.get("TRUSTED_PROXIES", "")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
+_SET_TRUSTED_PROXIES_CACHE: set = _get_trusted_proxies()
+
+
 def get_client_ip(request: Request) -> str:
-    """클라이언트 IP 추출 (프록시 뒤에서도 동작)"""
-    str_forwarded = request.headers.get("X-Forwarded-For", "")
-    if str_forwarded:
-        return str_forwarded.split(",")[0].strip()
-    str_real = request.headers.get("X-Real-IP", "")
-    if str_real:
-        return str_real.strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
+    """클라이언트 IP 추출.
+
+    리버스 프록시 뒤에서 동작할 수 있도록 X-Forwarded-For / X-Real-IP 를 지원하되,
+    **TCP peer (`request.client.host`) 가 TRUSTED_PROXIES env 에 등록된 경우에만**
+    신뢰한다. 그 외엔 헤더는 무시하고 peer 주소만 반환 — 직접 노출된 환경에서
+    임의 클라이언트가 헤더 위조로 rate_limit 을 우회하거나 audit log 에 가짜
+    IP 를 남기는 것을 막는다.
+    """
+    str_peer = request.client.host if request.client else "unknown"
+    if _SET_TRUSTED_PROXIES_CACHE and str_peer in _SET_TRUSTED_PROXIES_CACHE:
+        str_forwarded = request.headers.get("X-Forwarded-For", "")
+        if str_forwarded:
+            return str_forwarded.split(",")[0].strip()
+        str_real = request.headers.get("X-Real-IP", "")
+        if str_real:
+            return str_real.strip()
+    return str_peer

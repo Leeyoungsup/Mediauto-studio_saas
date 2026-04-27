@@ -80,6 +80,12 @@ class TokenResponse(BaseModel):
     dict_user: dict
 
 
+class MfaRequiredResponse(BaseModel):
+    """MFA 1단계 통과 후 TOTP 코드 요청. 토큰은 발급되지 않는다."""
+    bool_mfa_required: bool = True
+    str_message: str
+
+
 class RefreshRequest(BaseModel):
     str_refresh_token: str
 
@@ -164,9 +170,15 @@ async def register(body: RegisterRequest, request: Request):
 
 
 # ── 로그인 ──
-@router.post("/login", response_model=TokenResponse)
+# response_model 을 제거 — MFA 활성화된 사용자가 비밀번호만 맞춘 1단계에선
+# `MfaRequiredResponse` 모양 dict 를 반환해야 하는데 TokenResponse 강제 시
+# pydantic validation 실패로 500 에러가 났다. dict 직접 반환하고 호출 측에서 분기.
+@router.post("/login", responses={
+    200: {"model": TokenResponse, "description": "최종 로그인 성공"},
+    202: {"model": MfaRequiredResponse, "description": "MFA TOTP 코드 필요"},
+})
 async def login(body: LoginRequest, request: Request):
-    """아이디/비밀번호 로그인 → Access + Refresh Token 발급"""
+    """아이디/비밀번호 로그인 → Access + Refresh Token 발급 (또는 MFA 1단계 통과)."""
     db = get_db()
     str_login_id_lower = body.str_login_id.strip().lower()
 

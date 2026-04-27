@@ -134,6 +134,13 @@
         return `<span class="badge-status badge-status-${status}">${labels[status] || status}</span>`;
     }
 
+    // HTML 이스케이프 — innerHTML 에 들어갈 신뢰 불가능한 문자열 (filename, rel_path 등)
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // ── Render recent slide card ──
     function renderRecentCard(slide, mediaToken) {
         const card = document.createElement('a');
@@ -145,17 +152,18 @@
         const aiBadges = (slide.ai_done || [])
             .map(k => {
                 const b = AI_BADGE_MAP[k];
-                return b ? `<span class="recent-card-badge ${b.cls}">${b.label}</span>` : '';
+                return b ? `<span class="recent-card-badge ${b.cls}">${_esc(b.label)}</span>` : '';
             })
             .join('');
 
+        // 사용자가 업로드한 파일명/폴더명은 신뢰 불가 — 항상 _esc 통과시킨다.
         card.innerHTML = `
             <div class="recent-card-thumb">
                 <img src="${thumbUrl}" alt="" loading="lazy">
             </div>
             <div class="recent-card-body">
-                <div class="recent-card-name" title="${slide.filename}">${slide.filename}</div>
-                <div class="recent-card-path">${slide.rel_path || 'Root'} · ${formatSize(slide.size_bytes)}</div>
+                <div class="recent-card-name" title="${_esc(slide.filename)}">${_esc(slide.filename)}</div>
+                <div class="recent-card-path">${_esc(slide.rel_path || 'Root')} · ${formatSize(slide.size_bytes)}</div>
             </div>
             <div class="recent-card-meta">
                 ${statusBadge(slide.status)}
@@ -244,7 +252,7 @@
                             <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/>
                         </svg>
                     </div>
-                    <span class="folder-tree-name">${folder.name}</span>
+                    <span class="folder-tree-name">${_esc(folder.name)}</span>
                 `;
                 $tree.appendChild(el);
             }

@@ -59,17 +59,30 @@ _int_request_count = 0
 _CLEANUP_INTERVAL = 5000
 
 
+import os as _os
+
+# X-Forwarded-For / X-Real-IP 는 신뢰된 프록시 뒤에서만 의미가 있다.
+# 직접 노출된 서버에선 임의 클라이언트가 위조해 rate_limit 을 우회할 수 있어
+# 기본은 헤더 무시. TRUSTED_PROXIES env 에 prox y peer IP 를 적어둔 경우만 신뢰.
+_SET_RL_TRUSTED_PROXIES = {
+    s.strip() for s in _os.environ.get("TRUSTED_PROXIES", "").split(",") if s.strip()
+}
+
+
 def _get_client_ip(headers: list[tuple[bytes, bytes]], scope: dict) -> str:
-    """ASGI scope/headers에서 클라이언트 IP 추출."""
-    for k, v in headers:
-        if k == b"x-forwarded-for":
-            return v.decode().split(",")[0].strip()
-        if k == b"x-real-ip":
-            return v.decode().strip()
+    """ASGI scope/headers 에서 클라이언트 IP 추출. TCP peer 가 TRUSTED_PROXIES
+    에 들어 있어야만 X-Forwarded-For / X-Real-IP 헤더를 신뢰한다."""
+    str_peer = "unknown"
     client = scope.get("client")
     if client:
-        return client[0]
-    return "unknown"
+        str_peer = client[0]
+    if _SET_RL_TRUSTED_PROXIES and str_peer in _SET_RL_TRUSTED_PROXIES:
+        for k, v in headers:
+            if k == b"x-forwarded-for":
+                return v.decode().split(",")[0].strip()
+            if k == b"x-real-ip":
+                return v.decode().strip()
+    return str_peer
 
 
 def _send_429(retry_after: str):

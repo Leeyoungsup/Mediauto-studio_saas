@@ -7,6 +7,14 @@ import { api } from './api.js';
 import { TileViewer } from './tile-viewer.js';
 import { showVisualization } from './visualization.js';
 
+// HTML escape — innerHTML 에 들어갈 신뢰 불가 문자열 (filename, annotation name,
+// vendor 등) 에 반드시 통과시켜 stored XSS 차단.
+function _esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // ── DOM 요소 ──
 const $ = (sel) => document.querySelector(sel);
 
@@ -324,17 +332,19 @@ function _updateScannerBadge(slideInfo) {
     const list_details = [int_mag, str_mpp].filter(Boolean);
     const str_info = list_details.join(' · ');
 
+    // meta.label / meta.svg 는 코드 내 정의된 안전한 상수.
+    // slideInfo.vendor 는 슬라이드 파일 메타 — 신뢰 불가 → escape.
     if (meta) {
         $slideScanner.innerHTML = `
-            <span class="scanner-logo" title="${meta.label}">${meta.svg}</span>
-            ${str_info ? `<span class="scanner-info">${str_info}</span>` : ''}
+            <span class="scanner-logo" title="${_esc(meta.label)}">${meta.svg}</span>
+            ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
         `;
         $slideScanner.style.borderLeftColor = meta.color;
     } else {
-        // 알려지지 않은 vendor: 원본 문자열을 그대로 표시
+        // 알려지지 않은 vendor: escape 한 뒤 표시
         $slideScanner.innerHTML = `
-            <span class="scanner-logo scanner-logo-text">${slideInfo.vendor}</span>
-            ${str_info ? `<span class="scanner-info">${str_info}</span>` : ''}
+            <span class="scanner-logo scanner-logo-text">${_esc(slideInfo.vendor)}</span>
+            ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
         `;
         $slideScanner.style.borderLeftColor = '#6c5ce7';
     }
@@ -767,11 +777,12 @@ function renderAnnotationPanel() {
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
+        // ann.name 은 사용자 더블클릭 rename 으로 임의 문자열 가능 — 반드시 escape
         el.innerHTML = `
             <input type="color" class="ann-color-swatch" value="${rgbToHex(r, g, b)}"
                    title="Change color" style="background:rgb(${r},${g},${b})">
-            <span class="ann-name" title="Double-click to rename">${ann.name}</span>
-            <span class="ann-type">${ann.type}</span>
+            <span class="ann-name" title="Double-click to rename">${_esc(ann.name)}</span>
+            <span class="ann-type">${_esc(ann.type)}</span>
             <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? '👁' : '👁‍🗨'}</button>
             <button class="ann-btn-del" title="Delete">✕</button>
         `;

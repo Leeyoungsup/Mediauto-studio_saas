@@ -28,6 +28,29 @@ PASSWORD_PATTERN = re.compile(
 router = APIRouter()
 
 
+# 관리자 목록/조회에 노출할 사용자 필드 화이트리스트.
+# 과거엔 `str_hashed_password` 만 제외하고 나머지는 다 내려보냈는데, 그 결과
+# `str_totp_secret_enc` (TOTP 시드, 암호화돼 있긴 하지만 노출 자체가 부담),
+# `int_failed_login_attempts` 같은 내부 카운터까지 admin UI 응답에 들어갔다.
+# 화이트리스트로 명시적으로만 노출되도록 변경.
+_DICT_USER_PROJECTION_ADMIN = {
+    "str_login_id": 1,
+    "str_name": 1,
+    "str_role": 1,
+    "str_department": 1,
+    "str_approval_status": 1,
+    "str_approved_by": 1,
+    "dt_approved_at": 1,
+    "bool_is_active": 1,
+    "bool_is_locked": 1,
+    "dt_locked_until": 1,
+    "bool_mfa_enabled": 1,
+    "dt_created_at": 1,
+    "dt_updated_at": 1,
+    "dt_last_login": 1,
+}
+
+
 # ── 사용자 목록 (Admin만) ──
 @router.get("/list")
 async def list_users(
@@ -53,7 +76,7 @@ async def list_users(
     list_users = []
     cursor = db.users.find(
         dict_filter,
-        {"str_hashed_password": 0},
+        _DICT_USER_PROJECTION_ADMIN,
     ).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
 
     async for dict_user in cursor:
@@ -82,7 +105,7 @@ async def list_pending_users(
     list_pending = []
     cursor = db.users.find(
         {"str_approval_status": ApprovalStatus.PENDING},
-        {"str_hashed_password": 0},
+        _DICT_USER_PROJECTION_ADMIN,
     ).sort("dt_created_at", 1)
     async for dict_user in cursor:
         dict_user["_id"] = str(dict_user["_id"])

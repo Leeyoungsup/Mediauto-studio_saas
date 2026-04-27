@@ -168,12 +168,40 @@ async def _upsert_and_attach(
 # ── 저장된 슬라이드/폴더 목록 ──
 
 def _safe_subpath(subpath: str) -> Path:
-    """uploads/ 하위 경로만 허용 (디렉토리 탈출 방지)"""
+    """uploads/ 하위 경로만 허용 (디렉토리 탈출 방지).
+
+    `startswith` 만으론 unicode normalization / case 차이 / 부모 prefix 충돌
+    (예: `/uploads-evil/` 가 `/uploads/` startswith 통과) 이슈가 있을 수 있어
+    `Path.is_relative_to` 로 정확히 검사. Python 3.9+ 표준.
+    """
     upload_dir = Path(settings.UPLOAD_DIR).resolve()
     target = (upload_dir / subpath).resolve()
-    if not str(target).startswith(str(upload_dir)):
+    try:
+        target.relative_to(upload_dir)
+    except ValueError:
         raise HTTPException(400, "잘못된 경로")
     return target
+
+
+def _safe_filename(filename: str) -> str:
+    """업로드/이동/삭제 등에 쓰이는 파일명 검증.
+
+    `_safe_subpath(path) / filename` 패턴은 `path` 만 검사하고 `filename` 은
+    그대로 join 해 왔다. filename 에 `../`, `/`, `\\`, `\\0`, 빈 문자열 등이
+    오면 디렉토리 탈출이 가능하므로 여기서 일괄 거부.
+    """
+    if not filename:
+        raise HTTPException(400, "파일명이 비어 있습니다")
+    if "/" in filename or "\\" in filename:
+        raise HTTPException(400, "파일명에 경로 구분자를 사용할 수 없습니다")
+    if filename in (".", ".."):
+        raise HTTPException(400, "잘못된 파일명")
+    if "\x00" in filename:
+        raise HTTPException(400, "파일명에 NUL 문자가 포함되었습니다")
+    if filename.startswith(".") and filename != ".":
+        # 숨김파일/특수 dotfile 차단 (".env", ".secrets.json" 등 노출 방지)
+        raise HTTPException(400, "숨김 파일명은 허용되지 않습니다")
+    return filename
 
 
 @router.get("/dashboard")
@@ -280,6 +308,7 @@ async def folder_tree():
 @router.post("/folder/create")
 async def create_folder(path: str = Form(""), name: str = Form(...)):
     """폴더 생성"""
+    name = _safe_filename(name)
     target = _safe_subpath(path) / name
     if target.exists():
         raise HTTPException(400, "이미 존재하는 폴더입니다")
@@ -290,6 +319,7 @@ async def create_folder(path: str = Form(""), name: str = Form(...)):
 @router.post("/folder/rename")
 async def rename_folder(path: str = Form(...), new_name: str = Form(...)):
     """폴더 이름 변경"""
+    new_name = _safe_filename(new_name)
     target = _safe_subpath(path)
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "폴더를 찾을 수 없습니다")
@@ -359,6 +389,7 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
 
     열려있는 슬라이드면 먼저 close.
     """
+    str_filename = _safe_filename(str_filename)
     target = _safe_subpath(str_path) / str_filename
     if not target.exists():
         raise HTTPException(404, f"파일을 찾을 수 없습니다: {str_filename}")
@@ -469,6 +500,7 @@ async def set_file_status(
 @router.post("/file/move")
 async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_path: str = Form("")):
     """파일을 다른 폴더로 이동"""
+    filename = _safe_filename(filename)
     src = _safe_subpath(src_path) / filename
     dst_dir = _safe_subpath(dst_path)
     if not src.exists():
@@ -493,6 +525,7 @@ async def open_slide(
     dict_user: dict = Depends(get_current_user),
 ):
     """파일명으로 서버 디스크에 있는지 확인 → 있으면 바로 열기"""
+    filename = _safe_filename(filename)
     final_path = _safe_subpath(path) / filename
     if not final_path.exists():
         return {"exists": False}
@@ -524,6 +557,7 @@ async def open_slide(
 @router.post("/upload/start")
 async def upload_start(filename: str = Form(...)):
     """업로드 시작 — upload_id 발급"""
+    filename = _safe_filename(filename)
     ext = Path(filename).suffix.lower()
     if ext not in settings.SUPPORTED_EXTENSIONS:
         raise HTTPException(400, f"지원하지 않는 파일 형식: {ext}")
@@ -574,6 +608,9 @@ async def upload_complete(
     """업로드 완료 — 청크 조립 → 슬라이드 열기 + 타일 생성"""
     auto_ai.upload_enter()
     try:
+        # 파일명 검증을 가장 먼저 — 이후 모든 디스크 경로 join 의 안전 보장
+        filename = _safe_filename(filename)
+
         chunk_dir = Path(settings.UPLOAD_DIR) / f"_chunks_{upload_id}"
         if not chunk_dir.exists():
             raise HTTPException(404, "업로드 세션을 찾을 수 없습니다")
@@ -663,10 +700,19 @@ async def open_local_file(
     file_path: str = Form(...),
     dict_user: dict = Depends(get_current_user),
 ):
-    """서버 로컬 디스크의 WSI 파일 열기"""
-    path = Path(file_path)
+    """서버 로컬 디스크의 WSI 파일 열기.
+
+    file_path 는 반드시 UPLOAD_DIR 하위여야 한다 — admin 이라도 /etc/passwd.svs
+    같은 임의 경로를 읽지 못하도록 컨테인먼트 강제.
+    """
+    path = Path(file_path).resolve()
+    upload_dir = Path(settings.UPLOAD_DIR).resolve()
+    try:
+        path.relative_to(upload_dir)
+    except ValueError:
+        raise HTTPException(400, "uploads/ 외부 경로는 허용되지 않습니다")
     if not path.exists():
-        raise HTTPException(404, f"파일이 존재하지 않습니다: {file_path}")
+        raise HTTPException(404, f"파일이 존재하지 않습니다: {path.name}")
 
     ext = path.suffix.lower()
     if ext not in settings.SUPPORTED_EXTENSIONS:
@@ -783,6 +829,7 @@ async def get_thumbnail_by_name(
     import io
     import openslide
 
+    filename = _safe_filename(filename)
     # 1) 프리제네레이트된 썸네일이 있으면 바로 반환
     thumb_path = tile_generator.get_tiles_dir(filename) / "thumbnail.jpeg"
     if thumb_path.exists():
@@ -1022,18 +1069,39 @@ async def close_slide(slide_id: str):
 
 # ── Annotation 저장/불러오기 ──
 
+_INT_ANNOTATIONS_MAX_BYTES = 8 * 1024 * 1024  # 8 MB — annotation 한 슬라이드 합 상한
+
+
 @router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
 async def save_annotations(slide_id: str, data: str = Form(...)):
-    """슬라이드별 annotation JSON 저장"""
+    """슬라이드별 annotation JSON 저장.
+
+    검증 순서가 중요 — 예전엔 파일 먼저 쓰고 `len(json.loads(...))` 으로 검증했는데
+    JSON 깨진 입력이 오면 이미 디스크에 무효 데이터가 박힌 채 500 이 났다.
+    이제는 (1) 크기 → (2) JSON 파싱 → (3) list 타입 → 다 통과해야 디스크에 쓴다.
+    """
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+
+    # 1) 크기 상한 — Form 자체엔 별도 max_length 가 없어 여기서 검사
+    if len(data.encode("utf-8")) > _INT_ANNOTATIONS_MAX_BYTES:
+        raise HTTPException(413, f"annotation 데이터 상한 초과 ({_INT_ANNOTATIONS_MAX_BYTES // (1024*1024)} MB)")
+
+    # 2) JSON 유효성 + 3) 최상위가 list 인지
+    try:
+        list_parsed = json.loads(data)
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 JSON: {e}")
+    if not isinstance(list_parsed, list):
+        raise HTTPException(400, "annotation 은 list 형식이어야 합니다")
+
     filename = Path(info.file_path).name
     ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
     ann_path.parent.mkdir(parents=True, exist_ok=True)
     with open(ann_path, "w", encoding="utf-8") as f:
         f.write(data)
-    return {"status": "saved", "count": len(json.loads(data))}
+    return {"status": "saved", "count": len(list_parsed)}
 
 
 @router.get("/{slide_id}/annotations/load", dependencies=[Depends(require_not_viewer)])
