@@ -57,6 +57,11 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             status_msg=f"Loading cached AI result: {cache_path.name}")
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
+                # 캐시 hit 이어도 DB 플래그가 비어 있으면 auto_ai 가 매 사이클 다시 끌어옴.
+                # (과거 추론이 DB 미연결 상태에서 끝났거나 slide doc 이 늦게 생성된 케이스.)
+                # 멱등 — 이미 set 이면 변화 없음.
+                from app import slide_store
+                slide_store.mark_ai_result_threadsafe(info.file_path, "HE-Fit", tissue_type)
                 update_task(task_id, status="completed", progress=100,
                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                             result=cached)

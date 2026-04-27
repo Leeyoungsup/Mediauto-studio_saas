@@ -3229,7 +3229,12 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     }
     setStatus(`${str_score_type}: ${float_status_score.toFixed(1)}% | ${displayCount.toLocaleString()} cells`);
 
-    buildResultList(result);
+    // onCellEdited 와 동일한 패턴 — _lastDetectionResult.cells 를 polygon-필터링된 셀로
+    // 정렬해 두면 buildResultList 가 어떤 경로로 result.cells 를 쓰더라도 안전.
+    _lastDetectionResult.cells = viewer.detectionCells;
+    _lastDetectionResult.total_cells = viewer.detectionCells.length;
+
+    buildResultList(_lastDetectionResult);
     _updateResultCounts();   // _updatePdScoreDisplay 가 polygon-ROI 기반으로 카드 채움
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
@@ -3385,7 +3390,11 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
     }
 
-    buildResultList(result);
+    // onCellEdited 와 동일한 패턴으로 result.cells 를 polygon-필터링된 셀에 맞춤.
+    _lastDetectionResult.cells = viewer.detectionCells;
+    _lastDetectionResult.total_cells = viewer.detectionCells.length;
+
+    buildResultList(_lastDetectionResult);
     _updateResultCounts();   // _updateXxxScoreDisplay 가 polygon-ROI 기반으로 카드 채움
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;

@@ -406,6 +406,11 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 cached_meta['cached'] = True
                 if display_roi_polygons is not None:
                     cached_meta['roi_polygons'] = display_roi_polygons
+                # 캐시 hit 이어도 DB 플래그 동기화 — auto_ai 가 매 사이클 다시 안 잡도록.
+                # VS-IHC 는 list_slides_in_folder + per-mpp 디스크 캐시 검사로 동작하지만,
+                # bool_has_result / list_variants 플래그가 비어 있으면 다른 UI 가 "결과 없음" 표시한다.
+                from app import slide_store
+                slide_store.mark_ai_result_threadsafe(info.file_path, "VS-IHC", stain_type)
                 update_task(task_id, status="completed", progress=100,
                             status_msg="Loaded cached virtual stain",
                             result=cached_meta)

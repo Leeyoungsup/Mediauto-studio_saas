@@ -109,6 +109,11 @@ def run_marker_detection_pipeline(
                     except Exception as e:
                         print(f"{log_label} cache rewrite failed: {e}")
 
+                # 캐시 hit 이어도 DB 플래그가 비어 있으면 auto_ai 가 매 사이클 다시 끌어옴.
+                # 멱등 ($addToSet) 이라 중복 호출 안전.
+                from app import slide_store
+                str_model_key_cache = log_label.split("/")[0]
+                slide_store.mark_ai_result_threadsafe(info.file_path, str_model_key_cache, str_variant)
                 update_task(task_id, status="completed", progress=100,
                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                             result=cached)
