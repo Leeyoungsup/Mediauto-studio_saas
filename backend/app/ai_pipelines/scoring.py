@@ -48,7 +48,10 @@ PD_SCORE_CONFIG = {
             2: "#95a5a6",
         },
         "score_type": "TPS",
-        "exclude_classes": [],
+        # Non-Tumor (cls 2) 는 TPS 공식에 포함되지 않으니 표시도 생략한다.
+        # marker_pipeline 에서 keep_mask 로 추론 결과에서 제거 + class_names/colors
+        # 에서도 빠져 프론트 범례·시각화에 안 나온다.
+        "exclude_classes": [2],
     },
 }
 

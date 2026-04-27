@@ -60,6 +60,7 @@ const $btnDrawRect = $('#btn-draw-rect');
 const $btnDrawPoint = $('#btn-draw-point');
 const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
+const $btnRuler = $('#btn-ruler');
 
 // VS-IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
@@ -541,7 +542,7 @@ function _applyViewerRoleRestrictions() {
 
     // Annotation 그리기 도구 (상단 툴바)
     const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point',
-                            'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2'];
+                            'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -704,6 +705,7 @@ const drawButtons = {
     point: $btnDrawPoint,
     'rect-1mm2': $btnDrawRect1mm2,
     'circle-1mm2': $btnDrawCircle1mm2,
+    ruler: $btnRuler,
 };
 
 function setDrawMode(mode) {
@@ -719,6 +721,7 @@ $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
 if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
+if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
 // ── UX 기능 설명 모달 ──
 const $btnUxHelp = $('#btn-ux-help');
@@ -1635,6 +1638,14 @@ function _computeFilteredCounts(cells) {
     return { counts, total };
 }
 
+// "1,234 (45.6%)" — 클래스별 개수 + 전체 대비 비율. total 은 confidence 필터 통과한
+// 모든 클래스 합. total=0 이면 비율 0%.
+function _formatCountWithRatio(int_count, int_total) {
+    const str_count = int_count.toLocaleString();
+    if (!int_total) return `${str_count} (0%)`;
+    return `${str_count} (${(int_count / int_total * 100).toFixed(1)}%)`;
+}
+
 // 결과 리스트의 카운트 라벨만 갱신 (confidence 슬라이더 변경 시 호출)
 let _resultCountRefs = null; // {total: el, perClass: {id: el}}
 function _updateResultCounts() {
@@ -1643,7 +1654,7 @@ function _updateResultCounts() {
     _resultCountRefs.total.textContent = total.toLocaleString();
     for (const [idStr, el] of Object.entries(_resultCountRefs.perClass)) {
         const id = parseInt(idStr);
-        el.textContent = (counts[id] || 0).toLocaleString();
+        el.textContent = _formatCountWithRatio(counts[id] || 0, total);
     }
     _updatePdScoreDisplay(counts);
     _updateHer2ScoreDisplay(counts);
@@ -1805,10 +1816,12 @@ function _updateKi67ScoreDisplay(counts) {
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
-    // 클래스별 카운트
+    // 클래스별 카운트 + total (비율 계산용)
     const counts = {};
+    let total = 0;
     for (const cell of result.cells) {
         counts[cell.class_id] = (counts[cell.class_id] || 0) + 1;
+        total++;
     }
 
     // 클래스별 체크박스 참조 저장
@@ -1879,7 +1892,7 @@ function buildResultList(result) {
 
         const countSpan = document.createElement('span');
         countSpan.className = 'class-count';
-        countSpan.textContent = count.toLocaleString();
+        countSpan.textContent = _formatCountWithRatio(count, total);
         perClassCountEls[id] = countSpan;
 
         item.append(cb, dot, nameSpan, countSpan);

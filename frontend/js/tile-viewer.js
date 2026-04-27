@@ -166,10 +166,15 @@ export class TileViewer {
 
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
-        this.drawMode = null;         // 'polygon' | 'rectangle' | 'point' | null
+        this.drawMode = null;         // 'polygon' | 'rectangle' | 'point' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
         this._drawingPoints = [];     // 진행 중인 폴리곤 좌표 (scene)
         this._drawingStart = null;    // 사각형 시작점 (scene)
         this._drawingCurrent = null;  // 사각형/폴리곤 현재 마우스 (scene)
+        // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
+        // mode 해제 / 새 측정 시작 시 사라짐.
+        this._rulerStart = null;      // [sx, sy]
+        this._rulerEnd = null;        // [sx, sy] — 마우스 따라가다가 두 번째 클릭 시 고정
+        this._rulerFinalized = false; // true 면 두 번째 클릭이 들어와 측정이 고정된 상태
         this._isDrawing = false;
         this._annotationCounter = 0;
         this.selectedAnnotationId = null;
@@ -611,6 +616,13 @@ export class TileViewer {
             // 1mm² 고정 크기 모드는 클릭 없이도 커서 따라가는 미리보기 표시
             if (this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2') {
                 this._drawingCurrent = [sx, sy];
+                this.requestRender();
+            }
+            // Ruler — 시작점만 찍힌 상태에선 끝점이 마우스 따라간다 (실시간 길이 미리보기).
+            // 수평/수직 ±2° 스냅을 preview 단계에서도 적용해 사용자가 스냅된 길이를 미리 본다.
+            if (this.drawMode === 'ruler' && this._rulerStart && !this._rulerFinalized) {
+                this._rulerEnd = this._snapRulerEnd(
+                    this._rulerStart[0], this._rulerStart[1], sx, sy);
                 this.requestRender();
             }
 
@@ -2407,6 +2419,20 @@ export class TileViewer {
             // 편집/ROI 내보내기/저장 모두 자동 동작.
             const coords = this._makeCircle1mm2Coords(sx, sy);
             if (coords) this._createAnnotation('polygon', coords);
+        } else if (this.drawMode === 'ruler') {
+            // 1차 클릭: 시작점, 2차 클릭: 고정, 3차 클릭: 새 측정 시작.
+            // annotation 으로 저장 X — drawMode 해제 시 사라지는 일회성 측정.
+            if (!this._rulerStart || this._rulerFinalized) {
+                this._rulerStart = [sx, sy];
+                this._rulerEnd = [sx, sy];
+                this._rulerFinalized = false;
+            } else {
+                // 수평/수직 ±2° 스냅 — preview 와 동일 규칙으로 고정.
+                this._rulerEnd = this._snapRulerEnd(
+                    this._rulerStart[0], this._rulerStart[1], sx, sy);
+                this._rulerFinalized = true;
+            }
+            this.requestRender();
         }
     }
 
@@ -2509,6 +2535,10 @@ export class TileViewer {
         this._drawingCurrent = null;
         this._isDrawing = false;
         this._lastDrawDragCanvas = null;
+        // Ruler 일회성 측정도 함께 정리 (모드 전환/해제 시 잔상 방지).
+        this._rulerStart = null;
+        this._rulerEnd = null;
+        this._rulerFinalized = false;
         this.requestRender();
     }
 
@@ -2623,6 +2653,106 @@ export class TileViewer {
         }
     }
 
+    /**
+     * scene 좌표 두 점 사이의 실측 거리를 사람이 읽기 좋은 문자열로.
+     *  - 1 mm 미만: "342.7 µm (1,370 px)"
+     *  - 1 mm 이상: "1.234 mm (4,936 px)"
+     * mpp 가 없으면 px 단위만.
+     */
+    _formatDistance(sx0, sy0, sx1, sy1) {
+        const dx = sx1 - sx0, dy = sy1 - sy0;
+        const distPx = Math.sqrt(dx * dx + dy * dy);
+        const strPx = `${Math.round(distPx).toLocaleString('en-US')} px`;
+        const mpp = this.slideInfo && this.slideInfo.mpp;
+        if (!mpp) return strPx;
+        const distUm = distPx * mpp;
+        const strUnit = distUm < 1000
+            ? `${distUm.toFixed(1)} µm`
+            : `${(distUm / 1000).toFixed(3)} mm`;
+        return `${strUnit} (${strPx})`;
+    }
+
+    /**
+     * 시작점→끝점 각도가 수평/수직 ±2° 이내면 해당 축으로 스냅.
+     * 약간의 손떨림 보정용 — 임계값을 너무 키우면 의도된 비스듬 측정이 막혀 답답해진다.
+     * 반환: [snappedSx, snappedSy]
+     */
+    _snapRulerEnd(sx0, sy0, sx1, sy1) {
+        const dx = sx1 - sx0;
+        const dy = sy1 - sy0;
+        if (dx === 0 && dy === 0) return [sx1, sy1];
+        const FLOAT_SNAP_DEG = 2;
+        const float_tol = FLOAT_SNAP_DEG * Math.PI / 180;
+        const float_ang = Math.atan2(dy, dx);  // (-π, π]
+        const float_abs = Math.abs(float_ang);
+        // 수평: 0 또는 ±π
+        if (float_abs < float_tol || Math.abs(float_abs - Math.PI) < float_tol) {
+            return [sx1, sy0];
+        }
+        // 수직: ±π/2
+        if (Math.abs(float_abs - Math.PI / 2) < float_tol) {
+            return [sx0, sy1];
+        }
+        return [sx1, sy1];
+    }
+
+    _renderRulerPreview(octx) {
+        const [sx0, sy0] = this._rulerStart;
+        const [sx1, sy1] = this._rulerEnd;
+        const [cx0, cy0] = this.sceneToCanvas(sx0, sy0);
+        const [cx1, cy1] = this.sceneToCanvas(sx1, sy1);
+
+        const color = this._rulerFinalized ? 'rgba(255,140,0,0.95)' : 'rgba(255,140,0,0.8)';
+
+        // 본 직선
+        octx.beginPath();
+        octx.moveTo(cx0, cy0);
+        octx.lineTo(cx1, cy1);
+        octx.strokeStyle = color;
+        octx.lineWidth = 2;
+        if (!this._rulerFinalized) octx.setLineDash([6, 3]);
+        octx.stroke();
+        octx.setLineDash([]);
+
+        // 양 끝 점
+        for (const [px, py] of [[cx0, cy0], [cx1, cy1]]) {
+            octx.beginPath();
+            octx.arc(px, py, 4, 0, Math.PI * 2);
+            octx.fillStyle = color;
+            octx.fill();
+            octx.strokeStyle = '#fff';
+            octx.lineWidth = 1.5;
+            octx.stroke();
+        }
+
+        // 길이 라벨 — 직선 가운데에 배경박스 + 텍스트
+        const label = this._formatDistance(sx0, sy0, sx1, sy1);
+        const midX = (cx0 + cx1) / 2;
+        const midY = (cy0 + cy1) / 2;
+        octx.font = 'bold 12px ui-monospace, Consolas, monospace';
+        octx.textAlign = 'center';
+        octx.textBaseline = 'middle';
+        const textW = octx.measureText(label).width;
+        const padX = 6, padY = 3;
+        const boxW = textW + padX * 2;
+        const boxH = 18;
+        // 라벨이 직선과 겹치지 않게 살짝 위로 (직선 방향 수직 오프셋)
+        const ang = Math.atan2(cy1 - cy0, cx1 - cx0);
+        const off = 14;
+        const ox = midX + Math.sin(ang) * off;
+        const oy = midY - Math.cos(ang) * off;
+        octx.fillStyle = 'rgba(40,30,10,0.85)';
+        octx.fillRect(ox - boxW / 2, oy - boxH / 2, boxW, boxH);
+        octx.strokeStyle = color;
+        octx.lineWidth = 1;
+        octx.strokeRect(ox - boxW / 2, oy - boxH / 2, boxW, boxH);
+        octx.fillStyle = '#fff';
+        octx.fillText(label, ox, oy + 0.5);
+        // 기본값 복구 (다른 렌더러 영향 방지)
+        octx.textAlign = 'start';
+        octx.textBaseline = 'alphabetic';
+    }
+
     _renderDrawingPreview(octx) {
         if (this.drawMode === 'polygon' && this._drawingPoints.length > 0) {
             octx.beginPath();
@@ -2673,6 +2803,11 @@ export class TileViewer {
             octx.setLineDash([6, 3]);
             octx.strokeRect(x, y, w, h);
             octx.setLineDash([]);
+        }
+
+        // Ruler — 일회성 거리 측정. annotation 이 아니라 drawMode 활성 동안만 표시.
+        if (this.drawMode === 'ruler' && this._rulerStart && this._rulerEnd) {
+            this._renderRulerPreview(octx);
         }
 
         // 1mm² 고정 크기 미리보기 — 마우스 위치 중심으로 따라간다.
