@@ -3247,6 +3247,11 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     }
 
     buildResultList(result);
+    // Score 카드를 polygon-ROI + confidence 필터 기반으로 재계산.
+    // 위에서 result.pd_score (backend bbox-ROI 계산값) 으로 초기 렌더했지만,
+    // viewer.detectionCells 는 polygon 정밀 필터링되어 패널/시각화와 어긋난다.
+    // _updateResultCounts 가 _updatePdScoreDisplay 까지 다시 호출해 일관성을 맞춘다.
+    _updateResultCounts();
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -3435,6 +3440,9 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     }
 
     buildResultList(result);
+    // HER2/Allred/KI-67 스코어를 polygon-ROI + confidence 필터 기반으로 재계산
+    // (위 초기 렌더는 backend 의 bbox-ROI 결과라 패널/시각화와 어긋남).
+    _updateResultCounts();
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
