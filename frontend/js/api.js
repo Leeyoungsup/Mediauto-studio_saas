@@ -374,6 +374,50 @@ export const api = {
         await _ensureMediaTicket();
     },
 
+    /**
+     * 썸네일 <img> 에 attach 하는 헬퍼 — 401(만료된 mt) 로딩 실패 시 새 티켓으로 1회 재시도.
+     *
+     * 페이지를 10분 이상 열어두면 처음 박힌 mt 가 만료되어 lazy-load / 캐시 미스 fetch 가
+     * 401 로 떨어진다. _ensureMediaTicket() 은 백그라운드 변수만 갱신하고 이미 DOM 에 박힌
+     * src 는 안 바뀌므로 onerror 에서 직접 교체해 준다.
+     *
+     * fn_on_final_error: 재시도까지 실패한 경우만 호출 (예: 깨진 아이콘 숨김).
+     *
+     * 사용법:
+     *   const img = document.createElement('img');
+     *   img.src = api.thumbnailUrlByName(name, path, 200);
+     *   api.attachMediaImageRetry(img,
+     *       () => api.thumbnailUrlByName(name, path, 200),
+     *       () => { img.style.display = 'none'; });
+     */
+    attachMediaImageRetry(img_el, fn_build_url, fn_on_final_error) {
+        if (!img_el || typeof fn_build_url !== 'function') return;
+        let bool_retried = false;
+        const on_final = () => {
+            if (typeof fn_on_final_error === 'function') {
+                try { fn_on_final_error(); } catch (_) {}
+            }
+        };
+        img_el.addEventListener('error', async () => {
+            if (bool_retried) {                // 1회만 재시도 — 무한 루프 방지
+                on_final();
+                return;
+            }
+            bool_retried = true;
+            try {
+                await _ensureMediaTicket();    // 새 티켓 강제 발급 / 갱신
+                const str_new_url = fn_build_url();
+                if (str_new_url && str_new_url !== img_el.src) {
+                    img_el.src = str_new_url;
+                } else {
+                    on_final();
+                }
+            } catch (_) {
+                on_final();
+            }
+        });
+    },
+
     // ── 타일 ──
 
     /** 타일 이미지 URL (프리제네레이트된 정적 타일).

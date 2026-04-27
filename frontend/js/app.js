@@ -2315,8 +2315,14 @@ async function loadSlideList() {
             thumb.className = 'slide-thumb';
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
-            thumb.src = api.thumbnailUrlByName(s.filename, currentBrowsePath, 96);
-            thumb.onerror = () => { thumb.style.display = 'none'; };
+            // closure 캡처 — currentBrowsePath 가 나중에 바뀌어도 이 썸네일은 처음 경로 유지.
+            const str_thumb_filename = s.filename;
+            const str_thumb_path = currentBrowsePath;
+            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96);
+            // 401 (만료된 mt) 시 새 티켓으로 1회 재시도 후 그래도 실패하면 숨김.
+            api.attachMediaImageRetry(thumb,
+                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96),
+                () => { thumb.style.display = 'none'; });
 
             const name = document.createElement('div');
             name.className = 'slide-list-name';

@@ -142,12 +142,16 @@
     }
 
     // ── Render recent slide card ──
+    function _buildThumbUrl(filename, relPath, token) {
+        return `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(relPath || '')}&size=200&mt=${token}`;
+    }
+
     function renderRecentCard(slide, mediaToken) {
         const card = document.createElement('a');
         card.className = 'recent-card';
         card.href = `/app.html?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
 
-        const thumbUrl = `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}&size=200&mt=${mediaToken}`;
+        const thumbUrl = _buildThumbUrl(slide.filename, slide.rel_path, mediaToken);
 
         const aiBadges = (slide.ai_done || [])
             .map(k => {
@@ -171,6 +175,21 @@
                 <span style="margin-left:auto">${formatTimeAgo(slide.last_opened_at)}</span>
             </div>
         `;
+
+        // 페이지를 오래 열어두면 mediaToken 이 만료(10분)되어 lazy-load / 캐시 미스 fetch 가
+        // 401 로 떨어진다. 첫 error 에서 새 티켓으로 1회 재시도.
+        const img = card.querySelector('img');
+        if (img) {
+            let bool_retried = false;
+            img.addEventListener('error', async () => {
+                if (bool_retried) return;
+                bool_retried = true;
+                const str_new_token = await getMediaTicket();
+                if (str_new_token && str_new_token !== mediaToken) {
+                    img.src = _buildThumbUrl(slide.filename, slide.rel_path, str_new_token);
+                }
+            });
+        }
         return card;
     }
 
