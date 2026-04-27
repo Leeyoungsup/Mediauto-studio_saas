@@ -132,9 +132,12 @@ export class TileViewer {
         this._highlightedCellIdxSet = null; // Alt+Drag 다중 선택 셀 Set
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
         this.onCellsMultiEditRequested = null; // (indices, cells, screenX, screenY) callback
+        this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback — Shift+click
         this.onCellEdited = null;        // 편집 후 콜백
         // Alt+Drag 라쏘 상태
         this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
+        // Shift+click 셀 추가 — mousedown 시 위치 기록, mouseup 에서 단일 클릭 확정 시 콜백.
+        this._shiftAddPending = null;  // { sx, sy, cx, cy, clientX, clientY }
         this._lassoActive = false;
         this._lassoPoints = [];    // [[sx, sy], ...] scene 좌표
         // Undo/Redo (셀 편집)
@@ -496,6 +499,18 @@ export class TileViewer {
                 return;
             }
 
+            // Shift + 좌클릭: 새 셀 추가 (drawMode 가 아닌 경우만 — drawMode 는 자체 click 처리).
+            // detection 결과가 있을 때만 의미 — class_names 가 결정되어 있어야 클래스 선택 가능.
+            if (e.shiftKey && e.button === 0 && !this.drawMode &&
+                    this.onCellAddRequested && this.detectionCells.length > 0) {
+                this._shiftAddPending = {
+                    sx, sy, cx, cy,
+                    clientX: e.clientX, clientY: e.clientY,
+                };
+                e.preventDefault();
+                return;
+            }
+
             // 그리기 모드
             if (this.drawMode && e.button === 0 && !e.ctrlKey) {
                 this._onDrawMouseDown(sx, sy, cx, cy, e);
@@ -673,6 +688,18 @@ export class TileViewer {
                         this._highlightedCellIdx = hit.index;
                         this.requestRender();
                     }
+                }
+                return;
+            }
+
+            // Shift+click 종료 — 거의 안 움직였으면 셀 추가 콜백 (드래그면 무시).
+            if (this._shiftAddPending) {
+                const pending = this._shiftAddPending;
+                this._shiftAddPending = null;
+                const dx = e.clientX - pending.clientX;
+                const dy = e.clientY - pending.clientY;
+                if (Math.hypot(dx, dy) <= 4 && this.onCellAddRequested) {
+                    this.onCellAddRequested(pending.sx, pending.sy, pending.clientX, pending.clientY);
                 }
                 return;
             }
@@ -1659,6 +1686,32 @@ export class TileViewer {
         this._refreshAfterCellEdit();
     }
 
+    /**
+     * 새 셀을 detectionCells 끝에 추가 — Shift+click UX 용.
+     * confidence 는 1.0 (사용자가 수동으로 추가했으니 max). undo/redo 지원.
+     * 반환: 추가된 셀 객체.
+     */
+    addCell(sx, sy, classId, className = null) {
+        const cell = {
+            x: Number(sx),
+            y: Number(sy),
+            class_id: Number(classId),
+            class_name: className || `Class ${classId}`,
+            confidence: 1.0,
+        };
+        const int_index = this.detectionCells.length;
+        this._pushUndoOp({
+            type: 'add',
+            items: [{ index: int_index, cell }],
+        });
+        this.detectionCells.push(cell);
+        // 시각적 피드백 — 방금 추가한 셀을 highlight 해 사용자가 위치 확인 가능.
+        this._highlightedCellIdx = int_index;
+        this._highlightedCellIdxSet = null;
+        this._refreshAfterCellEdit();
+        return cell;
+    }
+
     /** 여러 셀 일괄 삭제 */
     deleteCells(listIndices) {
         if (!listIndices || listIndices.length === 0) return;
@@ -1720,6 +1773,13 @@ export class TileViewer {
                 c.class_id = it.oldClassId;
                 c.class_name = it.oldClassName;
             }
+        } else if (op.type === 'add') {
+            // 추가의 역연산 = 큰 인덱스부터 splice (인덱스 시프트 방지).
+            const sortedDesc = [...op.items].sort((a, b) => b.index - a.index);
+            for (const { index } of sortedDesc) {
+                if (index < 0 || index >= this.detectionCells.length) continue;
+                this.detectionCells.splice(index, 1);
+            }
         }
         this._redoStack.push(op);
         this._highlightedCellIdx = -1;
@@ -1744,6 +1804,12 @@ export class TileViewer {
                 const c = this.detectionCells[it.index];
                 c.class_id = it.newClassId;
                 c.class_name = it.newClassName;
+            }
+        } else if (op.type === 'add') {
+            const sortedAsc = [...op.items].sort((a, b) => a.index - b.index);
+            for (const { index, cell } of sortedAsc) {
+                const clamped = Math.max(0, Math.min(index, this.detectionCells.length));
+                this.detectionCells.splice(clamped, 0, cell);
             }
         }
         this._undoStack.push(op);

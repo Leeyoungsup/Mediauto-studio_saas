@@ -928,18 +928,23 @@ function _cellEditKeydown(e) {
         e.preventDefault();
         return;
     }
-    if (e.key === 'Delete' || e.key.toLowerCase() === 'd') {
+    // Delete/D 는 edit/multi 모드에서만 (add 모드엔 삭제할 셀이 없음).
+    if ((e.key === 'Delete' || e.key.toLowerCase() === 'd') && _cellEditCtx.mode !== 'add') {
         _doDeleteCell();
         e.preventDefault();
         return;
     }
-    // 숫자키 1~9, 0 → 클래스 변경
+    // 숫자키 1~9, 0 → 클래스 선택 (edit=변경, add=배치)
     if (/^[0-9]$/.test(e.key)) {
         const num = parseInt(e.key, 10);
         const slot = num === 0 ? 9 : num - 1;
         if (_cellEditCtx.classButtonOrder && slot < _cellEditCtx.classButtonOrder.length) {
             const targetCls = _cellEditCtx.classButtonOrder[slot];
-            _doChangeClass(targetCls);
+            if (_cellEditCtx.mode === 'add') {
+                _doAddCell(targetCls);
+            } else {
+                _doChangeClass(targetCls);
+            }
             e.preventDefault();
         }
     }
@@ -1106,6 +1111,115 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 }
 
 viewer.onCellEditRequested = _showCellEditPopup;
+
+// ── Shift+click 셀 추가 popup ──
+function _showCellAddPopup(sx, sy, screenX, screenY) {
+    _closeCellEditPopup();
+    if (!_lastDetectionResult) return;
+
+    const classNames = _lastDetectionResult.class_names || {};
+    const classColors = _lastDetectionResult.class_colors || {};
+
+    const popup = document.createElement('div');
+    popup.className = 'cell-edit-popup';
+    popup.style.cssText = `
+        position: fixed; z-index: 9999;
+        background: #ffffff; color: #222;
+        border: 1px solid #ccc; border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        padding: 10px 12px; min-width: 200px;
+        font-family: sans-serif; font-size: 12px;
+        user-select: none;
+    `;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    const headerLabel = document.createElement('span');
+    headerLabel.innerHTML = `<b>Add Cell</b>  (${Math.round(sx).toLocaleString()}, ${Math.round(sy).toLocaleString()})`;
+    header.appendChild(headerLabel);
+    popup.appendChild(header);
+
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep);
+
+    const label = document.createElement('div');
+    label.textContent = 'Class:';
+    label.style.cssText = 'margin-bottom:4px;';
+    popup.appendChild(label);
+
+    const sortedClsIds = Object.keys(classNames)
+        .map(k => parseInt(k, 10))
+        .sort((a, b) => a - b);
+
+    const classButtonOrder = [];
+    let keyIdx = 0;
+    for (const cid of sortedClsIds) {
+        const name = classNames[String(cid)];
+        const colorCss = _toCssColor(classColors[String(cid)]);
+        const keyLabel = keyIdx < 10 ? String((keyIdx + 1) % 10) : '';
+
+        const btn = document.createElement('button');
+        btn.style.cssText = `
+            display:flex;align-items:center;gap:0;
+            width:100%;margin:3px 0;padding:0;
+            background:#f0f0f0;color:#222;
+            border:1px solid #ccc;border-radius:4px;
+            font-size:12px;cursor:pointer;text-align:left;
+            box-sizing:border-box;overflow:hidden;
+            min-height:30px;
+        `;
+        btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
+        btn.onmouseout = () => { btn.style.background = '#f0f0f0'; btn.style.color = '#222'; };
+
+        const stripe = document.createElement('span');
+        stripe.style.cssText = `flex:0 0 12px;align-self:stretch;
+            background:${colorCss};display:block;`;
+        const sw = document.createElement('span');
+        sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;
+            background:${colorCss};border:1px solid #333;
+            display:inline-block;margin-left:8px;`;
+        const text = document.createElement('span');
+        text.textContent = keyLabel ? `[${keyLabel}] ${name}` : name;
+        text.style.cssText = 'flex:1;padding:6px 10px;';
+
+        btn.append(stripe, sw, text);
+        btn.addEventListener('click', () => _doAddCell(cid));
+        popup.appendChild(btn);
+
+        classButtonOrder.push(cid);
+        keyIdx++;
+    }
+
+    document.body.appendChild(popup);
+
+    const pw = popup.offsetWidth;
+    const ph = popup.offsetHeight;
+    let px = screenX;
+    let py = screenY;
+    if (px + pw > window.innerWidth) px = window.innerWidth - pw - 8;
+    if (py + ph > window.innerHeight) py = window.innerHeight - ph - 8;
+    popup.style.left = `${Math.max(4, px)}px`;
+    popup.style.top = `${Math.max(4, py)}px`;
+
+    _cellEditPopupEl = popup;
+    // _cellEditCtx 에 mode='add' 로 표시 — 숫자 단축키도 작동.
+    _cellEditCtx = { mode: 'add', sx, sy, classNames, classColors, classButtonOrder };
+
+    setTimeout(() => {
+        document.addEventListener('mousedown', _outsideCellEditClick, true);
+        document.addEventListener('keydown', _cellEditKeydown, true);
+    }, 0);
+}
+
+function _doAddCell(classId) {
+    if (!_cellEditCtx || _cellEditCtx.mode !== 'add') return;
+    const name = _cellEditCtx.classNames[String(classId)] || `Class ${classId}`;
+    viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
+    _closeCellEditPopup();
+}
+
+viewer.onCellAddRequested = _showCellAddPopup;
 
 function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
     _closeCellEditPopup();
