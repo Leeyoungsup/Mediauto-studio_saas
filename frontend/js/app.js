@@ -1822,10 +1822,16 @@ function _updateKi67ScoreDisplay(counts) {
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
-    // 클래스별 카운트 + total (비율 계산용)
+    // ROI 가 지정된 추론에서는 viewer.setDetectionResults 가 폴리곤 내부 셀만 남긴다.
+    // result.cells (원본 = 전체 슬라이드) 가 아니라 그 필터링 결과로 카운트해야
+    // 영역 시각화와 패널 숫자가 일치한다.
+    const list_cells_for_count = (viewer.detectionCells && viewer.detectionCells.length)
+        ? viewer.detectionCells
+        : (result.cells || []);
+
     const counts = {};
     let total = 0;
-    for (const cell of result.cells) {
+    for (const cell of list_cells_for_count) {
         counts[cell.class_id] = (counts[cell.class_id] || 0) + 1;
         total++;
     }
@@ -1857,7 +1863,8 @@ function buildResultList(result) {
 
     const totalCount = document.createElement('span');
     totalCount.className = 'class-count';
-    totalCount.textContent = result.total_cells.toLocaleString();
+    // ROI 필터링 결과(total)와 일관성 — result.total_cells 는 전체 슬라이드 합이라 ROI 추론 시 어긋난다.
+    totalCount.textContent = total.toLocaleString();
 
     totalItem.append(totalCb, totalName, totalCount);
     $resultList.appendChild(totalItem);
