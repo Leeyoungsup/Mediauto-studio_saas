@@ -175,7 +175,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 const AI_MODEL_HELP = {
     'hne-tab': {
         title: 'HE-Fit — H&E Cell Detection',
-        body: 'H&E 염색 슬라이드에서 개별 세포를 검출하고 8가지 클래스로 분류합니다 (Neutrophil, Epithelial, Lymphocyte, Plasma, Eosinophil, Connective tissue, Tumor Epithelial, Benign Epithelial). Tumor Proportion (Tumor/(Tumor+Benign)) 을 자동 계산합니다. 조직 타입 (Breast/Stomach/Other) 에 따라 전용 가중치를 사용합니다.',
+        body: 'H&E 염색 슬라이드에서 개별 세포를 검출하고 8가지 클래스로 분류합니다 (Neutrophil, Epithelial, Lymphocyte, Plasma, Eosinophil, Stromal cell, Tumor Epithelial, Benign Epithelial). Tumor Proportion (Tumor/(Tumor+Benign)) 을 자동 계산합니다. 조직 타입 (Breast/Stomach/Other) 에 따라 전용 가중치를 사용합니다.',
     },
     'vs-tab': {
         title: 'VS-IHC — Virtual Staining',

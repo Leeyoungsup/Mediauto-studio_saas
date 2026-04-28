@@ -25,7 +25,7 @@ CLASS_NAMES = {
     2: "Lymphocyte",
     3: "Plasma",
     4: "Eosinophil",
-    5: "Connective tissue",
+    5: "Stromal cell",
     6: "Tumor Epithelial",
     7: "Benign Epithelial",
 }
@@ -36,7 +36,7 @@ CLASS_COLORS = {
     2: "#0000FF",  # Lymphocyte
     3: "#FFFF00",  # Plasma
     4: "#8A2BE2",  # Eosinophil
-    5: "#808080",  # Connective tissue
+    5: "#808080",  # Stromal cell
     6: "#FF0000",  # Tumor Epithelial
     7: "#00FF00",  # Benign Epithelial
 }

@@ -112,7 +112,7 @@ def visualize_ground_truth_and_prediction_separately(model, dataset, idx=0, conf
             color = 'skyblue'
         elif class_id == 4: #Eosinophil
             color = 'blue'
-        elif class_id == 5: #Connective tissue
+        elif class_id == 5: #Stromal cell
             color = 'yellow'
         # 중심점 표시
         # 중심점 좌표 계산
@@ -155,7 +155,7 @@ def visualize_ground_truth_and_prediction_separately(model, dataset, idx=0, conf
                     color = 'skyblue'
                 elif cls_id.item() == 4: #Eosinophil
                     color = 'blue'
-                elif cls_id.item() == 5: #Connective tissue
+                elif cls_id.item() == 5: #Stromal cell
                     color = 'yellow'
                 # 중심점 표시
                 center_x = (x1 + x2)//2
@@ -187,7 +187,7 @@ def visualize_ground_truth_and_prediction_separately(model, dataset, idx=0, conf
         patches.Patch(color='red', label='Lymphocyte'),
         patches.Patch(color='skyblue', label='Plasma'),
         patches.Patch(color='blue', label='Eosinophil'),
-        patches.Patch(color='yellow', label='Connective tissue'),
+        patches.Patch(color='yellow', label='Stromal cell'),
     ]
     fig.legend(handles=legend_elements, loc='lower center', ncol=3, 
                bbox_to_anchor=(0.5, 0.02), fontsize=12)

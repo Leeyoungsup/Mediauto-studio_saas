@@ -6,7 +6,7 @@
 
 const DEFAULT_CLASS_NAMES = {
     0: 'Neutrophil', 1: 'Epithelial', 2: 'Lymphocyte', 3: 'Plasma',
-    4: 'Eosinophil', 5: 'Connective tissue', 6: 'Tumor Epithelial', 7: 'Benign Epithelial',
+    4: 'Eosinophil', 5: 'Stromal cell', 6: 'Tumor Epithelial', 7: 'Benign Epithelial',
 };
 const DEFAULT_CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
