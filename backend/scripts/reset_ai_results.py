@@ -38,22 +38,31 @@ from app.slide_store import LIST_AI_MODEL_KEYS
 LIST_AI_SUBDIRS = list(LIST_AI_MODEL_KEYS)  # ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]
 
 
-def _empty_ai_results() -> dict:
+def _empty_ai_results_for(list_models) -> dict:
+    """선택한 모델만 빈 상태로 — 나머지 모델 결과는 건드리지 않음."""
     return {
         str_key: {
             "bool_has_result": False,
             "list_variants": [],
             "dt_updated_at": None,
         }
-        for str_key in LIST_AI_MODEL_KEYS
+        for str_key in list_models
     }
 
 
-def _cleanup_ai_caches_for_stem(path_ai_root: Path, str_stem: str, bool_dry: bool) -> int:
+def _cleanup_ai_caches_for_stem(path_ai_root: Path, str_stem: str,
+                                  list_models, bool_full_legacy: bool,
+                                  bool_dry: bool) -> int:
+    """list_models 에 해당하는 서브디렉토리만 정리.
+    bool_full_legacy=True 면 ai_results 루트의 레거시 <stem>_* 파일도 같이 제거
+    (전체 모델 reset 일 때만 안전).
+    """
     int_removed = 0
     if not path_ai_root.exists():
         return 0
-    list_sub_dirs = [path_ai_root] + [path_ai_root / s for s in LIST_AI_SUBDIRS]
+    list_sub_dirs = [path_ai_root / s for s in list_models]
+    if bool_full_legacy:
+        list_sub_dirs.insert(0, path_ai_root)  # 루트 레거시 캐시도 같이
     for path_dir in list_sub_dirs:
         if not path_dir.exists() or not path_dir.is_dir():
             continue
@@ -74,13 +83,32 @@ def _cleanup_ai_caches_for_stem(path_ai_root: Path, str_stem: str, bool_dry: boo
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--models", default=None,
+        help=("쉼표로 구분된 모델 키 (HE-Fit,PD-Score,Precise-IHC,VS-IHC). "
+              "지정하지 않으면 전체 리셋."),
+    )
     args = parser.parse_args()
     bool_dry = args.dry_run
+
+    # 어떤 모델을 리셋할지 결정.
+    if args.models:
+        list_models = [s.strip() for s in args.models.split(",") if s.strip()]
+        list_invalid = [m for m in list_models if m not in LIST_AI_MODEL_KEYS]
+        if list_invalid:
+            print(f"[reset_ai_results] 잘못된 모델 키: {list_invalid}")
+            print(f"  허용: {LIST_AI_MODEL_KEYS}")
+            return 2
+    else:
+        list_models = list(LIST_AI_MODEL_KEYS)
+    bool_full_reset = (set(list_models) == set(LIST_AI_MODEL_KEYS))
 
     print(f"[reset_ai_results] {'DRY-RUN' if bool_dry else 'LIVE'} mode")
     print(f"[reset_ai_results] MongoDB : {settings.MONGO_URI}")
     print(f"[reset_ai_results] DB name : {settings.MONGO_DB_NAME}")
     print(f"[reset_ai_results] AI_DIR  : {settings.AI_RESULTS_DIR}")
+    print(f"[reset_ai_results] models  : {list_models}"
+          f" {'(전체)' if bool_full_reset else '(부분)'}")
 
     client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
@@ -93,40 +121,85 @@ def main() -> int:
     int_total_files = 0
     int_db_updated = 0
 
+    # 부분 리셋 시 DB 업데이트는 선택한 모델 키만 명시적으로 비움 (다른 모델 결과는 보존).
+    dict_set_partial = {}
+    for str_key in list_models:
+        dict_set_partial[f"dict_ai_results.{str_key}"] = {
+            "bool_has_result": False,
+            "list_variants": [],
+            "dt_updated_at": None,
+        }
+
     for dict_doc in list_slides:
         str_filename = dict_doc.get("str_filename", "")
         str_rel_path = dict_doc.get("str_rel_path", "")
         str_stem = Path(str_filename).stem
 
-        int_removed = _cleanup_ai_caches_for_stem(path_ai_root, str_stem, bool_dry)
+        int_removed = _cleanup_ai_caches_for_stem(
+            path_ai_root, str_stem, list_models, bool_full_reset, bool_dry,
+        )
         if int_removed:
             print(f"  * {str_rel_path}/{str_filename}  —  {int_removed}개 AI 파일/폴더")
             int_total_files += int_removed
 
         if not bool_dry:
-            db.slides.update_one(
-                {"_id": dict_doc["_id"]},
-                {"$set": {
-                    "dict_ai_results": _empty_ai_results(),
-                    "dt_updated_at": datetime.now(timezone.utc),
-                }},
-            )
+            if bool_full_reset:
+                db.slides.update_one(
+                    {"_id": dict_doc["_id"]},
+                    {"$set": {
+                        "dict_ai_results": _empty_ai_results_for(LIST_AI_MODEL_KEYS),
+                        "dt_updated_at": datetime.now(timezone.utc),
+                    }},
+                )
+            else:
+                # 부분 리셋: 선택한 모델 키만 덮어씀, 나머지 모델 결과는 그대로.
+                db.slides.update_one(
+                    {"_id": dict_doc["_id"]},
+                    {"$set": {**dict_set_partial,
+                              "dt_updated_at": datetime.now(timezone.utc)}},
+                )
         int_db_updated += 1
 
-    # user_ai_edits 는 한 번에 전부 제거 (DB + 파일시스템 미러)
-    if bool_dry:
-        int_edits = db.user_ai_edits.count_documents({})
-    else:
-        int_edits = db.user_ai_edits.delete_many({}).deleted_count
-
-    path_user_edits_fs = path_ai_root / "user_edits"
-    if path_user_edits_fs.exists():
+    # user_ai_edits — 부분 리셋이면 해당 ai_mode 만 삭제, 전체 리셋이면 컬렉션 통째로.
+    if bool_full_reset:
         if bool_dry:
-            print(f"  [dry] would delete {path_user_edits_fs}")
+            int_edits = db.user_ai_edits.count_documents({})
         else:
-            shutil.rmtree(path_user_edits_fs, ignore_errors=True)
+            int_edits = db.user_ai_edits.delete_many({}).deleted_count
+
+        path_user_edits_fs = path_ai_root / "user_edits"
+        if path_user_edits_fs.exists():
+            if bool_dry:
+                print(f"  [dry] would delete {path_user_edits_fs}")
+            else:
+                shutil.rmtree(path_user_edits_fs, ignore_errors=True)
+    else:
+        if bool_dry:
+            int_edits = db.user_ai_edits.count_documents(
+                {"str_ai_mode": {"$in": list_models}}
+            )
+        else:
+            int_edits = db.user_ai_edits.delete_many(
+                {"str_ai_mode": {"$in": list_models}}
+            ).deleted_count
+
+        # 사용자 편집본 폴더는 user_edits/{user_id}/{ai_mode}/ 구조 — 선택 모델만 정리.
+        path_user_edits_fs = path_ai_root / "user_edits"
+        if path_user_edits_fs.exists():
+            for path_user_dir in path_user_edits_fs.iterdir():
+                if not path_user_dir.is_dir():
+                    continue
+                for str_model in list_models:
+                    path_mode_dir = path_user_dir / str_model
+                    if not path_mode_dir.exists():
+                        continue
+                    if bool_dry:
+                        print(f"  [dry] would delete {path_mode_dir}")
+                    else:
+                        shutil.rmtree(path_mode_dir, ignore_errors=True)
 
     print("\n───────── summary ─────────")
+    print(f"  models                   : {list_models}")
     print(f"  slides processed         : {len(list_slides)}")
     print(f"  ai_results items removed : {int_total_files}")
     print(f"  DB slides reset          : {int_db_updated}")
