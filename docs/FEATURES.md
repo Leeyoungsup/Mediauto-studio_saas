@@ -16,8 +16,10 @@
 9. [타일 프리제네레이션 워커](#9-타일-프리제네레이션-워커)
 10. [타일 디스크 쿼터 janitor](#10-타일-디스크-쿼터-janitor)
 11. [관리자 페이지](#11-관리자-페이지)
-12. [반응형 UI (모바일 / 태블릿)](#12-반응형-ui-모바일--태블릿)
-13. [UX 보조 기능](#13-ux-보조-기능)
+12. [회원가입·로그인 & 2차 인증 (MFA)](#12-회원가입로그인--2차-인증-mfa)
+13. [파일 무결성 (SHA-256)](#13-파일-무결성-sha-256)
+14. [반응형 UI (모바일 / 태블릿)](#14-반응형-ui-모바일--태블릿)
+15. [UX 보조 기능](#15-ux-보조-기능)
 
 ---
 
@@ -28,9 +30,20 @@
 ### 렌더링 파이프라인
 
 - **멀티레벨 타일 서빙** — OpenSlide 피라미드를 1024px JPEG 타일로 사전 생성. 뷰어는 HTTP GET으로 `/{slide_id}/{level}/{x}/{y}.jpeg` 타일을 요청.
-- **4단계 stage level** — 실제 WSI 레벨에서 중복 제거된 4개 줌 stage를 계산. 뷰어는 현재 줌에 가장 가까운 stage에서 타일을 가져오고 다른 stage 캐시를 fallback으로 사용.
-- **최상위 레벨 프리로드** — 슬라이드 로드 직후 가장 거친 레벨 전체(보통 1~16장)를 즉시 캐시. 확대할 때 블러 fallback을 즉시 제공 → "빈 셀" 경험 제거.
+- **3단계 stage 피라미드** — 모든 stage 는 level 0 에서 읽어 downsample 후 1024×1024 로 저장 (`STAGE_DOWNSAMPLES = [1, 4, 8]`). stage 2 의 8192×8192 영역을 한 번 read 하면 그 버퍼에서 stage 0/1/2 타일 **69개를 한 번에 파생**해 I/O 를 최소화한다.
+- **3-stage 클라이언트 프리로드** — 슬라이드 열 때 3개 stage 전체 타일이 다운로드 완료될 때까지 로딩 오버레이 표시. 바 진행률은 클라이언트 다운로드 기준 → "바 100% = 화면 준비 완료" 와 일치.
+- **레벨 fallback** — 새 stage 타일이 도착하기 전엔 인접 stage 캐시를 스케일해서 그려 "검은 화면 없음". 새 타일은 250ms 페이드인.
+- **HTTP/1.1 동시 6 다운로드 캡** — 브라우저 per-origin 제한과 일치시켜 좀비 요청이 큐에 박히지 않도록 한다.
 - **ICC profile 적용** — 스캐너의 ICC profile을 타일 생성과 AI 분석 패치 로딩 양쪽에 일관 적용. 스캐너 색공간이 그대로 유지됨.
+
+### Hamamatsu NDP.view2 색 매칭 (선택 토글)
+
+ICC 프로파일이 임베드되지 않은 Hamamatsu NDPI 슬라이드는 표준 sRGB 변환만으론 NDP.view2 와 톤이 다르다. 두 가지 보정 layer 가 있다:
+
+1. **자동 LUT (raw 타일에 항상 적용)** — vendor=`hamamatsu` + ICC 부재일 때, 슬라이드 헤더의 `Target.White.Intensity` 와 γ=1.8 로 256-entry uint8 LUT 를 만들어 적용. `slide_manager`/`tile_generator`/`thumbnail-by-name` 이 모두 같은 callable 을 공유.
+2. **NDP fit 2차 보정 (사용자 토글)** — 뷰어 우측 패널의 "NDP 색보정 ON" 으로 활성화. 타일 URL 이 `/{slide_id}/ndp/{level}/{x}/{y}.jpeg` 로 전환되어 서버가 `tiles/<stem>/ndpmatch/...` 캐시 변형을 반환 (없으면 `apply_ndp_fit` 으로 즉석 생성·저장). 클라이언트 CPU 부담 0.
+
+`.complete` 마커 v3 JSON (version + ICC hash + applied flag) 으로 환경 이주 시 stale 캐시를 자동 감지하여 재생성한다.
 
 ### 조작
 
@@ -50,9 +63,19 @@
 
 사용자가 뷰어를 조작 중이면 AI 워커가 양보하는 메커니즘:
 
-- 타일 엔드포인트 진입 시 뷰어 활동 타임스탬프 갱신 (1.2초 grace window).
-- AI 추론 워커의 패치 로딩 루프는 뷰어 활동 체크 → 활성 시 최대 3초 양보.
+- 타일 엔드포인트 진입 시 뷰어 활동 타임스탬프 갱신 (`VIEWER_GRACE_SEC = 1.2`초 grace window).
+- AI 추론 워커의 패치 로딩 루프는 `wait_if_viewer_busy()` 체크 → 활성 시 최대 3초 양보 (40ms 폴링).
 - 결과: 큰 AI 작업 실행 중에도 뷰어 팬/줌이 끊기지 않음.
+
+### CPU 코어 파티셔닝 (Linux)
+
+`os.sched_setaffinity` 로 viewer / bg / ai 세 그룹의 ThreadPoolExecutor 를 코어에 핀닝한다:
+
+- **viewer (~67%)**: 타일 서빙 + HTTP 처리 풀
+- **bg (~17%)**: 백그라운드 타일 프리젠
+- **ai (~17%)**: AI 추론
+
+메인 프로세스 affinity 를 AI cores 로 두면 명시적 override 가 없는 모든 thread (uvicorn worker, AI 모듈의 `threading.Thread` 등) 가 자동으로 AI cores 를 상속한다. Linux 가 아니면 noop fallback. (예: 24코어 → viewer 16 / bg 4 / ai 4)
 
 ---
 
@@ -157,7 +180,7 @@
       "class_name": "Tumor Epithelial" }
   ],
   "class_names": { "0": "Neutrophil", "1": "Epithelial", "2": "Lymphocyte",
-                   "3": "Plasma",     "4": "Eosinophil", "5": "Connective tissue",
+                   "3": "Plasma",     "4": "Eosinophil", "5": "Stromal cell",
                    "6": "Tumor Epithelial", "7": "Benign Epithelial" },
   "class_colors": { "0": "#FF4500", "1": "#00FF00", ..., "6": "#FF0000", "7": "#00FF00" },
   "seg_data": {          // Stomach/Breast에서만 — null 가능
@@ -177,8 +200,16 @@
   - Tumor Analysis — Tumor/Benign ratio (Stomach/Breast only)
   - Spatial Heatmap — seg_data.overlays 렌더
   - Confidence Distribution — conf histogram
-- `Save` → 서버 캐시로 결과 덮어쓰기.
+- `Save` → **사용자별 편집본**으로 서버 저장. 원본 추론 캐시는 보존됨 (`user_ai_edits` 컬렉션 + 디스크 분리).
 - PDF Export 지원.
+
+### Sticky Class HUD (Shift)
+
+대량 셀 편집을 빠르게 하기 위해, 우측 패널에서 클릭한 클래스가 "sticky" 로 묶여 다음 셀 추가 시 기본값으로 사용된다. **Shift 키를 누른 동안** 마우스 우상단에 현재 sticky 클래스(색상 점 + 이름)가 HUD 로 표시된다. 슬라이드 전환 시 sticky 는 자동 해제된다.
+
+### 모델 결과 리셋
+
+우측 Detection Results 의 "Reset" 버튼 → 전체 또는 **선택한 모델만** 리셋 가능. 사용자 편집본만 폐기되고 서버의 원본 추론 캐시는 그대로 남는다.
 
 ---
 
@@ -557,11 +588,12 @@ cutoff = 14%
 
 ### 동작
 
-- `SCAN_INTERVAL_SECONDS=20` 주기로 `slides.find({bool_tiles_ready: {$ne: true}})` 스캔.
-- 오래된 업로드부터 순차 처리 — `run_in_executor`로 블로킹 OpenSlide 호출 오프로드.
-- 모든 stage level(4단계)을 거친 레벨부터 역순 생성 → 뷰어 첫 화면이 가장 빠르게 채워짐.
-- 완료 시 DB 플래그 + `dt_tiles_ready_at` 기록.
-- 실패/누락 파일 — 파일이 없어진 경우 `bool_tiles_ready=true`로 강제 마킹(무한 재시도 방지).
+- 시작 시 1회: DB 의 `bool_tiles_ready=true` 슬라이드 전체에 대해 `.complete` 마커 검증. 마커가 stale (legacy/version mismatch/ICC hash 불일치) 이면 tile dir 삭제 + DB 플래그 reset → 일반 스캔 루프가 재생성.
+- 이후 `SCAN_INTERVAL_SECONDS=20` 주기로 `slides.find({bool_tiles_ready: {$ne: true}})` 스캔.
+- 오래된 업로드부터 순차 처리 — `bg_executor` (cpu_layout 의 핀닝된 백그라운드 풀) 에서 블로킹 OpenSlide 호출 실행.
+- **3-stage 피라미드를 stage 2 → stage 1 → stage 0 한 번의 read_region 으로 동시에 생성** (69 타일/1 read).
+- 완료 시 DB 플래그 + `dt_tiles_ready_at` + `.complete` 마커(version + ICC hash + applied flag) JSON 기록.
+- 실패/누락 파일 — 파일이 없어진 경우 `bool_tiles_ready=true`로 강제 마킹(무한 재시도 방지). 부분 실패 시 미완 tile dir 즉시 삭제.
 
 ### auto_ai와 조율
 
@@ -625,7 +657,68 @@ admin 역할만 접근 가능. 4개 탭.
 
 ---
 
-## 12. 반응형 UI (모바일 / 태블릿)
+## 12. 회원가입·로그인 & 2차 인증 (MFA)
+
+### 회원가입
+
+- `POST /api/auth/register` — 아이디(4~30자, `^[a-zA-Z0-9_]{4,30}$`) + 비밀번호(대/소/숫/특수 8자+) + 이름 + 부서.
+- **첫 가입자**는 자동으로 `admin` + `approved` + `is_active=true` (부트스트랩).
+- 이후 가입은 `viewer` + `pending` + `is_active=false` → 관리자 승인 후에만 로그인 가능.
+
+### 로그인
+
+- 아이디/비밀번호 → 5회 실패 시 30분 계정 잠금. 잠금 시간 경과 후 자동 해제.
+- **계정 열거 방지** — 비밀번호 검증을 먼저, 승인 상태 검증은 그 다음. 공격자가 아이디만으로 가입 여부를 탐색하지 못함.
+- 로그인 성공 시 access(15분) + refresh(7일) 토큰 발급. fire-and-forget 으로 IP geo enrichment.
+
+### 2차 인증 (TOTP)
+
+선택 활성화. RFC 6238 TOTP (HMAC-SHA1, 6자리, 30초 step) — pyotp 등 외부 의존성 없이 자체 구현.
+
+1. 사용자가 `POST /api/auth/mfa/setup` 호출 → 시드 생성 + 사용자 문서에 AES-256-GCM 암호화 저장. 응답으로 `otpauth://` URI (Google Authenticator 등 QR 등록용).
+2. `POST /api/auth/mfa/verify {str_totp_code}` — 첫 코드 검증 통과 시 `bool_mfa_enabled=true` 활성.
+3. 이후 `/login` 응답 분기:
+   - 비밀번호만 맞고 코드 미제출 → `202 {bool_mfa_required: true}` (토큰 미발급)
+   - 코드까지 맞으면 → 일반 토큰 응답
+4. `POST /api/auth/mfa/disable` — 활성 세션에서 즉시 비활성. 시드 폐기.
+5. 검증 시 ±30초 (1 step) 시간 오차 허용. 실패 시 `user.mfa_failed` 감사 로그.
+
+### 비밀번호 변경
+
+- `POST /api/auth/change-password` — 현재 비밀번호 재확인 후 변경.
+- 비밀번호 변경 직후 **모든 세션 강제 폐기** (다른 디바이스 자동 로그아웃).
+
+### 토큰 자동 관리 (프론트)
+
+- `_refreshTokenIfNeeded` — 만료 2분 전 자동 갱신. 동시 호출은 싱글톤 프라미스로 직렬화 → 서버의 reuse-detection 오인 방지.
+- 30초 백그라운드 타이머가 `<img src>` 만 보고 있어도 토큰 사전 갱신.
+- 401 발생 시 강제 refresh 후 1회 재시도 → 실패하면 그때 로그인 페이지로.
+- **Refresh rotation grace 5분** — 모바일 백그라운드 탭이 깨어나 이전 토큰으로 재시도해도 5분 안엔 정상 처리.
+
+---
+
+## 13. 파일 무결성 (SHA-256)
+
+### 업로드 시 계산
+
+청크 조립 단계에서 **스트리밍**으로 SHA-256 을 계산해 `slides.str_sha256` 에 저장. 8 KB 블록 누적 → 20 GB 슬라이드도 일정 메모리. 기존 파일 재오픈 시 체크섬이 비어 있으면 한 번 더 디스크 read 로 보완.
+
+### 검증 API
+
+- `GET /api/slides/{slide_id}/verify-integrity` — 디스크 파일을 다시 읽어 재계산한 hash 와 DB 저장값 비교.
+- 응답: `{slide_id, filename, str_stored_hash, str_current_hash, bool_integrity_ok}`.
+- 저장값이 비어 있던 경우 이번 호출에서 저장 + `bool_integrity_ok=true`.
+- 21 CFR Part 11 11.10(c) 의 기술적 근거.
+
+### 감사 로그 HMAC 체인 검증
+
+- `GET /api/users/audit-logs/verify-chain?int_limit=N` — 최근 N 건의 HMAC 체인을 순회 검증.
+- 응답: `{int_total_checked, int_valid, int_broken, bool_chain_intact, list_broken_ids}`.
+- 중간 로그가 변조/삭제되면 체인이 끊어져 즉시 감지.
+
+---
+
+## 14. 반응형 UI (모바일 / 태블릿)
 
 `@media (max-width: 900px)` 기준:
 
@@ -639,7 +732,7 @@ admin 역할만 접근 가능. 4개 탭.
 
 ---
 
-## 13. UX 보조 기능
+## 15. UX 보조 기능
 
 ### 마우스 좌표 오버레이
 
@@ -655,6 +748,9 @@ admin 역할만 접근 가능. 4개 탭.
 | -- | ---- |
 | ESC | 그리기 모드 해제 / 모달 닫기 |
 | +/- | 확대/축소 |
+| Shift (홀드) | 마우스 우상단에 현재 sticky 클래스 HUD 표시 (셀 추가 모드에서) |
+| Shift+A | sticky 클래스 다음 후보로 순회 |
+| Delete / D | edit/multi 모드에서 선택 셀 삭제 |
 
 ### 자동 재로그인 방어
 
@@ -678,31 +774,35 @@ admin 역할만 접근 가능. 4개 탭.
 
 ```
 POST   /api/auth/register               회원가입 (첫 사용자만 즉시 admin)
-POST   /api/auth/login                  아이디/비밀번호 로그인
+POST   /api/auth/login                  아이디/비밀번호 로그인 (+ TOTP 코드)
 POST   /api/auth/refresh                토큰 갱신 (rotation + reuse 탐지)
 POST   /api/auth/logout                 세션 전체 폐기
 GET    /api/auth/me                     현재 사용자
-POST   /api/auth/change-password        비밀번호 변경
+POST   /api/auth/change-password        비밀번호 변경 (모든 세션 폐기)
 GET    /api/auth/media-ticket           단기 HMAC 미디어 티켓 발급
+POST   /api/auth/mfa/setup              TOTP 시드 생성 + otpauth URI 반환
+POST   /api/auth/mfa/verify             첫 TOTP 코드 검증 → MFA 활성화
+POST   /api/auth/mfa/disable            MFA 비활성화
+GET    /api/auth/mfa/status             현재 MFA 활성 여부
 ```
 
 ### 사용자 (Admin 전용)
 
 ```
-GET    /api/users/list                  사용자 목록
-GET    /api/users/pending                승인 대기
-POST   /api/users/approve                승인 (before/after 감사 기록)
-POST   /api/users/reject                 거부 (before/after 감사 기록)
-POST   /api/users/create                 직접 생성
-POST   /api/users/update                 수정 (before/after 감사 기록)
-DELETE /api/users/delete/{user_id}       삭제 (before 스냅샷 감사 기록)
-POST   /api/users/role                   역할 변경 (before/after 감사 기록)
-POST   /api/users/toggle-active          활성 토글 (before/after 감사 기록)
-POST   /api/users/unlock/{user_id}       잠금 해제 (before/after 감사 기록)
-GET    /api/users/audit-logs             원시 감사 로그
-GET    /api/users/audit-logs/verify-chain  HMAC 체인 무결성 검증
-GET    /api/users/activity/logins        로그인 활동
-GET    /api/users/{user_id}/activity     사용자별 상세 활동
+GET    /api/users/list                          사용자 목록 (페이지네이션 + 필터)
+GET    /api/users/pending                        승인 대기
+POST   /api/users/approve                        승인 (before/after 감사 기록)
+POST   /api/users/reject                         거부 (before/after 감사 기록)
+POST   /api/users/create                         직접 생성 (즉시 approved + active)
+POST   /api/users/update                         수정 (before/after 감사 기록)
+DELETE /api/users/delete/{user_id}               삭제 (before 스냅샷 감사 기록)
+POST   /api/users/role                           역할 변경 (before/after 감사 기록)
+POST   /api/users/toggle-active                  활성 토글 (before/after 감사 기록)
+POST   /api/users/unlock/{user_id}               잠금 해제 (before/after 감사 기록)
+GET    /api/users/audit-logs                     원시 감사 로그
+GET    /api/users/audit-logs/verify-chain        HMAC 체인 무결성 검증
+GET    /api/users/activity/logins                로그인 활동 페이지네이션
+GET    /api/users/{user_id}/activity             사용자별 상세 활동 (login/slide/ai)
 ```
 
 ### 슬라이드
@@ -723,19 +823,26 @@ POST   /api/slides/upload/chunk          청크 업로드
 POST   /api/slides/upload/complete       청크 업로드 완료
 GET    /api/slides/tile-progress/{id}    타일 생성 진행률
 GET    /api/slides/{id}/info             슬라이드 메타 정보
+GET    /api/slides/{id}/verify-integrity SHA-256 체크섬 재계산 + DB 비교
+GET    /api/slides/folder-tree           uploads/ 전체 폴더 트리 (flat list)
+GET    /api/slides/dashboard             대시보드 — 최근 슬라이드 + 통계
 GET    /api/slides/folder-config         폴더 AI 설정 조회
 POST   /api/slides/folder-config         폴더 AI 설정 저장 (not viewer)
 DELETE /api/slides/folder-config         폴더 AI 설정 삭제 (not viewer)
 DELETE /api/slides/{id}                  슬라이드 닫기
 POST   /api/slides/{id}/annotations/save annotation 저장 (not viewer)
 GET    /api/slides/{id}/annotations/load annotation 로드 (not viewer)
+GET    /api/slides/thumbnail-by-name     파일명 기반 썸네일 (미디어 티켓)
+GET    /api/slides/{id}/thumbnail        slide_id 기반 썸네일 (?ndp=true 지원)
+GET    /api/slides/{id}/preview          고해상도 프리뷰 (PDF용)
 ```
 
 ### 타일 (미디어 티켓 인증)
 
 ```
-GET    /api/tiles/{slide_id}/{level}/{x}/{y}.jpeg   타일 JPEG
-GET    /api/tiles/{slide_id}/stage-level            현재 stage level 정보
+GET    /api/tiles/{slide_id}/{level}/{x}/{y}.jpeg       raw 타일 (3-stage 피라미드)
+GET    /api/tiles/{slide_id}/ndp/{level}/{x}/{y}.jpeg   NDP 색 매칭 보정 변형 타일
+GET    /api/tiles/{slide_id}/stage-level                현재 stage 인덱스 정보
 ```
 
 ### AI
@@ -745,25 +852,36 @@ POST   /api/ai/detect                    HE-Fit (not viewer)
 POST   /api/ai/pd-score                  PD-Score (not viewer)
 POST   /api/ai/precise-ihc               Precise-IHC — HER2/ER_PR/KI_67 (not viewer)
 POST   /api/ai/virtual-stain             VS-IHC (not viewer)
-GET    /api/ai/virtual-stain/{id}/{type}.png  가상염색 PNG (미디어 티켓)
-GET    /api/ai/active-tasks              실행 중 태스크 목록
+GET    /api/ai/virtual-stain/{id}/{type}.png                       가상염색 PNG (전체)
+GET    /api/ai/virtual-stain/{id}/{type}/tile/{lv}/{x}_{y}.jpeg    VS 피라미드 타일 (미디어 티켓)
+GET    /api/ai/active-tasks              실행 중 태스크 목록 (슬라이드별 그룹)
 GET    /api/ai/task/{task_id}            태스크 진행률/상태
-POST   /api/ai/task/{task_id}/cancel     태스크 취소
+POST   /api/ai/task/{task_id}/cancel     태스크 취소 (워커가 다음 체크포인트에서 중단 + 부분 캐시 정리)
 GET    /api/ai/task/{task_id}/result     태스크 결과 조회
-POST   /api/ai/save-result               결과 수동 저장
+POST   /api/ai/save-result               사용자 편집본 저장 (원본 캐시 보존)
+GET    /api/ai/user-edits/list           슬라이드별 편집본 보유 사용자 목록
+GET    /api/ai/user-edits/load           특정 사용자 편집본 결과 로드
+DELETE /api/ai/user-edits                본인 편집본만 삭제 (타인 것은 거부)
 ```
 
 ## 부록 B — 캐시 디렉토리 구조
 
 ```
 backend/
+├── .secrets.json                                # 0600, git ignore
 ├── uploads/                                     # WSI 원본 (UPLOAD_DIR)
 │   ├── HnE/
 │   └── IHC/
 ├── tiles/                                       # 프리생성 JPEG 타일 (TILES_DIR)
-│   └── {slide_id}/
-│       ├── {level}_{x}_{y}.jpeg
-│       └── .complete                            # LRU mtime 마커
+│   └── {slide_stem}/
+│       ├── 0/{x}_{y}.jpeg                       # stage 0 (downsample 1)
+│       ├── 1/{x}_{y}.jpeg                       # stage 1 (downsample 4)
+│       ├── 2/{x}_{y}.jpeg                       # stage 2 (downsample 8)
+│       ├── ndpmatch/{level}/{x}_{y}.jpeg        # NDP 색 매칭 변형 (지연 생성)
+│       ├── ndpmatch/thumbnail.jpeg
+│       ├── thumbnail.jpeg                       # 썸네일
+│       ├── annotations.json                     # annotation
+│       └── .complete                            # JSON 마커 (version + ICC hash + LRU mtime)
 └── ai_results/                                  # AI 결과 캐시 (AI_RESULTS_DIR)
     ├── HE-Fit/
     │   └── {slide_stem}_HE-Fit_{tissue_type}.json
@@ -771,8 +889,10 @@ backend/
     │   └── {slide_stem}_PD-Score_{tissue_type}.json
     ├── Precise-IHC/
     │   └── {slide_stem}_Precise-IHC_{marker}.json   # marker: HER2, ER_PR, KI_67
-    └── VS-IHC/
-        ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.png
-        ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.json
-        └── tiles/{slide_stem}_{stain_type}_mpp{N.N}/
+    ├── VS-IHC/
+    │   ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.png
+    │   ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.json
+    │   └── tiles/{slide_stem}_{stain_type}_mpp{N.N}/{level}/{x}_{y}.jpeg
+    └── user_edits/                               # 사용자별 셀 편집본 (원본 캐시와 분리)
+        └── {user_id}/{ai_mode}/{slide_stem}_{variant}.json
 ```

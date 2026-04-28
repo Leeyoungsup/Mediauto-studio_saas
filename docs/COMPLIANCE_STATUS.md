@@ -1,6 +1,7 @@
+<!-- markdownlint-disable MD024 MD031 MD032 MD036 MD040 MD060 -->
 # MeDIAuto Studio SaaS — 기술 규제 충족 현황
 
-> 최종 업데이트: 2026-04-16
+> 최종 업데이트: 2026-04-29
 >
 > 대상 규격: IEC 62304 (의료기기 SW), ISO 14971 (위험관리), 21 CFR Part 11 (전자기록),
 > IEC 62443 (산업 사이버보안), ISO 13485 (품질경영시스템)
@@ -55,8 +56,10 @@
 |------|-----------|------|------|
 | CORS 제한 | IEC 62443, OWASP | **충족** | 환경변수 기반 화이트리스트 |
 | CSRF 방어 | OWASP, IEC 62443 | **충족** | Pure ASGI 미들웨어로 X-Requested-With 헤더 검증 (body 버퍼링 없음) |
-| Rate Limiting | IEC 62443-3-3 SR 7.1 | **충족** | Pure ASGI 미들웨어, IP별 슬라이딩 윈도우 (로그인 10/5분, API 200/분) |
-| HTTP 보안 헤더 | OWASP | **미충족** | X-Content-Type-Options, X-Frame-Options, CSP 등 미설정 |
+| Rate Limiting | IEC 62443-3-3 SR 7.1 | **충족** | Pure ASGI 미들웨어, IP별 고정 윈도우 (로그인 10/5분, API 200/분), TRUSTED_PROXIES 화이트리스트로 X-Forwarded-For 위조 방어 |
+| 미디어 URL 서명 | OWASP, IEC 62443 | **충족** | `<img src>` 용 단기 HMAC 티켓 (10분 TTL) — JWT URL 노출 제거 |
+| 디렉토리 탈출 방어 | OWASP | **충족** | `_safe_subpath` (Path.is_relative_to) + `_safe_filename` (`/`, `\`, `..`, NUL, dotfile 거부) |
+| HTTP 보안 헤더 | OWASP | **미충족** | X-Content-Type-Options, X-Frame-Options, CSP 등 미설정 (리버스 프록시 레이어에서 추가 권장) |
 | API 입력 검증 | IEC 62304, OWASP | **충족** | Pydantic 모델 Field 제약조건, 정규식 패턴 검증 |
 
 ## 5. 소프트웨어 수명주기 (IEC 62304)
@@ -129,9 +132,9 @@
 | 접근 제어 및 인증 | 7 | 0 | 0 |
 | 감사 추적 | 4 | 2 | 0 |
 | 데이터 무결성 | 2 | 2 | 0 |
-| 네트워크 보안 | 4 | 0 | 1 |
+| 네트워크 보안 | 6 | 0 | 1 |
 | 소프트웨어 수명주기 | 0 | 2 | 2 |
 | 위험 관리 | 3 | 0 | 0 |
-| **합계** | **20** | **6** | **3** |
+| **합계** | **22** | **6** | **3** |
 
 > **P0~P1 기술 항목 전체 구현 완료.** 미충족 항목은 P2~P3 우선순위로 HTTP 보안 헤더, 자동화 테스트, CI/CD 파이프라인.

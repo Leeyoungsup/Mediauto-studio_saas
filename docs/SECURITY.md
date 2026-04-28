@@ -12,10 +12,12 @@
 5. [RBAC (역할 기반 접근 제어)](#5-rbac-역할-기반-접근-제어)
 6. [미디어 URL 서명 (HMAC 티켓)](#6-미디어-url-서명-hmac-티켓)
 7. [필드 레벨 암호화](#7-필드-레벨-암호화)
-8. [감사 로그 (Audit Trail)](#8-감사-로그-audit-trail)
-9. [네트워크 레이어](#9-네트워크-레이어)
-10. [성능 최적화와 보안 균형](#10-성능-최적화와-보안-균형)
-11. [알려진 한계 & 운영 가이드](#11-알려진-한계--운영-가이드)
+8. [TOTP 2차 인증 (MFA)](#8-totp-2차-인증-mfa)
+9. [감사 로그 (Audit Trail)](#9-감사-로그-audit-trail)
+10. [네트워크 레이어](#10-네트워크-레이어)
+11. [파일 무결성 (SHA-256 체크섬)](#11-파일-무결성-sha-256-체크섬)
+12. [성능 최적화와 보안 균형](#12-성능-최적화와-보안-균형)
+13. [알려진 한계 & 운영 가이드](#13-알려진-한계--운영-가이드)
 
 ---
 
@@ -190,7 +192,7 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 - **키**: `FIELD_ENCRYPTION_KEY`에서 base64url 디코드 후 32바이트 정렬.
 - **Nonce**: 매 암호화마다 `os.urandom(12)`로 새 값. **nonce 재사용은 GCM 보안을 파괴하므로 절대 재사용하지 않음.**
 - **저장 형식**: `base64url(nonce || ciphertext || tag)` — 단일 문자열.
-- **용도**: TOTP 비밀키 등 민감 필드. 현재는 유틸 제공 상태이며 모델별 적용은 점진적.
+- **현재 적용 필드**: `users.str_totp_secret_enc` (TOTP base32 시드). 평문 시드는 메모리 외부로 절대 나가지 않음.
 
 ### 한계
 
@@ -199,7 +201,35 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 
 ---
 
-## 8. 감사 로그 (Audit Trail)
+## 8. TOTP 2차 인증 (MFA)
+
+RFC 6238 TOTP — pyotp 의존 없이 [`app/totp.py`](../backend/app/totp.py) 에 직접 구현 (HMAC-SHA1, 6자리, 30초 step).
+
+### 활성화 플로우
+
+1. 로그인된 사용자가 `POST /api/auth/mfa/setup` 호출 → 서버가 16바이트 랜덤 시드 생성 + `users.str_totp_secret_enc` 에 AES-GCM 암호화 저장. 이 시점엔 `bool_mfa_enabled=false` 라 로그인 영향 없음.
+2. 응답으로 시드 + `otpauth://` URI 반환. 사용자는 Google Authenticator 등에 등록.
+3. `POST /api/auth/mfa/verify {str_totp_code}` — 첫 코드 검증 통과 시 `bool_mfa_enabled=true`.
+4. 이후 `/login` 응답이 분기:
+   - 평문 비밀번호만 맞고 `str_totp_code` 가 비어 있으면 → `202 {bool_mfa_required: true}` (토큰 미발급)
+   - 코드까지 맞으면 → 일반 토큰 응답
+5. `POST /api/auth/mfa/disable` — 활성 세션에서만 호출 가능. `bool_mfa_enabled=false` + 시드 폐기.
+
+### 검증 상세
+
+- `verify_totp(secret, code, window=1)` — 현재 step ± 1 step 허용 → 클라이언트 시계 ±30초 오차 흡수.
+- `hmac.compare_digest` 로 상수 시간 비교.
+- TOTP 실패 시 `user.mfa_failed` 감사 로그 기록.
+
+### 위협 모델
+
+- **시드 유출 (DB 탈취)**: 시드는 AES-256-GCM 암호화 상태로 저장 → `FIELD_ENCRYPTION_KEY` 까지 함께 유출돼야 의미 있음.
+- **시드 유출 (백업/덤프)**: 디스크 백업에 `.secrets.json` 이 포함되지 않으면 복호화 불가 — 백업 정책에 시크릿 분리 필수.
+- **시간 동기화 공격**: ±30초 window 만 허용. 더 넓히면 brute-force 위험 (10⁶ 코드 → window 확대 시 추측 공격 표면 증가).
+
+---
+
+## 9. 감사 로그 (Audit Trail)
 
 ### 기록 원칙
 
@@ -216,6 +246,12 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 | `user.login_failed` | 비밀번호 오류 (실패 횟수 포함) |
 | `user.login_locked` | 잠금 상태 로그인 시도 |
 | `user.login_pending` / `user.login_rejected` | 승인 전/거부된 계정의 로그인 시도 |
+| `user.logout` | 로그아웃 — revoke 된 세션 수 포함 |
+| `user.password_changed` | 비밀번호 변경 — 모든 세션 revoke |
+| `user.mfa_enabled` / `user.mfa_disabled` | TOTP MFA 활성/비활성 |
+| `user.mfa_failed` | TOTP 코드 검증 실패 |
+| `security.token_reuse_detected` | 알 수 없는 refresh token 재사용 — 사용자 전체 세션 revoke |
+| `security.refresh_stale_rotation` | grace window 지난 revoked 토큰 재요청 — 단건 401 |
 | `admin.user_approved` / `admin.user_rejected` | 관리자 승인/거부 (before/after 기록) |
 | `admin.user_created` | 관리자 사용자 생성 |
 | `admin.user_updated` | 관리자 사용자 수정 (변경 필드별 before/after) |
@@ -224,7 +260,7 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 | `admin.user_activated/deactivated` | 활성 토글 (before/after) |
 | `admin.user_unlocked` | 잠금 해제 (before/after) |
 | `slide.view` | 슬라이드 열기 — rel_path, filename 포함 |
-| `ai.analyze` | AI 4종 엔드포인트 호출 — model, variant 포함 |
+| `ai.analyze` | AI 4종 엔드포인트 호출 — model, variant, task_id 포함 |
 
 ### 21 CFR Part 11 변경 전/후 값 기록
 
@@ -250,7 +286,12 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 
 ### 클라이언트 IP 추출
 
-`get_client_ip()`는 `X-Forwarded-For` → `X-Real-IP` → `request.client.host` 순으로 추출. 리버스 프록시(Nginx 등) 뒤에서도 원 클라이언트 IP를 얻을 수 있다. **단 프록시가 이 헤더를 신뢰할 수 있게 설정한 경우에만** — 외부로 노출된 서버라면 직접 client.host를 쓰도록 조정해야 한다.
+`get_client_ip()`는 두 단계로 동작:
+
+1. TCP peer (`request.client.host`) 가 환경변수 `TRUSTED_PROXIES` 화이트리스트에 들어 있으면 → `X-Forwarded-For` (첫 항목) → `X-Real-IP` 헤더를 신뢰.
+2. 그 외에는 헤더를 무시하고 peer 주소만 반환.
+
+기본(빈 환경변수) 동작이 안전 측. 외부에 직접 노출된 서버에서 위조 헤더로 rate_limit 우회·감사 로그 IP 위조를 차단한다. 리버스 프록시 뒤에 두려면 프록시 IP 만 정확히 등록할 것.
 
 ### Geo Enrichment
 
@@ -263,24 +304,35 @@ MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 `get_curren
 
 ---
 
-## 9. 네트워크 레이어
+## 10. 네트워크 레이어
 
 ### CSRF 방어
 
 Pure ASGI 미들웨어로 구현. 상태 변경 요청(POST/PUT/PATCH/DELETE)에 `X-Requested-With` 헤더가 있는지 검증한다. `BaseHTTPMiddleware`를 사용하지 않고 ASGI scope의 headers를 직접 읽어 body 버퍼링 오버헤드를 제거했다.
 
 - 안전한 메서드(GET/HEAD/OPTIONS)는 검증 생략
-- 인증 경로(/api/auth/login, /api/auth/register)는 화이트리스트 제외
+- 인증 경로(`/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`, `/api/health`)는 화이트리스트 제외
 - 미디어 경로(tiles, 썸네일 등 GET 요청)는 해당 없음
 
 ### Rate Limiting
 
-Pure ASGI 미들웨어로 구현. IP별 슬라이딩 윈도우 방식:
+Pure ASGI 미들웨어로 구현. IP별 **고정 윈도우** 카운터 방식 (O(1) 판정, 메모리 최소):
 
-- **로그인 엔드포인트**: 10회/5분 (brute-force 방어)
+- **로그인 엔드포인트** (`/api/auth/login`, `/api/auth/register`): 10회/5분 (brute-force 방어)
 - **일반 API**: 200회/분
-- 인메모리 딕셔너리로 타임스탬프 관리, 주기적 만료 정리
-- `BaseHTTPMiddleware` 대신 순수 ASGI로 body 버퍼링 없음
+- 인메모리 딕셔너리 `{ip: (window_start, count)}`. 5,000 요청마다 만료된 윈도우 정리.
+- `BaseHTTPMiddleware` 대신 순수 ASGI로 body 버퍼링 없음.
+- **타일 / 썸네일 / virtual-stain 미디어**는 면제 — 인증(media ticket)으로 보호되며 뷰어 체감에 직결.
+
+> 윈도우 경계에 burst (10초 안에 윈도우 두 번에 걸쳐 2배 트래픽 가능) 가능성이 있으나 단일 프로세스 보안용으론 충분. 멀티 프로세스 배포 시 외부 store(Redis 등) 필요.
+
+### TRUSTED_PROXIES 화이트리스트
+
+`X-Forwarded-For` / `X-Real-IP` 헤더는 **위조 가능**하므로 직접 노출된 서버에서 그대로 신뢰하면 rate limit 우회·감사 로그 IP 위조가 가능하다. 정책:
+
+- 환경변수 `TRUSTED_PROXIES=10.0.0.5,127.0.0.1` 에 등록된 peer IP 에서 들어오는 요청만 헤더를 신뢰.
+- 기본(빈 값)은 헤더 무시 — `request.client.host` 만 사용.
+- `app.audit.get_client_ip()` 와 `app.rate_limit._get_client_ip()` 양쪽에 동일한 로직.
 
 ### CORS
 
@@ -288,16 +340,42 @@ Pure ASGI 미들웨어로 구현. IP별 슬라이딩 윈도우 방식:
 
 ### 정적 파일 캐싱
 
-`.js/.html/.css`에 `Cache-Control: no-cache, must-revalidate`를 강제. ETag는 유지되어 304 가능. API 계약 변경 후 사용자가 "하드 리프레시해도 안 되는" 상황을 방지한다. 보안상 장점: 취약점 패치된 JS가 즉시 반영됨.
+`.js/.html/.css/.mjs`에 `Cache-Control: no-cache, must-revalidate`를 강제. ETag는 유지되어 304 가능. API 계약 변경 후 사용자가 "하드 리프레시해도 안 되는" 상황을 방지한다. 보안상 장점: 취약점 패치된 JS가 즉시 반영됨.
 
 ### 미설정 항목
 
 - **CSP / HSTS / X-Frame-Options**: 현재 미설정. 리버스 프록시 레이어에서 추가 권장.
-- **업로드 한계**: `MAX_UPLOAD_BYTES = 20 GB` (환경변수로 조정). WSI 파일 크기 고려값.
+- **업로드 한계**: `MAX_UPLOAD_BYTES = 20 GB` (환경변수로 조정). WSI 파일 크기 고려값. 청크 조립 전 합계 크기를 사전 검증해 초과 시 즉시 413.
 
 ---
 
-## 10. 성능 최적화와 보안 균형
+## 11. 파일 무결성 (SHA-256 체크섬)
+
+### 업로드 시 계산
+
+청크 조립 단계에서 **스트리밍으로** SHA-256 을 계산해 `slides.str_sha256` 에 저장한다. 메모리에 전체 파일을 올리지 않고 8 KB 블록 단위로 누적 → 20 GB 슬라이드도 일정 메모리.
+
+- 신규 업로드: 청크 조립과 동시에 계산.
+- 기존 파일이 이미 존재하지만 DB 에 체크섬이 없는 경우: `upload/complete` 단계에서 한 번 더 디스크 전체 read 로 계산.
+
+### 검증 API
+
+`GET /api/slides/{slide_id}/verify-integrity` — 디스크 파일을 다시 읽어 재계산한 hash 와 DB 저장값을 비교.
+
+- 저장값이 비어 있으면 이번 호출에서 저장하고 `bool_integrity_ok=true`.
+- 일치하지 않으면 `bool_integrity_ok=false` 와 함께 두 값을 모두 반환 → 운영자가 백업과 비교해 복구 결정.
+- 21 CFR Part 11 11.10(c) (전자기록 진위·정확성·신뢰성 보장) 의 기술적 근거.
+
+### 파일명·경로 보안
+
+업로드/이동/삭제 모든 경로에서 사용되는 두 헬퍼:
+
+- `_safe_subpath(subpath)` — `Path.is_relative_to` 로 디렉토리 탈출 차단. unicode normalization / case 차이 / prefix 충돌까지 안전.
+- `_safe_filename(filename)` — `/`, `\`, `..`, NUL, dotfile, 빈 문자열 거부. dotfile 거부로 `.env`/`.secrets.json` 같은 숨김 파일 노출 시도 차단.
+
+---
+
+## 12. 성능 최적화와 보안 균형
 
 보안 미들웨어와 인증 로직이 타일 서빙 등 대량 요청에 미치는 성능 영향을 최소화하기 위해 다음 최적화를 적용했다:
 
@@ -324,7 +402,7 @@ CSRF, Rate Limiting 미들웨어를 `BaseHTTPMiddleware` 대신 순수 ASGI 프�
 
 ---
 
-## 11. 알려진 한계 & 운영 가이드
+## 13. 알려진 한계 & 운영 가이드
 
 ### 반드시 운영 배포 전 조치할 것
 
@@ -360,18 +438,20 @@ CSRF, Rate Limiting 미들웨어를 `BaseHTTPMiddleware` 대신 순수 ASGI 프�
 backend/
 ├── .secrets.json                      # 0600, git ignore (시크릿 영속화)
 ├── app/
-│   ├── config.py                      # 시크릿 로딩/생성
+│   ├── config.py                      # 시크릿 로딩/생성 (env → file → auto-gen)
 │   ├── models.py                      # bcrypt + pepper 비밀번호 해싱
 │   ├── auth.py                        # JWT 생성/검증, 사용자 인증, RBAC, 인메모리 캐시
+│   ├── totp.py                        # RFC 6238 TOTP MFA (직접 구현, 의존성 0)
 │   ├── audit.py                       # 감사 로그 기록 + HMAC 체인 + IP 추출
 │   ├── geo.py                         # IP → geo 캐시 (ip-api.com)
-│   ├── encryption.py                  # AES-256-GCM 필드 암호화
-│   ├── url_signer.py                  # 미디어 HMAC 티켓
+│   ├── encryption.py                  # AES-256-GCM 필드 암호화 (TOTP 시드)
+│   ├── url_signer.py                  # 미디어 HMAC 티켓 (10분 TTL)
 │   ├── csrf.py                        # Pure ASGI CSRF 미들웨어
-│   ├── rate_limit.py                  # Pure ASGI Rate Limiting 미들웨어
+│   ├── rate_limit.py                  # Pure ASGI Rate Limiting (고정 윈도우)
 │   └── routers/
-│       ├── auth.py                    # 로그인/refresh/logout + 잠금 로직
-│       └── users.py                   # 승인/관리 + 활동 로그 + 캐시 무효화
+│       ├── auth.py                    # 로그인/refresh/logout/MFA + 잠금 로직
+│       ├── users.py                   # 승인/관리 + 활동 로그 + 캐시 무효화 + HMAC 체인 검증
+│       └── slides.py                  # _safe_subpath/_safe_filename 경로 방어 + SHA-256
 └── main.py                            # CORS, 미들웨어 등록, 정적 파일 캐시 정책
 ```
 

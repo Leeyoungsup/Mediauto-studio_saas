@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 MD031 MD032 MD036 MD040 -->
 # MeDIAuto Studio SaaS — MongoDB 스키마
 
 FastAPI + MongoDB (motor async) 기반. 모든 필드는 `str_/int_/bool_/dict_/list_/dt_/float_` 접두어 규칙을 따른다.
@@ -7,23 +8,26 @@ FastAPI + MongoDB (motor async) 기반. 모든 필드는 `str_/int_/bool_/dict_/
 
 | # | 컬렉션 | 목적 | 수명 |
 | - | ----- | ---- | ---- |
-| 1 | [`users`](#1-users) | 인증 계정·권한·승인 상태 | 영구 |
+| 1 | [`users`](#1-users) | 인증 계정·권한·승인 상태·MFA 시드 | 영구 |
 | 2 | [`sessions`](#2-sessions) | Refresh Token 세션(로테이션/재사용 탐지) | TTL `dt_expires_at` |
-| 3 | [`audit_logs`](#3-audit_logs) | 로그인·슬라이드 뷰·AI 분석 감사 로그 | 영구 |
+| 3 | [`audit_logs`](#3-audit_logs) | 로그인·슬라이드 뷰·AI 분석 감사 로그 (HMAC 체인) | 영구 |
 | 4 | [`ip_geo_cache`](#4-ip_geo_cache) | IP -> 지리정보 캐시 (ip-api.com) | TTL 30일 |
-| 5 | [`slides`](#5-slides) | 업로드된 WSI 메타·AI 결과 플래그 | 영구 |
+| 5 | [`slides`](#5-slides) | 업로드된 WSI 메타·AI 결과 플래그·체크섬 | 영구 |
 | 6 | [`folder_ai_configs`](#6-folder_ai_configs) | 폴더별 AI 자동 추론 설정 | 영구 |
+| 7 | [`user_ai_edits`](#7-user_ai_edits) | 사용자별 세포 편집본 메타(원본 캐시 유지) | 영구 |
 
 ### 관계 개요
 
 ```
-users ──┬── sessions          (str_user_id)
-        ├── audit_logs         (str_user_id)
-        └── slides             (str_uploaded_by, 느슨한 FK)
+users ──┬── sessions             (str_user_id)
+        ├── audit_logs            (str_user_id)
+        ├── slides                (str_uploaded_by, 느슨한 FK)
+        └── user_ai_edits         (str_user_id, 사용자별 편집본 메타)
 
-audit_logs ── ip_geo_cache     (str_ip_address, 비정규화 캐시)
+audit_logs ── ip_geo_cache        (str_ip_address, 비정규화 캐시)
 
-slides      ← folder_ai_configs (str_rel_path 기준 1:N)
+slides      ← folder_ai_configs   (str_rel_path 기준 1:N)
+slides      ← user_ai_edits       (str_slide_id, 1:N)
 ```
 
 ---
@@ -47,6 +51,8 @@ slides      ← folder_ai_configs (str_rel_path 기준 1:N)
 | `bool_is_locked` | bool | 연속 실패 시 계정 잠금 |
 | `int_failed_login_attempts` | int | 실패 카운터 |
 | `dt_locked_until` | datetime? | 잠금 해제 시각 |
+| `bool_mfa_enabled` | bool? | TOTP 2차 인증 활성 여부 (기본 false). `mfa/verify` 통과 시 true |
+| `str_totp_secret_enc` | string? | AES-256-GCM 암호화된 TOTP base32 시드. 평문은 절대 저장하지 않음 |
 | `dt_created_at` | datetime | 생성 시각 |
 | `dt_updated_at` | datetime | 최종 수정 |
 | `dt_last_login` | datetime? | 최종 로그인 시각 |
@@ -127,10 +133,21 @@ Refresh Token 세션. Access Token은 저장하지 않고 JWT 자체 검증.
 **action 값**
 | action | 기록 시점 | 추가 필드 |
 | ------ | -------- | -------- |
+| `user.register` | 회원가입 | — |
 | `user.login_success` | 로그인 성공 | geo 필드 (async enrich) |
-| `user.login_failure` | 로그인 실패 | — |
+| `user.login_failed` | 비밀번호 오류 | 실패 카운터 / LOCKED 표시 |
+| `user.login_locked` | 잠금 상태 로그인 시도 | 남은 잠금 시간(분) |
+| `user.login_pending` | 승인 대기 계정 로그인 시도 | — |
+| `user.login_rejected` | 거부 계정 로그인 시도 | — |
+| `user.logout` | 로그아웃 | revoked 세션 수 |
+| `user.password_changed` | 비밀번호 변경 | 모든 세션 revoke |
+| `user.mfa_enabled` | TOTP MFA 활성화 | — |
+| `user.mfa_disabled` | TOTP MFA 비활성화 | — |
+| `user.mfa_failed` | TOTP 코드 오류 | — |
+| `security.token_reuse_detected` | 알 수 없는 refresh token 재사용 | 전체 세션 revoke |
+| `security.refresh_stale_rotation` | grace window 지난 revoked 토큰 재요청 | 단건 401 (다른 세션 보존) |
 | `slide.view` | 슬라이드 열기 | `str_rel_path`, `str_filename`, `str_slide_id` |
-| `ai.analyze` | AI 4종 엔드포인트 호출 | `str_model`, `str_variant` 등 |
+| `ai.analyze` | AI 4종 엔드포인트 호출 | `str_model`, `str_variant`, `str_task_id` |
 | `admin.user_approved` | 사용자 승인 | dict_before/dict_after |
 | `admin.user_rejected` | 사용자 거부 | dict_before/dict_after |
 | `admin.user_created` | 사용자 생성 | — |
@@ -144,6 +161,7 @@ Refresh Token 세션. Access Token은 저장하지 않고 JWT 자체 검증.
 - `dt_created_at`
 - `str_user_id`
 - `str_action`
+- `str_hmac` — `/audit-logs/verify-chain` 의 체인 검증 시 인덱스 활용
 - compound `(str_user_id ASC, str_action ASC, dt_created_at DESC)` — 사용자 드릴다운 카테고리 필터 + 최신순
 
 **HMAC 체인**
@@ -206,6 +224,7 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 | `dict_ai_results` | dict | 모델별 결과 플래그. 아래 참조 |
 | `bool_tiles_ready` | bool | 뷰어 사전 타일 생성 완료 여부 |
 | `dt_tiles_ready_at` | datetime? | 타일 생성 완료 시각 |
+| `str_sha256` | string? | 업로드 시 계산된 파일 SHA-256 체크섬 (16진 hex). 빈 문자열이면 미저장 |
 | `str_status` | string? | 리뷰 상태: `""` / `pending` / `in_progress` / `done` / `flagged` |
 | `dt_status_updated_at` | datetime? | 상태 변경 시각 |
 
@@ -227,9 +246,12 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 - `dt_last_opened_at`
 
 **주요 동작**
-- `upsert_slide()` — 업로드/재열기 시 업서트. `$setOnInsert`로 `dict_ai_results`/`bool_tiles_ready`는 신규 시에만 초기화 -> 재열기해도 AI 결과 유지.
+- `upsert_slide()` — 업로드/재열기 시 업서트. `$setOnInsert`로 `dict_ai_results`/`bool_tiles_ready`/`str_sha256`은 신규 시에만 초기화 -> 재열기해도 AI 결과·체크섬 유지.
 - `touch_last_opened()`, `mark_ai_result()`, `mark_tiles_ready()`, `set_slide_status()`, `move_slide()`, `rename_folder_in_db()`, `delete_slide()`
 - `*_threadsafe()` 변형: AI/타일 워커 스레드에서 `run_coroutine_threadsafe`로 메인 루프에 스케줄.
+
+**무결성 검증**
+- `GET /api/slides/{slide_id}/verify-integrity` — 디스크 파일을 다시 읽어 SHA-256 재계산 후 DB 저장값과 비교. 저장값이 비어 있으면 이번 호출에서 저장하고 `bool_integrity_ok=true` 반환.
 
 **대시보드 통계 최적화**
 - 디스크 통계: 스레드 풀에서 비동기로 계산, 60초 캐시
@@ -267,10 +289,43 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 - `POST/DELETE /folder-config` 모두 `require_not_viewer` 의존성 — viewer는 수정 불가, 조회만 허용.
 
 **워커 동작**
+
 1. `folder_ai_configs.find({bool_enabled: true})` 스캔
 2. 각 task마다 미완 슬라이드만 조회 (model + variant 기준)
 3. AI 파이프라인 호출 -> 성공 시 `list_variants`에 variant 추가
 4. 다음 인터벌까지 대기
+
+---
+
+## 7. `user_ai_edits`
+
+사용자별 세포 편집본 메타. **원본 추론 캐시 (`ai_results/...`) 는 절대 건드리지 않고**, 사용자가 셀을 수정·저장하면 별도 디스크 + 이 컬렉션에 메타만 기록한다. 동일 (slide, ai_mode, variant, user_id) 조합은 최신본 1개만 유지.
+
+| 필드 | 타입 | 설명 |
+| ---- | ---- | ---- |
+| `_id` | ObjectId | PK |
+| `str_slide_id` | string | 슬라이드 식별자 |
+| `str_ai_mode` | string | `HE-Fit` / `PD-Score` / `Precise-IHC` (VS-IHC 는 편집 대상 아님) |
+| `str_variant` | string | tissue_type / marker / "" |
+| `str_user_id` | string | 편집한 사용자 `users._id` |
+| `str_user_name` | string | 비정규화 표시 이름 |
+| `str_login_id` | string | 비정규화 로그인 아이디 |
+| `str_file_path` | string | 디스크 JSON 경로 (`AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{stem}_{variant}.json`) |
+| `int_total_cells` | int | 저장 시점 총 셀 수 (메타 표시용) |
+| `dt_created_at` | datetime | 최초 저장 |
+| `dt_updated_at` | datetime | 최종 저장 |
+
+**인덱스**
+
+- compound `(str_slide_id, str_ai_mode, str_variant, str_user_id)` **unique** — 사용자당 1 슬라이드/1 모드/1 variant 에 1개 메타
+- compound `(str_slide_id, str_ai_mode, str_variant)` — "이 슬라이드에 저장본을 가진 사용자 목록" 조회용
+
+**API**
+
+- `POST /api/ai/save-result` — 본인 편집본 저장 (디스크 + 메타 upsert)
+- `GET /api/ai/user-edits/list` — 슬라이드+모드+variant 에 저장본을 가진 사용자 목록
+- `GET /api/ai/user-edits/load` — 특정 사용자 편집본 결과 전체 로드
+- `DELETE /api/ai/user-edits` — **본인 편집본만** 삭제 (타인 것은 백엔드에서 거부)
 
 ---
 
@@ -293,6 +348,7 @@ sessions.dt_expires_at                                    TTL(0)
 audit_logs.dt_created_at
 audit_logs.str_user_id
 audit_logs.str_action
+audit_logs.str_hmac
 audit_logs.(str_user_id, str_action, dt_created_at DESC)  compound
 
 ip_geo_cache.str_ip                                       unique
@@ -304,4 +360,7 @@ slides.dt_last_opened_at
 
 folder_ai_configs.str_rel_path                            unique
 folder_ai_configs.bool_enabled
+
+user_ai_edits.(str_slide_id, str_ai_mode, str_variant, str_user_id)  unique compound
+user_ai_edits.(str_slide_id, str_ai_mode, str_variant)              compound
 ```
