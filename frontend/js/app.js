@@ -1242,6 +1242,104 @@ viewer.onCellEditRequested = _showCellEditPopup;
 // 우측 패널의 클래스 라인 클릭으로 sticky 변경 가능.
 let _stickyAddClassId = null;
 
+// Shift HUD — Shift 누른 동안 마우스 우상단에 현재 sticky 클래스 표시.
+// 사용자가 어떤 클래스로 추가될지 시각적으로 즉시 확인 가능.
+let _stickyHudEl = null;
+let _stickyHudShiftHeld = false;
+let _stickyHudLastMouse = { x: 0, y: 0 };
+
+function _ensureStickyHud() {
+    if (_stickyHudEl) return _stickyHudEl;
+    const el = document.createElement('div');
+    el.id = 'sticky-class-hud';
+    el.style.cssText = `
+        position: fixed; z-index: 9998;
+        display: none;
+        align-items: center; gap: 6px;
+        padding: 4px 10px 4px 6px;
+        background: rgba(20,20,30,0.88); color: #fff;
+        border-radius: 14px;
+        font-family: sans-serif; font-size: 12px; font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        pointer-events: none; user-select: none;
+        white-space: nowrap;
+    `;
+    const dot = document.createElement('span');
+    dot.className = '_dot';
+    dot.style.cssText = 'width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,0.6);display:inline-block;';
+    const txt = document.createElement('span');
+    txt.className = '_txt';
+    el.append(dot, txt);
+    document.body.appendChild(el);
+    _stickyHudEl = el;
+    return el;
+}
+
+function _updateStickyHudContent() {
+    if (!_stickyHudEl) return false;
+    if (_stickyAddClassId == null || !_lastDetectionResult) return false;
+    const classNames = _lastDetectionResult.class_names || {};
+    const classColors = _lastDetectionResult.class_colors || {};
+    const name = classNames[String(_stickyAddClassId)];
+    if (!name) return false;
+    _stickyHudEl.querySelector('._dot').style.background = _toCssColor(classColors[String(_stickyAddClassId)]);
+    _stickyHudEl.querySelector('._txt').textContent = name;
+    return true;
+}
+
+function _positionStickyHud() {
+    if (!_stickyHudEl) return;
+    // 마우스 우상단 — cursor 와 안 겹치게 +14 우측, -28 위.
+    let x = _stickyHudLastMouse.x + 14;
+    let y = _stickyHudLastMouse.y - 28;
+    // 화면 밖 방지 — 가로 overflow 면 좌측, 위로 overflow 면 아래로 뒤집어 배치.
+    const w = _stickyHudEl.offsetWidth;
+    if (x + w > window.innerWidth - 4) x = _stickyHudLastMouse.x - w - 14;
+    if (y < 4) y = _stickyHudLastMouse.y + 18;
+    _stickyHudEl.style.left = `${Math.max(4, x)}px`;
+    _stickyHudEl.style.top  = `${Math.max(4, y)}px`;
+}
+
+function _showStickyHud() {
+    // 표시 조건: Shift 누름 + sticky 살아있음 + detection 결과 + drawMode 아님.
+    if (!_stickyHudShiftHeld) return;
+    if (_stickyAddClassId == null) return;
+    if (!_lastDetectionResult) return;
+    if (viewer && viewer.drawMode) return;
+    _ensureStickyHud();
+    if (!_updateStickyHudContent()) return;
+    _stickyHudEl.style.display = 'inline-flex';
+    _positionStickyHud();
+}
+
+function _hideStickyHud() {
+    if (_stickyHudEl) _stickyHudEl.style.display = 'none';
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift' && !_stickyHudShiftHeld) {
+        _stickyHudShiftHeld = true;
+        _showStickyHud();
+    }
+}, true);
+window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift') {
+        _stickyHudShiftHeld = false;
+        _hideStickyHud();
+    }
+}, true);
+window.addEventListener('blur', () => {
+    _stickyHudShiftHeld = false;
+    _hideStickyHud();
+});
+document.addEventListener('mousemove', (e) => {
+    _stickyHudLastMouse.x = e.clientX;
+    _stickyHudLastMouse.y = e.clientY;
+    if (_stickyHudShiftHeld && _stickyHudEl && _stickyHudEl.style.display !== 'none') {
+        _positionStickyHud();
+    }
+}, true);
+
 function _showCellAddPopup(sx, sy, screenX, screenY, opts = {}) {
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
