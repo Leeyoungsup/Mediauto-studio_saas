@@ -12,7 +12,12 @@
 이 스크립트는 **타일은 건드리지 않는다** — 타일은 색 보정/업로드와 무관.
 
 사용:
+    # 전체 리셋 (4개 모델 모두)
     python backend/scripts/reset_ai_results.py [--dry-run]
+
+    # 특정 모델만 리셋 (예: HE-Fit 만)
+    python backend/scripts/reset_ai_results.py --models HE-Fit [--dry-run]
+    python backend/scripts/reset_ai_results.py --models HE-Fit,PD-Score
 """
 import argparse
 import shutil
