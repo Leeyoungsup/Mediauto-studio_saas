@@ -404,6 +404,11 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
 
+    // 슬라이드 전환 — 이전 슬라이드의 sticky 클래스는 의미 없음 (class id/이름 매핑이
+    // 새 detection 결과에 따라 다를 수 있음). HUD 도 같이 숨김.
+    _stickyAddClassId = null;
+    _hideStickyHud();
+
     $slideName.textContent = filename;
     _updateScannerBadge(slideInfo);
     _updateNdpColorToggleVisibility(slideInfo);
@@ -928,19 +933,21 @@ function _cellEditKeydown(e) {
         e.preventDefault();
         return;
     }
-    // Delete/D 는 edit/multi 모드에서만 (add 모드엔 삭제할 셀이 없음).
-    if ((e.key === 'Delete' || e.key.toLowerCase() === 'd') && _cellEditCtx.mode !== 'add') {
+    // Delete/D 는 셀이 있는 edit/multi 모드에서만 — add/sticky-pick 엔 삭제 대상 없음.
+    if ((e.key === 'Delete' || e.key.toLowerCase() === 'd') &&
+            _cellEditCtx.mode !== 'add' && _cellEditCtx.mode !== 'sticky-pick') {
         _doDeleteCell();
         e.preventDefault();
         return;
     }
-    // 숫자키 1~9, 0 → 클래스 선택 (edit=변경, add=배치)
+    // 숫자키 1~9, 0 → 클래스 선택. 모드별 분기:
+    //   edit/multi → 클래스 변경, add → 클릭 위치에 셀 추가, sticky-pick → sticky 만 갱신.
     if (/^[0-9]$/.test(e.key)) {
         const num = parseInt(e.key, 10);
         const slot = num === 0 ? 9 : num - 1;
         if (_cellEditCtx.classButtonOrder && slot < _cellEditCtx.classButtonOrder.length) {
             const targetCls = _cellEditCtx.classButtonOrder[slot];
-            if (_cellEditCtx.mode === 'add') {
+            if (_cellEditCtx.mode === 'add' || _cellEditCtx.mode === 'sticky-pick') {
                 _doAddCell(targetCls);
             } else {
                 _doChangeClass(targetCls);
@@ -1340,19 +1347,18 @@ document.addEventListener('mousemove', (e) => {
     }
 }, true);
 
-function _showCellAddPopup(sx, sy, screenX, screenY, opts = {}) {
+function _showCellAddPopup(sx, sy, screenX, screenY) {
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
 
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // Sticky 가 살아 있고 강제 picker 가 아니면 popup 없이 즉시 추가.
-    const bool_force = !!opts.forcePicker;
-    if (!bool_force && _stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
+    // Sticky 가 살아 있으면 popup 없이 즉시 추가 — 클래스 변경은 Shift+A 단축키.
+    if (_stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
         const str_name = classNames[String(_stickyAddClassId)];
         viewer.addCell(sx, sy, _stickyAddClassId, str_name);
-        setStatus(`Cell added: ${str_name} — Ctrl+Shift+click to change class`);
+        setStatus(`Cell added: ${str_name} — press Shift+A to change class`);
         return;
     }
 
@@ -1450,14 +1456,137 @@ function _showCellAddPopup(sx, sy, screenX, screenY, opts = {}) {
 }
 
 function _doAddCell(classId) {
-    if (!_cellEditCtx || _cellEditCtx.mode !== 'add') return;
+    if (!_cellEditCtx) return;
     const name = _cellEditCtx.classNames[String(classId)] || `Class ${classId}`;
-    viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
-    // 다음 Shift+click 부턴 popup 없이 같은 클래스로 즉시 추가 — 반복 작업 효율화.
-    _stickyAddClassId = classId;
-    setStatus(`Sticky class: ${name} — Shift+click to add, Ctrl+Shift+click to change`);
+    if (_cellEditCtx.mode === 'add') {
+        // 위치를 받은 모드 — 셀 추가 + sticky 갱신.
+        viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
+        _stickyAddClassId = classId;
+        setStatus(`Sticky class: ${name} — Shift+click to add, Shift+A to change`);
+    } else if (_cellEditCtx.mode === 'sticky-pick') {
+        // 클래스만 변경 (셀 추가 X) — Shift+A 진입한 popup.
+        _stickyAddClassId = classId;
+        setStatus(`Sticky class: ${name} — Shift+click 으로 추가`);
+    }
     _closeCellEditPopup();
 }
+
+/**
+ * Shift+A 단축키로 호출 — sticky 클래스만 변경 (셀 추가 X).
+ * popup 은 _showCellAddPopup 와 동일한 클래스 리스트 UI 를 재사용하되,
+ * mode='sticky-pick' 컨텍스트로 클릭 시 sticky 만 갱신.
+ */
+function _showStickyClassPickerPopup(screenX, screenY) {
+    _closeCellEditPopup();
+    if (!_lastDetectionResult) return;
+
+    const classNames = _lastDetectionResult.class_names || {};
+    const classColors = _lastDetectionResult.class_colors || {};
+
+    const popup = document.createElement('div');
+    popup.className = 'cell-edit-popup';
+    popup.style.cssText = `
+        position: fixed; z-index: 9999;
+        background: #ffffff; color: #222;
+        border: 1px solid #ccc; border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        padding: 10px 12px; min-width: 200px;
+        font-family: sans-serif; font-size: 12px;
+        user-select: none;
+    `;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    const headerLabel = document.createElement('span');
+    headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(추가할 클래스 선택)</span>`;
+    header.appendChild(headerLabel);
+    popup.appendChild(header);
+
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep);
+
+    const sortedClsIds = Object.keys(classNames)
+        .map(k => parseInt(k, 10))
+        .sort((a, b) => a - b);
+
+    const classButtonOrder = [];
+    let keyIdx = 0;
+    for (const cid of sortedClsIds) {
+        const name = classNames[String(cid)];
+        const colorCss = _toCssColor(classColors[String(cid)]);
+        const keyLabel = keyIdx < 10 ? String((keyIdx + 1) % 10) : '';
+        const isCurrent = (cid === _stickyAddClassId);
+
+        const btn = document.createElement('button');
+        btn.style.cssText = `
+            display:flex;align-items:center;gap:0;
+            width:100%;margin:3px 0;padding:0;
+            background:${isCurrent ? '#dfe9f5' : '#f0f0f0'};color:#222;
+            border:1px solid ${isCurrent ? '#4a90d9' : '#ccc'};border-radius:4px;
+            font-size:12px;cursor:pointer;text-align:left;
+            box-sizing:border-box;overflow:hidden;
+            min-height:30px;
+        `;
+        btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
+        btn.onmouseout = () => {
+            btn.style.background = isCurrent ? '#dfe9f5' : '#f0f0f0';
+            btn.style.color = '#222';
+        };
+
+        const stripe = document.createElement('span');
+        stripe.style.cssText = `flex:0 0 12px;align-self:stretch;background:${colorCss};display:block;`;
+        const sw = document.createElement('span');
+        sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;
+            background:${colorCss};border:1px solid #333;
+            display:inline-block;margin-left:8px;`;
+        const text = document.createElement('span');
+        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  ✓' : '');
+        text.style.cssText = 'flex:1;padding:6px 10px;';
+
+        btn.append(stripe, sw, text);
+        btn.addEventListener('click', () => _doAddCell(cid));
+        _attachClassRenamePencil(btn, cid, text);
+        popup.appendChild(btn);
+
+        classButtonOrder.push(cid);
+        keyIdx++;
+    }
+
+    document.body.appendChild(popup);
+
+    const pw = popup.offsetWidth;
+    const ph = popup.offsetHeight;
+    let px = screenX;
+    let py = screenY;
+    if (px + pw > window.innerWidth) px = window.innerWidth - pw - 8;
+    if (py + ph > window.innerHeight) py = window.innerHeight - ph - 8;
+    popup.style.left = `${Math.max(4, px)}px`;
+    popup.style.top = `${Math.max(4, py)}px`;
+
+    _cellEditPopupEl = popup;
+    _cellEditCtx = { mode: 'sticky-pick', classNames, classColors, classButtonOrder };
+
+    setTimeout(() => {
+        document.addEventListener('mousedown', _outsideCellEditClick, true);
+        document.addEventListener('keydown', _cellEditKeydown, true);
+    }, 0);
+}
+
+// Shift+A — sticky 클래스 변경 popup. 입력 위젯 포커스 중이면 무시.
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'a' && e.key !== 'A') return;
+    if (!e.shiftKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
+    if (!_lastDetectionResult) return;
+    if (viewer && viewer.drawMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // 마우스 마지막 위치 옆에 popup 띄움 — viewer 위에서 누르면 그 위치 근처에 뜸.
+    _showStickyClassPickerPopup(_stickyHudLastMouse.x, _stickyHudLastMouse.y);
+}, true);
 
 viewer.onCellAddRequested = _showCellAddPopup;
 
@@ -2307,6 +2436,9 @@ function clearResults() {
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
+    // detection 결과가 사라지면 sticky 도 무효 — class_names 가 없어졌으니 의미 X.
+    _stickyAddClassId = null;
+    _hideStickyHud();
     _lastDetectionModel = null;
     _lastDetectionRoi = null;
 }

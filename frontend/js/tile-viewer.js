@@ -501,13 +501,12 @@ export class TileViewer {
 
             // Shift + 좌클릭: 새 셀 추가 (drawMode 가 아닌 경우만 — drawMode 는 자체 click 처리).
             // detection 결과가 있을 때만 의미 — class_names 가 결정되어 있어야 클래스 선택 가능.
-            // Ctrl/Cmd + Shift + 좌클릭: popup 강제 (sticky class 무시) — 클래스 변경용.
-            if (e.shiftKey && e.button === 0 && !this.drawMode &&
+            // 클래스 변경은 Shift+A 단축키로 별도 처리 (Ctrl 사용 안 함 — Ctrl 은 패닝 modifier).
+            if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey && !this.drawMode &&
                     this.onCellAddRequested && this.detectionCells.length > 0) {
                 this._shiftAddPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
-                    forcePicker: !!(e.ctrlKey || e.metaKey),
                 };
                 e.preventDefault();
                 return;
@@ -704,7 +703,6 @@ export class TileViewer {
                     this.onCellAddRequested(
                         pending.sx, pending.sy,
                         pending.clientX, pending.clientY,
-                        { forcePicker: pending.forcePicker },
                     );
                 }
                 return;
@@ -1716,6 +1714,7 @@ export class TileViewer {
     /**
      * 새 셀을 detectionCells 끝에 추가 — Shift+click UX 용.
      * confidence 는 1.0 (사용자가 수동으로 추가했으니 max). undo/redo 지원.
+     * highlight 는 적용 안 함 — 연속 추가 시 이전 셀이 선택 표시로 덮여 보기 힘들기 때문.
      * 반환: 추가된 셀 객체.
      */
     addCell(sx, sy, classId, className = null) {
@@ -1732,8 +1731,8 @@ export class TileViewer {
             items: [{ index: int_index, cell }],
         });
         this.detectionCells.push(cell);
-        // 시각적 피드백 — 방금 추가한 셀을 highlight 해 사용자가 위치 확인 가능.
-        this._highlightedCellIdx = int_index;
+        // 기존 highlight 가 남아 있을 수 있으므로 명시적으로 해제.
+        this._highlightedCellIdx = -1;
         this._highlightedCellIdxSet = null;
         this._refreshAfterCellEdit();
         return cell;
