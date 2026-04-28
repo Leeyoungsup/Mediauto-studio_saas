@@ -978,6 +978,128 @@ function _toCssColor(c) {
     return 'rgb(200,200,200)';
 }
 
+/**
+ * Popup 클래스 버튼에 연필(✎) 편집 아이콘을 끼워넣는다. 클릭 시 그 row 가 inline
+ * 텍스트 입력 + 저장/취소 모드로 바뀌며, 저장하면 _renameClassLabel 로 전파되고
+ * 입력값이 popup 의 표시 텍스트에도 반영. popup 자체는 닫지 않는다 (사용자가
+ * 라벨 정리 후 동일 popup 에서 add/change 이어가는 흐름).
+ */
+function _attachClassRenamePencil(btnEl, classId, textSpan) {
+    const pencil = document.createElement('span');
+    pencil.title = '라벨 이름 편집';
+    pencil.setAttribute('aria-label', 'rename label');
+    pencil.style.cssText = `
+        flex:0 0 22px; height:22px; margin-right:6px;
+        display:flex; align-items:center; justify-content:center;
+        border-radius:3px; cursor:pointer; opacity:0.55;
+        font-size:13px; line-height:1;
+    `;
+    pencil.textContent = '✎';
+    pencil.onmouseover = () => { pencil.style.opacity = '1'; pencil.style.background = 'rgba(0,0,0,0.08)'; };
+    pencil.onmouseout = () => { pencil.style.opacity = '0.55'; pencil.style.background = 'transparent'; };
+    pencil.addEventListener('click', (ev) => {
+        ev.stopPropagation();   // row 의 select 동작 방지
+        // textSpan 자리에 input + 저장/취소 버튼 임시 배치.
+        const original = textSpan.textContent || '';
+        // 표시값에서 [N] 단축키 prefix 가 있으면 그건 빼고 실제 라벨만 편집.
+        const m = original.match(/^\[\d\]\s+(.*)$/);
+        const initialName = (m ? m[1] : original).trim();
+
+        const wrap = document.createElement('span');
+        wrap.style.cssText = 'flex:1; display:flex; align-items:center; gap:4px; padding:4px 6px;';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = initialName;
+        input.style.cssText = `
+            flex:1; min-width:0; padding:3px 6px;
+            border:1px solid #4a90d9; border-radius:3px;
+            font-size:12px; font-family:inherit;
+        `;
+        const ok = document.createElement('button');
+        ok.textContent = '✓';
+        ok.title = '저장 (Enter)';
+        ok.style.cssText = `
+            flex:0 0 22px; height:22px; padding:0;
+            background:#27ae60; color:#fff; border:none;
+            border-radius:3px; cursor:pointer; font-weight:700;
+        `;
+        const cancel = document.createElement('button');
+        cancel.textContent = '×';
+        cancel.title = '취소 (Esc)';
+        cancel.style.cssText = `
+            flex:0 0 22px; height:22px; padding:0;
+            background:#e74c3c; color:#fff; border:none;
+            border-radius:3px; cursor:pointer; font-weight:700;
+        `;
+        wrap.append(input, ok, cancel);
+
+        // textSpan 을 임시 wrap 으로 대체.
+        const parent = textSpan.parentElement;
+        parent.removeChild(textSpan);
+        // pencil 직전 위치에 wrap 삽입.
+        parent.insertBefore(wrap, pencil);
+        pencil.style.display = 'none';
+
+        // popup 전체의 키보드 단축키(_cellEditKeydown) 가 입력을 가로채지 못하도록
+        // input 이벤트는 stopPropagation. (Ctrl+Z / 숫자키 등 충돌 방지)
+        input.addEventListener('keydown', (kev) => {
+            kev.stopPropagation();
+            if (kev.key === 'Enter') { commit(); }
+            else if (kev.key === 'Escape') { abort(); }
+        });
+        // 외부 클릭으로 popup 닫히는 핸들러도 일시 차단 — input 자체 클릭에서.
+        input.addEventListener('mousedown', (mev) => mev.stopPropagation());
+        ok.addEventListener('click', (mev) => { mev.stopPropagation(); commit(); });
+        cancel.addEventListener('click', (mev) => { mev.stopPropagation(); abort(); });
+
+        const restoreText = () => {
+            wrap.remove();
+            // 원래 위치(pencil 직전)에 textSpan 다시 삽입.
+            parent.insertBefore(textSpan, pencil);
+            pencil.style.display = '';
+        };
+        const abort = () => { restoreText(); };
+        const commit = () => {
+            const str_new = input.value.trim();
+            if (!str_new || str_new === initialName) { restoreText(); return; }
+            const ok2 = _renameClassLabel(classId, str_new);
+            if (ok2) {
+                // popup 의 표시 텍스트도 동기화 — [N] prefix 유지.
+                textSpan.textContent = m ? `[${m[0].match(/\d/)[0]}] ${str_new}` : str_new;
+            }
+            restoreText();
+        };
+
+        // 자동 포커스 + 텍스트 전체 선택.
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+    });
+    // 색 스와치 다음, 텍스트 앞에 연필 배치 — 시각적으로 텍스트 옆이 자연스럽다.
+    btnEl.insertBefore(pencil, textSpan);
+}
+
+/**
+ * 클래스 라벨 이름 변경 — `_lastDetectionResult.class_names[classId]` 갱신 +
+ * 해당 class_id 의 모든 셀의 `class_name` 동기화 + Result 리스트 / Score 카드
+ * 즉시 재렌더. 메모리에만 반영 (저장은 ROI Save 버튼이 담당).
+ */
+function _renameClassLabel(classId, newName) {
+    if (!_lastDetectionResult) return false;
+    const str_new = String(newName || '').trim();
+    if (!str_new) return false;
+    if (!_lastDetectionResult.class_names) _lastDetectionResult.class_names = {};
+    _lastDetectionResult.class_names[String(classId)] = str_new;
+    if (Array.isArray(viewer.detectionCells)) {
+        for (const cell of viewer.detectionCells) {
+            if (cell.class_id === classId) cell.class_name = str_new;
+        }
+    }
+    // 패널 / 카드 / status 즉시 반영.
+    buildResultList(_lastDetectionResult);
+    _updateResultCounts();
+    setStatus(`Class ${classId} renamed to "${str_new}"`);
+    return true;
+}
+
 function _showCellEditPopup(idx, cell, screenX, screenY) {
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
@@ -1064,6 +1186,8 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));
+        // 라벨 이름 편집 — text 옆에 연필(✎) 끼워 inline rename UI 활성화.
+        _attachClassRenamePencil(btn, cid, text);
         popup.appendChild(btn);
 
         classButtonOrder.push(cid);
@@ -1112,13 +1236,27 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
 viewer.onCellEditRequested = _showCellEditPopup;
 
-// ── Shift+click 셀 추가 popup ──
-function _showCellAddPopup(sx, sy, screenX, screenY) {
+// ── Shift+click 셀 추가 ──
+// Sticky class: 첫 추가 시 사용자가 popup 으로 선택한 클래스를 기억해 두고
+// 다음 Shift+click 부턴 popup 없이 바로 그 클래스로 추가. Ctrl+Shift+click 또는
+// 우측 패널의 클래스 라인 클릭으로 sticky 변경 가능.
+let _stickyAddClassId = null;
+
+function _showCellAddPopup(sx, sy, screenX, screenY, opts = {}) {
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
 
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
+
+    // Sticky 가 살아 있고 강제 picker 가 아니면 popup 없이 즉시 추가.
+    const bool_force = !!opts.forcePicker;
+    if (!bool_force && _stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
+        const str_name = classNames[String(_stickyAddClassId)];
+        viewer.addCell(sx, sy, _stickyAddClassId, str_name);
+        setStatus(`Cell added: ${str_name} — Ctrl+Shift+click to change class`);
+        return;
+    }
 
     const popup = document.createElement('div');
     popup.className = 'cell-edit-popup';
@@ -1185,6 +1323,7 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doAddCell(cid));
+        _attachClassRenamePencil(btn, cid, text);
         popup.appendChild(btn);
 
         classButtonOrder.push(cid);
@@ -1216,6 +1355,9 @@ function _doAddCell(classId) {
     if (!_cellEditCtx || _cellEditCtx.mode !== 'add') return;
     const name = _cellEditCtx.classNames[String(classId)] || `Class ${classId}`;
     viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
+    // 다음 Shift+click 부턴 popup 없이 같은 클래스로 즉시 추가 — 반복 작업 효율화.
+    _stickyAddClassId = classId;
+    setStatus(`Sticky class: ${name} — Shift+click to add, Ctrl+Shift+click to change`);
     _closeCellEditPopup();
 }
 
@@ -1312,6 +1454,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));
+        _attachClassRenamePencil(btn, cid, text);
         popup.appendChild(btn);
 
         list_classButtonOrder.push(cid);

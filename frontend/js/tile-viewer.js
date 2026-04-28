@@ -701,7 +701,11 @@ export class TileViewer {
                 const dx = e.clientX - pending.clientX;
                 const dy = e.clientY - pending.clientY;
                 if (Math.hypot(dx, dy) <= 4 && this.onCellAddRequested) {
-                    this.onCellAddRequested(pending.sx, pending.sy, pending.clientX, pending.clientY);
+                    this.onCellAddRequested(
+                        pending.sx, pending.sy,
+                        pending.clientX, pending.clientY,
+                        { forcePicker: pending.forcePicker },
+                    );
                 }
                 return;
             }

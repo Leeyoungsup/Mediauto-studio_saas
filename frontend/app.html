@@ -418,20 +418,30 @@
                 <li><kbd>Delete</kbd>: 선택한 annotation 삭제</li>
             </ul>
 
-            <div class="ux-help-section">AI 결과 편집 (HE-Fit 등)</div>
+            <div class="ux-help-section">AI 결과 편집 (HE-Fit / PD-Score / Precise-IHC)</div>
             <ul>
-                <li><kbd>Alt</kbd> + 클릭: 가장 가까운 셀 편집 팝업</li>
+                <li><kbd>Alt</kbd> + 클릭: 가장 가까운 셀 편집 팝업 (클래스 변경 / 삭제)</li>
                 <li><kbd>Alt</kbd> + 드래그: 라쏘 선택 → 여러 셀 일괄 편집</li>
+                <li><kbd>Shift</kbd> + 클릭: 클릭 위치에 새 셀 <b>추가</b>
+                    <ul>
+                        <li>Shift 누른 동안 십자(crosshair) 커서로 정확한 위치 표시</li>
+                        <li>처음 한 번은 클래스 선택 팝업 → 이후 같은 클래스로 즉시 추가 (Sticky)</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + 클릭: 클래스 변경(팝업 강제 호출)</li>
+                    </ul>
+                </li>
+                <li>편집 팝업에서 <b>연필 아이콘 ✎</b> : 클래스 라벨 이름 편집 (전체 셀 라벨에 즉시 반영)</li>
+                <li>편집 팝업에서 숫자키 <kbd>1</kbd>~<kbd>9</kbd>, <kbd>0</kbd>: 클래스 빠른 선택</li>
+                <li><kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Y</kbd>: 셀 편집 Undo / Redo (추가/변경/삭제 모두)</li>
             </ul>
 
             <div class="ux-help-section">기타</div>
             <ul>
-                <li><kbd>Esc</kbd>: 그리기/라쏘 모드 취소</li>
+                <li><kbd>Esc</kbd>: 그리기/라쏘 모드 취소, 편집 팝업 닫기</li>
                 <li>우측 상단 <b>?</b> (AI Analysis): 모델별 설명</li>
             </ul>
         </div>
     </div>
 
-    <script type="module" src="js/app.js?v=20260428-02"></script>
+    <script type="module" src="js/app.js?v=20260428-04"></script>
 </body>
 </html>
