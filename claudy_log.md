@@ -1,4 +1,7 @@
+<!-- markdownlint-disable MD001 MD024 MD031 MD032 MD036 MD040 -->
 # MeDIAuto Studio SaaS — Claude 작업 로그
+
+> 형식: CLAUDE.md 규칙대로 H3 `### [YYYY-MM-DD HH:mm]` 단위로 누적 기록.
 
 ### [2026-04-29 14:00]
 
@@ -53,3 +56,25 @@
   - markdownlint disable 헤더 추가
 
 **변경사항**: docs/DATABASE.md, docs/SECURITY.md, docs/FEATURES.md, docs/COMPLIANCE_STATUS.md, claudy_log.md (신규)
+
+---
+
+### [2026-04-29 15:00]
+
+**Q:** Readme.md 도 다시 정리해줘
+
+**A:** README.md 를 코드와 docs 기준으로 통째로 재작성.
+
+- 제목 정정: "MeDICus Studio SaaS" → "MeDIAuto Studio SaaS" (main.py FastAPI title 과 일치)
+- 주요 기능 표 확장: Annotation, 사용자 편집본, 2차 인증 (MFA), 미디어 URL 서명, 감사 로그, 파일 무결성 항목 추가
+- 기술 스택에 TOTP RFC 6238, HMAC-SHA256, NDP.view2 색 매칭, PyTorch CUDA AMP 명시
+- 프로젝트 구조 — 누락된 모든 모듈 반영 (totp/csrf/rate_limit/url_signer/cpu_layout/thread_slide_pool/tile_worker/tile_janitor/ndp_color_match/svs_to_hamamatsu/priority + ai_pipelines/ 7개 + ai_user_edits 라우터). frontend 의 home.html/upload.html/home.js/color-correction.js, docs 5개, model/ + .secrets.json 추가
+- 데이터베이스 컬렉션 6→7 (user_ai_edits 추가)
+- 환경 변수 표 신설 (12개 — MONGO/JWT/시크릿/토큰 수명/업로드/CORS/TRUSTED_PROXIES/TILE_QUOTA/디렉토리)
+- API 엔드포인트 표 갱신: MFA 4개, media-ticket, verify-chain, verify-integrity, refresh CAS rotation 명시
+- "이미지 URL: query parameter token 인증" → "?mt=<10분 HMAC 티켓>" 으로 정정 (보안 후퇴 표현 제거)
+- 운영 가이드 신설 — 배포 전 보안 체크리스트 8개, 알려진 한계 4개
+- 추가 문서 링크 (FEATURES/DATABASE/SECURITY/COMPLIANCE_STATUS/color_match_analysis)
+- 코드 규칙 섹션 보강 — 모든 type-prefix 일람 + 금지 규칙
+
+**변경사항**: README.md, claudy_log.md
