@@ -456,30 +456,35 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         seg_vals = np.zeros(len(epi_indices), dtype=np.int32)
         seg_vals[valid] = prediction_mask[mys[valid], mxs[valid]]
 
-        # ── Connected component 클러스터링 ──
-        from scipy import ndimage as ndi
-        TUMOR_RATIO_THRESHOLD = 0.1
-        epi_region = np.isin(prediction_mask, [2, 3]).astype(np.uint8)
-        labeled_mask, num_components = ndi.label(epi_region, structure=np.ones((3, 3), dtype=np.int8))
+        # ── Connected component 클러스터링 (현재 비활성) ──
+        # 같은 connected component (8-neighbor) 안에서 tumor 픽셀 비율이 10% 이상이면
+        # 그 component 의 모든 epithelial 세포를 Tumor 로 일괄 분류하던 로직.
+        # benign 세포가 인접한 tumor 영역에 "감염"되어 tumor 로 잘못 분류되는 케이스가 있어
+        # 일시적으로 비활성화하고, 각 세포는 자기 위치 픽셀의 segmentation 클래스로만 판정한다.
+        # from scipy import ndimage as ndi
+        # TUMOR_RATIO_THRESHOLD = 0.1
+        # epi_region = np.isin(prediction_mask, [2, 3]).astype(np.uint8)
+        # labeled_mask, num_components = ndi.label(epi_region, structure=np.ones((3, 3), dtype=np.int8))
+        #
+        # flat_label = labeled_mask.ravel()
+        # flat_mask = prediction_mask.ravel().astype(np.int32)
+        # n_bins = num_components + 1
+        # tumor_counts = np.bincount(flat_label, weights=(flat_mask == 3), minlength=n_bins)
+        # total_counts = np.bincount(flat_label, weights=np.isin(flat_mask, [2, 3]).astype(float), minlength=n_bins)
+        # with np.errstate(invalid='ignore', divide='ignore'):
+        #     tumor_ratio = np.where(total_counts > 0, tumor_counts / total_counts, 0.0)
+        # comp_class_arr = np.where(tumor_ratio >= TUMOR_RATIO_THRESHOLD, 3, 2).astype(np.int32)
+        # comp_class_arr[0] = 0  # background
+        #
+        # lh, lw = labeled_mask.shape
+        # lvalid = (mxs >= 0) & (mxs < lw) & (mys >= 0) & (mys < lh)
+        # comp_ids = np.zeros(len(epi_indices), dtype=np.int32)
+        # comp_ids[lvalid] = labeled_mask[mys[lvalid], mxs[lvalid]]
+        # update_mask = comp_ids > 0
+        # seg_vals[update_mask] = comp_class_arr[comp_ids[update_mask]]
 
-        flat_label = labeled_mask.ravel()
-        flat_mask = prediction_mask.ravel().astype(np.int32)
-        n_bins = num_components + 1
-        tumor_counts = np.bincount(flat_label, weights=(flat_mask == 3), minlength=n_bins)
-        total_counts = np.bincount(flat_label, weights=np.isin(flat_mask, [2, 3]).astype(float), minlength=n_bins)
-        with np.errstate(invalid='ignore', divide='ignore'):
-            tumor_ratio = np.where(total_counts > 0, tumor_counts / total_counts, 0.0)
-        comp_class_arr = np.where(tumor_ratio >= TUMOR_RATIO_THRESHOLD, 3, 2).astype(np.int32)
-        comp_class_arr[0] = 0  # background
-
-        lh, lw = labeled_mask.shape
-        lvalid = (mxs >= 0) & (mxs < lw) & (mys >= 0) & (mys < lh)
-        comp_ids = np.zeros(len(epi_indices), dtype=np.int32)
-        comp_ids[lvalid] = labeled_mask[mys[lvalid], mxs[lvalid]]
-        update_mask = comp_ids > 0
-        seg_vals[update_mask] = comp_class_arr[comp_ids[update_mask]]
-
-        # cls_arr in-place 업데이트: Benign(2)→7, Tumor(3)→6
+        # cls_arr in-place 업데이트: 픽셀 단위 직접 판정
+        #   prediction_mask 값 2(Benign) → 7, 그 외(0/1/3, 마스크 밖·other·tumor) → 6(Tumor)
         all_cls[epi_indices] = np.where(seg_vals == 2, 7, 6).astype(np.int32)
 
         update_task(task_id, progress=98,
