@@ -30,6 +30,64 @@ from app.slide_manager import slide_manager
 from app.thread_slide_pool import get_thread_slide
 
 
+# ── Stromal cell 압도 방지 후처리 상수 ──
+# Stromal cell (class 5) 위치에 일정 confidence 이상의 다른 클래스가 있으면
+# Stromal 을 제거하고 다른 클래스를 우선시. NMS 가 클래스 무관하게 한 박스만
+# 남기는 게 아니라 클래스별로 작동하는 경우 같은 세포 위치에 Stromal + 다른
+# 클래스가 동시에 잡히는 케이스가 있어, 후처리로 정리.
+STROMAL_CLASS_ID = 5
+STROMAL_SUPPRESSION_RADIUS_UM = 10.0  # 같은 세포 위치로 간주할 반경 (μm)
+STROMAL_SUPPRESSION_CONF = 0.1        # 다른 클래스 우선 인정 confidence 하한
+
+
+def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float_mpp):
+    """Stromal cell (class 5) 위치에 conf >= STROMAL_SUPPRESSION_CONF 인 다른 클래스
+    셀이 있으면 해당 Stromal cell 을 제거. KDTree 로 O((n_stromal + n_other) log n) 처리.
+
+    Returns: (new_x, new_y, new_conf, new_cls, int_dropped) — 입력과 같은 형태의 ndarray
+        들 + 제거된 Stromal cell 개수.
+    """
+    import numpy as np
+
+    if len(all_cls) == 0:
+        return all_x, all_y, all_conf, all_cls, 0
+
+    np_stromal_mask = (all_cls == STROMAL_CLASS_ID)
+    np_other_mask = (~np_stromal_mask) & (all_conf >= STROMAL_SUPPRESSION_CONF)
+    if not np_stromal_mask.any() or not np_other_mask.any():
+        return all_x, all_y, all_conf, all_cls, 0
+
+    # mpp 가 0/None 이면 안전 fallback (40x 가정 0.25 μm/px)
+    float_mpp_safe = float(float_mpp) if float_mpp and float_mpp > 0 else 0.25
+    float_radius_px = STROMAL_SUPPRESSION_RADIUS_UM / float_mpp_safe
+
+    np_stromal_idx = np.where(np_stromal_mask)[0]
+    np_other_idx = np.where(np_other_mask)[0]
+
+    np_stromal_xy = np.column_stack((all_x[np_stromal_idx], all_y[np_stromal_idx]))
+    np_other_xy = np.column_stack((all_x[np_other_idx], all_y[np_other_idx]))
+
+    from scipy.spatial import cKDTree
+    obj_tree = cKDTree(np_other_xy)
+    list_neighbors = obj_tree.query_ball_point(np_stromal_xy, r=float_radius_px)
+
+    np_drop_local = np.array([len(ns) > 0 for ns in list_neighbors], dtype=bool)
+    if not np_drop_local.any():
+        return all_x, all_y, all_conf, all_cls, 0
+
+    np_drop_idx = np_stromal_idx[np_drop_local]
+    np_keep_mask = np.ones(len(all_x), dtype=bool)
+    np_keep_mask[np_drop_idx] = False
+
+    return (
+        all_x[np_keep_mask],
+        all_y[np_keep_mask],
+        all_conf[np_keep_mask],
+        all_cls[np_keep_mask],
+        int(np_drop_local.sum()),
+    )
+
+
 def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tissue_type: str):
     """
     백그라운드 검출 — 기존 DetectionWorker.run()과 동일한 파이프라인:
@@ -302,8 +360,16 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             all_cls = np.empty(0, dtype=np.int32)
 
         check_cancel(task_id)
+
+        # ── Stromal cell 압도 방지: 같은 위치에 conf >= 0.1 인 다른 클래스가 있으면 Stromal 제거 ──
+        all_x, all_y, all_conf, all_cls, int_stromal_dropped = (
+            _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, info.mpp)
+        )
+        if int_stromal_dropped > 0:
+            print(f"[detection] suppressed {int_stromal_dropped} Stromal cells overlapping other classes")
+
         update_task(task_id, progress=50,
-                    status_msg=f"Detection complete: {detected_count} cells")
+                    status_msg=f"Detection complete: {len(all_x)} cells")
 
         # ── Epithelial 재분류 (Breast/Stomach만) ──
         seg_data = None
