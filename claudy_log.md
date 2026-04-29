@@ -78,3 +78,57 @@
 - 코드 규칙 섹션 보강 — 모든 type-prefix 일람 + 금지 규칙
 
 **변경사항**: README.md, claudy_log.md
+
+---
+
+### [2026-04-29 15:30]
+
+**Q:** SECURITY.md 이거 부분 인허가 SaMD 2등급을 목표로 하고 있으니까 이에대해서도 추가해줘
+
+**A:** SECURITY.md 에 SaMD 2등급 인허가 컨텍스트 섹션을 추가.
+
+- 인트로 한 문장 강화 — "SaMD Class 2 인허가 목표" + IEC 62304 / ISO 14971 / 21 CFR Part 11 / 식약처 가이드라인 명시
+- TOC 에 "SaMD 2등급 인허가 컨텍스트" 와 "부록 C" 추가
+- 신규 섹션 "SaMD 2등급 인허가 컨텍스트" (§1 앞):
+  - IMDRF 등급 분류 표 (1~4등급) + 본 시스템이 2등급인 근거 (보조 진단 도구)
+  - 적용 규격 8개 표 (IEC 62304/ISO 14971/ISO 13485/IEC 62366-1/IEC 81001-5-1/21 CFR Part 11/식약처/IMDRF SaMD N41)
+  - 핵심 기술 통제 표 (8개 영역 → 본 문서 §장 매핑)
+  - 본 문서가 다루지 않는 인허가 산출물 9개 체크리스트 (위험 분석 / SW 안전 등급 / 사용 적합성 / 임상 평가 / V&V / 변경 관리 / 사이버보안 위험 관리 / IFU / PMS)
+- 신규 부록 C "SaMD 2등급 보안 통제 매트릭스":
+  - 32개 통제 항목 (C-01 ~ C-32) ↔ 규격 ↔ 본 문서 §장 ↔ 코드 위치 ↔ 충족 상태 매핑
+  - 충족 상태: ✅ 25개 / ⚠ 4개 (TLS, SBOM, 사이버보안 사고 대응 절차, 운영 보완) / ❌ 3개 (보안 이벤트 알림, HTTP 보안 헤더, 시판 후 모니터링)
+  - 인허가 심사 대응 팁 4개 (추적성 매트릭스 / V&V 증적 / 운영 통제 / 미충족 항목 보강)
+
+**변경사항**: docs/SECURITY.md, claudy_log.md
+
+---
+
+### [2026-04-29 16:00]
+
+**Q:** url_signer.py 이런 내부소스 코드 위치는 안보였으면 좋겠어
+
+**A:** SECURITY.md 에서 모든 내부 소스 파일·함수·상수 참조를 제거하고 추상 표현으로 교체.
+
+- 본문 함수명 추상화:
+  - `get_current_user`/`get_media_user`/`require_role`/`require_not_viewer` → "사용자 인증 의존성", "미디어 인증 의존성", "역할 제한 의존성", "viewer 차단 의존성"
+  - `_safe_subpath`/`_safe_filename` → "경로 검증", "파일명 검증"
+  - `verify_totp(secret, code, window=1)` → 일반 서술
+  - `[`app/totp.py`](../backend/app/totp.py)` → "외부 라이브러리 의존 없이 자체 구현"
+  - `app.audit.get_client_ip()` 와 `app.rate_limit._get_client_ip()` → "감사 모듈과 Rate Limit 미들웨어"
+  - `db.users.find_one()` → "DB 조회"
+- 라이브러리 API / 내부 상수 추상화:
+  - `BCRYPT_COST = 12` → "work factor 12"
+  - `MAX_LOGIN_ATTEMPTS=5` → "5회 초과"
+  - `REFRESH_ROTATION_GRACE_SECONDS=300` → "5분 grace window"
+  - `UserRole` enum → "사용자 역할"
+  - `find_one_and_update` → "DB 의 원자적 CAS 연산"
+  - `hmac.compare_digest` → "상수 시간(timing-safe) 비교"
+  - `os.urandom(12)` → "OS 난수원에서 12 바이트(96 비트)"
+  - `BaseHTTPMiddleware` 비교 표현 제거 → "ASGI 프로토콜 레벨에서 직접 구현"
+  - `os.walk`/`run_in_executor`/`count_documents`/`$facet` → "동기 walk", "스레드 풀", "카운트 쿼리", "aggregation 파이프라인"
+- 부록 A 파일 트리 → **6 레이어 보안 아키텍처 다이어그램** 으로 통째로 재작성 (네트워크 / ASGI 미들웨어 / 인증·인가 / 입력 검증 / 도메인 로직 / 영속화 + 직교 통제)
+- 부록 C 매트릭스 "구현 위치" 컬럼 → 부록 A 의 추상 레이어명으로 32개 항목 모두 교체 (예: `auth.py::require_role` → "인증·인가 레이어 (역할 의존성)")
+- DB 스키마 필드 (`bool_is_locked`, `dt_rotated_at`, `str_replaced_by`, `str_totp_secret_enc` 등) 와 audit action 명 (`user.login_locked` 등) 은 DATABASE.md 에서도 공식 문서화된 외부 인터페이스이므로 유지
+- API 엔드포인트 경로 (`/api/auth/refresh` 등) 는 공개 인터페이스이므로 유지
+
+**변경사항**: docs/SECURITY.md, claudy_log.md
