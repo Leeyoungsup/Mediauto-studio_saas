@@ -11,6 +11,25 @@ from contextlib import asynccontextmanager
 
 
 # ── 불필요한 액세스 로그 숨기기 ──
+# 401 은 거의 다 "토큰/티켓 만료 → 재발급 → 재시도" 정상 흐름이라 디폴트로 숨긴다.
+# 진짜 인증 실패(잘못된 자격증명) 는 router 안에서 audit_logs (user.login_failed,
+# security.token_reuse_detected 등) 로 별도 기록되므로 access log 에서 빠져도
+# 추적성에 영향 없음. 필요 시 환경변수 LOG_AUTH_401=1 로 다시 켤 수 있다.
+_BOOL_LOG_AUTH_401 = os.environ.get("LOG_AUTH_401", "").lower() in ("1", "true", "yes")
+
+# 만료된 미디어 티켓·access 토큰으로 들어오는 정상 흐름 401 — 한 화면당 수십 건씩
+# 찍혀 access log 를 도배하므로 화이트리스트로 일괄 침묵.
+_TUPLE_AUTH_401_SILENT_PATHS = (
+    "/api/auth/refresh",
+    "/api/auth/media-ticket",
+    "/api/ai/active-tasks",
+    "/api/slides/thumbnail",        # /thumbnail-by-name + /{slide_id}/thumbnail 모두 매칭
+    "/api/slides/preview",
+    "/api/tiles/",                  # 타일·NDP 변형 타일 전체
+    "/api/ai/virtual-stain/",       # VS 결과 PNG·피라미드 타일
+)
+
+
 class _SuccessFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
@@ -20,9 +39,11 @@ class _SuccessFilter(logging.Filter):
         for code in ("200", "204", "304"):
             if f'" {code}' in msg:
                 return False
-        # 토큰 갱신/폴링 경로의 401 은 정상 동작 — 숨김
-        if '" 401' in msg and ("/api/auth/refresh" in msg or "/api/ai/active-tasks" in msg):
-            return False
+        # 토큰/티켓 만료 흐름의 401 은 정상 동작 — 숨김 (LOG_AUTH_401=1 로 강제 표시)
+        if not _BOOL_LOG_AUTH_401 and '" 401' in msg:
+            for str_path in _TUPLE_AUTH_401_SILENT_PATHS:
+                if str_path in msg:
+                    return False
         return True
 
 
