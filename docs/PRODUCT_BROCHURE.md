@@ -52,7 +52,7 @@
 
 ## 5. 핵심 가치 (4가지)
 
-- **정확성 (Accuracy)** — YOLOv11-M + WSI Segmentation + Pixel-level 분류
+- **정확성 (Accuracy)** — Point Detection + WSI Segmentation + Pixel-level 분류
 - **추적성 (Traceability)** — HMAC 체인 감사 로그, SHA-256 무결성, 21 CFR Part 11
 - **안전성 (Security)** — JWT + TOTP MFA + AES-GCM + RBAC 3단계
 - **속도 (Performance)** — 3-stage 타일 피라미드, CPU 코어 파티셔닝, 뷰어 우선순위 게이팅
@@ -61,7 +61,7 @@
 
 ## 6. 핵심 기능 — HE-Fit (H&E 세포 검출)
 
-- **YOLOv11-M** 기반 8 클래스 세포 검출
+- **Point Detection** 기반 8 클래스 세포 검출
 - 조직별 학습된 weights — Stomach / Breast / Other
 - **자동 Tumor / Benign 재분류** (Stomach·Breast)
 - WSI 1장당 약 5–15분 (GPU 1장 기준)
@@ -185,7 +185,7 @@
 
 - **언어/런타임**: Python 3.12, FastAPI (ASGI)
 - **DB**: MongoDB 7+ (motor async driver), TTL 인덱스 자동 정리
-- **AI**: PyTorch + CUDA AMP, YOLOv11-M, pix2pix
+- **AI**: PyTorch + CUDA AMP, Point Detection, pix2pix
 - **WSI**: OpenSlide, Pillow, ICC profile, Hamamatsu NDP fit
 - **보안**: bcrypt, AES-256-GCM, HMAC-SHA256, RFC 6238 TOTP
 
