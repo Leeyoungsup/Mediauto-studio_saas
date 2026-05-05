@@ -100,6 +100,9 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │       ├── color-correction.js    # NDP 색보정 토글
 │       └── admin.js               # 관리자 페이지 로직
 ├── docs/
+│   ├── README.md                 # 문서 목차와 읽는 순서
+│   ├── PRODUCT_BROCHURE.md       # 제품 소개서
+│   ├── USER_GUIDE.md             # 사용자 가이드 + IFU 초안
 │   ├── DATABASE.md                # MongoDB 스키마 (7 컬렉션 + 인덱스 일람)
 │   ├── SECURITY.md                # 인증·인가·암호화·감사 로그·운영 가이드
 │   ├── FEATURES.md                # 사용자/내부 동작 관점 전체 기능 명세
@@ -254,6 +257,9 @@ uvicorn main:app --host 0.0.0.0 --port 8091
 
 ## 추가 문서
 
+- [docs/README.md](docs/README.md) — 문서 목차와 읽는 순서
+- [docs/PRODUCT_BROCHURE.md](docs/PRODUCT_BROCHURE.md) — 제품 소개서
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — 사용자 가이드 + IFU 초안
 - [docs/FEATURES.md](docs/FEATURES.md) — 전체 기능 명세 (사용자/내부 동작)
 - [docs/DATABASE.md](docs/DATABASE.md) — MongoDB 스키마 + 인덱스
 - [docs/SECURITY.md](docs/SECURITY.md) — 인증·인가·암호화·감사 로그·운영

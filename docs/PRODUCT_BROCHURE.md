@@ -343,9 +343,9 @@
 
 ## 부록 A — 더 알고 싶다면
 
-- **사용자 매뉴얼** — [USER_MANUAL.md](USER_MANUAL.md)
+- **문서 목차** — [README.md](README.md)
+- **사용자 가이드 + IFU 초안** — [USER_GUIDE.md](USER_GUIDE.md)
 - **기능 명세** — [FEATURES.md](FEATURES.md)
 - **보안 설계 + SaMD 매트릭스** — [SECURITY.md](SECURITY.md)
 - **인허가 충족 현황** — [COMPLIANCE_STATUS.md](COMPLIANCE_STATUS.md)
 - **DB 스키마** — [DATABASE.md](DATABASE.md)
-- **가이드라인 / IFU 초안** — [GUIDELINE.md](GUIDELINE.md)
