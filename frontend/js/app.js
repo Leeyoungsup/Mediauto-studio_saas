@@ -1924,15 +1924,26 @@ $btnInfo.addEventListener('click', () => {
     const physW = info.physical_width_mm?.toFixed(2) ?? '-';
     const physH = info.physical_height_mm?.toFixed(2) ?? '-';
 
-    let html = '<table>';
-    html += `<tr><td>Filename</td><td>${info.filename}</td></tr>`;
-    html += `<tr><td>Vendor</td><td>${info.vendor}</td></tr>`;
-    html += `<tr><td>Magnification</td><td>${mag}</td></tr>`;
-    html += `<tr><td>Pixel Size</td><td>${info.dimensions[0].toLocaleString()} × ${info.dimensions[1].toLocaleString()} px</td></tr>`;
-    html += `<tr><td>MPP</td><td>${info.mpp_x?.toFixed(4) ?? '-'} × ${info.mpp_y?.toFixed(4) ?? '-'} μm/px</td></tr>`;
-    html += `<tr><td>Physical Size</td><td>${physW} × ${physH} mm</td></tr>`;
-    html += '</table>';
-    $slideInfoContent.innerHTML = html;
+    const rows = [
+        ['Filename', info.filename || $slideName?.textContent || '-'],
+        ['Vendor', info.vendor || '-'],
+        ['Magnification', mag],
+        ['Pixel Size', `${info.dimensions[0].toLocaleString()} × ${info.dimensions[1].toLocaleString()} px`],
+        ['MPP', `${info.mpp_x?.toFixed(4) ?? '-'} × ${info.mpp_y?.toFixed(4) ?? '-'} μm/px`],
+        ['Physical Size', `${physW} × ${physH} mm`],
+    ];
+    $slideInfoContent.replaceChildren();
+    const table = document.createElement('table');
+    for (const [label, value] of rows) {
+        const tr = document.createElement('tr');
+        const tdLabel = document.createElement('td');
+        const tdValue = document.createElement('td');
+        tdLabel.textContent = label;
+        tdValue.textContent = value;
+        tr.append(tdLabel, tdValue);
+        table.appendChild(tr);
+    }
+    $slideInfoContent.appendChild(table);
     $slideInfoDialog.showModal();
 });
 $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close());
@@ -2550,7 +2561,11 @@ async function _openLoadUserEditDialog() {
         const r = await api.listUserAiEdits(currentSlideId, aiMode, variant);
         users = r.users || [];
     } catch (err) {
-        $loadUserEditList.innerHTML = `<div style="padding:12px; color:#c66;">Failed: ${err.message}</div>`;
+        $loadUserEditList.replaceChildren();
+        const errorEl = document.createElement('div');
+        errorEl.style.cssText = 'padding:12px; color:#c66;';
+        errorEl.textContent = `Failed: ${err.message}`;
+        $loadUserEditList.appendChild(errorEl);
         return;
     }
 

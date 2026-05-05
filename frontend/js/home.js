@@ -131,7 +131,8 @@
             done: 'Done', in_progress: 'In Progress',
             pending: 'Pending', flagged: 'Flagged',
         };
-        return `<span class="badge-status badge-status-${status}">${labels[status] || status}</span>`;
+        if (!Object.prototype.hasOwnProperty.call(labels, status)) return '';
+        return `<span class="badge-status badge-status-${status}">${labels[status]}</span>`;
     }
 
     // HTML 이스케이프 — innerHTML 에 들어갈 신뢰 불가능한 문자열 (filename, rel_path 등)

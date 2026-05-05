@@ -17,8 +17,9 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Q
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.audit import get_client_ip, log_audit_event
-from app.auth import get_current_user, get_media_user, require_not_viewer
+from app.auth import get_current_user, get_media_user, require_not_viewer, require_role
 from app.config import settings
+from app.models import UserRole
 from app.slide_manager import slide_manager
 from app import tile_generator
 from app import slide_store
@@ -709,7 +710,7 @@ async def upload_complete(
 async def open_local_file(
     request: Request,
     file_path: str = Form(...),
-    dict_user: dict = Depends(get_current_user),
+    dict_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """서버 로컬 디스크의 WSI 파일 열기.
 
