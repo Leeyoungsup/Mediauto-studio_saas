@@ -30,7 +30,11 @@ DICT_CURRENT_TO_LEGACY_AI_MODEL_KEYS = {
 }
 
 # 슬라이드 리뷰 상태 (str_status). "" = none.
-SET_SLIDE_STATUSES = {"", "pending", "in_progress", "done", "flagged"}
+SET_SLIDE_STATUSES = {
+    "",
+    "pending", "in_progress", "done", "flagged",
+    "annotation", "review", "termination",
+}
 
 
 def _empty_ai_results() -> dict:
@@ -312,21 +316,30 @@ async def set_slide_status(
     str_rel_path: str,
     str_filename: str,
     str_status: str,
+    str_scope: str = "",
 ) -> None:
     """슬라이드 리뷰 상태 설정 — "" 는 상태 제거."""
     if not is_db_connected():
         return
     if str_status not in SET_SLIDE_STATUSES:
         return
+    str_status_field = "str_status"
+    if str_scope == "ai":
+        str_status_field = "str_ai_status"
+    elif str_scope == "annotation":
+        str_status_field = "str_annotation_status"
     db = get_db()
     str_rel_path = _norm_rel_path(str_rel_path)
+    dict_set = {
+        str_status_field: str_status,
+        "dt_status_updated_at": datetime.now(timezone.utc),
+        "dt_updated_at": datetime.now(timezone.utc),
+    }
+    if str_scope == "annotation":
+        dict_set["str_status"] = str_status
     await db.slides.update_one(
         {"str_rel_path": str_rel_path, "str_filename": str_filename},
-        {"$set": {
-            "str_status": str_status,
-            "dt_status_updated_at": datetime.now(timezone.utc),
-            "dt_updated_at": datetime.now(timezone.utc),
-        }},
+        {"$set": dict_set},
     )
 
 

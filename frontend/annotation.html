@@ -415,6 +415,21 @@
 
             <!-- Annotation 패널 -->
             <div class="panel-group annotation-group">
+                <div class="annotation-status-panel">
+                    <label id="annotation-status-label">Annotation Status</label>
+                    <div id="annotation-status-workflow" class="annotation-status-workflow" role="group" aria-labelledby="annotation-status-label">
+                        <button type="button" class="annotation-step" data-annotation-status="annotation">Annotation</button>
+                        <span class="annotation-step-connector" data-connector="annotation-review">-</span>
+                        <button type="button" class="annotation-step" data-annotation-status="review">Review</button>
+                        <span class="annotation-step-connector" data-connector="review-termination">-</span>
+                        <button type="button" class="annotation-step" data-annotation-status="termination">Termination</button>
+                    </div>
+                    <select id="annotation-status-select" disabled hidden>
+                        <option value="annotation">Annotation</option>
+                        <option value="review">Review</option>
+                        <option value="termination">Termination</option>
+                    </select>
+                </div>
                 <div class="panel-header">Annotations</div>
                 <div id="annotation-list" class="annotation-list"></div>
                 <div class="btn-row compact">
@@ -539,6 +554,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/annotation.js?v=20260514-01"></script>
+    <script type="module" src="js/annotation.js?v=20260514-03"></script>
 </body>
 </html>

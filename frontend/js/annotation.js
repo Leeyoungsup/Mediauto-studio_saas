@@ -114,6 +114,8 @@ let _vsRunning = false;
 let _vsLastTargetMpp = 2.0;
 
 const $slideList = $('#slide-list');
+const $annotationStatusSelect = $('#annotation-status-select');
+const $annotationStatusWorkflow = $('#annotation-status-workflow');
 const $projectSelect = $('#project-select');
 const $projectGate = $('#project-gate');
 const $projectGateList = $('#project-gate-list');
@@ -139,8 +141,46 @@ const $btnDeleteProject = $('#btn-delete-project');
 // ── 상태 ──
 let currentSlideId = null;
 let currentSlideInfo = null;
+let currentSlideFilename = '';
+let currentAnnotationStatus = '';
+let _annotationStatusSaving = false;
 let minimapImage = null;
 let lastSegData = null;  // segmentation overlay data from epithelial classification
+
+const ANNOTATION_WORKFLOW_ORDER = ['annotation', 'review', 'termination'];
+
+function _normalizeAnnotationWorkflowStatus(status) {
+    const strStatus = status || '';
+    if (strStatus === 'review' || strStatus === 'done') return 'review';
+    if (strStatus === 'termination' || strStatus === 'flagged') return 'termination';
+    return 'annotation';
+}
+
+function _annotationWorkflowStorageStatus(status) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    if (strStatus === 'review') return 'done';
+    if (strStatus === 'termination') return 'flagged';
+    return 'in_progress';
+}
+
+function _annotationWorkflowMeta(status) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    return {
+        annotation: { label: 'A', color: '#f4b400', title: 'Annotation' },
+        review: { label: 'R', color: '#2ecc71', title: 'Review' },
+        termination: { label: 'T', color: '#6c5ce7', title: 'Termination' },
+    }[strStatus];
+}
+
+function _annotationWorkflowIndex(status) {
+    return ANNOTATION_WORKFLOW_ORDER.indexOf(_normalizeAnnotationWorkflowStatus(status));
+}
+
+function _canMoveAnnotationWorkflowTo(targetStatus, currentStatus) {
+    const int_target = _annotationWorkflowIndex(targetStatus);
+    const int_current = _annotationWorkflowIndex(currentStatus);
+    return int_target === int_current + 1;
+}
 
 // ── 뷰어 초기화 ──
 const viewer = new TileViewer($canvas, $overlay);
@@ -455,6 +495,9 @@ if ($btnNdpColor) {
 function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
+    currentSlideFilename = filename || slideInfo?.filename || '';
+    currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
+    _syncAnnotationStatusControl(currentAnnotationStatus);
 
     // 슬라이드 전환 — 이전 슬라이드의 sticky 클래스는 의미 없음 (class id/이름 매핑이
     // 새 detection 결과에 따라 다를 수 있음). HUD 도 같이 숨김.
@@ -509,6 +552,69 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // annotation은 사용자가 Load 버튼으로 파일에서 불러옴 (서버 자동 로드 X)
 
     setProgress(0);
+}
+
+function _findSlideListStatus(filename) {
+    if (!filename || !$slideList) return '';
+    const items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
+    for (const item of items) {
+        if (item.dataset.filename === filename) return item.dataset.status || '';
+    }
+    return '';
+}
+
+function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    const boolDisabled = !currentSlideFilename || _isViewerRole() || _annotationStatusSaving;
+    if ($annotationStatusSelect) {
+        $annotationStatusSelect.value = SLIDE_STATUS_OPTIONS.some(opt => opt.value === strStatus)
+            ? strStatus
+            : 'annotation';
+        $annotationStatusSelect.disabled = boolDisabled;
+    }
+    if (!$annotationStatusWorkflow) return;
+    const intCurrent = _annotationWorkflowIndex(strStatus);
+    $annotationStatusWorkflow.dataset.status = strStatus;
+    $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled);
+    $annotationStatusWorkflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
+        const strTarget = _normalizeAnnotationWorkflowStatus(btn.dataset.annotationStatus);
+        const intTarget = _annotationWorkflowIndex(strTarget);
+        btn.classList.toggle('is-active', strTarget === strStatus);
+        btn.classList.toggle('is-complete', intTarget < intCurrent);
+        btn.disabled = boolDisabled || !_canMoveAnnotationWorkflowTo(strTarget, strStatus);
+        btn.title = btn.disabled && !_isViewerRole()
+            ? (strTarget === strStatus ? 'Current step' : 'Proceed in order')
+            : `Set ${btn.textContent.trim()}`;
+    });
+    const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
+    const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
+    if (connectorA) connectorA.textContent = strStatus === 'annotation' ? '▶' : '✓';
+    if (connectorB) connectorB.textContent = strStatus === 'review' ? '▶' : (strStatus === 'termination' ? '✓' : '-');
+}
+
+function _setSlideListItemAnnotationStatus(filename, status) {
+    if (!filename || !$slideList) return;
+    const items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
+    for (const item of items) {
+        if (item.dataset.filename !== filename) continue;
+        ['pending', 'in_progress', 'done', 'flagged', 'annotation', 'review', 'termination'].forEach(value => {
+            item.classList.remove(`status-${value}`);
+        });
+        const strStatus = _normalizeAnnotationWorkflowStatus(status);
+        item.dataset.status = strStatus;
+        item.querySelectorAll('.slide-status-dot').forEach(el => el.remove());
+        item.classList.add(`status-${strStatus}`);
+        const meta = _annotationWorkflowMeta(strStatus);
+        if (meta) {
+            const dot = document.createElement('span');
+            dot.className = 'slide-status-dot';
+            dot.textContent = meta.label;
+            dot.style.background = meta.color;
+            dot.title = meta.title;
+            item.appendChild(dot);
+        }
+        break;
+    }
 }
 
 // ═══════════════════════════
@@ -667,7 +773,7 @@ function _applyViewerRoleRestrictions() {
         }
     });
 
-    document.querySelectorAll('.annotation-group button, .annotation-group input').forEach(el => {
+    document.querySelectorAll('.annotation-group button, .annotation-group input, .annotation-group select').forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다.';
     });
@@ -2982,8 +3088,9 @@ function _projectGateValue(project, key) {
     if (key === 'hospital') return info.institution || '';
     if (key === 'owner') return info.owner || '';
     if (key === 'slides') return Number(project.slide_count || 0);
-    if (key === 'reviewed') return Number(project.reviewed_count || 0);
-    if (key === 'progress') return Number(project.in_progress_count || 0);
+    if (key === 'annotation') return Number(project.annotation_count || 0);
+    if (key === 'review') return Number(project.review_count || 0);
+    if (key === 'termination') return Number(project.termination_count || 0);
     if (key === 'folders') return Number(project.folder_count || 0);
     if (key === 'status') return info.status || 'active';
     return '';
@@ -3071,7 +3178,7 @@ function _setProjectGateSort(key) {
     } else {
         _projectGateSort = {
             key,
-            dir: ['slides', 'reviewed', 'progress', 'folders'].includes(key) ? 'desc' : 'asc',
+            dir: ['slides', 'annotation', 'review', 'termination', 'folders'].includes(key) ? 'desc' : 'asc',
         };
     }
     _projectGatePage = 1;
@@ -3166,8 +3273,9 @@ function _renderProjectGate(list_projects) {
         { label: 'Hospital', key: 'hospital' },
         { label: 'Owner', key: 'owner' },
         { label: 'Slides', key: 'slides' },
-        { label: 'Reviewed', key: 'reviewed' },
-        { label: 'In Progress', key: 'progress' },
+        { label: 'Annotation', key: 'annotation' },
+        { label: 'Review', key: 'review' },
+        { label: 'Termination', key: 'termination' },
         { label: 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
         { label: '', key: '' },
@@ -3233,13 +3341,17 @@ function _renderProjectGate(list_projects) {
         slidesEl.className = 'project-gate-cell project-gate-number';
         slidesEl.textContent = project.slide_count || 0;
 
-        const reviewedEl = document.createElement('div');
-        reviewedEl.className = 'project-gate-cell project-gate-number';
-        reviewedEl.textContent = project.reviewed_count || 0;
+        const annotationEl = document.createElement('div');
+        annotationEl.className = 'project-gate-cell project-gate-number';
+        annotationEl.textContent = project.annotation_count || 0;
 
-        const progressEl = document.createElement('div');
-        progressEl.className = 'project-gate-cell project-gate-number';
-        progressEl.textContent = project.in_progress_count || 0;
+        const reviewEl = document.createElement('div');
+        reviewEl.className = 'project-gate-cell project-gate-number';
+        reviewEl.textContent = project.review_count || 0;
+
+        const terminationEl = document.createElement('div');
+        terminationEl.className = 'project-gate-cell project-gate-number';
+        terminationEl.textContent = project.termination_count || 0;
 
         const foldersEl = document.createElement('div');
         foldersEl.className = 'project-gate-cell project-gate-number';
@@ -3256,7 +3368,7 @@ function _renderProjectGate(list_projects) {
         actionEl.className = 'project-gate-action';
         actionEl.textContent = 'Open';
 
-        row.append(projectEl, hospitalEl, ownerEl, slidesEl, reviewedEl, progressEl, foldersEl, statusEl, actionEl);
+        row.append(projectEl, hospitalEl, ownerEl, slidesEl, annotationEl, reviewEl, terminationEl, foldersEl, statusEl, actionEl);
         row.addEventListener('click', () => _enterProjectFromGate(path));
         $projectGateList.appendChild(row);
     }
@@ -3280,7 +3392,7 @@ function _enterProjectFromGate(path) {
     if (!path) return;
     _hideProjectGate();
     currentBrowsePath = path;
-    history.replaceState(null, '', `/app.html?path=${encodeURIComponent(path)}`);
+    history.replaceState(null, '', `/annotation.html?path=${encodeURIComponent(path)}`);
     loadSlideList();
 }
 
@@ -3354,10 +3466,11 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
-            if (s.status) item.classList.add(`status-${s.status}`);
+            const strSlideStatus = _normalizeAnnotationWorkflowStatus(s.annotation_status || s.status || 'annotation');
+            item.classList.add(`status-${strSlideStatus}`);
             item.dataset.filename = s.filename;
             item.dataset.slideId = s.slide_id;
-            item.dataset.status = s.status || '';
+            item.dataset.status = strSlideStatus;
             item.draggable = true;
 
             const thumb = document.createElement('img');
@@ -3380,23 +3493,15 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
-            // 리뷰 상태 배지
-            if (s.status) {
-                const statusMeta = {
-                    pending:     { label: '⋯', color: '#95a5a6', title: 'Pending' },
-                    in_progress: { label: '▶', color: '#3498db', title: 'In Progress' },
-                    done:        { label: '✓', color: '#27ae60', title: 'Done' },
-                    flagged:     { label: '⚑', color: '#e74c3c', title: 'Flagged' },
-                };
-                const m = statusMeta[s.status];
-                if (m) {
-                    const dot = document.createElement('span');
-                    dot.className = 'slide-status-dot';
-                    dot.textContent = m.label;
-                    dot.style.background = m.color;
-                    dot.title = m.title;
-                    item.appendChild(dot);
-                }
+            // Annotation 상태 배지
+            const m = _annotationWorkflowMeta(strSlideStatus);
+            if (m) {
+                const dot = document.createElement('span');
+                dot.className = 'slide-status-dot';
+                dot.textContent = m.label;
+                dot.style.background = m.color;
+                dot.title = m.title;
+                item.appendChild(dot);
             }
 
             // 우클릭: 컨텍스트 메뉴 (상태 설정 / 삭제)
@@ -3707,18 +3812,61 @@ function _getSelectedSlideFilenames() {
 }
 
 const SLIDE_STATUS_OPTIONS = [
-    { value: 'pending',     label: 'Pending',     color: '#95a5a6' },
-    { value: 'in_progress', label: 'In Progress', color: '#3498db' },
-    { value: 'done',        label: 'Done',        color: '#27ae60' },
-    { value: 'flagged',     label: 'Flagged',     color: '#e74c3c' },
-    { value: '',            label: 'Clear Status', color: '' },
+    { value: 'annotation',  label: 'Annotation',  color: '#f4b400' },
+    { value: 'review',      label: 'Review',      color: '#2ecc71' },
+    { value: 'termination', label: 'Termination', color: '#6c5ce7' },
 ];
+
+async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
+    if (!currentSlideFilename) {
+        _syncAnnotationStatusControl('');
+        return;
+    }
+    if (_blockViewerAction()) {
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return;
+    }
+    const strNextStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
+    const strNextStorageStatus = _annotationWorkflowStorageStatus(strNextStatus);
+    const strPrevStatus = currentAnnotationStatus || '';
+    _annotationStatusSaving = true;
+    _syncAnnotationStatusControl(currentAnnotationStatus);
+    try {
+        await api.setFileStatus([currentSlideFilename], strNextStorageStatus, currentBrowsePath, 'annotation');
+        currentAnnotationStatus = strNextStatus;
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strNextStatus);
+        setStatus(`Annotation status updated: ${currentSlideFilename}`);
+    } catch (err) {
+        currentAnnotationStatus = strPrevStatus;
+        alert(`Failed to update annotation status: ${err.message}`);
+    } finally {
+        _annotationStatusSaving = false;
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+    }
+}
+
+$annotationStatusWorkflow?.querySelectorAll('[data-annotation-status]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        _applyAnnotationWorkflowStatusToCurrent(btn.dataset.annotationStatus);
+    });
+});
+
+$annotationStatusSelect?.addEventListener('change', () => {
+    _applyAnnotationWorkflowStatusToCurrent($annotationStatusSelect.value);
+});
 
 async function _applyStatusToSelected(strStatus) {
     const list_filenames = _getSelectedSlideFilenames();
     if (list_filenames.length === 0) return;
+    const strWorkflowStatus = _normalizeAnnotationWorkflowStatus(strStatus);
+    const strStorageStatus = _annotationWorkflowStorageStatus(strWorkflowStatus);
     try {
-        await api.setFileStatus(list_filenames, strStatus, currentBrowsePath);
+        await api.setFileStatus(list_filenames, strStorageStatus, currentBrowsePath, 'annotation');
+        if (currentSlideFilename && list_filenames.includes(currentSlideFilename)) {
+            currentAnnotationStatus = strWorkflowStatus;
+            _syncAnnotationStatusControl(currentAnnotationStatus);
+        }
         setStatus(`Status updated: ${list_filenames.length} slide(s)`);
         loadSlideList();
     } catch (err) {
@@ -3774,7 +3922,7 @@ function showSlideContextMenu(e) {
     // Set Status 하위 항목
     const labelStatus = document.createElement('div');
     labelStatus.className = 'ctx-menu-label';
-    labelStatus.textContent = 'Set Status';
+    labelStatus.textContent = 'Set Annotation Status';
     menu.appendChild(labelStatus);
 
     for (const opt of SLIDE_STATUS_OPTIONS) {
@@ -4581,6 +4729,6 @@ $btnVsSplit?.addEventListener('click', () => {
         // 슬라이드 목록 로드 후 자동 열기
         openSavedSlide(_paramSlide, null);
         // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
-        history.replaceState(null, '', '/app.html');
+        history.replaceState(null, '', '/annotation.html');
     }
 })();

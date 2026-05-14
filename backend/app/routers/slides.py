@@ -315,9 +315,13 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dt_opened = dict_db.get("dt_last_opened_at")
                 dict_item["last_opened_at"] = dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None)
                 dict_item["status"] = dict_db.get("str_status") or ""
+                dict_item["ai_status"] = dict_db.get("str_ai_status") or ""
+                dict_item["annotation_status"] = dict_db.get("str_annotation_status") or dict_db.get("str_status") or ""
             else:
                 dict_item["ai_results"] = None
                 dict_item["status"] = ""
+                dict_item["ai_status"] = ""
+                dict_item["annotation_status"] = ""
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
@@ -406,7 +410,7 @@ async def list_projects():
             dict_infos[dict_doc.get("str_project_path", "")] = dict_doc
         async for dict_doc in db.slides.find(
             {},
-            {"str_rel_path": 1, "str_status": 1, "dict_ai_results": 1},
+            {"str_rel_path": 1, "str_status": 1, "str_annotation_status": 1, "dict_ai_results": 1},
         ):
             str_rel = (dict_doc.get("str_rel_path") or "").replace("\\", "/").strip("/")
             str_project = str_rel.split("/", 1)[0] if str_rel else ""
@@ -414,9 +418,23 @@ async def list_projects():
                 continue
             dict_project = dict_metrics.setdefault(
                 str_project,
-                {"reviewed_count": 0, "in_progress_count": 0, "ai_analyzed_count": 0},
+                {
+                    "annotation_count": 0,
+                    "review_count": 0,
+                    "termination_count": 0,
+                    "reviewed_count": 0,
+                    "in_progress_count": 0,
+                    "ai_analyzed_count": 0,
+                },
             )
             str_status = dict_doc.get("str_status") or ""
+            str_annotation_status = dict_doc.get("str_annotation_status") or str_status
+            if str_annotation_status in {"annotation", "pending", "in_progress"}:
+                dict_project["annotation_count"] += 1
+            if str_annotation_status in {"review", "done"}:
+                dict_project["review_count"] += 1
+            if str_annotation_status in {"termination", "flagged"}:
+                dict_project["termination_count"] += 1
             if str_status == "done":
                 dict_project["reviewed_count"] += 1
             if str_status in {"pending", "in_progress"}:
@@ -448,6 +466,9 @@ async def list_projects():
             "path": p.name,
             "slide_count": int_slide_count,
             "folder_count": int_folder_count,
+            "annotation_count": dict_metrics.get(p.name, {}).get("annotation_count", 0),
+            "review_count": dict_metrics.get(p.name, {}).get("review_count", 0),
+            "termination_count": dict_metrics.get(p.name, {}).get("termination_count", 0),
             "reviewed_count": dict_metrics.get(p.name, {}).get("reviewed_count", 0),
             "in_progress_count": dict_metrics.get(p.name, {}).get("in_progress_count", 0),
             "ai_analyzed_count": dict_metrics.get(p.name, {}).get("ai_analyzed_count", 0),
@@ -901,12 +922,16 @@ async def set_file_status(
     filenames_json: str = Form(...),
     path: str = Form(""),
     status: str = Form(""),
+    scope: str = Form(""),
     dict_user: dict = Depends(get_current_user),
 ):
     """슬라이드 리뷰 상태 일괄 설정.
 
-    status: "" | "pending" | "in_progress" | "done" | "flagged"
+    status: "" | "pending" | "in_progress" | "done" | "flagged" | "annotation" | "review" | "termination"
     """
+    str_scope = (scope or "").strip().lower()
+    if str_scope not in {"", "ai", "annotation"}:
+        raise HTTPException(400, f"Invalid status scope: {scope}")
     if status not in slide_store.SET_SLIDE_STATUSES:
         raise HTTPException(400, f"잘못된 status: {status}")
     try:
@@ -921,7 +946,7 @@ async def set_file_status(
         if not isinstance(str_fn, str) or not str_fn:
             continue
         try:
-            await slide_store.set_slide_status(path, str_fn, status)
+            await slide_store.set_slide_status(path, str_fn, status, str_scope)
             int_updated += 1
         except Exception as e:
             print(f"[slides] set_slide_status failed ({str_fn}): {e}")
@@ -931,14 +956,15 @@ async def set_file_status(
         str_action="slide.status_update",
         str_resource_type="slide",
         str_resource_id=path.replace("\\", "/").strip("/"),
-        str_detail=f"Set status {status or 'none'} on {int_updated} slide(s)",
+        str_detail=f"Set {str_scope or 'legacy'} status {status or 'none'} on {int_updated} slide(s)",
         dict_extra={
             "str_rel_path": path.replace("\\", "/").strip("/"),
             "list_filenames": [f for f in list_filenames if isinstance(f, str) and f],
             "str_status": status,
+            "str_scope": str_scope,
             "int_updated": int_updated,
         },
-        dict_after={"status": status},
+        dict_after={"status": status, "scope": str_scope},
     )
     return {"status": "ok", "updated": int_updated}
 

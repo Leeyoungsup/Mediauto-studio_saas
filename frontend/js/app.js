@@ -3068,7 +3068,7 @@ function _setProjectGateSort(key) {
     } else {
         _projectGateSort = {
             key,
-            dir: ['slides', 'reviewed', 'progress', 'ai', 'folders'].includes(key) ? 'desc' : 'asc',
+            dir: ['slides', 'ai', 'folders'].includes(key) ? 'desc' : 'asc',
         };
     }
     _projectGatePage = 1;
@@ -3163,8 +3163,6 @@ function _renderProjectGate(list_projects) {
         { label: 'Hospital', key: 'hospital' },
         { label: 'Owner', key: 'owner' },
         { label: 'Slides', key: 'slides' },
-        { label: 'Reviewed', key: 'reviewed' },
-        { label: 'In Progress', key: 'progress' },
         { label: 'AI Analyzed', key: 'ai' },
         { label: 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
@@ -3231,14 +3229,6 @@ function _renderProjectGate(list_projects) {
         slidesEl.className = 'project-gate-cell project-gate-number';
         slidesEl.textContent = project.slide_count || 0;
 
-        const reviewedEl = document.createElement('div');
-        reviewedEl.className = 'project-gate-cell project-gate-number';
-        reviewedEl.textContent = project.reviewed_count || 0;
-
-        const progressEl = document.createElement('div');
-        progressEl.className = 'project-gate-cell project-gate-number';
-        progressEl.textContent = project.in_progress_count || 0;
-
         const aiEl = document.createElement('div');
         aiEl.className = 'project-gate-cell project-gate-number';
         aiEl.textContent = project.ai_analyzed_count || 0;
@@ -3258,7 +3248,7 @@ function _renderProjectGate(list_projects) {
         actionEl.className = 'project-gate-action';
         actionEl.textContent = 'Open';
 
-        row.append(projectEl, hospitalEl, ownerEl, slidesEl, reviewedEl, progressEl, aiEl, foldersEl, statusEl, actionEl);
+        row.append(projectEl, hospitalEl, ownerEl, slidesEl, aiEl, foldersEl, statusEl, actionEl);
         row.addEventListener('click', () => _enterProjectFromGate(path));
         $projectGateList.appendChild(row);
     }
@@ -3356,10 +3346,11 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
-            if (s.status) item.classList.add(`status-${s.status}`);
+            const strSlideStatus = s.ai_status || '';
+            if (strSlideStatus) item.classList.add(`status-${strSlideStatus}`);
             item.dataset.filename = s.filename;
             item.dataset.slideId = s.slide_id;
-            item.dataset.status = s.status || '';
+            item.dataset.status = strSlideStatus;
             item.draggable = true;
 
             const thumb = document.createElement('img');
@@ -3382,15 +3373,15 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
-            // 리뷰 상태 배지
-            if (s.status) {
+            // AI 상태 배지
+            if (strSlideStatus) {
                 const statusMeta = {
-                    pending:     { label: '⋯', color: '#95a5a6', title: 'Pending' },
-                    in_progress: { label: '▶', color: '#3498db', title: 'In Progress' },
-                    done:        { label: '✓', color: '#27ae60', title: 'Done' },
-                    flagged:     { label: '⚑', color: '#e74c3c', title: 'Flagged' },
+                    pending:     { label: '⋯', color: '#95a5a6', title: 'AI Pending' },
+                    in_progress: { label: '▶', color: '#3498db', title: 'AI In Progress' },
+                    done:        { label: '✓', color: '#27ae60', title: 'AI Reviewed' },
+                    flagged:     { label: '⚑', color: '#e74c3c', title: 'AI Flagged' },
                 };
-                const m = statusMeta[s.status];
+                const m = statusMeta[strSlideStatus];
                 if (m) {
                     const dot = document.createElement('span');
                     dot.className = 'slide-status-dot';
@@ -3708,18 +3699,18 @@ function _getSelectedSlideFilenames() {
 }
 
 const SLIDE_STATUS_OPTIONS = [
-    { value: 'pending',     label: 'Pending',     color: '#95a5a6' },
-    { value: 'in_progress', label: 'In Progress', color: '#3498db' },
-    { value: 'done',        label: 'Done',        color: '#27ae60' },
-    { value: 'flagged',     label: 'Flagged',     color: '#e74c3c' },
-    { value: '',            label: 'Clear Status', color: '' },
+    { value: 'pending',     label: 'AI Pending',     color: '#95a5a6' },
+    { value: 'in_progress', label: 'AI In Progress', color: '#3498db' },
+    { value: 'done',        label: 'AI Reviewed',    color: '#27ae60' },
+    { value: 'flagged',     label: 'AI Flagged',     color: '#e74c3c' },
+    { value: '',            label: 'Clear AI Status', color: '' },
 ];
 
 async function _applyStatusToSelected(strStatus) {
     const list_filenames = _getSelectedSlideFilenames();
     if (list_filenames.length === 0) return;
     try {
-        await api.setFileStatus(list_filenames, strStatus, currentBrowsePath);
+        await api.setFileStatus(list_filenames, strStatus, currentBrowsePath, 'ai');
         setStatus(`Status updated: ${list_filenames.length} slide(s)`);
         loadSlideList();
     } catch (err) {
@@ -3775,7 +3766,7 @@ function showSlideContextMenu(e) {
     // Set Status 하위 항목
     const labelStatus = document.createElement('div');
     labelStatus.className = 'ctx-menu-label';
-    labelStatus.textContent = 'Set Status';
+    labelStatus.textContent = 'Set AI Status';
     menu.appendChild(labelStatus);
 
     for (const opt of SLIDE_STATUS_OPTIONS) {
