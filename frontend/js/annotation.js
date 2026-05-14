@@ -4176,40 +4176,6 @@ function showSlideContextMenu(e) {
     menu.appendChild(header);
 
     // Set Status 하위 항목
-    const labelStatus = document.createElement('div');
-    labelStatus.className = 'ctx-menu-label';
-    labelStatus.textContent = 'Set Annotation Status';
-    menu.appendChild(labelStatus);
-
-    for (const opt of SLIDE_STATUS_OPTIONS) {
-        const btn = document.createElement('div');
-        btn.className = 'ctx-menu-item ctx-menu-status';
-        if (opt.color) {
-            const dot = document.createElement('span');
-            dot.className = 'ctx-menu-status-dot';
-            dot.style.background = opt.color;
-            btn.appendChild(dot);
-        } else {
-            const dot = document.createElement('span');
-            dot.className = 'ctx-menu-status-dot';
-            dot.style.background = 'transparent';
-            dot.style.border = '1px dashed #999';
-            btn.appendChild(dot);
-        }
-        const span = document.createElement('span');
-        span.textContent = opt.label;
-        btn.appendChild(span);
-        btn.addEventListener('click', () => {
-            removeCtxMenu();
-            _applyStatusToSelected(opt.value);
-        });
-        menu.appendChild(btn);
-    }
-
-    const sep = document.createElement('div');
-    sep.className = 'ctx-menu-sep';
-    menu.appendChild(sep);
-
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'ctx-menu-item danger';
     deleteBtn.textContent = list_filenames.length === 1 ? 'Delete' : `Delete ${list_filenames.length} slides`;
