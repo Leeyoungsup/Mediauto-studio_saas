@@ -265,7 +265,7 @@
         const info = project?.info || {};
         $projectDialogTitle.textContent = mode === 'create' ? 'New Project' : 'Project Information';
         $projectNameInput.value = project ? project.name : '';
-        $projectNameInput.disabled = mode !== 'create';
+        $projectNameInput.disabled = !canEditProjects();
         $projectTitleInput.value = info.title || project?.name || '';
         $projectInstitutionInput.value = info.institution || '';
         $projectDepartmentInput.value = info.department || '';
@@ -282,14 +282,24 @@
 
     async function saveProjectDialog() {
         const payload = projectInfoPayload();
+        const nextName = $projectNameInput.value.trim();
         if (_projectDialogMode === 'create') {
             await postForm('/slides/project/create', {
-                name: $projectNameInput.value.trim(),
+                name: nextName,
                 ...payload,
             });
         } else {
+            let targetName = _editingProjectPath;
+            if (nextName && nextName !== _editingProjectPath) {
+                await postForm('/slides/project/rename', {
+                    name: _editingProjectPath,
+                    new_name: nextName,
+                });
+                targetName = nextName;
+                _editingProjectPath = nextName;
+            }
             await postForm('/slides/project/update', {
-                name: _editingProjectPath,
+                name: targetName,
                 ...payload,
             });
         }

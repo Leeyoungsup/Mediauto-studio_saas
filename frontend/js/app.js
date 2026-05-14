@@ -70,9 +70,20 @@ let _lastDetectionTissue = null;
 let _lastDetectionModel = null;
 // 로드된 결과를 onXxxComplete 로 재투입할 때 필요한 ROI (없으면 null)
 let _lastDetectionRoi = null;
+
+function _isViewerRole() {
+    return window.__currentUserRole === 'viewer';
+}
+
+function _blockViewerAction(message = 'Viewer 권한은 AI/annotation 기능을 사용할 수 없습니다.') {
+    if (!_isViewerRole()) return false;
+    _applyViewerRoleRestrictions();
+    setStatus(message);
+    return true;
+}
+
 const $btnDrawPolygon = $('#btn-draw-polygon');
 const $btnDrawRect = $('#btn-draw-rect');
-const $btnDrawPoint = $('#btn-draw-point');
 const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 const $btnRuler = $('#btn-ruler');
@@ -466,10 +477,12 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     });
 
     // 폴더별 AI 자동 분석 설정이 있으면 해당 task 만 활성화, 나머지는 disabled.
-    _applyFolderAiRestrictions(currentBrowsePath);
+    if (!_isViewerRole()) {
+        _applyFolderAiRestrictions(currentBrowsePath);
+    }
 
     // Viewer 역할은 AI / annotation 기능 전면 비활성. 폴더 제한보다 우선.
-    if (window.__currentUserRole === 'viewer') {
+    if (_isViewerRole()) {
         _applyViewerRoleRestrictions();
     }
 
@@ -503,6 +516,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
 // ═══════════════════════════
 
 async function _applyFolderAiRestrictions(strFolderPath) {
+    if (_isViewerRole()) return;
+
     let cfg = null;
     try {
         cfg = await api.getFolderAiConfig(strFolderPath || '');
@@ -510,6 +525,8 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         console.warn('[folder-ai-restrict] load 실패:', err);
         return;
     }
+    if (_isViewerRole()) return;
+
     if (!cfg || !cfg.enabled || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
         return;
     }
@@ -598,9 +615,10 @@ async function _applyFolderAiRestrictions(strFolderPath) {
 // ═══════════════════════════
 function _applyViewerRoleRestrictions() {
     document.body.classList.add('role-viewer');
+    _stopAiActivePolling();
 
     // Annotation 그리기 도구 (상단 툴바)
-    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-draw-point',
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
         const el = document.getElementById(id);
@@ -616,23 +634,38 @@ function _applyViewerRoleRestrictions() {
     // AI 분석 버튼 전체 비활성
     const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
-        'btn-vs-membrane',
+        'btn-ihc-ki67', 'btn-vs-membrane', 'btn-vs-toggle', 'btn-vs-split',
+        'btn-visualize', 'btn-clear-results', 'btn-save-results', 'btn-load-results',
     ];
     list_ai_btn_ids.forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.disabled = true;
+        if (el) {
+            el.disabled = true;
+            el.title = 'Viewer 권한은 AI 분석 기능을 사용할 수 없습니다.';
+        }
     });
 
     // AI 입력 (tissue-type radio 등) 비활성
     document.querySelectorAll(
-        'input[name="tissue-type"], input[name="pd-tissue-type"]'
-    ).forEach(el => { el.disabled = true; });
+        '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button'
+    ).forEach(el => {
+        el.disabled = true;
+        if (!el.title) el.title = 'Viewer 권한은 AI 분석 기능을 사용할 수 없습니다.';
+    });
 
     // Annotation 패널의 저장/불러오기/초기화 버튼
     ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load',
      'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.disabled = true;
+        if (el) {
+            el.disabled = true;
+            el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다.';
+        }
+    });
+
+    document.querySelectorAll('.annotation-group button, .annotation-group input').forEach(el => {
+        el.disabled = true;
+        if (!el.title) el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다.';
     });
 }
 
@@ -762,13 +795,13 @@ $btnFit.addEventListener('click', () => viewer.fitToWindow());
 const drawButtons = {
     polygon: $btnDrawPolygon,
     rectangle: $btnDrawRect,
-    point: $btnDrawPoint,
     'rect-1mm2': $btnDrawRect1mm2,
     'circle-1mm2': $btnDrawCircle1mm2,
     ruler: $btnRuler,
 };
 
 function setDrawMode(mode) {
+    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
     // 같은 버튼 다시 클릭 → 해제
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
@@ -778,7 +811,6 @@ function setDrawMode(mode) {
 
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
-$btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
 if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
 if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
@@ -1811,6 +1843,7 @@ window.addEventListener('keydown', (e) => {
 
 // Clear All
 $btnAnnClear?.addEventListener('click', () => {
+    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
     viewer.clearAnnotations();
     renderAnnotationPanel();
     setStatus('Annotations cleared');
@@ -1949,8 +1982,14 @@ function _uploadAnnotations() {
     input.click();
 }
 
-$btnAnnSave?.addEventListener('click', _downloadAnnotations);
-$btnAnnLoad?.addEventListener('click', _uploadAnnotations);
+$btnAnnSave?.addEventListener('click', () => {
+    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    _downloadAnnotations();
+});
+$btnAnnLoad?.addEventListener('click', () => {
+    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    _uploadAnnotations();
+});
 
 // ═══════════════════════════
 // 슬라이드 정보 다이얼로그
@@ -2033,6 +2072,7 @@ async function _maybeCancelRunning(str_key) {
 $btnDetect.addEventListener('click', startDetection);
 
 async function startDetection() {
+    if (_blockViewerAction()) return;
     if (!currentSlideId) return;
     if (await _maybeCancelRunning('detect')) return;
 
@@ -2134,6 +2174,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
 // ═══════════════════════════
@@ -2492,9 +2533,13 @@ function clearResults() {
     _lastDetectionRoi = null;
 }
 
-$btnClearResults.addEventListener('click', clearResults);
+$btnClearResults.addEventListener('click', () => {
+    if (_blockViewerAction()) return;
+    clearResults();
+});
 
 $btnVisualize.addEventListener('click', () => {
+    if (_blockViewerAction()) return;
     if (viewer.detectionCells.length === 0) return;
     // 현재 클래스별 confidence 임계값을 통과한 셀만 시각화
     const filtered = viewer.detectionCells.filter(c => {
@@ -2533,6 +2578,7 @@ $btnVisualize.addEventListener('click', () => {
 // Detection Result 저장 — 현재 로그인한 사용자 전용 편집본으로 DB 저장
 // (원본 모델 추론 캐시는 건드리지 않음)
 $btnSaveResults?.addEventListener('click', async () => {
+    if (_blockViewerAction('Viewer 권한은 AI 결과 저장 기능을 사용할 수 없습니다.')) return;
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
@@ -2560,6 +2606,7 @@ $btnSaveResults?.addEventListener('click', async () => {
         setStatus(`Save failed: ${err.message}`);
     } finally {
         $btnSaveResults.disabled = false;
+        if (_isViewerRole()) _applyViewerRoleRestrictions();
     }
 });
 
@@ -2580,6 +2627,7 @@ function _fmtDateIso(str) {
 }
 
 async function _openLoadUserEditDialog() {
+    if (_blockViewerAction('Viewer 권한은 AI 결과 로드 기능을 사용할 수 없습니다.')) return;
     if (!currentSlideId) {
         setStatus('슬라이드를 먼저 열어주세요');
         return;
@@ -3423,6 +3471,10 @@ async function loadSlideList() {
 // ── AI 진행 중 배지 (auto/manual 공통) ──
 let _aiActivePollTimer = null;
 function _startAiActivePolling() {
+    if (_isViewerRole()) {
+        _stopAiActivePolling();
+        return;
+    }
     if (_aiActivePollTimer) return;
     _aiActivePollTimer = setInterval(_refreshAiActiveBadges, 4000);
 }
@@ -3433,6 +3485,11 @@ function _stopAiActivePolling() {
     }
 }
 async function _refreshAiActiveBadges() {
+    if (_isViewerRole()) {
+        $slideList?.querySelectorAll('.slide-ai-active').forEach(el => el.remove());
+        return;
+    }
+
     let dict_active = {};
     try {
         const data = await api.getActiveAiTasks();
@@ -4023,6 +4080,7 @@ $btnViewGrid.addEventListener('click', () => {
 // VS IHC (Virtual Staining)
 // ═══════════════════════════
 async function startVirtualStain(stainType) {
+    if (_blockViewerAction()) return;
     if (!currentSlideId) return;
     const str_key = 'vs-' + stainType;
     if (await _maybeCancelRunning(str_key)) return;
@@ -4143,6 +4201,7 @@ $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'
 $btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {
+    if (_blockViewerAction()) return;
     if (!currentSlideId) return;
     if (await _maybeCancelRunning('pd-score')) return;
 
@@ -4259,6 +4318,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
@@ -4272,6 +4332,7 @@ function _setIhcMarkerButtonsDisabled(disabled) {
 }
 
 async function startPreciseIhc(marker) {
+    if (_blockViewerAction()) return;
     if (!currentSlideId) return;
     const str_key = 'ihc-' + marker;
     if (await _maybeCancelRunning(str_key)) return;
@@ -4419,6 +4480,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
 // ─── VS toggle 헬퍼 ───
@@ -4440,6 +4502,7 @@ function _setVsSplitState(enabled, disabled) {
 }
 
 $btnVsToggle?.addEventListener('click', () => {
+    if (_blockViewerAction()) return;
     if ($btnVsToggle.disabled) return;
     const next = $btnVsToggle.getAttribute('aria-pressed') !== 'true';
     _setVsToggleState(next, false);
@@ -4452,6 +4515,7 @@ $btnVsToggle?.addEventListener('click', () => {
 });
 
 $btnVsSplit?.addEventListener('click', () => {
+    if (_blockViewerAction()) return;
     if ($btnVsSplit.disabled) return;
     const next = $btnVsSplit.getAttribute('aria-pressed') !== 'true';
     _setVsSplitState(next, false);
