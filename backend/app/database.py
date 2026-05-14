@@ -55,6 +55,10 @@ async def connect_db():
         await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
         await _db.folder_ai_configs.create_index("bool_enabled")
 
+        await _db.project_infos.create_index("str_project_path", unique=True)
+        await _db.project_infos.create_index("str_status")
+        await _db.project_infos.create_index("dt_updated_at")
+
         # ── user_ai_edits 컬렉션 (사용자별 세포 편집본 — 최신본만 유지) ──
         await _db.user_ai_edits.create_index(
             [

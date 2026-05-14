@@ -221,10 +221,24 @@ export const api = {
         return res.json();
     },
 
-    async createProject(name) {
+    async createProject(name, info = {}) {
         const form = new FormData();
         form.append('name', name);
+        for (const key of ['title', 'institution', 'department', 'owner', 'status', 'due_date', 'description']) {
+            form.append(key, info[key] || '');
+        }
         const res = await _authFetch(`${API_BASE}/slides/project/create`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async updateProject(name, info = {}) {
+        const form = new FormData();
+        form.append('name', name);
+        for (const key of ['title', 'institution', 'department', 'owner', 'status', 'due_date', 'description']) {
+            form.append(key, info[key] || '');
+        }
+        const res = await _authFetch(`${API_BASE}/slides/project/update`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -234,6 +248,15 @@ export const api = {
         form.append('name', name);
         form.append('new_name', newName);
         const res = await _authFetch(`${API_BASE}/slides/project/rename`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async moveFolderToProject(srcPath, dstProject) {
+        const form = new FormData();
+        form.append('src_path', srcPath);
+        form.append('dst_project', dstProject);
+        const res = await _authFetch(`${API_BASE}/slides/project/move-folder`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },

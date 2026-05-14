@@ -316,9 +316,63 @@ def _list_project_dirs() -> list[Path]:
     ], key=lambda p: p.name.lower())
 
 
+def _project_public_info(dict_doc: Optional[dict]) -> dict:
+    dict_doc = dict_doc or {}
+    return {
+        "title": dict_doc.get("str_title", ""),
+        "institution": dict_doc.get("str_institution", ""),
+        "department": dict_doc.get("str_department", ""),
+        "owner": dict_doc.get("str_owner", ""),
+        "status": dict_doc.get("str_status", "active"),
+        "due_date": dict_doc.get("str_due_date", ""),
+        "description": dict_doc.get("str_description", ""),
+    }
+
+
+async def _upsert_project_info(
+    *,
+    str_project_path: str,
+    str_title: str = "",
+    str_institution: str = "",
+    str_department: str = "",
+    str_owner: str = "",
+    str_status: str = "active",
+    str_due_date: str = "",
+    str_description: str = "",
+) -> None:
+    if not is_db_connected():
+        return
+    db = get_db()
+    dt_now = datetime.now(timezone.utc)
+    await db.project_infos.update_one(
+        {"str_project_path": str_project_path},
+        {
+            "$set": {
+                "str_project_path": str_project_path,
+                "str_title": str_title.strip(),
+                "str_institution": str_institution.strip(),
+                "str_department": str_department.strip(),
+                "str_owner": str_owner.strip(),
+                "str_status": (str_status or "active").strip(),
+                "str_due_date": str_due_date.strip(),
+                "str_description": str_description.strip(),
+                "dt_updated_at": dt_now,
+            },
+            "$setOnInsert": {"dt_created_at": dt_now},
+        },
+        upsert=True,
+    )
+
+
 @router.get("/projects")
 async def list_projects():
     """uploads/ 바로 아래 1차 폴더를 프로젝트 목록으로 반환."""
+    dict_infos = {}
+    if is_db_connected():
+        db = get_db()
+        async for dict_doc in db.project_infos.find({}):
+            dict_infos[dict_doc.get("str_project_path", "")] = dict_doc
+
     list_projects_out = []
     for p in _list_project_dirs():
         int_slide_count = 0
@@ -335,22 +389,70 @@ async def list_projects():
             "path": p.name,
             "slide_count": int_slide_count,
             "folder_count": int_folder_count,
+            "info": _project_public_info(dict_infos.get(p.name)),
         })
     return {"projects": list_projects_out}
 
 
-@router.post("/project/create")
-async def create_project(name: str = Form(...)):
+@router.post("/project/create", dependencies=[Depends(require_not_viewer)])
+async def create_project(
+    name: str = Form(...),
+    title: str = Form(""),
+    institution: str = Form(""),
+    department: str = Form(""),
+    owner: str = Form(""),
+    status: str = Form("active"),
+    due_date: str = Form(""),
+    description: str = Form(""),
+):
     """프로젝트 생성. 프로젝트는 uploads/ 아래 최상위 폴더로 관리한다."""
     name = _safe_filename(name)
     target = _safe_subpath("") / name
     if target.exists():
         raise HTTPException(400, "이미 존재하는 프로젝트입니다")
     target.mkdir(parents=True, exist_ok=True)
+    await _upsert_project_info(
+        str_project_path=name,
+        str_title=title or name,
+        str_institution=institution,
+        str_department=department,
+        str_owner=owner,
+        str_status=status,
+        str_due_date=due_date,
+        str_description=description,
+    )
     return {"status": "created", "name": name, "path": name}
 
 
-@router.post("/project/rename")
+@router.post("/project/update", dependencies=[Depends(require_not_viewer)])
+async def update_project(
+    name: str = Form(...),
+    title: str = Form(""),
+    institution: str = Form(""),
+    department: str = Form(""),
+    owner: str = Form(""),
+    status: str = Form("active"),
+    due_date: str = Form(""),
+    description: str = Form(""),
+):
+    name = _safe_filename(name)
+    target = _safe_subpath(name)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "?꾨줈?앺듃瑜?李얠쓣 ???놁뒿?덈떎")
+    await _upsert_project_info(
+        str_project_path=name,
+        str_title=title or name,
+        str_institution=institution,
+        str_department=department,
+        str_owner=owner,
+        str_status=status,
+        str_due_date=due_date,
+        str_description=description,
+    )
+    return {"status": "saved", "name": name, "path": name}
+
+
+@router.post("/project/rename", dependencies=[Depends(require_not_viewer)])
 async def rename_project(name: str = Form(...), new_name: str = Form(...)):
     """프로젝트 이름 변경과 DB rel_path 동기화."""
     name = _safe_filename(name)
@@ -363,10 +465,43 @@ async def rename_project(name: str = Form(...), new_name: str = Form(...)):
         raise HTTPException(400, "이미 존재하는 프로젝트 이름입니다")
     target.rename(new_target)
     await slide_store.rename_folder_in_db(name, new_name)
+    if is_db_connected():
+        db = get_db()
+        await db.project_infos.update_one(
+            {"str_project_path": name},
+            {"$set": {
+                "str_project_path": new_name,
+                "dt_updated_at": datetime.now(timezone.utc),
+            }},
+        )
     return {"status": "renamed", "name": new_name, "path": new_name}
 
 
-@router.post("/project/delete")
+@router.post("/project/move-folder", dependencies=[Depends(require_not_viewer)])
+async def move_folder_to_project(
+    src_path: str = Form(...),
+    dst_project: str = Form(...),
+):
+    src_path = src_path.replace("\\", "/").strip("/")
+    dst_project = _safe_filename(dst_project)
+    if not src_path or "/" not in src_path:
+        raise HTTPException(400, "프로젝트 안의 폴더만 이동할 수 있습니다")
+    target = _safe_subpath(src_path)
+    dst_project_dir = _safe_subpath(dst_project)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "이동할 폴더를 찾을 수 없습니다")
+    if not dst_project_dir.exists() or not dst_project_dir.is_dir():
+        raise HTTPException(404, "대상 프로젝트를 찾을 수 없습니다")
+    dst_path = dst_project_dir / target.name
+    if dst_path.exists():
+        raise HTTPException(400, "대상 프로젝트에 같은 이름의 폴더가 있습니다")
+    shutil.move(str(target), str(dst_path))
+    str_new_rel = f"{dst_project}/{target.name}"
+    await slide_store.rename_folder_in_db(src_path, str_new_rel)
+    return {"status": "moved", "src_path": src_path, "dst_path": str_new_rel}
+
+
+@router.post("/project/delete", dependencies=[Depends(require_role(UserRole.ADMIN))])
 async def delete_project(name: str = Form(...)):
     """빈 프로젝트 삭제."""
     name = _safe_filename(name)
@@ -376,6 +511,9 @@ async def delete_project(name: str = Form(...)):
     if any(target.iterdir()):
         raise HTTPException(400, "프로젝트가 비어있지 않습니다")
     target.rmdir()
+    if is_db_connected():
+        db = get_db()
+        await db.project_infos.delete_one({"str_project_path": name})
     return {"status": "deleted", "name": name}
 
 

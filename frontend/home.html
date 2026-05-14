@@ -67,9 +67,82 @@
             </div>
         </section>
 
+        <dialog id="project-dialog" class="project-dialog">
+            <form method="dialog" class="project-dialog-card">
+                <div class="dialog-header">
+                    <h3 id="project-dialog-title">Project</h3>
+                    <button id="project-dialog-close" class="dialog-x" type="button">&times;</button>
+                </div>
+                <div class="dialog-grid">
+                    <label>Folder Name<input id="project-name-input" name="name" required></label>
+                    <label>Title<input id="project-title-input" name="title"></label>
+                    <label>Institution<input id="project-institution-input" name="institution"></label>
+                    <label>Department<input id="project-department-input" name="department"></label>
+                    <label>Owner<input id="project-owner-input" name="owner"></label>
+                    <label>Status
+                        <select id="project-status-input" name="status">
+                            <option value="active">Active</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="review">Review</option>
+                            <option value="done">Done</option>
+                            <option value="archived">Archived</option>
+                        </select>
+                    </label>
+                    <label>Due Date<input id="project-due-input" name="due_date" type="date"></label>
+                    <label class="dialog-wide">Description<textarea id="project-description-input" name="description" rows="4"></textarea></label>
+                </div>
+                <div class="dialog-footer">
+                    <button id="project-dialog-cancel" type="button" class="home-action-btn secondary">Cancel</button>
+                    <button id="project-dialog-save" type="submit" class="home-action-btn">Save</button>
+                </div>
+            </form>
+        </dialog>
+
+        <dialog id="project-move-dialog" class="project-dialog">
+            <form method="dialog" class="project-dialog-card compact">
+                <div class="dialog-header">
+                    <h3>Move Folder</h3>
+                    <button id="project-move-close" class="dialog-x" type="button">&times;</button>
+                </div>
+                <div class="dialog-grid">
+                    <label class="dialog-wide">Folder<select id="move-folder-select"></select></label>
+                    <label class="dialog-wide">Target Project<select id="move-project-select"></select></label>
+                </div>
+                <div class="dialog-footer">
+                    <button id="project-move-cancel" type="button" class="home-action-btn secondary">Cancel</button>
+                    <button id="project-move-save" type="submit" class="home-action-btn">Move</button>
+                </div>
+            </form>
+        </dialog>
+
         <!-- 저장공간 + 폴더 구성 -->
         <section class="home-section">
-            <h2 class="section-title">Storage & Projects</h2>
+            <div class="section-header">
+                <h2 class="section-title">Project Management</h2>
+                <div class="section-actions">
+                    <button id="btn-new-project" class="home-action-btn">New Project</button>
+                    <button id="btn-refresh-projects" class="home-action-btn secondary">Refresh</button>
+                </div>
+            </div>
+            <div class="project-table-wrap">
+                <table class="project-table">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Institution</th>
+                            <th>Owner</th>
+                            <th>Status</th>
+                            <th>Slides</th>
+                            <th>Due</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="project-table-body">
+                        <tr><td colspan="7" class="project-empty">Loading projects...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div hidden>
             <div class="storage-overview">
                 <div class="storage-bar-wrap">
                     <div class="storage-bar-track">
@@ -82,9 +155,10 @@
                         <span class="storage-pct" id="storage-pct"></span>
                     </div>
                 </div>
-                <div class="folder-tree" id="folder-tree">
-                    <div class="folder-tree-loading">Loading folders...</div>
-                </div>
+            <div class="folder-tree" id="folder-tree">
+                <div class="folder-tree-loading">Loading folders...</div>
+            </div>
+            </div>
             </div>
         </section>
 

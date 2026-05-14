@@ -2820,9 +2820,10 @@ function _getCurrentProjectName() {
 function _setProjectControlsEnabled() {
     const hasProject = !!_getCurrentProjectName();
     const canEdit = window.__currentUserRole !== 'viewer';
+    const canDelete = window.__currentUserRole === 'admin';
     if ($btnNewProject) $btnNewProject.disabled = !canEdit;
     if ($btnRenameProject) $btnRenameProject.disabled = !hasProject || !canEdit;
-    if ($btnDeleteProject) $btnDeleteProject.disabled = !hasProject || !canEdit;
+    if ($btnDeleteProject) $btnDeleteProject.disabled = !hasProject || !canDelete;
 }
 
 function _hasProjectOption(projectName) {

@@ -30,6 +30,38 @@
     const $statAiTotal = document.getElementById('stat-ai-total');
 
     const $recentGrid = document.getElementById('recent-grid');
+    const $projectTableBody = document.getElementById('project-table-body');
+    const $btnNewProject = document.getElementById('btn-new-project');
+    const $btnRefreshProjects = document.getElementById('btn-refresh-projects');
+    const $projectDialog = document.getElementById('project-dialog');
+    const $projectDialogTitle = document.getElementById('project-dialog-title');
+    const $projectDialogClose = document.getElementById('project-dialog-close');
+    const $projectDialogCancel = document.getElementById('project-dialog-cancel');
+    const $projectNameInput = document.getElementById('project-name-input');
+    const $projectTitleInput = document.getElementById('project-title-input');
+    const $projectInstitutionInput = document.getElementById('project-institution-input');
+    const $projectDepartmentInput = document.getElementById('project-department-input');
+    const $projectOwnerInput = document.getElementById('project-owner-input');
+    const $projectStatusInput = document.getElementById('project-status-input');
+    const $projectDueInput = document.getElementById('project-due-input');
+    const $projectDescriptionInput = document.getElementById('project-description-input');
+    const $projectMoveDialog = document.getElementById('project-move-dialog');
+    const $projectMoveClose = document.getElementById('project-move-close');
+    const $projectMoveCancel = document.getElementById('project-move-cancel');
+    const $moveFolderSelect = document.getElementById('move-folder-select');
+    const $moveProjectSelect = document.getElementById('move-project-select');
+
+    let _projects = [];
+    let _projectDialogMode = 'create';
+    let _editingProjectPath = '';
+
+    function canEditProjects() {
+        return currentUser && currentUser.str_role !== 'viewer';
+    }
+
+    function canDeleteProjects() {
+        return currentUser && currentUser.str_role === 'admin';
+    }
 
     // ── User info ──
     if (currentUser) {
@@ -47,6 +79,9 @@
     if (currentUser && currentUser.str_role === 'viewer') {
         const $quickUpload = document.getElementById('quick-upload');
         if ($quickUpload) $quickUpload.style.display = 'none';
+    }
+    if (!canEditProjects() && $btnNewProject) {
+        $btnNewProject.hidden = true;
     }
 
     // ── Auth fetch ──
@@ -194,6 +229,117 @@
         return card;
     }
 
+    function projectInfoPayload() {
+        return {
+            title: $projectTitleInput.value.trim(),
+            institution: $projectInstitutionInput.value.trim(),
+            department: $projectDepartmentInput.value.trim(),
+            owner: $projectOwnerInput.value.trim(),
+            status: $projectStatusInput.value,
+            due_date: $projectDueInput.value,
+            description: $projectDescriptionInput.value.trim(),
+        };
+    }
+
+    async function postForm(path, fields) {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(fields)) {
+            form.append(key, value == null ? '' : String(value));
+        }
+        const res = await authFetch(path, { method: 'POST', body: form });
+        if (!res || !res.ok) throw new Error(res ? await res.text() : 'Request failed');
+        return res.json();
+    }
+
+    function openProjectDialog(mode, project = null) {
+        if (!$projectDialog) return;
+        _projectDialogMode = mode;
+        _editingProjectPath = project ? project.path : '';
+        const info = project?.info || {};
+        $projectDialogTitle.textContent = mode === 'create' ? 'New Project' : 'Project Information';
+        $projectNameInput.value = project ? project.name : '';
+        $projectNameInput.disabled = mode !== 'create';
+        $projectTitleInput.value = info.title || project?.name || '';
+        $projectInstitutionInput.value = info.institution || '';
+        $projectDepartmentInput.value = info.department || '';
+        $projectOwnerInput.value = info.owner || '';
+        $projectStatusInput.value = info.status || 'active';
+        $projectDueInput.value = info.due_date || '';
+        $projectDescriptionInput.value = info.description || '';
+        $projectDialog.showModal();
+    }
+
+    function closeProjectDialog() {
+        if ($projectDialog?.open) $projectDialog.close();
+    }
+
+    async function saveProjectDialog() {
+        const payload = projectInfoPayload();
+        if (_projectDialogMode === 'create') {
+            await postForm('/slides/project/create', {
+                name: $projectNameInput.value.trim(),
+                ...payload,
+            });
+        } else {
+            await postForm('/slides/project/update', {
+                name: _editingProjectPath,
+                ...payload,
+            });
+        }
+        closeProjectDialog();
+        await loadFolderTree();
+    }
+
+    async function renameProject(project) {
+        const next = prompt('Project folder name:', project.name);
+        if (!next || !next.trim() || next.trim() === project.name) return;
+        await postForm('/slides/project/rename', { name: project.name, new_name: next.trim() });
+        await loadFolderTree();
+    }
+
+    async function deleteProject(project) {
+        if (!confirm(`Delete empty project "${project.name}"?`)) return;
+        await postForm('/slides/project/delete', { name: project.name });
+        await loadFolderTree();
+    }
+
+    async function openMoveFolderDialog(project) {
+        if (!$projectMoveDialog) return;
+        const res = await authFetch('/slides/folder-tree');
+        if (!res || !res.ok) throw new Error('Failed to load folders');
+        const data = await res.json();
+        const folders = (data.folders || []).filter(f => f.includes('/'));
+        $moveFolderSelect.innerHTML = '';
+        $moveProjectSelect.innerHTML = '';
+        for (const folder of folders) {
+            const opt = document.createElement('option');
+            opt.value = folder;
+            opt.textContent = '/' + folder;
+            if (folder.startsWith(project.path + '/')) opt.selected = true;
+            $moveFolderSelect.appendChild(opt);
+        }
+        for (const p of _projects) {
+            const opt = document.createElement('option');
+            opt.value = p.path;
+            opt.textContent = p.name;
+            if (p.path !== project.path) $moveProjectSelect.appendChild(opt);
+        }
+        if (!$moveFolderSelect.options.length || !$moveProjectSelect.options.length) {
+            alert('Movable folders or target projects are not available.');
+            return;
+        }
+        $projectMoveDialog.showModal();
+    }
+
+    async function saveMoveFolderDialog() {
+        await postForm('/slides/project/move-folder', {
+            src_path: $moveFolderSelect.value,
+            dst_project: $moveProjectSelect.value,
+        });
+        if ($projectMoveDialog?.open) $projectMoveDialog.close();
+        await loadFolderTree();
+    }
+
     // ── Load dashboard ──
     async function loadDashboard() {
         try {
@@ -245,16 +391,72 @@
     }
 
     // ── Load folder tree (root level) ──
+    function renderProjects(projects) {
+        if (!$projectTableBody) return;
+        $projectTableBody.innerHTML = '';
+        if (!projects.length) {
+            $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">No projects yet</td></tr>';
+            return;
+        }
+        for (const project of projects) {
+            const info = project.info || {};
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><div class="project-title">
+                    <a href="/app.html?path=${encodeURIComponent(project.path || project.name)}">${_esc(info.title || project.name)}</a>
+                    <span class="project-subtitle">${_esc(project.path || project.name)}${info.description ? ' · ' + _esc(info.description) : ''}</span>
+                </div></td>
+                <td>${_esc(info.institution || '-')}</td>
+                <td>${_esc(info.owner || '-')}</td>
+                <td><span class="project-status">${_esc(info.status || 'active')}</span></td>
+                <td>${project.slide_count || 0}</td>
+                <td>${_esc(info.due_date || '-')}</td>
+                <td><div class="project-actions-cell"></div></td>
+            `;
+            const actions = tr.querySelector('.project-actions-cell');
+            const openBtn = document.createElement('button');
+            openBtn.className = 'project-mini-btn';
+            openBtn.textContent = 'Open';
+            openBtn.addEventListener('click', () => { location.href = `/app.html?path=${encodeURIComponent(project.path)}`; });
+            actions.appendChild(openBtn);
+            if (canEditProjects()) {
+                const editBtn = document.createElement('button');
+                editBtn.className = 'project-mini-btn';
+                editBtn.textContent = 'Info';
+                editBtn.addEventListener('click', () => openProjectDialog('edit', project));
+                const renameBtn = document.createElement('button');
+                renameBtn.className = 'project-mini-btn';
+                renameBtn.textContent = 'Rename';
+                renameBtn.addEventListener('click', () => renameProject(project).catch(err => alert(err.message)));
+                const moveBtn = document.createElement('button');
+                moveBtn.className = 'project-mini-btn';
+                moveBtn.textContent = 'Move';
+                moveBtn.addEventListener('click', () => openMoveFolderDialog(project).catch(err => alert(err.message)));
+                actions.append(editBtn, renameBtn, moveBtn);
+            }
+            if (canDeleteProjects()) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'project-mini-btn danger';
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.addEventListener('click', () => deleteProject(project).catch(err => alert(err.message)));
+                actions.appendChild(deleteBtn);
+            }
+            $projectTableBody.appendChild(tr);
+        }
+    }
+
     async function loadFolderTree() {
         const $tree = document.getElementById('folder-tree');
-        if (!$tree) return;
         try {
             const res = await authFetch('/slides/projects');
             if (!res) return;
             const data = await res.json();
+            _projects = data.projects || [];
+            renderProjects(_projects);
+            if (!$tree) return;
             $tree.innerHTML = '';
 
-            const folders = data.projects || [];
+            const folders = _projects;
 
             if (folders.length === 0) {
                 $tree.innerHTML = '<div class="folder-tree-empty">No projects yet</div>';
@@ -278,7 +480,10 @@
             }
 
         } catch {
-            $tree.innerHTML = '<div class="folder-tree-empty">Failed to load projects</div>';
+            if ($projectTableBody) {
+                $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">Failed to load projects</td></tr>';
+            }
+            if ($tree) $tree.innerHTML = '<div class="folder-tree-empty">Failed to load projects</div>';
         }
     }
 
@@ -287,6 +492,21 @@
         if (e.data && e.data.type === 'upload-complete') {
             loadDashboard();
         }
+    });
+
+    $btnRefreshProjects?.addEventListener('click', () => loadFolderTree());
+    $btnNewProject?.addEventListener('click', () => openProjectDialog('create'));
+    $projectDialogClose?.addEventListener('click', closeProjectDialog);
+    $projectDialogCancel?.addEventListener('click', closeProjectDialog);
+    $projectDialog?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        saveProjectDialog().catch(err => alert(err.message));
+    });
+    $projectMoveClose?.addEventListener('click', () => { if ($projectMoveDialog?.open) $projectMoveDialog.close(); });
+    $projectMoveCancel?.addEventListener('click', () => { if ($projectMoveDialog?.open) $projectMoveDialog.close(); });
+    $projectMoveDialog?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        saveMoveFolderDialog().catch(err => alert(err.message));
     });
 
     loadDashboard();

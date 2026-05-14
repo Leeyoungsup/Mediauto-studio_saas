@@ -136,6 +136,80 @@ html, body {
     font-weight: 600;
 }
 .section-link:hover { text-decoration: underline; }
+.section-actions { display: flex; gap: 8px; align-items: center; }
+.home-action-btn {
+    border: 1px solid var(--home-accent); background: var(--home-accent); color: #fff;
+    height: 32px; padding: 0 14px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.home-action-btn.secondary { background: #fff; color: var(--home-text); border-color: var(--home-border); }
+.home-action-btn.danger { background: var(--home-danger); border-color: var(--home-danger); }
+.home-action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.project-table-wrap { overflow-x: auto; }
+.project-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.project-table th {
+    text-align: left; font-size: 11px; color: var(--home-text-dim);
+    font-weight: 700; padding: 0 10px 10px; border-bottom: 1px solid var(--home-border);
+}
+.project-table td {
+    padding: 12px 10px; border-bottom: 1px solid var(--home-border);
+    font-size: 13px; vertical-align: middle;
+}
+.project-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.project-title a {
+    color: var(--home-text); text-decoration: none; font-weight: 700;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-title a:hover { color: var(--home-accent); }
+.project-subtitle {
+    color: var(--home-text-dim); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-status {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 8px;
+    border-radius: 999px; background: var(--home-accent-soft);
+    color: var(--home-accent); font-size: 11px; font-weight: 700;
+}
+.project-actions-cell { display: flex; justify-content: flex-end; gap: 6px; }
+.project-mini-btn {
+    border: 1px solid var(--home-border); background: #fff; color: var(--home-text);
+    height: 28px; padding: 0 9px; border-radius: 6px;
+    font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.project-mini-btn:hover { border-color: var(--home-accent); color: var(--home-accent); }
+.project-mini-btn.danger:hover { border-color: var(--home-danger); color: var(--home-danger); }
+.project-empty { text-align: center; color: var(--home-text-dim); padding: 28px !important; }
+.project-dialog {
+    border: none; padding: 0; border-radius: 10px;
+    width: min(720px, calc(100vw - 32px));
+    box-shadow: 0 20px 70px rgba(20, 24, 40, 0.35);
+}
+.project-dialog::backdrop { background: rgba(15, 18, 32, 0.52); }
+.project-dialog-card { background: #fff; color: var(--home-text); padding: 0; }
+.project-dialog-card.compact { max-width: 520px; }
+.dialog-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--home-border);
+}
+.dialog-header h3 { margin: 0; font-size: 16px; }
+.dialog-x {
+    border: none; background: transparent; font-size: 24px;
+    line-height: 1; cursor: pointer; color: var(--home-text-dim);
+}
+.dialog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 18px; }
+.dialog-grid label {
+    display: flex; flex-direction: column; gap: 5px;
+    font-size: 12px; font-weight: 700; color: var(--home-text-dim);
+}
+.dialog-grid input, .dialog-grid select, .dialog-grid textarea {
+    width: 100%; border: 1px solid var(--home-border); border-radius: 6px;
+    padding: 8px 10px; font: inherit; color: var(--home-text);
+}
+.dialog-wide { grid-column: 1 / -1; }
+.dialog-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 14px 18px; border-top: 1px solid var(--home-border);
+}
 
 /* ═══ Storage & Folders ═══ */
 .storage-overview { display: flex; flex-direction: column; gap: 20px; }
