@@ -48,6 +48,10 @@ const $slideInfoContent = $('#slide-info-content');
 // 사용자 메뉴
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
+const $projectUserName = $('#project-user-name');
+const $projectUserRole = $('#project-user-role');
+const $projectBtnLogout = $('#project-btn-logout');
+const $projectLinkAdmin = $('#project-link-admin');
 
 // 툴바 버튼
 const $btnOpen = $('#btn-open');
@@ -98,6 +102,17 @@ const $slideList = $('#slide-list');
 const $projectSelect = $('#project-select');
 const $projectGate = $('#project-gate');
 const $projectGateList = $('#project-gate-list');
+const $projectGateSearch = $('#project-gate-search');
+const $projectGateHospital = $('#project-gate-hospital');
+const $projectGateOwner = $('#project-gate-owner');
+const $projectGateStatus = $('#project-gate-status');
+const $projectGatePageSize = $('#project-gate-page-size');
+const $projectGateAdditional = $('#project-gate-additional');
+const $projectGateExtra = $('#project-gate-extra');
+const $projectGateHasSlides = $('#project-gate-has-slides');
+const $projectGateHasFolders = $('#project-gate-has-folders');
+const $projectGateMinSlides = $('#project-gate-min-slides');
+const $projectGatePager = $('#project-gate-pager');
 const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
@@ -232,6 +247,12 @@ if ($aiHelpIcon) {
 // ═══════════════════════════
 if ($btnLogout) {
     $btnLogout.addEventListener('click', () => {
+        _stopAiActivePolling();
+        api.logout();
+    });
+}
+if ($projectBtnLogout) {
+    $projectBtnLogout.addEventListener('click', () => {
         _stopAiActivePolling();
         api.logout();
     });
@@ -2814,6 +2835,8 @@ if ($rightResizer && $rightPanel) {
 // ═══════════════════════════
 let currentBrowsePath = '';  // uploads/ 기준 상대경로
 let _projectListCache = [];
+let _projectGatePage = 1;
+let _projectGateSort = { key: 'name', dir: 'asc' };
 const $breadcrumb = $('#folder-breadcrumb');
 
 function _getCurrentProjectName() {
@@ -2879,12 +2902,157 @@ async function loadProjectList() {
     }
 }
 
+function _projectGateValue(project, key) {
+    const info = project?.info || {};
+    if (key === 'name') return info.title || project.name || project.path || '';
+    if (key === 'hospital') return info.institution || '';
+    if (key === 'owner') return info.owner || '';
+    if (key === 'slides') return Number(project.slide_count || 0);
+    if (key === 'folders') return Number(project.folder_count || 0);
+    if (key === 'status') return info.status || 'active';
+    return '';
+}
+
+function _getProjectGatePageSize() {
+    const n = parseInt($projectGatePageSize?.value || '30', 10);
+    return Number.isFinite(n) && n > 0 ? n : 30;
+}
+
+function _setSelectOptions(selectEl, values, allLabel) {
+    if (!selectEl) return;
+    const current = selectEl.value;
+    selectEl.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = allLabel;
+    selectEl.appendChild(allOpt);
+    for (const value of values) {
+        if (!value) continue;
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        selectEl.appendChild(opt);
+    }
+    selectEl.value = values.includes(current) ? current : '';
+}
+
+function _populateProjectGateFilters(list_projects) {
+    const hospitals = [...new Set(list_projects.map(p => (p.info?.institution || '').trim()).filter(Boolean))].sort();
+    const owners = [...new Set(list_projects.map(p => (p.info?.owner || '').trim()).filter(Boolean))].sort();
+    const statuses = [...new Set(list_projects.map(p => (p.info?.status || 'active').trim()).filter(Boolean))].sort();
+    _setSelectOptions($projectGateHospital, hospitals, 'All hospitals');
+    _setSelectOptions($projectGateOwner, owners, 'All owners');
+    _setSelectOptions($projectGateStatus, statuses, 'All status');
+}
+
+function _getFilteredProjectGateList(list_projects) {
+    const search = ($projectGateSearch?.value || '').trim().toLowerCase();
+    const hospital = $projectGateHospital?.value || '';
+    const owner = $projectGateOwner?.value || '';
+    const status = $projectGateStatus?.value || '';
+    const useExtra = !!$projectGateAdditional?.checked;
+    const hasSlides = useExtra && !!$projectGateHasSlides?.checked;
+    const hasFolders = useExtra && !!$projectGateHasFolders?.checked;
+    const minSlidesRaw = useExtra ? parseInt($projectGateMinSlides?.value || '', 10) : NaN;
+    const minSlides = Number.isFinite(minSlidesRaw) ? minSlidesRaw : null;
+
+    const filtered = list_projects.filter((project) => {
+        const info = project.info || {};
+        const haystack = [
+            project.name,
+            project.path,
+            info.title,
+            info.institution,
+            info.department,
+            info.owner,
+            info.status,
+            info.description,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (search && !haystack.includes(search)) return false;
+        if (hospital && info.institution !== hospital) return false;
+        if (owner && info.owner !== owner) return false;
+        if (status && (info.status || 'active') !== status) return false;
+        if (hasSlides && Number(project.slide_count || 0) <= 0) return false;
+        if (hasFolders && Number(project.folder_count || 0) <= 0) return false;
+        if (minSlides != null && Number(project.slide_count || 0) < minSlides) return false;
+        return true;
+    });
+
+    const dir = _projectGateSort.dir === 'desc' ? -1 : 1;
+    return filtered.sort((a, b) => {
+        const av = _projectGateValue(a, _projectGateSort.key);
+        const bv = _projectGateValue(b, _projectGateSort.key);
+        if (typeof av === 'number' || typeof bv === 'number') {
+            return (Number(av || 0) - Number(bv || 0)) * dir;
+        }
+        return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+}
+
+function _setProjectGateSort(key) {
+    if (_projectGateSort.key === key) {
+        _projectGateSort.dir = _projectGateSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _projectGateSort = { key, dir: key === 'slides' || key === 'folders' ? 'desc' : 'asc' };
+    }
+    _projectGatePage = 1;
+    _renderProjectGate(_projectListCache);
+}
+
+function _renderProjectGatePager(total, start, end, totalPages) {
+    if (!$projectGatePager) return;
+    $projectGatePager.innerHTML = '';
+
+    const summary = document.createElement('div');
+    summary.className = 'project-gate-pager-summary';
+    summary.textContent = total
+        ? `Showing ${start} to ${end} of ${total} projects`
+        : 'Showing 0 projects';
+
+    const controls = document.createElement('div');
+    controls.className = 'project-gate-pager-controls';
+    if (!total) {
+        $projectGatePager.append(summary);
+        return;
+    }
+
+    const buttons = [
+        { label: '<<', page: 1, disabled: _projectGatePage <= 1 },
+        { label: '<', page: _projectGatePage - 1, disabled: _projectGatePage <= 1 },
+        { label: String(_projectGatePage), page: _projectGatePage, active: true, disabled: true },
+        { label: '>', page: _projectGatePage + 1, disabled: _projectGatePage >= totalPages },
+        { label: '>>', page: totalPages, disabled: _projectGatePage >= totalPages },
+    ];
+    for (const item of buttons) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = item.label;
+        btn.disabled = item.disabled;
+        if (item.active) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+            _projectGatePage = item.page;
+            _renderProjectGate(_projectListCache);
+        });
+        controls.appendChild(btn);
+    }
+
+    $projectGatePager.append(controls, summary);
+}
+
+function _refreshProjectGate() {
+    _projectGatePage = 1;
+    _renderProjectGate(_projectListCache);
+}
+
 function _renderProjectGate(list_projects) {
     if (!$projectGateList) return;
-    const list = Array.isArray(list_projects) ? list_projects : [];
+    const list_source = Array.isArray(list_projects) ? list_projects : [];
+    _populateProjectGateFilters(list_source);
+    const list = _getFilteredProjectGateList(list_source);
     $projectGateList.innerHTML = '';
+    if ($projectGatePager) $projectGatePager.innerHTML = '';
 
-    if (!list.length) {
+    if (!list_source.length) {
         const empty = document.createElement('div');
         empty.className = 'project-gate-empty';
         empty.textContent = 'No projects yet. Create a project from Home first.';
@@ -2892,43 +3060,102 @@ function _renderProjectGate(list_projects) {
         return;
     }
 
-    for (const project of list) {
+    const header = document.createElement('div');
+    header.className = 'project-gate-table-head';
+    [
+        { label: 'Project', key: 'name' },
+        { label: 'Hospital', key: 'hospital' },
+        { label: 'Owner', key: 'owner' },
+        { label: 'Slides', key: 'slides' },
+        { label: 'Folders', key: 'folders' },
+        { label: 'Status', key: 'status' },
+        { label: '', key: '' },
+    ].forEach((col) => {
+        const cell = document.createElement(col.key ? 'button' : 'span');
+        if (col.key) {
+            cell.type = 'button';
+            cell.className = 'project-gate-sort';
+            cell.dataset.sortKey = col.key;
+            cell.addEventListener('click', () => _setProjectGateSort(col.key));
+        }
+        cell.textContent = col.label;
+        if (col.key && _projectGateSort.key === col.key) {
+            cell.dataset.sortDir = _projectGateSort.dir;
+        }
+        header.appendChild(cell);
+    });
+    $projectGateList.appendChild(header);
+
+    const pageSize = _getProjectGatePageSize();
+    const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+    _projectGatePage = Math.max(1, Math.min(_projectGatePage, totalPages));
+    const start = (_projectGatePage - 1) * pageSize;
+    const paged = list.slice(start, start + pageSize);
+
+    if (!paged.length) {
+        const empty = document.createElement('div');
+        empty.className = 'project-gate-empty';
+        empty.textContent = 'No projects match the current filters.';
+        $projectGateList.appendChild(empty);
+        _renderProjectGatePager(0, 0, 0, 0);
+        return;
+    }
+
+    for (const project of paged) {
         const info = project.info || {};
         const path = project.path || project.name || '';
         const title = info.title || project.name || path;
 
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'project-gate-card';
-        card.dataset.path = path;
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'project-gate-row';
+        row.dataset.path = path;
+
+        const projectEl = document.createElement('div');
+        projectEl.className = 'project-gate-project';
 
         const titleEl = document.createElement('div');
-        titleEl.className = 'project-gate-card-title';
+        titleEl.className = 'project-gate-title';
         titleEl.textContent = title;
 
         const nameEl = document.createElement('div');
-        nameEl.className = 'project-gate-card-name';
+        nameEl.className = 'project-gate-path';
         nameEl.textContent = project.name || path;
 
-        const metaEl = document.createElement('div');
-        metaEl.className = 'project-gate-card-meta';
-        const meta = [
-            `${project.slide_count || 0} slides`,
-            `${project.folder_count || 0} folders`,
-            info.status ? `Status: ${info.status}` : '',
-            info.owner ? `Owner: ${info.owner}` : '',
-        ].filter(Boolean);
-        for (const text of meta) {
-            const chip = document.createElement('span');
-            chip.className = 'project-gate-chip';
-            chip.textContent = text;
-            metaEl.appendChild(chip);
-        }
+        projectEl.append(titleEl, nameEl);
 
-        card.append(titleEl, nameEl, metaEl);
-        card.addEventListener('click', () => _enterProjectFromGate(path));
-        $projectGateList.appendChild(card);
+        const hospitalEl = document.createElement('div');
+        hospitalEl.className = 'project-gate-cell';
+        hospitalEl.textContent = info.institution || '-';
+
+        const ownerEl = document.createElement('div');
+        ownerEl.className = 'project-gate-cell';
+        ownerEl.textContent = info.owner || '-';
+
+        const slidesEl = document.createElement('div');
+        slidesEl.className = 'project-gate-cell project-gate-number';
+        slidesEl.textContent = project.slide_count || 0;
+
+        const foldersEl = document.createElement('div');
+        foldersEl.className = 'project-gate-cell project-gate-number';
+        foldersEl.textContent = project.folder_count || 0;
+
+        const statusEl = document.createElement('div');
+        statusEl.className = 'project-gate-cell';
+        const statusChip = document.createElement('span');
+        statusChip.className = 'project-gate-status';
+        statusChip.textContent = info.status || 'active';
+        statusEl.appendChild(statusChip);
+
+        const actionEl = document.createElement('div');
+        actionEl.className = 'project-gate-action';
+        actionEl.textContent = 'Open';
+
+        row.append(projectEl, hospitalEl, ownerEl, slidesEl, foldersEl, statusEl, actionEl);
+        row.addEventListener('click', () => _enterProjectFromGate(path));
+        $projectGateList.appendChild(row);
     }
+    _renderProjectGatePager(list.length, start + 1, start + paged.length, totalPages);
 }
 
 function _showProjectGate(list_projects = _projectListCache) {
@@ -2936,7 +3163,7 @@ function _showProjectGate(list_projects = _projectListCache) {
     _renderProjectGate(list_projects);
     $projectGate.hidden = false;
     document.body.classList.add('project-gate-open');
-    setStatus('Select a project');
+    setStatus('Ready');
 }
 
 function _hideProjectGate() {
@@ -2950,6 +3177,20 @@ function _enterProjectFromGate(path) {
     currentBrowsePath = path;
     history.replaceState(null, '', `/app.html?path=${encodeURIComponent(path)}`);
     loadSlideList();
+}
+
+[$projectGateSearch, $projectGateHospital, $projectGateOwner, $projectGateStatus,
+ $projectGatePageSize, $projectGateHasSlides, $projectGateHasFolders, $projectGateMinSlides]
+    .filter(Boolean)
+    .forEach((el) => {
+        el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', _refreshProjectGate);
+    });
+
+if ($projectGateAdditional) {
+    $projectGateAdditional.addEventListener('change', () => {
+        if ($projectGateExtra) $projectGateExtra.hidden = !$projectGateAdditional.checked;
+        _refreshProjectGate();
+    });
 }
 
 async function loadSlideList() {
@@ -4210,9 +4451,16 @@ $btnVsSplit?.addEventListener('click', () => {
         if ($userName && dict_me.str_name) {
             $userName.textContent = dict_me.str_name;
         }
+        if ($projectUserName) {
+            $projectUserName.textContent = dict_me.str_name || dict_me.str_username || '';
+        }
+        if ($projectUserRole) {
+            $projectUserRole.textContent = dict_me.str_role || 'viewer';
+        }
         if (dict_me.str_role === 'admin') {
             const $linkAdmin = document.getElementById('link-admin');
             if ($linkAdmin) $linkAdmin.hidden = false;
+            if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
         window.__currentUserRole = dict_me.str_role || 'viewer';
         window.__currentUserId = String(dict_me._id || '');

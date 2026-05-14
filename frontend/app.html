@@ -35,6 +35,23 @@
         </div>
     </header>
     <div id="mobile-backdrop"></div>
+    <header id="project-mode-header" class="project-mode-header">
+        <div class="project-mode-header-inner">
+            <a href="/home.html" class="project-mode-brand">
+                <img src="assets/logo.png" alt="MeDIAuto Studio" class="project-mode-logo">
+            </a>
+            <nav class="project-mode-nav">
+                <a href="/home.html" class="project-mode-nav-item">Home</a>
+                <a href="/app.html" class="project-mode-nav-item active">Viewer</a>
+                <a href="/admin.html" class="project-mode-nav-item" id="project-link-admin" hidden>Admin</a>
+            </nav>
+            <div class="project-mode-user-info">
+                <span id="project-user-name"></span>
+                <span id="project-user-role" class="project-mode-role"></span>
+                <button id="project-btn-logout" class="project-mode-logout" type="button">Logout</button>
+            </div>
+        </div>
+    </header>
 
     <!-- ═══ 툴바 ═══ -->
     <nav id="toolbar">
@@ -135,12 +152,62 @@
             <div class="project-gate-inner">
                 <div class="project-gate-header">
                     <div>
-                        <h1>Select Project</h1>
-                        <p>Open a project to start viewing slides.</p>
+                        <h1>Projects</h1>
+                        <p>Select a project to open in Viewer.</p>
                     </div>
-                    <a class="project-gate-home" href="/home.html">Home</a>
+                </div>
+                <div class="project-gate-filters">
+                    <label class="project-gate-field project-gate-search">
+                        <span>Search</span>
+                        <input id="project-gate-search" type="search" placeholder="Project, owner, hospital, department">
+                    </label>
+                    <label class="project-gate-field">
+                        <span>Hospital</span>
+                        <select id="project-gate-hospital">
+                            <option value="">All hospitals</option>
+                        </select>
+                    </label>
+                    <label class="project-gate-field">
+                        <span>Owner</span>
+                        <select id="project-gate-owner">
+                            <option value="">All owners</option>
+                        </select>
+                    </label>
+                    <label class="project-gate-field">
+                        <span>Status</span>
+                        <select id="project-gate-status">
+                            <option value="">All status</option>
+                        </select>
+                    </label>
+                    <label class="project-gate-field project-gate-page-size">
+                        <span>Rows</span>
+                        <select id="project-gate-page-size">
+                            <option value="10">10 per page</option>
+                            <option value="30" selected>30 per page</option>
+                            <option value="50">50 per page</option>
+                        </select>
+                    </label>
+                </div>
+                <label class="project-gate-more">
+                    <input id="project-gate-additional" type="checkbox">
+                    <span>Additional conditions</span>
+                </label>
+                <div id="project-gate-extra" class="project-gate-extra" hidden>
+                    <label class="project-gate-check">
+                        <input id="project-gate-has-slides" type="checkbox">
+                        <span>Has slides</span>
+                    </label>
+                    <label class="project-gate-check">
+                        <input id="project-gate-has-folders" type="checkbox">
+                        <span>Has folders</span>
+                    </label>
+                    <label class="project-gate-field project-gate-small-field">
+                        <span>Min slides</span>
+                        <input id="project-gate-min-slides" type="number" min="0" step="1" placeholder="0">
+                    </label>
                 </div>
                 <div id="project-gate-list" class="project-gate-list"></div>
+                <div id="project-gate-pager" class="project-gate-pager"></div>
             </div>
         </section>
         <!-- 좌측: 슬라이드 리스트 -->
