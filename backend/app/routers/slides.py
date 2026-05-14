@@ -1052,6 +1052,39 @@ def _norm_folder_path(str_path: str) -> str:
     return str_path.replace("\\", "/").strip("/")
 
 
+async def _clone_legacy_folder_config(db, str_norm: str) -> Optional[dict]:
+    """Restore a pre-project folder config for a project-prefixed folder path."""
+    if not str_norm or "/" not in str_norm:
+        return None
+
+    str_legacy = str_norm.split("/", 1)[1]
+    if not str_legacy:
+        return None
+
+    dict_legacy = await db.folder_ai_configs.find_one({"str_rel_path": str_legacy})
+    if not dict_legacy:
+        return None
+
+    dt_now = datetime.now(timezone.utc)
+    await db.folder_ai_configs.update_one(
+        {"str_rel_path": str_norm},
+        {
+            "$set": {
+                "bool_enabled": bool(dict_legacy.get("bool_enabled", False)),
+                "list_tasks": dict_legacy.get("list_tasks") or [],
+                "dt_updated_at": dt_now,
+                "str_restored_from_path": str_legacy,
+            },
+            "$setOnInsert": {
+                "str_rel_path": str_norm,
+                "dt_created_at": dt_now,
+            },
+        },
+        upsert=True,
+    )
+    return await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
+
+
 @router.get("/folder-config")
 async def get_folder_config(path: str = Query("")):
     """폴더의 AI 자동 추론 설정 조회 — 없으면 기본값 반환."""
@@ -1060,6 +1093,8 @@ async def get_folder_config(path: str = Query("")):
     db = get_db()
     str_norm = _norm_folder_path(path)
     dict_doc = await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
+    if not dict_doc:
+        dict_doc = await _clone_legacy_folder_config(db, str_norm)
     if not dict_doc:
         return {"path": path, "enabled": False, "tasks": []}
     list_out = []

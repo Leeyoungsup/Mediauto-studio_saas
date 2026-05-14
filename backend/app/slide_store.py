@@ -398,6 +398,72 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
         )
 
 
+async def repair_folder_ai_config_paths() -> int:
+    """Move legacy folder AI configs to project-prefixed paths when folders moved.
+
+    Project support treats uploads/<project>/... as the new location. If an old
+    config still points to "CaseA" but the folder now exists only at
+    "Test/CaseA", move that config document so UI and auto AI find it again.
+    Ambiguous matches across multiple projects are skipped.
+    """
+    if not is_db_connected():
+        return 0
+
+    from app.config import settings
+
+    db = get_db()
+    upload_root = Path(settings.UPLOAD_DIR)
+    if not upload_root.exists():
+        return 0
+
+    list_projects = [
+        p for p in upload_root.iterdir()
+        if p.is_dir() and not p.name.startswith(".") and not p.name.startswith("_chunks_")
+    ]
+    if not list_projects:
+        return 0
+
+    int_repaired = 0
+    dt_now = datetime.now(timezone.utc)
+    async for dict_doc in db.folder_ai_configs.find({}):
+        str_old_path = _norm_rel_path(dict_doc.get("str_rel_path", ""))
+        if not str_old_path:
+            continue
+        if (upload_root / str_old_path).exists():
+            continue
+
+        list_candidates = []
+        for path_project in list_projects:
+            path_candidate = path_project / str_old_path
+            if path_candidate.exists() and path_candidate.is_dir():
+                list_candidates.append(f"{path_project.name}/{str_old_path}")
+
+        if len(list_candidates) != 1:
+            continue
+
+        str_new_path = _norm_rel_path(list_candidates[0])
+        dict_existing = await db.folder_ai_configs.find_one({"str_rel_path": str_new_path})
+        if dict_existing:
+            if not dict_existing.get("list_tasks") and dict_doc.get("list_tasks"):
+                await db.folder_ai_configs.update_one(
+                    {"_id": dict_existing["_id"]},
+                    {"$set": {
+                        "bool_enabled": bool(dict_doc.get("bool_enabled", False)),
+                        "list_tasks": dict_doc.get("list_tasks") or [],
+                        "dt_updated_at": dt_now,
+                    }},
+                )
+            await db.folder_ai_configs.delete_one({"_id": dict_doc["_id"]})
+        else:
+            await db.folder_ai_configs.update_one(
+                {"_id": dict_doc["_id"]},
+                {"$set": {"str_rel_path": str_new_path, "dt_updated_at": dt_now}},
+            )
+        int_repaired += 1
+
+    return int_repaired
+
+
 async def list_slides_in_folder(str_rel_path: str) -> dict:
     """특정 폴더 내 모든 슬라이드 문서 — {filename: doc} 딕셔너리로 반환."""
     if not is_db_connected():

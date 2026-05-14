@@ -213,6 +213,10 @@ async def _scan_and_infer_once() -> None:
         print("[auto_ai] tile generation pending — deferring AI inference")
         return
 
+    int_repaired = await slide_store.repair_folder_ai_config_paths()
+    if int_repaired:
+        print(f"[auto_ai] repaired {int_repaired} folder AI config path(s)")
+
     db = get_db()
     list_configs = []
     async for dict_cfg in db.folder_ai_configs.find({"bool_enabled": True}):
