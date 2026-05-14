@@ -190,6 +190,26 @@ function _annotationWorkflowIndex(status) {
     return ANNOTATION_WORKFLOW_ORDER.indexOf(_normalizeAnnotationWorkflowStatus(status));
 }
 
+function _annotationWorkflowRawStatus(status) {
+    return String(status || '').toLowerCase();
+}
+
+function _annotationWorkflowStepState(status, step) {
+    const strRawStatus = _annotationWorkflowRawStatus(status);
+    const intCurrent = _annotationWorkflowIndex(status);
+    const intStep = _annotationWorkflowIndex(step);
+    if (step === 'termination' && strRawStatus === 'termination') return 'complete';
+    if (intStep < intCurrent) return 'complete';
+    if (intStep === intCurrent) return 'active';
+    return 'pending';
+}
+
+function _annotationWorkflowStepSymbol(state) {
+    if (state === 'complete') return '\u2713';
+    if (state === 'active') return '\u25b6';
+    return '-';
+}
+
 function _nextAnnotationWorkflowStatus(status) {
     const int_current = _annotationWorkflowIndex(status);
     return ANNOTATION_WORKFLOW_ORDER[Math.min(int_current + 1, ANNOTATION_WORKFLOW_ORDER.length - 1)];
@@ -578,6 +598,38 @@ function _findSlideListStatus(filename) {
     return '';
 }
 
+function _appendAnnotationSlideListHeader() {
+    if (!$slideList || !_isAnnotationPage()) return;
+    const header = document.createElement('div');
+    header.className = 'slide-list-table-header';
+    ['', 'Name', 'Anno.', 'Rev.', 'Term.'].forEach((label) => {
+        const cell = document.createElement('span');
+        cell.textContent = label;
+        if (!label) cell.setAttribute('aria-hidden', 'true');
+        header.appendChild(cell);
+    });
+    $slideList.appendChild(header);
+}
+
+function _renderAnnotationWorkflowCells(item, status) {
+    if (!item) return;
+    item.querySelectorAll('.slide-workflow-cell').forEach(el => el.remove());
+    const listSteps = [
+        ['annotation', 'Annotation'],
+        ['review', 'Review'],
+        ['termination', 'Termination'],
+    ];
+    for (const [step, label] of listSteps) {
+        const state = _annotationWorkflowStepState(status, step);
+        const cell = document.createElement('span');
+        cell.className = `slide-workflow-cell is-${state}`;
+        cell.dataset.workflowStep = step;
+        cell.textContent = _annotationWorkflowStepSymbol(state);
+        cell.title = `${label}: ${state}`;
+        item.appendChild(cell);
+    }
+}
+
 function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     const strStatus = _normalizeAnnotationWorkflowStatus(status);
     const boolDisabled = !currentSlideFilename || _isViewerRole() || _annotationStatusSaving;
@@ -623,19 +675,13 @@ function _setSlideListItemAnnotationStatus(filename, status) {
         ['pending', 'in_progress', 'done', 'flagged', 'annotation', 'review', 'termination'].forEach(value => {
             item.classList.remove(`status-${value}`);
         });
-        const strStatus = _normalizeAnnotationWorkflowStatus(status);
-        item.dataset.status = strStatus;
+        const strRawStatus = status || 'annotation';
+        const strStatus = _normalizeAnnotationWorkflowStatus(strRawStatus);
+        item.dataset.status = strRawStatus;
+        item.dataset.workflowStatus = strStatus;
         item.querySelectorAll('.slide-status-dot').forEach(el => el.remove());
         item.classList.add(`status-${strStatus}`);
-        const meta = _annotationWorkflowMeta(strStatus);
-        if (meta) {
-            const dot = document.createElement('span');
-            dot.className = 'slide-status-dot';
-            dot.textContent = meta.label;
-            dot.style.background = meta.color;
-            dot.title = meta.title;
-            item.appendChild(dot);
-        }
+        _renderAnnotationWorkflowCells(item, strRawStatus);
         break;
     }
 }
@@ -3528,11 +3574,15 @@ async function loadSlideList() {
     try {
         const data = await api.browse(currentBrowsePath);
         $slideList.innerHTML = '';
+        _appendAnnotationSlideListHeader();
         _syncProjectSelect();
 
         // 빈 폴더
         if (data.folders.length === 0 && data.slides.length === 0) {
-            $slideList.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:11px;text-align:center;">Empty</div>';
+            const empty = document.createElement('div');
+            empty.className = 'slide-list-empty';
+            empty.textContent = 'Empty';
+            $slideList.appendChild(empty);
         }
 
         // 폴더 항목
@@ -3580,11 +3630,13 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
-            const strSlideStatus = _normalizeAnnotationWorkflowStatus(s.annotation_status || s.status || 'annotation');
+            const strRawSlideStatus = s.annotation_status || s.status || 'annotation';
+            const strSlideStatus = _normalizeAnnotationWorkflowStatus(strRawSlideStatus);
             item.classList.add(`status-${strSlideStatus}`);
             item.dataset.filename = s.filename;
             item.dataset.slideId = s.slide_id;
-            item.dataset.status = strSlideStatus;
+            item.dataset.status = strRawSlideStatus;
+            item.dataset.workflowStatus = strSlideStatus;
             item.draggable = true;
 
             const thumb = document.createElement('img');
@@ -3607,16 +3659,8 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
-            // Annotation 상태 배지
-            const m = _annotationWorkflowMeta(strSlideStatus);
-            if (m) {
-                const dot = document.createElement('span');
-                dot.className = 'slide-status-dot';
-                dot.textContent = m.label;
-                dot.style.background = m.color;
-                dot.title = m.title;
-                item.appendChild(dot);
-            }
+            // Annotation workflow columns
+            _renderAnnotationWorkflowCells(item, strRawSlideStatus);
 
             // 우클릭: 컨텍스트 메뉴 (상태 설정 / 삭제)
             item.addEventListener('contextmenu', (e) => {
@@ -3950,14 +3994,12 @@ async function _moveAnnotationWorkflowStatusDirect(strRequestedStatus) {
     _annotationStatusSaving = true;
     _syncAnnotationStatusControl(currentAnnotationStatus);
     try {
-        await _saveAnnotationWorkflowStorageStatus(
-            currentSlideFilename,
-            _annotationWorkflowStorageStatus(strTargetStatus)
-        );
+        const strStorageStatus = _annotationWorkflowStorageStatus(strTargetStatus);
+        await _saveAnnotationWorkflowStorageStatus(currentSlideFilename, strStorageStatus);
         currentAnnotationStatus = strTargetStatus;
         _annotationRunningStep = '';
         _annotationWorkflowFinished = false;
-        _setSlideListItemAnnotationStatus(currentSlideFilename, strTargetStatus);
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strStorageStatus);
         setStatus(`Annotation status changed to ${strLabel}: ${currentSlideFilename}`);
     } catch (err) {
         currentAnnotationStatus = strPrevStatus;
@@ -4003,7 +4045,7 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
         _annotationRunningStep = '';
         _annotationWorkflowFinished = strCompletedStatus === 'termination';
         _bumpCurrentProjectWorkflowCount(strCompletedStatus);
-        _setSlideListItemAnnotationStatus(currentSlideFilename, strTargetStatus);
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strNextStorageStatus);
         setStatus(`Annotation status updated: ${currentSlideFilename}`);
     } catch (err) {
         currentAnnotationStatus = strPrevStatus;

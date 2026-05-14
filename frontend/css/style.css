@@ -981,6 +981,88 @@ body.project-gate-open #app-body {
 }
 
 /* ── 그리드 모드 — 동적 열 수, 큰 썸네일 + 이름 아래 ── */
+body.annotation-page .slide-list:not(.grid-view) {
+    padding: 6px;
+}
+body.annotation-page .slide-list-table-header,
+body.annotation-page .slide-list:not(.grid-view) .slide-list-item:not(.folder-item) {
+    display: grid;
+    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(76px, 1fr) 30px 30px 30px;
+    align-items: center;
+    gap: 4px;
+}
+body.annotation-page .slide-list-table-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 5px 8px 6px;
+    margin-bottom: 4px;
+    background: var(--sidebar-dark-2);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: var(--sidebar-text-dim);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+}
+body.annotation-page .slide-list:not(.grid-view) .slide-list-item {
+    gap: 4px;
+    padding: 5px 8px;
+}
+body.annotation-page .slide-list:not(.grid-view) .slide-list-item:not(.folder-item) {
+    min-height: 42px;
+}
+body.annotation-page .slide-list:not(.grid-view) .slide-thumb {
+    width: var(--slide-thumb-list);
+    height: var(--slide-thumb-list);
+}
+body.annotation-page .slide-list:not(.grid-view) .slide-list-name {
+    min-width: 0;
+    -webkit-line-clamp: 2;
+}
+body.annotation-page .slide-list:not(.grid-view) .folder-item {
+    display: grid;
+    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(76px, 1fr);
+}
+body.annotation-page .slide-list:not(.grid-view) .folder-item .slide-list-name {
+    grid-column: 2 / -1;
+}
+body.annotation-page .slide-list-empty {
+    padding: 12px;
+    color: var(--sidebar-text-dim);
+    font-size: 11px;
+    text-align: center;
+}
+body.annotation-page .slide-workflow-cell {
+    width: 24px;
+    height: 22px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.5);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+}
+body.annotation-page .slide-workflow-cell.is-active {
+    background: rgba(84, 160, 255, 0.18);
+    border-color: rgba(84, 160, 255, 0.45);
+    color: #7fc0ff;
+}
+body.annotation-page .slide-workflow-cell.is-complete {
+    background: rgba(46, 204, 113, 0.18);
+    border-color: rgba(46, 204, 113, 0.45);
+    color: #6ee093;
+}
+body.annotation-page .slide-list.grid-view .slide-list-table-header,
+body.annotation-page .slide-list.grid-view .slide-workflow-cell {
+    display: none;
+}
+
 .slide-list.grid-view {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(calc(var(--slide-thumb-grid) + 10px), 1fr));
