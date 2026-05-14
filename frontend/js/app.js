@@ -2882,8 +2882,7 @@ function _syncProjectSelect() {
 function _projectLabel(project) {
     const info = project?.info || {};
     const name = project?.name || project?.path || '';
-    const title = info.title && info.title !== name ? `${info.title} (${name})` : name;
-    return `${title} · ${project?.slide_count || 0} slides`;
+    return info.title && info.title !== name ? `${info.title} (${name})` : name;
 }
 
 async function loadProjectList() {

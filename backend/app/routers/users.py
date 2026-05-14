@@ -707,7 +707,7 @@ async def get_user_activity(
     int_skip: int = Query(0, ge=0),
     str_category: str = Query(
         "all",
-        pattern="^(all|login|slide|ai)$",
+        pattern="^(all|login|slide|ai|project|file)$",
         description="활동 카테고리 필터",
     ),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
@@ -739,6 +739,15 @@ async def get_user_activity(
         dict_filter["str_action"] = "slide.view"
     elif str_category == "ai":
         dict_filter["str_action"] = "ai.analyze"
+    elif str_category == "project":
+        dict_filter["str_action"] = {"$regex": r"^project\."}
+    elif str_category == "file":
+        dict_filter["str_action"] = {"$in": [
+            "folder.create", "folder.rename", "folder.delete",
+            "folder.ai_config_update", "folder.ai_config_delete",
+            "file.delete", "file.move",
+            "slide.upload", "slide.status_update",
+        ]}
 
     list_logs = []
     cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
@@ -760,6 +769,17 @@ async def get_user_activity(
         ),
         "ai": await db.audit_logs.count_documents(
             {"str_user_id": user_id, "str_action": "ai.analyze"}
+        ),
+        "project": await db.audit_logs.count_documents(
+            {"str_user_id": user_id, "str_action": {"$regex": r"^project\."}}
+        ),
+        "file": await db.audit_logs.count_documents(
+            {"str_user_id": user_id, "str_action": {"$in": [
+                "folder.create", "folder.rename", "folder.delete",
+                "folder.ai_config_update", "folder.ai_config_delete",
+                "file.delete", "file.move",
+                "slide.upload", "slide.status_update",
+            ]}}
         ),
     }
 

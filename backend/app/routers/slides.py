@@ -205,6 +205,37 @@ def _safe_filename(filename: str) -> str:
     return filename
 
 
+async def _log_management_event(
+    request: Request,
+    dict_user: dict,
+    *,
+    str_action: str,
+    str_resource_type: str,
+    str_resource_id: str,
+    str_detail: str,
+    dict_extra: Optional[dict] = None,
+    dict_before: Optional[dict] = None,
+    dict_after: Optional[dict] = None,
+) -> None:
+    """Best-effort audit log for project/file management actions."""
+    try:
+        await log_audit_event(
+            str_action=str_action,
+            str_user_id=str(dict_user.get("_id", "")),
+            str_user_email=dict_user.get("str_login_id", ""),
+            str_resource_type=str_resource_type,
+            str_resource_id=str_resource_id,
+            str_detail=str_detail,
+            str_ip_address=get_client_ip(request),
+            str_user_agent=request.headers.get("User-Agent", ""),
+            dict_extra=dict_extra or {},
+            dict_before=dict_before,
+            dict_after=dict_after,
+        )
+    except Exception as e:
+        print(f"[audit] management log failed ({str_action}): {e}")
+
+
 @router.get("/dashboard")
 async def dashboard(include_storage: bool = Query(False)):
     """대시보드 홈: 최근 슬라이드 + AI/상태 통계."""
@@ -427,6 +458,7 @@ async def list_projects():
 
 @router.post("/project/create", dependencies=[Depends(require_not_viewer)])
 async def create_project(
+    request: Request,
     name: str = Form(...),
     title: str = Form(""),
     institution: str = Form(""),
@@ -435,6 +467,7 @@ async def create_project(
     status: str = Form("active"),
     due_date: str = Form(""),
     description: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
 ):
     """프로젝트 생성. 프로젝트는 uploads/ 아래 최상위 폴더로 관리한다."""
     name = _safe_filename(name)
@@ -452,11 +485,29 @@ async def create_project(
         str_due_date=due_date,
         str_description=description,
     )
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="project.create",
+        str_resource_type="project",
+        str_resource_id=name,
+        str_detail=f"Created project {name}",
+        dict_after={
+            "title": title or name,
+            "institution": institution,
+            "department": department,
+            "owner": owner,
+            "status": status,
+            "due_date": due_date,
+            "description": description,
+        },
+    )
     return {"status": "created", "name": name, "path": name}
 
 
 @router.post("/project/update", dependencies=[Depends(require_not_viewer)])
 async def update_project(
+    request: Request,
     name: str = Form(...),
     title: str = Form(""),
     institution: str = Form(""),
@@ -465,9 +516,14 @@ async def update_project(
     status: str = Form("active"),
     due_date: str = Form(""),
     description: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
 ):
     name = _safe_filename(name)
     target = _safe_subpath(name)
+    dict_before = None
+    if is_db_connected():
+        db = get_db()
+        dict_before = _project_public_info(await db.project_infos.find_one({"str_project_path": name}))
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "?꾨줈?앺듃瑜?李얠쓣 ???놁뒿?덈떎")
     await _upsert_project_info(
@@ -480,11 +536,34 @@ async def update_project(
         str_due_date=due_date,
         str_description=description,
     )
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="project.update",
+        str_resource_type="project",
+        str_resource_id=name,
+        str_detail=f"Updated project {name}",
+        dict_before=dict_before,
+        dict_after={
+            "title": title or name,
+            "institution": institution,
+            "department": department,
+            "owner": owner,
+            "status": status,
+            "due_date": due_date,
+            "description": description,
+        },
+    )
     return {"status": "saved", "name": name, "path": name}
 
 
 @router.post("/project/rename", dependencies=[Depends(require_not_viewer)])
-async def rename_project(name: str = Form(...), new_name: str = Form(...)):
+async def rename_project(
+    request: Request,
+    name: str = Form(...),
+    new_name: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """프로젝트 이름 변경과 DB rel_path 동기화."""
     name = _safe_filename(name)
     new_name = _safe_filename(new_name)
@@ -505,13 +584,26 @@ async def rename_project(name: str = Form(...), new_name: str = Form(...)):
                 "dt_updated_at": datetime.now(timezone.utc),
             }},
         )
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="project.rename",
+        str_resource_type="project",
+        str_resource_id=new_name,
+        str_detail=f"Renamed project {name} to {new_name}",
+        dict_extra={"str_old_path": name, "str_new_path": new_name},
+        dict_before={"path": name},
+        dict_after={"path": new_name},
+    )
     return {"status": "renamed", "name": new_name, "path": new_name}
 
 
 @router.post("/project/move-folder", dependencies=[Depends(require_not_viewer)])
 async def move_folder_to_project(
+    request: Request,
     src_path: str = Form(...),
     dst_project: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
 ):
     src_path = src_path.replace("\\", "/").strip("/")
     dst_project = _safe_filename(dst_project)
@@ -529,11 +621,26 @@ async def move_folder_to_project(
     shutil.move(str(target), str(dst_path))
     str_new_rel = f"{dst_project}/{target.name}"
     await slide_store.rename_folder_in_db(src_path, str_new_rel)
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="project.move_folder",
+        str_resource_type="folder",
+        str_resource_id=str_new_rel,
+        str_detail=f"Moved folder {src_path} to {str_new_rel}",
+        dict_extra={"str_src_path": src_path, "str_dst_path": str_new_rel, "str_dst_project": dst_project},
+        dict_before={"path": src_path},
+        dict_after={"path": str_new_rel},
+    )
     return {"status": "moved", "src_path": src_path, "dst_path": str_new_rel}
 
 
 @router.post("/project/delete", dependencies=[Depends(require_role(UserRole.ADMIN))])
-async def delete_project(name: str = Form(...)):
+async def delete_project(
+    request: Request,
+    name: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """빈 프로젝트 삭제."""
     name = _safe_filename(name)
     target = _safe_subpath(name)
@@ -544,23 +651,56 @@ async def delete_project(name: str = Form(...)):
     target.rmdir()
     if is_db_connected():
         db = get_db()
+        dict_before = _project_public_info(await db.project_infos.find_one({"str_project_path": name}))
         await db.project_infos.delete_one({"str_project_path": name})
+    else:
+        dict_before = None
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="project.delete",
+        str_resource_type="project",
+        str_resource_id=name,
+        str_detail=f"Deleted project {name}",
+        dict_before=dict_before,
+    )
     return {"status": "deleted", "name": name}
 
 
 @router.post("/folder/create")
-async def create_folder(path: str = Form(""), name: str = Form(...)):
+async def create_folder(
+    request: Request,
+    path: str = Form(""),
+    name: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """폴더 생성"""
     name = _safe_filename(name)
     target = _safe_subpath(path) / name
     if target.exists():
         raise HTTPException(400, "이미 존재하는 폴더입니다")
     target.mkdir(parents=True, exist_ok=True)
-    return {"status": "created", "path": str(Path(path) / name)}
+    str_parent = path.replace("\\", "/").strip("/")
+    str_new_rel = f"{str_parent}/{name}" if str_parent else name
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="folder.create",
+        str_resource_type="folder",
+        str_resource_id=str_new_rel,
+        str_detail=f"Created folder {str_new_rel}",
+        dict_after={"path": str_new_rel},
+    )
+    return {"status": "created", "path": str_new_rel}
 
 
 @router.post("/folder/rename")
-async def rename_folder(path: str = Form(...), new_name: str = Form(...)):
+async def rename_folder(
+    request: Request,
+    path: str = Form(...),
+    new_name: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """폴더 이름 변경"""
     new_name = _safe_filename(new_name)
     target = _safe_subpath(path)
@@ -576,11 +716,26 @@ async def rename_folder(path: str = Form(...), new_name: str = Form(...)):
     parent_rel = "/".join(old_rel.split("/")[:-1])
     new_rel = f"{parent_rel}/{new_name}" if parent_rel else new_name
     await slide_store.rename_folder_in_db(old_rel, new_rel)
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="folder.rename",
+        str_resource_type="folder",
+        str_resource_id=new_rel,
+        str_detail=f"Renamed folder {old_rel} to {new_rel}",
+        dict_extra={"str_old_path": old_rel, "str_new_path": new_rel},
+        dict_before={"path": old_rel},
+        dict_after={"path": new_rel},
+    )
     return {"status": "renamed"}
 
 
 @router.post("/folder/delete")
-async def delete_folder(path: str = Form(...)):
+async def delete_folder(
+    request: Request,
+    path: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
     """폴더 삭제 (비어있을 때만)"""
     target = _safe_subpath(path)
     if not target.exists() or not target.is_dir():
@@ -590,6 +745,16 @@ async def delete_folder(path: str = Form(...)):
     if children:
         raise HTTPException(400, "폴더가 비어있지 않습니다")
     target.rmdir()
+    str_rel = path.replace("\\", "/").strip("/")
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="folder.delete",
+        str_resource_type="folder",
+        str_resource_id=str_rel,
+        str_detail=f"Deleted folder {str_rel}",
+        dict_before={"path": str_rel},
+    )
     return {"status": "deleted"}
 
 
@@ -680,8 +845,10 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
 
 @router.post("/file/delete")
 async def delete_slide_files(
+    request: Request,
     filenames_json: str = Form(...),
     path: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
 ):
     """슬라이드 파일들 + AI 결과/타일 캐시 + DB 문서 일괄 삭제.
 
@@ -707,6 +874,20 @@ async def delete_slide_files(
         except Exception as e:
             list_errors.append({"filename": str_fn, "error": str(e)})
 
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="file.delete",
+        str_resource_type="file",
+        str_resource_id=path.replace("\\", "/").strip("/"),
+        str_detail=f"Deleted {len(list_results)} file(s) from {path or 'root'}",
+        dict_extra={
+            "str_rel_path": path.replace("\\", "/").strip("/"),
+            "list_filenames": [r.get("filename") for r in list_results],
+            "list_errors": list_errors,
+        },
+        dict_before={"filenames": [r.get("filename") for r in list_results], "path": path},
+    )
     return {
         "status": "ok",
         "deleted": list_results,
@@ -716,9 +897,11 @@ async def delete_slide_files(
 
 @router.post("/file/status")
 async def set_file_status(
+    request: Request,
     filenames_json: str = Form(...),
     path: str = Form(""),
     status: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
 ):
     """슬라이드 리뷰 상태 일괄 설정.
 
@@ -742,11 +925,32 @@ async def set_file_status(
             int_updated += 1
         except Exception as e:
             print(f"[slides] set_slide_status failed ({str_fn}): {e}")
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="slide.status_update",
+        str_resource_type="slide",
+        str_resource_id=path.replace("\\", "/").strip("/"),
+        str_detail=f"Set status {status or 'none'} on {int_updated} slide(s)",
+        dict_extra={
+            "str_rel_path": path.replace("\\", "/").strip("/"),
+            "list_filenames": [f for f in list_filenames if isinstance(f, str) and f],
+            "str_status": status,
+            "int_updated": int_updated,
+        },
+        dict_after={"status": status},
+    )
     return {"status": "ok", "updated": int_updated}
 
 
 @router.post("/file/move")
-async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_path: str = Form("")):
+async def move_file(
+    request: Request,
+    filename: str = Form(...),
+    src_path: str = Form(""),
+    dst_path: str = Form(""),
+    dict_user: dict = Depends(get_current_user),
+):
     """파일을 다른 폴더로 이동"""
     filename = _safe_filename(filename)
     src = _safe_subpath(src_path) / filename
@@ -760,6 +964,17 @@ async def move_file(filename: str = Form(...), src_path: str = Form(""), dst_pat
         raise HTTPException(400, "대상 폴더에 같은 이름의 파일이 있습니다")
     shutil.move(str(src), str(dst))
     await slide_store.move_slide(src_path, filename, dst_path, str(dst))
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="file.move",
+        str_resource_type="file",
+        str_resource_id=filename,
+        str_detail=f"Moved file {filename} from {src_path or 'root'} to {dst_path or 'root'}",
+        dict_extra={"str_filename": filename, "str_src_path": src_path, "str_dst_path": dst_path},
+        dict_before={"path": src_path, "filename": filename},
+        dict_after={"path": dst_path, "filename": filename},
+    )
     return {"status": "moved"}
 
 
@@ -857,6 +1072,7 @@ async def upload_chunk(
 
 @router.post("/upload/complete")
 async def upload_complete(
+    request: Request,
     upload_id: str = Form(...),
     filename: str = Form(...),
     total_chunks: int = Form(...),
@@ -943,11 +1159,34 @@ async def upload_complete(
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
         bool_wait = wait_tiles.lower() in ("true", "1", "yes")
         try:
-            return await _open_and_generate(
+            resp = await _open_and_generate(
                 slide_id, str(final_path), filename, dict_user,
                 bool_wait_for_tiles=bool_wait,
                 str_sha256=str_sha256,
             )
+            await _log_management_event(
+                request,
+                dict_user,
+                str_action="slide.upload",
+                str_resource_type="slide",
+                str_resource_id=slide_id,
+                str_detail=f"Uploaded slide {filename} to {str_norm_upload_path}",
+                dict_extra={
+                    "str_filename": filename,
+                    "str_rel_path": str_norm_upload_path,
+                    "str_project": str_project,
+                    "int_size_bytes": int_total_bytes,
+                    "str_sha256": str_sha256,
+                    "bool_new_file": bool_newly_written,
+                },
+                dict_after={
+                    "filename": filename,
+                    "path": str_norm_upload_path,
+                    "sha256": str_sha256,
+                    "new_file": bool_newly_written,
+                },
+            )
+            return resp
         except HTTPException:
             # OpenSlide 열기 실패 — 손상/위조 파일로 간주, 이번 업로드로 쓴 경우만 정리
             if bool_newly_written and final_path.exists():
@@ -1290,9 +1529,11 @@ async def get_folder_config(path: str = Query("")):
 
 @router.post("/folder-config", dependencies=[Depends(require_not_viewer)])
 async def save_folder_config(
+    request: Request,
     path: str = Form(""),
     enabled: bool = Form(True),
     tasks_json: str = Form("[]"),
+    dict_user: dict = Depends(get_current_user),
 ):
     """폴더의 AI 자동 추론 설정 저장/업서트.
 
@@ -1336,6 +1577,7 @@ async def save_folder_config(
 
     db = get_db()
     str_norm = _norm_folder_path(path)
+    dict_before = await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
     dt_now = datetime.now(timezone.utc)
     await db.folder_ai_configs.update_one(
         {"str_rel_path": str_norm},
@@ -1352,17 +1594,49 @@ async def save_folder_config(
         },
         upsert=True,
     )
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="folder.ai_config_update",
+        str_resource_type="folder",
+        str_resource_id=str_norm,
+        str_detail=f"Updated auto AI config for {str_norm or 'root'}",
+        dict_extra={"str_rel_path": str_norm, "bool_enabled": bool(enabled), "list_tasks": list_clean},
+        dict_before={
+            "enabled": bool(dict_before.get("bool_enabled")) if dict_before else None,
+            "tasks": dict_before.get("list_tasks") if dict_before else [],
+        },
+        dict_after={"enabled": bool(enabled), "tasks": list_clean},
+    )
     return {"status": "saved", "path": str_norm, "enabled": enabled, "tasks": list_clean}
 
 
 @router.delete("/folder-config", dependencies=[Depends(require_not_viewer)])
-async def delete_folder_config(path: str = Query("")):
+async def delete_folder_config(
+    request: Request,
+    path: str = Query(""),
+    dict_user: dict = Depends(get_current_user),
+):
     """폴더의 AI 자동 추론 설정 삭제."""
     if not is_db_connected():
         raise HTTPException(503, "DB 연결 필요")
     db = get_db()
     str_norm = _norm_folder_path(path)
+    dict_before = await db.folder_ai_configs.find_one({"str_rel_path": str_norm})
     await db.folder_ai_configs.delete_one({"str_rel_path": str_norm})
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="folder.ai_config_delete",
+        str_resource_type="folder",
+        str_resource_id=str_norm,
+        str_detail=f"Deleted auto AI config for {str_norm or 'root'}",
+        dict_extra={"str_rel_path": str_norm},
+        dict_before={
+            "enabled": bool(dict_before.get("bool_enabled")) if dict_before else None,
+            "tasks": dict_before.get("list_tasks") if dict_before else [],
+        },
+    )
     return {"status": "deleted", "path": str_norm}
 
 

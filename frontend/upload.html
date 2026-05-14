@@ -236,14 +236,14 @@
             setBlocked(false);
             const rootOpt = document.createElement('option');
             rootOpt.value = selectedProject;
-            rootOpt.textContent = `${selectedProject} / Project root`;
+            rootOpt.textContent = 'Project root';
             $folderSelect.appendChild(rootOpt);
             for (const f of allFolders) {
                 if (f === selectedProject) continue;
                 if (!f.startsWith(`${selectedProject}/`)) continue;
                 const opt = document.createElement('option');
                 opt.value = f;
-                opt.textContent = '/' + f;
+                opt.textContent = '/' + f.split('/').slice(1).join('/');
                 $folderSelect.appendChild(opt);
             }
             if (initialPath && initialPath.split('/')[0] === selectedProject &&

@@ -519,24 +519,70 @@ document.getElementById('activity-tbody').addEventListener('click', (e) => {
 const $userActivityDialog = document.getElementById('user-activity-dialog');
 const $userActivityTbody = document.getElementById('user-activity-tbody');
 const $userActivityTitle = document.getElementById('user-activity-title');
+const USER_ACTIVITY_PAGE_LIMIT = 100;
 let _str_current_activity_user = null;
 let _str_current_activity_cat = 'all';
+let _int_user_activity_skip = 0;
+let _int_user_activity_total = 0;
+
+function _ensureUserActivityPager() {
+    if (!$userActivityDialog || document.getElementById('user-activity-page-info')) return;
+    const $body = $userActivityDialog.querySelector('.activity-body');
+    if (!$body) return;
+    $body.insertAdjacentHTML('afterend', `
+        <div class="pager user-activity-pager">
+            <button id="btn-user-activity-prev" class="admin-btn-secondary" type="button">이전</button>
+            <span id="user-activity-page-info">1 / 1</span>
+            <button id="btn-user-activity-next" class="admin-btn-secondary" type="button">다음</button>
+        </div>
+        <div id="user-activity-range" class="activity-range"></div>
+    `);
+    document.getElementById('btn-user-activity-prev')?.addEventListener('click', () => {
+        if (_int_user_activity_skip <= 0) return;
+        _int_user_activity_skip = Math.max(0, _int_user_activity_skip - USER_ACTIVITY_PAGE_LIMIT);
+        _loadUserActivity();
+    });
+    document.getElementById('btn-user-activity-next')?.addEventListener('click', () => {
+        if (_int_user_activity_skip + USER_ACTIVITY_PAGE_LIMIT >= _int_user_activity_total) return;
+        _int_user_activity_skip += USER_ACTIVITY_PAGE_LIMIT;
+        _loadUserActivity();
+    });
+}
+
+function _updateUserActivityPager(intCount) {
+    const int_total_pages = Math.max(1, Math.ceil(_int_user_activity_total / USER_ACTIVITY_PAGE_LIMIT));
+    const int_page = Math.floor(_int_user_activity_skip / USER_ACTIVITY_PAGE_LIMIT) + 1;
+    const int_start = _int_user_activity_total === 0 ? 0 : _int_user_activity_skip + 1;
+    const int_end = Math.min(_int_user_activity_skip + intCount, _int_user_activity_total);
+    const $info = document.getElementById('user-activity-page-info');
+    const $range = document.getElementById('user-activity-range');
+    const $prev = document.getElementById('btn-user-activity-prev');
+    const $next = document.getElementById('btn-user-activity-next');
+    if ($info) $info.textContent = `${int_page} / ${int_total_pages}`;
+    if ($range) $range.textContent = `${int_start} - ${int_end} / ${_int_user_activity_total}`;
+    if ($prev) $prev.disabled = _int_user_activity_skip <= 0;
+    if ($next) $next.disabled = _int_user_activity_skip + USER_ACTIVITY_PAGE_LIMIT >= _int_user_activity_total;
+}
 
 async function openUserActivityDialog(strUserId) {
     _str_current_activity_user = strUserId;
     _str_current_activity_cat = 'all';
+    _int_user_activity_skip = 0;
     document.querySelectorAll('.activity-cat-tab').forEach(t =>
         t.classList.toggle('active', t.dataset.cat === 'all')
     );
+    _ensureUserActivityPager();
     if (!$userActivityDialog.open) $userActivityDialog.showModal();
     await _loadUserActivity();
 }
 
 async function _loadUserActivity() {
+    _ensureUserActivityPager();
     $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">로딩 중...</td></tr>';
     try {
         const params = new URLSearchParams({
-            int_limit: '200',
+            int_limit: String(USER_ACTIVITY_PAGE_LIMIT),
+            int_skip: String(_int_user_activity_skip),
             str_category: _str_current_activity_cat,
         });
         const data = await apiGet(`/users/${encodeURIComponent(_str_current_activity_user)}/activity?${params}`);
@@ -547,13 +593,18 @@ async function _loadUserActivity() {
 
         // 뱃지 업데이트
         const dict_counts = data.dict_counts || {};
-        const int_all = (dict_counts.login || 0) + (dict_counts.slide || 0) + (dict_counts.ai || 0);
+        const int_all = (dict_counts.login || 0) + (dict_counts.slide || 0) +
+            (dict_counts.ai || 0) + (dict_counts.project || 0) + (dict_counts.file || 0);
         document.querySelector('.cat-badge[data-badge="all"]').textContent = String(int_all);
         document.querySelector('.cat-badge[data-badge="login"]').textContent = String(dict_counts.login || 0);
         document.querySelector('.cat-badge[data-badge="slide"]').textContent = String(dict_counts.slide || 0);
         document.querySelector('.cat-badge[data-badge="ai"]').textContent = String(dict_counts.ai || 0);
+        document.querySelector('.cat-badge[data-badge="project"]').textContent = String(dict_counts.project || 0);
+        document.querySelector('.cat-badge[data-badge="file"]').textContent = String(dict_counts.file || 0);
 
         const list = data.list_logs || [];
+        _int_user_activity_total = data.int_total || 0;
+        _updateUserActivityPager(list.length);
         if (list.length === 0) {
             $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">해당 카테고리의 활동이 없습니다.</td></tr>';
             return;
@@ -576,6 +627,20 @@ async function _loadUserActivity() {
 
 function _fmtActionPill(strAction) {
     const dict_label = {
+        'project.create':     ['프로젝트 생성', 'success'],
+        'project.update':     ['프로젝트 수정', 'info'],
+        'project.rename':     ['프로젝트 이름변경', 'accent'],
+        'project.move_folder':['프로젝트 이동', 'accent'],
+        'project.delete':     ['프로젝트 삭제', 'error'],
+        'folder.create':      ['폴더 생성', 'success'],
+        'folder.rename':      ['폴더 이름변경', 'accent'],
+        'folder.delete':      ['폴더 삭제', 'error'],
+        'folder.ai_config_update': ['자동분석 설정', 'info'],
+        'folder.ai_config_delete': ['자동분석 설정 삭제', 'error'],
+        'file.delete':        ['파일 삭제', 'error'],
+        'file.move':          ['파일 이동', 'accent'],
+        'slide.upload':       ['슬라이드 업로드', 'success'],
+        'slide.status_update':['슬라이드 상태', 'info'],
         'user.login_success': ['로그인', 'success'],
         'user.login_failed':  ['로그인 실패', 'error'],
         'user.logout':        ['로그아웃', 'neutral'],
@@ -596,7 +661,25 @@ function _fmtActivityDetail(log) {
         return `<strong>${esc(log.str_model || '')} · ${esc(log.str_variant || '')}</strong>` +
                (log.str_slide_filename ? `<br><small>${esc(log.str_slide_filename)}</small>` : '');
     }
+    if ((log.str_action || '').startsWith('project.') || (log.str_action || '').startsWith('folder.') ||
+        (log.str_action || '').startsWith('file.') || log.str_action === 'slide.upload' ||
+        log.str_action === 'slide.status_update') {
+        const list_bits = [];
+        if (log.str_rel_path) list_bits.push(log.str_rel_path);
+        if (log.str_src_path || log.str_dst_path) list_bits.push(`${log.str_src_path || '-'} -> ${log.str_dst_path || '-'}`);
+        if (Array.isArray(log.list_filenames) && log.list_filenames.length) list_bits.push(log.list_filenames.join(', '));
+        return `<strong>${esc(log.str_detail || '??')}</strong>` +
+               (list_bits.length ? `<br><small>${esc(list_bits.join(' / '))}</small>` : '');
+    }
     return esc(log.str_detail || '—');
+}
+
+const $activityTabs = document.querySelector('.activity-tabs');
+if ($activityTabs && !$activityTabs.querySelector('[data-cat="project"]')) {
+    $activityTabs.insertAdjacentHTML('beforeend', `
+        <button class="activity-cat-tab" data-cat="project">프로젝트 <span class="cat-badge" data-badge="project">0</span></button>
+        <button class="activity-cat-tab" data-cat="file">파일 <span class="cat-badge" data-badge="file">0</span></button>
+    `);
 }
 
 document.querySelectorAll('.activity-cat-tab').forEach(tab => {
@@ -604,6 +687,7 @@ document.querySelectorAll('.activity-cat-tab').forEach(tab => {
         document.querySelectorAll('.activity-cat-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         _str_current_activity_cat = tab.dataset.cat;
+        _int_user_activity_skip = 0;
         _loadUserActivity();
     });
 });
