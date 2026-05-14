@@ -36,7 +36,6 @@
     const $projectDialogTitle = document.getElementById('project-dialog-title');
     const $projectDialogClose = document.getElementById('project-dialog-close');
     const $projectDialogCancel = document.getElementById('project-dialog-cancel');
-    const $projectNameInput = document.getElementById('project-name-input');
     const $projectTitleInput = document.getElementById('project-title-input');
     const $projectInstitutionInput = document.getElementById('project-institution-input');
     const $projectDepartmentInput = document.getElementById('project-department-input');
@@ -248,6 +247,16 @@
         };
     }
 
+    function makeInternalProjectName(title) {
+        const base = (title || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 40) || 'project';
+        return `${base}_${Date.now().toString(36)}`;
+    }
+
     async function postForm(path, fields) {
         const form = new FormData();
         for (const [key, value] of Object.entries(fields)) {
@@ -264,8 +273,6 @@
         _editingProjectPath = project ? project.path : '';
         const info = project?.info || {};
         $projectDialogTitle.textContent = mode === 'create' ? 'New Project' : 'Project Information';
-        $projectNameInput.value = project ? project.name : '';
-        $projectNameInput.disabled = !canEditProjects();
         $projectTitleInput.value = info.title || project?.name || '';
         $projectInstitutionInput.value = info.institution || '';
         $projectDepartmentInput.value = info.department || '';
@@ -282,35 +289,19 @@
 
     async function saveProjectDialog() {
         const payload = projectInfoPayload();
-        const nextName = $projectNameInput.value.trim();
+        if (!payload.title) throw new Error('Project title is required.');
         if (_projectDialogMode === 'create') {
             await postForm('/slides/project/create', {
-                name: nextName,
+                name: makeInternalProjectName(payload.title),
                 ...payload,
             });
         } else {
-            let targetName = _editingProjectPath;
-            if (nextName && nextName !== _editingProjectPath) {
-                await postForm('/slides/project/rename', {
-                    name: _editingProjectPath,
-                    new_name: nextName,
-                });
-                targetName = nextName;
-                _editingProjectPath = nextName;
-            }
             await postForm('/slides/project/update', {
-                name: targetName,
+                name: _editingProjectPath,
                 ...payload,
             });
         }
         closeProjectDialog();
-        await loadFolderTree();
-    }
-
-    async function renameProject(project) {
-        const next = prompt('Project folder name:', project.name);
-        if (!next || !next.trim() || next.trim() === project.name) return;
-        await postForm('/slides/project/rename', { name: project.name, new_name: next.trim() });
         await loadFolderTree();
     }
 
@@ -413,10 +404,13 @@
         for (const project of pagedProjects) {
             const info = project.info || {};
             const tr = document.createElement('tr');
+            const subtitle = info.description
+                ? `<span class="project-subtitle">${_esc(info.description)}</span>`
+                : '';
             tr.innerHTML = `
                 <td><div class="project-title">
                     <a href="/app.html?path=${encodeURIComponent(project.path || project.name)}">${_esc(info.title || project.name)}</a>
-                    <span class="project-subtitle">${_esc(project.path || project.name)}${info.description ? ' · ' + _esc(info.description) : ''}</span>
+                    ${subtitle}
                 </div></td>
                 <td>${_esc(info.institution || '-')}</td>
                 <td>${_esc(info.owner || '-')}</td>
@@ -436,15 +430,11 @@
                 editBtn.className = 'project-mini-btn';
                 editBtn.textContent = 'Info';
                 editBtn.addEventListener('click', () => openProjectDialog('edit', project));
-                const renameBtn = document.createElement('button');
-                renameBtn.className = 'project-mini-btn';
-                renameBtn.textContent = 'Rename';
-                renameBtn.addEventListener('click', () => renameProject(project).catch(err => alert(err.message)));
                 const moveBtn = document.createElement('button');
                 moveBtn.className = 'project-mini-btn';
                 moveBtn.textContent = 'Move';
                 moveBtn.addEventListener('click', () => openMoveFolderDialog(project).catch(err => alert(err.message)));
-                actions.append(editBtn, renameBtn, moveBtn);
+                actions.append(editBtn, moveBtn);
             }
             if (canDeleteProjects()) {
                 const deleteBtn = document.createElement('button');

@@ -219,6 +219,15 @@
         let projectList = [];
         let selectedProject = (initialPath || '').split('/').filter(Boolean)[0] || '';
 
+        function projectLabel(project) {
+            return project?.info?.title || project?.name || project?.path || '';
+        }
+
+        function selectedProjectLabel() {
+            const project = projectList.find(p => (p.path || p.name) === selectedProject);
+            return project ? projectLabel(project) : 'selected project';
+        }
+
         // 폴더 트리 로드
         function setBlocked(blocked) {
             $uploadBlocked.hidden = !blocked;
@@ -250,7 +259,7 @@
                 [...$folderSelect.options].some(o => o.value === initialPath)) {
                 $folderSelect.value = initialPath;
             }
-            $targetNote.textContent = `Uploads will be saved under project "${selectedProject}".`;
+            $targetNote.textContent = `Uploads will be saved under project "${selectedProjectLabel()}".`;
         }
 
         function renderProjectOptions() {
@@ -258,7 +267,7 @@
             for (const p of projectList) {
                 const opt = document.createElement('option');
                 opt.value = p.path || p.name;
-                opt.textContent = p.info?.title && p.info.title !== p.name ? `${p.info.title} (${p.name})` : p.name;
+                opt.textContent = projectLabel(p);
                 $projectSelect.appendChild(opt);
             }
             if (!selectedProject && projectList.length) selectedProject = projectList[0].path || projectList[0].name;

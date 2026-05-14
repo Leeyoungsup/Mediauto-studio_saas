@@ -2920,7 +2920,7 @@ function _syncProjectSelect() {
     if (projectName && !_hasProjectOption(projectName)) {
         const opt = document.createElement('option');
         opt.value = projectName;
-        opt.textContent = projectName;
+        opt.textContent = _projectLabelForPath(projectName);
         $projectSelect.appendChild(opt);
     }
     $projectSelect.value = projectName;
@@ -2929,8 +2929,12 @@ function _syncProjectSelect() {
 
 function _projectLabel(project) {
     const info = project?.info || {};
-    const name = project?.name || project?.path || '';
-    return info.title && info.title !== name ? `${info.title} (${name})` : name;
+    return info.title || project?.name || project?.path || '';
+}
+
+function _projectLabelForPath(path) {
+    const project = _projectListCache.find(p => (p.path || p.name) === path);
+    return project ? _projectLabel(project) : 'Selected project';
 }
 
 async function loadProjectList() {
@@ -2950,7 +2954,7 @@ async function loadProjectList() {
         if (currentProject && !_hasProjectOption(currentProject)) {
             const opt = document.createElement('option');
             opt.value = currentProject;
-            opt.textContent = currentProject;
+            opt.textContent = _projectLabelForPath(currentProject);
             $projectSelect.appendChild(opt);
         }
         if (!currentProject && !$projectSelect.options.length) {
@@ -3213,11 +3217,7 @@ function _renderProjectGate(list_projects) {
         titleEl.className = 'project-gate-title';
         titleEl.textContent = title;
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'project-gate-path';
-        nameEl.textContent = project.name || path;
-
-        projectEl.append(titleEl, nameEl);
+        projectEl.append(titleEl);
 
         const hospitalEl = document.createElement('div');
         hospitalEl.className = 'project-gate-cell';
@@ -3587,7 +3587,7 @@ function updateBreadcrumb() {
     const projectName = _getCurrentProjectName();
     const root = document.createElement('span');
     root.className = 'breadcrumb-item';
-    root.textContent = projectName || 'Projects';
+    root.textContent = projectName ? _projectLabelForPath(projectName) : 'Projects';
     root.addEventListener('click', () => {
         if (projectName) navigateToFolder(projectName);
         else _showProjectGate(_projectListCache);
