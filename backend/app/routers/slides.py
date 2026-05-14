@@ -896,6 +896,15 @@ async def upload_complete(
                 f"업로드 크기 상한 초과: {int_total_bytes / (1024**3):.2f} GB > {int_limit_gb:.2f} GB",
             )
 
+        str_norm_upload_path = path.replace("\\", "/").strip("/")
+        if not str_norm_upload_path:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            raise HTTPException(400, "Project path is required for uploads")
+        str_project = str_norm_upload_path.split("/", 1)[0]
+        if not (Path(settings.UPLOAD_DIR) / str_project).is_dir():
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            raise HTTPException(400, f"Unknown project: {str_project}")
+
         save_dir = _safe_subpath(path)
         save_dir.mkdir(parents=True, exist_ok=True)
         final_path = save_dir / filename

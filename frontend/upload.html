@@ -117,8 +117,12 @@
         .upload-footer-btns { display: flex; gap: 8px; }
 
         /* Folder selector */
-        .folder-selector {
+        .upload-target {
             margin: 0 16px 8px;
+            display: flex; flex-direction: column; gap: 8px;
+            flex-shrink: 0;
+        }
+        .folder-selector {
             display: flex; align-items: center; gap: 8px;
             flex-shrink: 0;
         }
@@ -136,6 +140,16 @@
         .folder-selector select:focus {
             outline: none; border-color: var(--accent);
         }
+        .upload-target-note {
+            font-size: 11px; color: var(--text-dim);
+            padding-left: 74px;
+        }
+        .upload-blocked {
+            margin: 16px; padding: 14px;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: var(--surface); color: var(--text-dim);
+            font-size: 13px; line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -144,11 +158,19 @@
         <span class="upload-header-title">Slide Upload</span>
     </div>
 
-    <div class="folder-selector" id="folder-selector">
-        <label for="folder-select">Upload to:</label>
-        <select id="folder-select">
-            <option value="">/ (Root)</option>
-        </select>
+    <div class="upload-target" id="upload-target">
+        <div class="folder-selector">
+            <label for="project-select">Project:</label>
+            <select id="project-select"></select>
+        </div>
+        <div class="folder-selector">
+            <label for="folder-select">Folder:</label>
+            <select id="folder-select"></select>
+        </div>
+        <div class="upload-target-note" id="upload-target-note"></div>
+    </div>
+    <div class="upload-blocked" id="upload-blocked" hidden>
+        Create or select a project before uploading slides.
     </div>
 
     <div class="drop-zone" id="drop-zone">
@@ -189,11 +211,80 @@
 
         // 업로드 대상 경로 — 폴더 셀렉터에서 동적으로 결정
         const initialPath = new URLSearchParams(location.search).get('path') || '';
+        const $projectSelect = document.getElementById('project-select');
         const $folderSelect = document.getElementById('folder-select');
+        const $targetNote = document.getElementById('upload-target-note');
+        const $uploadBlocked = document.getElementById('upload-blocked');
+        let allFolders = [];
+        let projectList = [];
+        let selectedProject = (initialPath || '').split('/').filter(Boolean)[0] || '';
 
         // 폴더 트리 로드
+        function setBlocked(blocked) {
+            $uploadBlocked.hidden = !blocked;
+            document.getElementById('drop-zone').style.display = blocked ? 'none' : '';
+            document.getElementById('btn-upload').disabled = true;
+        }
+
+        function renderFolderOptions() {
+            $folderSelect.innerHTML = '';
+            if (!selectedProject) {
+                setBlocked(true);
+                $targetNote.textContent = '';
+                return;
+            }
+            setBlocked(false);
+            const rootOpt = document.createElement('option');
+            rootOpt.value = selectedProject;
+            rootOpt.textContent = `${selectedProject} / Project root`;
+            $folderSelect.appendChild(rootOpt);
+            for (const f of allFolders) {
+                if (f === selectedProject) continue;
+                if (!f.startsWith(`${selectedProject}/`)) continue;
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = '/' + f;
+                $folderSelect.appendChild(opt);
+            }
+            if (initialPath && initialPath.split('/')[0] === selectedProject &&
+                [...$folderSelect.options].some(o => o.value === initialPath)) {
+                $folderSelect.value = initialPath;
+            }
+            $targetNote.textContent = `Uploads will be saved under project "${selectedProject}".`;
+        }
+
+        function renderProjectOptions() {
+            $projectSelect.innerHTML = '';
+            for (const p of projectList) {
+                const opt = document.createElement('option');
+                opt.value = p.path || p.name;
+                opt.textContent = p.info?.title && p.info.title !== p.name ? `${p.info.title} (${p.name})` : p.name;
+                $projectSelect.appendChild(opt);
+            }
+            if (!selectedProject && projectList.length) selectedProject = projectList[0].path || projectList[0].name;
+            const hasSelected = selectedProject && [...$projectSelect.options].some(o => o.value === selectedProject);
+            if (hasSelected) {
+                $projectSelect.value = selectedProject;
+            } else {
+                selectedProject = '';
+            }
+            renderFolderOptions();
+        }
+
         (async function loadFolderTree() {
             try {
+                const [projectRes, folderRes] = await Promise.all([
+                    fetch(`${API_BASE}/slides/projects`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` },
+                    }),
+                    fetch(`${API_BASE}/slides/folder-tree`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` },
+                    }),
+                ]);
+                if (projectRes.ok) projectList = (await projectRes.json()).projects || [];
+                if (folderRes.ok) allFolders = (await folderRes.json()).folders || [];
+                renderProjectOptions();
+                return;
                 const res = await fetch(`${API_BASE}/slides/folder-tree`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` },
                 });
@@ -211,6 +302,11 @@
                 }
             } catch { /* 로드 실패 시 root 만 표시 */ }
         })();
+
+        $projectSelect.addEventListener('change', () => {
+            selectedProject = $projectSelect.value;
+            renderFolderOptions();
+        });
 
         function getUploadPath() { return $folderSelect.value; }
 
@@ -259,6 +355,10 @@
         }
 
         function addFiles(fileListObj) {
+            if (!getUploadPath()) {
+                alert('Select a project before adding files.');
+                return;
+            }
             const files = [...fileListObj].filter(f => SUPPORTED.test(f.name));
             if (!files.length) return;
 
@@ -320,9 +420,14 @@
 
         async function startUpload() {
             if (isUploading) return;
+            if (!getUploadPath()) {
+                alert('Select a project before uploading.');
+                return;
+            }
             isUploading = true;
             $btnUpload.disabled = true;
             $dropZone.style.display = 'none';
+            $projectSelect.disabled = true;
             $folderSelect.disabled = true;
             completedCount = 0;
             errorCount = 0;
