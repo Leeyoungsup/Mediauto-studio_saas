@@ -96,6 +96,8 @@ let _vsLastTargetMpp = 2.0;
 
 const $slideList = $('#slide-list');
 const $projectSelect = $('#project-select');
+const $projectGate = $('#project-gate');
+const $projectGateList = $('#project-gate-list');
 const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
@@ -2811,6 +2813,7 @@ if ($rightResizer && $rightPanel) {
 // 좌측 슬라이드 리스트 + 폴더 탐색
 // ═══════════════════════════
 let currentBrowsePath = '';  // uploads/ 기준 상대경로
+let _projectListCache = [];
 const $breadcrumb = $('#folder-breadcrumb');
 
 function _getCurrentProjectName() {
@@ -2844,16 +2847,18 @@ function _syncProjectSelect() {
 }
 
 async function loadProjectList() {
-    if (!$projectSelect) return;
+    if (!$projectSelect) return [];
     try {
         const data = await api.listProjects();
+        const list_projects = data.projects || [];
+        _projectListCache = list_projects;
         const currentProject = _getCurrentProjectName();
         $projectSelect.innerHTML = '';
         const rootOpt = document.createElement('option');
         rootOpt.value = '';
         rootOpt.textContent = 'All Projects / Root';
         $projectSelect.appendChild(rootOpt);
-        for (const project of (data.projects || [])) {
+        for (const project of list_projects) {
             const opt = document.createElement('option');
             opt.value = project.path || project.name;
             opt.textContent = `${project.name} (${project.slide_count || 0})`;
@@ -2866,9 +2871,85 @@ async function loadProjectList() {
             $projectSelect.appendChild(opt);
         }
         _syncProjectSelect();
+        return list_projects;
     } catch (err) {
         console.warn('Project list load failed:', err);
+        _projectListCache = [];
+        return [];
     }
+}
+
+function _renderProjectGate(list_projects) {
+    if (!$projectGateList) return;
+    const list = Array.isArray(list_projects) ? list_projects : [];
+    $projectGateList.innerHTML = '';
+
+    if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'project-gate-empty';
+        empty.textContent = 'No projects yet. Create a project from Home first.';
+        $projectGateList.appendChild(empty);
+        return;
+    }
+
+    for (const project of list) {
+        const info = project.info || {};
+        const path = project.path || project.name || '';
+        const title = info.title || project.name || path;
+
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'project-gate-card';
+        card.dataset.path = path;
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'project-gate-card-title';
+        titleEl.textContent = title;
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'project-gate-card-name';
+        nameEl.textContent = project.name || path;
+
+        const metaEl = document.createElement('div');
+        metaEl.className = 'project-gate-card-meta';
+        const meta = [
+            `${project.slide_count || 0} slides`,
+            `${project.folder_count || 0} folders`,
+            info.status ? `Status: ${info.status}` : '',
+            info.owner ? `Owner: ${info.owner}` : '',
+        ].filter(Boolean);
+        for (const text of meta) {
+            const chip = document.createElement('span');
+            chip.className = 'project-gate-chip';
+            chip.textContent = text;
+            metaEl.appendChild(chip);
+        }
+
+        card.append(titleEl, nameEl, metaEl);
+        card.addEventListener('click', () => _enterProjectFromGate(path));
+        $projectGateList.appendChild(card);
+    }
+}
+
+function _showProjectGate(list_projects = _projectListCache) {
+    if (!$projectGate) return;
+    _renderProjectGate(list_projects);
+    $projectGate.hidden = false;
+    document.body.classList.add('project-gate-open');
+    setStatus('Select a project');
+}
+
+function _hideProjectGate() {
+    if ($projectGate) $projectGate.hidden = true;
+    document.body.classList.remove('project-gate-open');
+}
+
+function _enterProjectFromGate(path) {
+    if (!path) return;
+    _hideProjectGate();
+    currentBrowsePath = path;
+    history.replaceState(null, '', `/app.html?path=${encodeURIComponent(path)}`);
+    loadSlideList();
 }
 
 async function loadSlideList() {
@@ -3082,6 +3163,7 @@ async function _refreshAiActiveBadges() {
 }
 
 function navigateToFolder(path) {
+    _hideProjectGate();
     currentBrowsePath = path;
     loadSlideList();
 }
@@ -4146,8 +4228,14 @@ $btnVsSplit?.addEventListener('click', () => {
     const _paramSlide = _urlParams.get('slide');
     const _paramPath = _urlParams.get('path');
     if (_paramPath !== null) currentBrowsePath = _paramPath;
+    const bool_show_project_gate = !_paramSlide && _paramPath === null;
 
-    await loadProjectList();
+    const list_projects = await loadProjectList();
+    if (bool_show_project_gate) {
+        _showProjectGate(list_projects);
+        return;
+    }
+
     await loadSlideList();
 
     if (_paramSlide) {

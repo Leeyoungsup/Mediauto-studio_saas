@@ -131,6 +131,18 @@
 
     <!-- ═══ 메인 레이아웃 (뷰어 + 우측 패널) ═══ -->
     <div id="app-body">
+        <section id="project-gate" class="project-gate" hidden>
+            <div class="project-gate-inner">
+                <div class="project-gate-header">
+                    <div>
+                        <h1>Select Project</h1>
+                        <p>Open a project to start viewing slides.</p>
+                    </div>
+                    <a class="project-gate-home" href="/home.html">Home</a>
+                </div>
+                <div id="project-gate-list" class="project-gate-list"></div>
+            </div>
+        </section>
         <!-- 좌측: 슬라이드 리스트 -->
         <aside id="left-panel">
             <div class="panel-header">
