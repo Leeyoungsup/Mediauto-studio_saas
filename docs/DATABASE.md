@@ -228,17 +228,17 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 | `str_status` | string? | 리뷰 상태: `""` / `pending` / `in_progress` / `done` / `flagged` |
 | `dt_status_updated_at` | datetime? | 상태 변경 시각 |
 
-**`dict_ai_results` 구조** — 키는 `LIST_AI_MODEL_KEYS = ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]`:
+**`dict_ai_results` 구조** — 키는 `LIST_AI_MODEL_KEYS = ["Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"]`:
 ```
 {
-  "HE-Fit":      {"bool_has_result": bool, "list_variants": [str, ...], "dt_updated_at": datetime?},
-  "PD-Score":    {...},
-  "Precise-IHC": {...},
-  "VS-IHC":      {...}
+  "Quanti HE":      {"bool_has_result": bool, "list_variants": [str, ...], "dt_updated_at": datetime?},
+  "Quanti PD-L1":    {...},
+  "Quanti IHC": {...},
+  "VS IHC":      {...}
 }
 ```
 - `list_variants`: tissue_type / marker / stain_type 등 variant 문자열들. `$addToSet`으로 중복 방지 추가.
-- VS-IHC는 `target_mpp`를 DB에 별도 기록하지 않음 — base model 필터링만 DB 질의로, per-mpp 캐시 존재 확인은 파일시스템에서 수행.
+- VS IHC는 `target_mpp`를 DB에 별도 기록하지 않음 — base model 필터링만 DB 질의로, per-mpp 캐시 존재 확인은 파일시스템에서 수행.
 
 **인덱스**
 - `(str_rel_path, str_filename)` compound **unique** — 동일 폴더 내 파일명 중복 금지
@@ -275,9 +275,9 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 **`list_tasks` 항목 구조**
 ```
 {
-  "model":   "HE-Fit" | "PD-Score" | "Precise-IHC" | "VS-IHC",
+  "model":   "Quanti HE" | "Quanti PD-L1" | "Quanti IHC" | "VS IHC",
   "variant": "<tissue_type | marker | stain_type>",
-  "target_mpp": float    // VS-IHC 전용 (기본 2.0)
+  "target_mpp": float    // VS IHC 전용 (기본 2.0)
 }
 ```
 
@@ -305,7 +305,7 @@ IP -> 국가/도시 캐시. 외부 `ip-api.com`(free tier, rate-limited 45/min, 
 | ---- | ---- | ---- |
 | `_id` | ObjectId | PK |
 | `str_slide_id` | string | 슬라이드 식별자 |
-| `str_ai_mode` | string | `HE-Fit` / `PD-Score` / `Precise-IHC` (VS-IHC 는 편집 대상 아님) |
+| `str_ai_mode` | string | `Quanti HE` / `Quanti PD-L1` / `Quanti IHC` (VS IHC 는 편집 대상 아님) |
 | `str_variant` | string | tissue_type / marker / "" |
 | `str_user_id` | string | 편집한 사용자 `users._id` |
 | `str_user_name` | string | 비정규화 표시 이름 |

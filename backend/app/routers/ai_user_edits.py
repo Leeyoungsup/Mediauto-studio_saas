@@ -21,7 +21,16 @@ from app.slide_manager import slide_manager
 
 router = APIRouter()
 
-_USER_EDIT_MODES = {"HE-Fit", "PD-Score", "Precise-IHC"}
+_USER_EDIT_MODES = {"Quanti HE", "Quanti PD-L1", "Quanti IHC"}
+_LEGACY_USER_EDIT_MODES = {
+    "HE-Fit": "Quanti HE",
+    "PD-Score": "Quanti PD-L1",
+    "Precise-IHC": "Quanti IHC",
+}
+
+
+def _normalize_ai_mode(ai_mode: str) -> str:
+    return _LEGACY_USER_EDIT_MODES.get(ai_mode, ai_mode)
 
 
 def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: str) -> Path:
@@ -41,13 +50,14 @@ async def save_detection_result(
     slide_id: str = Form(...),
     tissue_type: str = Form("Stomach"),
     result: str = Form(...),
-    ai_mode: str = Form("HE-Fit"),
+    ai_mode: str = Form("Quanti HE"),
     dict_user: dict = Depends(get_current_user),
 ):
     """
     세포 편집본을 **현재 로그인한 사용자 전용**으로 DB 에 저장한다.
     원본 디스크 캐시 (ai_results/...) 는 건드리지 않는다.
     """
+    ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
 
@@ -121,6 +131,7 @@ async def list_user_edits(
     variant: str = "",
 ):
     """해당 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
     from app import slide_store
@@ -136,6 +147,7 @@ async def delete_user_edit(
     dict_user: dict = Depends(get_current_user),
 ):
     """현재 로그인한 **본인** 의 편집본만 삭제 (타인 것은 절대 불가)."""
+    ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
     str_user_id = str(dict_user.get("_id") or "")
@@ -167,6 +179,7 @@ async def load_user_edit(
     variant: str = "",
 ):
     """특정 사용자의 저장본 전체 결과 — DB 메타에서 경로 조회 후 디스크 JSON 반환."""
+    ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
     from app import slide_store

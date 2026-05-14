@@ -1,5 +1,5 @@
 """
-AI 분석 API — Detection / PD-Score / Precise-IHC / Virtual Stain 라우팅 레이어.
+AI 분석 API — Detection / Quanti PD-L1 / Quanti IHC / Virtual Stain 라우팅 레이어.
 
 워커/모델 로직은 app/ai_pipelines/ 패키지로 분리되어 있고, 사용자 편집본
 라우트는 app/routers/ai_user_edits.py 의 서브 라우터에서 처리한다. 이 모듈은
@@ -44,7 +44,8 @@ from app.ai_pipelines.virtual_stain import (
     VS_MODEL_FILES,
     run_virtual_stain as _run_virtual_stain,
 )
-from app.ai_pipelines.scoring import PD_SCORE_CONFIG, PRECISE_IHC_CONFIG
+from ai.quanti_ihc import PRECISE_IHC_CONFIG
+from ai.quanti_pd_l1 import PD_SCORE_CONFIG
 
 
 # Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
@@ -110,7 +111,7 @@ async def start_detection(
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
             "slide_filename": str_filename,
-            "model": "HE-Fit", "variant": tissue_type,
+            "model": "Quanti HE", "variant": tissue_type,
         }
 
     t = threading.Thread(
@@ -120,7 +121,7 @@ async def start_detection(
     )
     t.start()
 
-    await _log_ai_analyze(request, dict_user, "HE-Fit", tissue_type, slide_id, str_filename, task_id)
+    await _log_ai_analyze(request, dict_user, "Quanti HE", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -132,7 +133,7 @@ async def start_pd_score(
     tissue_type: str = Form("Stomach"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """PD-Score 추론 시작 (Stomach → CPS, Lung → TPS)"""
+    """Quanti PD-L1 추론 시작 (Stomach → CPS, Lung → TPS)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -148,7 +149,7 @@ async def start_pd_score(
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
             "slide_filename": str_filename,
-            "model": "PD-Score", "variant": tissue_type,
+            "model": "Quanti PD-L1", "variant": tissue_type,
         }
 
     t = threading.Thread(
@@ -158,7 +159,7 @@ async def start_pd_score(
     )
     t.start()
 
-    await _log_ai_analyze(request, dict_user, "PD-Score", tissue_type, slide_id, str_filename, task_id)
+    await _log_ai_analyze(request, dict_user, "Quanti PD-L1", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -170,7 +171,7 @@ async def start_precise_ihc(
     marker: str = Form("HER2"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Precise-IHC 추론 시작 (marker: HER2 / ER_PR / KI_67)"""
+    """Quanti IHC 추론 시작 (marker: HER2 / ER_PR / KI_67)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -186,7 +187,7 @@ async def start_precise_ihc(
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
             "slide_filename": str_filename,
-            "model": "Precise-IHC", "variant": marker,
+            "model": "Quanti IHC", "variant": marker,
         }
 
     t = threading.Thread(
@@ -196,7 +197,7 @@ async def start_precise_ihc(
     )
     t.start()
 
-    await _log_ai_analyze(request, dict_user, "Precise-IHC", marker, slide_id, str_filename, task_id)
+    await _log_ai_analyze(request, dict_user, "Quanti IHC", marker, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -307,7 +308,7 @@ async def start_virtual_stain(
     roi_polygons: Optional[str] = Form(None),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Virtual stain (VS-IHC) 작업 시작 (비동기)"""
+    """Virtual stain (VS IHC) 작업 시작 (비동기)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
@@ -323,7 +324,7 @@ async def start_virtual_stain(
             "status": "queued", "progress": 0,
             "result": None, "error": None, "status_msg": "",
             "slide_filename": str_filename,
-            "model": "VS-IHC", "variant": stain_type,
+            "model": "VS IHC", "variant": stain_type,
         }
 
     t = threading.Thread(
@@ -332,7 +333,7 @@ async def start_virtual_stain(
         daemon=True,
     )
     t.start()
-    await _log_ai_analyze(request, dict_user, "VS-IHC", stain_type, slide_id, str_filename, task_id)
+    await _log_ai_analyze(request, dict_user, "VS IHC", stain_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 
 

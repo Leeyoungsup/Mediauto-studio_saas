@@ -118,10 +118,10 @@
 
     // ── AI badge mapping ──
     const AI_BADGE_MAP = {
-        'HE-Fit':      { cls: 'badge-hefit',   label: 'HE-Fit' },
-        'PD-Score':     { cls: 'badge-pdscore', label: 'PD-Score' },
-        'Precise-IHC':  { cls: 'badge-ihc',     label: 'IHC' },
-        'VS-IHC':       { cls: 'badge-vs',      label: 'VS' },
+        'Quanti HE':      { cls: 'badge-hefit',   label: 'Quanti HE' },
+        'Quanti PD-L1':     { cls: 'badge-pdscore', label: 'Quanti PD-L1' },
+        'Quanti IHC':  { cls: 'badge-ihc',     label: 'IHC' },
+        'VS IHC':       { cls: 'badge-vs',      label: 'VS' },
     };
 
     // ── Status badge ──
@@ -209,7 +209,7 @@
 
             // AI total (unique slides with any AI result)
             const ac = data.ai_counts || {};
-            const aiTotal = Math.max(ac['HE-Fit'] || 0, ac['PD-Score'] || 0, ac['Precise-IHC'] || 0, ac['VS-IHC'] || 0);
+            const aiTotal = Math.max(ac['Quanti HE'] || 0, ac['Quanti PD-L1'] || 0, ac['Quanti IHC'] || 0, ac['VS IHC'] || 0);
             $statAiTotal.textContent = aiTotal;
 
             // Storage bar
@@ -249,23 +249,22 @@
         const $tree = document.getElementById('folder-tree');
         if (!$tree) return;
         try {
-            const res = await authFetch('/slides/browse?path=');
+            const res = await authFetch('/slides/projects');
             if (!res) return;
             const data = await res.json();
             $tree.innerHTML = '';
 
-            const folders = data.folders || [];
-            const slides = data.slides || [];
+            const folders = data.projects || [];
 
-            if (folders.length === 0 && slides.length === 0) {
-                $tree.innerHTML = '<div class="folder-tree-empty">No folders or slides yet</div>';
+            if (folders.length === 0) {
+                $tree.innerHTML = '<div class="folder-tree-empty">No projects yet</div>';
                 return;
             }
 
             for (const folder of folders) {
                 const el = document.createElement('a');
                 el.className = 'folder-tree-item';
-                el.href = `/app.html?path=${encodeURIComponent(folder.name)}`;
+                el.href = `/app.html?path=${encodeURIComponent(folder.path || folder.name)}`;
                 el.innerHTML = `
                     <div class="folder-tree-icon">
                         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -273,28 +272,13 @@
                         </svg>
                     </div>
                     <span class="folder-tree-name">${_esc(folder.name)}</span>
+                    <span class="folder-tree-count">${folder.slide_count || 0} slides</span>
                 `;
                 $tree.appendChild(el);
             }
 
-            // root 슬라이드가 있으면 표시
-            if (slides.length > 0) {
-                const el = document.createElement('div');
-                el.className = 'folder-tree-item';
-                el.style.cursor = 'default';
-                el.innerHTML = `
-                    <div class="folder-tree-icon" style="color:var(--home-accent)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/>
-                        </svg>
-                    </div>
-                    <span class="folder-tree-name">Root</span>
-                    <span class="folder-tree-count">${slides.length} slides</span>
-                `;
-                $tree.appendChild(el);
-            }
         } catch {
-            $tree.innerHTML = '<div class="folder-tree-empty">Failed to load folders</div>';
+            $tree.innerHTML = '<div class="folder-tree-empty">Failed to load projects</div>';
         }
     }
 

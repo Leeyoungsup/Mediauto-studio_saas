@@ -6,7 +6,7 @@ slide_manager.py 에 NDP.view2 호환 감마 LUT 를 심은 뒤, 기존에 raw �
 
 대상:
 - `db.slides` 에서 `str_vendor` 가 "hamamatsu" (대소문자 무관) 인 문서
-  - 파일시스템: tiles/<stem>/ 디렉토리 + ai_results/{HE-Fit,PD-Score,Precise-IHC,VS-IHC}/<stem>_* + ai_results/<stem>_* (레거시)
+  - 파일시스템: tiles/<stem>/ 디렉토리 + ai_results/{Quanti HE,Quanti PD-L1,Quanti IHC,VS IHC}/<stem>_* + ai_results/<stem>_* (레거시)
   - DB 플래그: bool_tiles_ready=False, dt_tiles_ready_at=None, dict_ai_results 초기화
 - `db.user_ai_edits` 에서 해당 slide_id 의 문서 삭제
 
@@ -34,7 +34,7 @@ from app.config import settings
 from app.slide_store import LIST_AI_MODEL_KEYS
 
 
-LIST_AI_SUBDIRS = list(LIST_AI_MODEL_KEYS)  # ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]
+LIST_AI_SUBDIRS = list(LIST_AI_MODEL_KEYS)  # ["Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"]
 
 
 def _empty_ai_results() -> dict:

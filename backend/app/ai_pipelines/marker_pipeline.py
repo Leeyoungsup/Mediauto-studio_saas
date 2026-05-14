@@ -1,13 +1,13 @@
-"""PD-Score / Precise-IHC 공용 marker detection 파이프라인 + wrapper.
+"""Quanti PD-L1 / Quanti IHC 공용 marker detection 파이프라인 + wrapper.
 
-routers/ai.py 의 모놀리스에서 분리. PD-Score 와 Precise-IHC 가 동일한 YOLOv11m
+routers/ai.py 의 모놀리스에서 분리. Quanti PD-L1 와 Quanti IHC 가 동일한 YOLOv11m
 검출 + 스코어 계산 흐름을 공유하므로 한 함수에서 처리하고 wrapper 두 개가
 모델/스코어 함수만 다르게 주입한다.
 
 임계값은 SaMD 인허가 재현성을 위해 모델별 고정 — 사용자 조절 금지.
-- PD-Score: 0.1
-- Precise-IHC HER2: 0.5
-- Precise-IHC ER_PR / KI_67: 0.3
+- Quanti PD-L1: 0.1
+- Quanti IHC HER2: 0.5
+- Quanti IHC ER_PR / KI_67: 0.3
 """
 
 import json
@@ -21,14 +21,13 @@ from app.ai_pipelines.cache_paths import (
     get_pd_score_cache_path,
     get_precise_ihc_cache_path,
 )
-from app.ai_pipelines.scoring import (
-    PD_SCORE_CONFIG,
+from ai.quanti_ihc import (
     PRECISE_IHC_CONFIG,
     compute_allred_score,
     compute_her2_score,
     compute_ki67_score,
-    compute_pd_score,
 )
+from ai.quanti_pd_l1 import PD_SCORE_CONFIG, compute_pd_score
 from app.ai_pipelines.task_state import (
     TaskCancelled,
     check_cancel,
@@ -53,10 +52,10 @@ def run_marker_detection_pipeline(
 ):
     """
     YOLOv11m 기반 marker detection 공용 파이프라인.
-    PD-Score / Precise-IHC 가 공유.
+    Quanti PD-L1 / Quanti IHC 가 공유.
     임계값은 모델별로 고정 — 인허가(SaMD) 재현성을 위해 사용자 조절 금지.
-      - PD-Score (Stomach/Lung): 0.1
-      - Precise-IHC (HER2/ER_PR): 0.5
+      - Quanti PD-L1 (Stomach/Lung): 0.1
+      - Quanti IHC (HER2/ER_PR): 0.5
     각 wrapper 에서 명시적으로 전달한다.
     """
     list_cleanup_on_cancel = [cache_path]
@@ -126,7 +125,7 @@ def run_marker_detection_pipeline(
                     status_msg=f"Starting {log_label} detection...")
 
         # ── 모델 로드 ──
-        from ai.detection import non_max_suppression
+        from ai.yolo_postprocess import non_max_suppression
         from ai.nets import nn as yolo_nn
 
         model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
@@ -385,7 +384,7 @@ def run_marker_detection_pipeline(
             for i in range(n_cells)
         ]
 
-        # Score 는 모델별 고정 confidence 임계값으로 계산 (PD=0.1, Precise-IHC=0.5).
+        # Score 는 모델별 고정 confidence 임계값으로 계산 (PD=0.1, Quanti IHC=0.5).
         # SaMD 인허가 재현성을 위해 사용자 조절 불가.
         if len(all_conf) > 0:
             mask_score = all_conf >= float_score_conf_threshold
@@ -411,7 +410,7 @@ def run_marker_detection_pipeline(
                     json.dump(result, f)
                 print(f"{log_label} result cached: {cache_path}")
                 from app import slide_store
-                # "Precise-IHC/HER2" → "Precise-IHC"
+                # "Quanti IHC/HER2" → "Quanti IHC"
                 str_model_key = log_label.split("/")[0]
                 slide_store.mark_ai_result_threadsafe(info.file_path, str_model_key, str_variant)
             except Exception as e:
@@ -431,7 +430,7 @@ def run_marker_detection_pipeline(
 
 
 def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
-    """PD-Score 파이프라인 wrapper (공용 marker pipeline 호출)."""
+    """Quanti PD-L1 파이프라인 wrapper (공용 marker pipeline 호출)."""
     dict_config = PD_SCORE_CONFIG[tissue_type]
     info = slide_manager.get(slide_id)
     if not info:
@@ -447,14 +446,14 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         score_fn=lambda all_cls: compute_pd_score(all_cls, tissue_type),
         score_key="pd_score",
         extra_fields={"tissue_type": tissue_type},
-        log_label="PD-Score",
+        log_label="Quanti PD-L1",
         str_variant=tissue_type,
         float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung 고정 (SaMD 재현성)
     )
 
 
 def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Precise-IHC 파이프라인 wrapper — HER2 / ER_PR / KI_67 지원."""
+    """Quanti IHC 파이프라인 wrapper — HER2 / ER_PR / KI_67 지원."""
     if marker not in PRECISE_IHC_CONFIG:
         update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
         return
@@ -478,7 +477,7 @@ def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
 
-    # Precise-IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR/KI_67=0.3
+    # Quanti IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR/KI_67=0.3
     float_conf = 0.3 if marker in ("ER_PR", "KI_67") else 0.5
 
     run_marker_detection_pipeline(
@@ -490,7 +489,7 @@ def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         score_fn=score_fn,
         score_key=score_key,
         extra_fields={"marker": marker},
-        log_label=f"Precise-IHC/{marker}",
+        log_label=f"Quanti IHC/{marker}",
         str_variant=marker,
         float_score_conf_threshold=float_conf,
     )

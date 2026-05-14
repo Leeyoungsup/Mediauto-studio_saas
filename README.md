@@ -10,10 +10,10 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 |------|------|
 | WSI 뷰어 | OpenSlide 기반 3-stage 타일 피라미드 (downsample 1/4/8). 1024 px JPEG 타일을 `<img src>` 로 서빙. SVS/NDPI/TIFF/VMS/VMU/SCN/MRXS 지원 |
 | Annotation | Canvas 기반 polygon-lasso / rectangle / point. 슬라이드별 JSON 업서트, viewer 역할은 저장 불가 |
-| HE-Fit | H&E 슬라이드 세포 검출 (YOLOv11-M, 8 class). Stomach·Breast 는 Tumor/Benign epithelial 재분류 |
-| PD-Score | PD-L1 IHC scoring — Stomach CPS / Lung TPS 자동 계산 |
-| Precise-IHC | HER2 / ER·PR Allred / Ki-67 Labeling Index — 염색 강도 0+~3+ 분류 |
-| VS-IHC | Virtual Staining (H&E → IHC membrane/nucleus). 타일 스트리머로 큰 SVS 도 ~100 MB 메모리 |
+| Quanti HE | H&E 슬라이드 세포 검출 (YOLOv11-M, 8 class). Stomach·Breast 는 Tumor/Benign epithelial 재분류 |
+| Quanti PD-L1 | PD-L1 IHC scoring — Stomach CPS / Lung TPS 자동 계산 |
+| Quanti IHC | HER2 / ER·PR Allred / Ki-67 Labeling Index — 염색 강도 0+~3+ 분류 |
+| VS IHC | Virtual Staining (H&E → IHC membrane/nucleus). 타일 스트리머로 큰 SVS 도 ~100 MB 메모리 |
 | 폴더 자동 AI | `folder_ai_configs` 기반, 60초 주기로 미완 (model, variant) 자동 추론. idle 600초·업로드·뷰어 활동 시 양보 |
 | 사용자 편집본 | 셀 수정·저장본을 사용자별로 분리 저장 (`user_ai_edits`). 원본 추론 캐시는 보존 |
 | 인증·인가 | MongoDB + JWT (Access 15분 + Refresh 7일). RBAC 3단계 + 가입 승인 워크플로 + 5회 실패 30분 잠금 |
@@ -29,7 +29,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 - **Database**: MongoDB 7.x+ (motor async driver). DB 미연결 시 일부 기능만 비활성화되고 뷰어는 동작
 - **인증**: JWT HS256 + bcrypt(cost=12) + pepper, RFC 6238 TOTP, AES-256-GCM, HMAC-SHA256 미디어 티켓
 - **슬라이드**: OpenSlide, Pillow, ICC profile 지원, Hamamatsu NDP.view2 색 매칭
-- **AI**: PyTorch (CUDA AMP), YOLOv11-M (HE-Fit / PD-Score / Precise-IHC), pix2pix U-Net (VS-IHC)
+- **AI**: PyTorch (CUDA AMP), YOLOv11-M (Quanti HE / Quanti PD-L1 / Quanti IHC), pix2pix U-Net (VS IHC)
 
 ## 프로젝트 구조
 
@@ -60,11 +60,11 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │   │   ├── auto_ai.py             # 폴더별 AI 자동 추론 워커 (idle-aware)
 │   │   ├── priority.py            # 뷰어 활동 → AI 양보 게이팅
 │   │   ├── ndp_color_match.py     # Hamamatsu NDP.view2 톤 매칭 LUT
-│   │   ├── svs_to_hamamatsu.py    # SVS → Hamamatsu 색공간 역변환 (VS-IHC 입력)
+│   │   ├── svs_to_hamamatsu.py    # SVS → Hamamatsu 색공간 역변환 (VS IHC 입력)
 │   │   ├── ai_pipelines/
-│   │   │   ├── detection.py       # HE-Fit 워커 (조직마스크, 멀티스레드 I/O, 배치 GPU)
-│   │   │   ├── marker_pipeline.py # PD-Score / Precise-IHC 공용 파이프라인
-│   │   │   ├── virtual_stain.py   # VS-IHC + VSTileStreamer (메모리 상한)
+│   │   │   ├── detection.py       # Quanti HE 워커 (조직마스크, 멀티스레드 I/O, 배치 GPU)
+│   │   │   ├── marker_pipeline.py # Quanti PD-L1 / Quanti IHC 공용 파이프라인
+│   │   │   ├── virtual_stain.py   # VS IHC + VSTileStreamer (메모리 상한)
 │   │   │   ├── scoring.py         # CPS / TPS / HER2 / Allred / Ki-67 수식
 │   │   │   ├── tissue_mask.py     # H-DAB color deconvolution + Otsu
 │   │   │   ├── cache_paths.py     # ai_results/ 경로 헬퍼

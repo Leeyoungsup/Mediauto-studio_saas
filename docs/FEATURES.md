@@ -8,10 +8,10 @@
 1. [WSI 뷰어](#1-wsi-뷰어)
 2. [슬라이드 & 폴더 관리](#2-슬라이드--폴더-관리)
 3. [Annotation](#3-annotation)
-4. [AI 분석 — HE-Fit](#4-ai-분석--he-fit)
-5. [AI 분석 — PD-Score](#5-ai-분석--pd-score-pd-l1)
-6. [AI 분석 — Precise-IHC](#6-ai-분석--precise-ihc)
-7. [AI 분석 — VS-IHC (Virtual Staining)](#7-ai-분석--vs-ihc-virtual-staining)
+4. [AI 분석 — Quanti HE](#4-ai-분석--Quanti HE)
+5. [AI 분석 — Quanti PD-L1](#5-ai-분석--Quanti PD-L1-pd-l1)
+6. [AI 분석 — Quanti IHC](#6-ai-분석--Quanti IHC)
+7. [AI 분석 — VS IHC (Virtual Staining)](#7-ai-분석--VS IHC-virtual-staining)
 8. [폴더 단위 자동 AI 추론](#8-폴더-단위-자동-ai-추론)
 9. [타일 프리제네레이션 워커](#9-타일-프리제네레이션-워커)
 10. [타일 디스크 쿼터 janitor](#10-타일-디스크-쿼터-janitor)
@@ -132,7 +132,7 @@ ICC 프로파일이 임베드되지 않은 Hamamatsu NDPI 슬라이드는 표준
 
 ---
 
-## 4. AI 분석 — HE-Fit
+## 4. AI 분석 — Quanti HE
 
 **목적**: H&E 염색 슬라이드 전 영역에서 세포 단위 검출 + 분류. Stomach/Breast는 추가로 Tumor/Benign epithelial 재분류까지 수행.
 
@@ -153,7 +153,7 @@ ICC 프로파일이 임베드되지 않은 Hamamatsu NDPI 슬라이드는 표준
 
 ### Process
 
-1. **캐시 확인** — `ai_results/HE-Fit/{stem}_HE-Fit_{tissue_type}.json` 존재 시 즉시 반환 (전체 추론 때만).
+1. **캐시 확인** — `ai_results/Quanti HE/{stem}_Quanti HE_{tissue_type}.json` 존재 시 즉시 반환 (전체 추론 때만).
 2. **모델 로드** — YOLOv11m(6 class), checkpoint의 state_dict 주입, eval 모드.
 3. **조직 마스크 생성** — 썸네일을 H-DAB color deconvolution → H/DAB 각각 Otsu 이진화 → 국소 표준편차 텍스처 Otsu → union → 유리 배경 제외. 배경 패치를 스킵해 I/O·추론 생략.
 4. **패치 그리드 생성** — 1024px 격자 순회, 조직 마스크가 0인 타일 스킵, ROI bounding box 필터.
@@ -213,7 +213,7 @@ ICC 프로파일이 임베드되지 않은 Hamamatsu NDPI 슬라이드는 표준
 
 ---
 
-## 5. AI 분석 — PD-Score (PD-L1)
+## 5. AI 분석 — Quanti PD-L1 (PD-L1)
 
 **목적**: PD-L1 IHC 슬라이드에서 세포별 양성/음성 + 종류(Epithelial/Lymphocyte/Macrophage)를 검출해 임상 score(CPS/TPS) 자동 산출.
 
@@ -238,7 +238,7 @@ ICC 프로파일이 임베드되지 않은 Hamamatsu NDPI 슬라이드는 표준
 1. 캐시 확인. 레거시 캐시의 `score_conf_threshold`가 현재 값(0.1)과 다르면 cells로부터 **재계산 후 덮어쓰기**.
 2. 모델 로드 + DFL head 재빌드.
 3. 조직 마스크 → 1024px 패치 grid → ROI 필터.
-4. 병렬 I/O (8 workers) + 배치 GPU 추론 (batch=8, coord_scale=2.0). HE-Fit과 동일한 producer/consumer 큐 구조.
+4. 병렬 I/O (8 workers) + 배치 GPU 추론 (batch=8, coord_scale=2.0). Quanti HE과 동일한 producer/consumer 큐 구조.
 5. `exclude_classes=[6]`(Stomach "Other")을 화면 표시 셀 리스트에서 제외.
 6. **Score 계산** — confidence >= 0.1인 셀만 사용 (프론트 기본 필터와 일관).
 7. 캐시 저장 + DB variant 등록.
@@ -298,7 +298,7 @@ TPS = positive_tumor / (positive_tumor + negative_tumor) * 100
 
 ---
 
-## 6. AI 분석 — Precise-IHC
+## 6. AI 분석 — Quanti IHC
 
 **목적**: IHC marker 염색 강도(0+~3+)를 세포 단위로 정밀 분류 → HER2 score / Allred score / KI-67 Labeling Index 산출.
 
@@ -321,7 +321,7 @@ TPS = positive_tumor / (positive_tumor + negative_tumor) * 100
 
 ### Process
 
-HE-Fit / PD-Score와 동일한 공용 pipeline:
+Quanti HE / Quanti PD-L1와 동일한 공용 pipeline:
 
 1. 캐시 확인 + 임계값 변경 시 score만 재계산.
 2. YOLOv11m 로드 (DFL head 재빌드 적용).
@@ -452,17 +452,17 @@ cutoff = 14%
 ### 시각화 (프론트)
 
 - **공통**: 우측 Detection Results에 class별 count + 체크박스로 오버레이 on/off.
-- **셀 수정 → 스코어 실시간 반영**: 사용자가 개별 셀의 class를 수정하면 Allred/HER2/PD-Score/KI-67 스코어가 즉시 재계산되어 표시된다.
+- **셀 수정 → 스코어 실시간 반영**: 사용자가 개별 셀의 class를 수정하면 Allred/HER2/Quanti PD-L1/KI-67 스코어가 즉시 재계산되어 표시된다.
 - **Visualize 다이얼로그**:
   - HER2: 4탭 — Score Card (가중평균 게이지 + Dominant class) + Distribution + Spatial + Confidence
   - Allred (ER/PR): 4탭 — Score Card (PS/IS/TS 표시 + 양성 판정) + Distribution + Spatial + Confidence
   - KI-67: 4탭 — Score Card (Index % 게이지 + High/Low 판정 + 14% cutoff 기준선) + Distribution + Spatial + Confidence
 - **PDF Export**: 각 score type별 전용 페이지 (커버에 해당 score 메트릭 표시).
-- **배치 분석**: 폴더 자동 AI 설정에서 KI-67도 선택 가능 (`Precise-IHC · KI-67`).
+- **배치 분석**: 폴더 자동 AI 설정에서 KI-67도 선택 가능 (`Quanti IHC · KI-67`).
 
 ---
 
-## 7. AI 분석 — VS-IHC (Virtual Staining)
+## 7. AI 분석 — VS IHC (Virtual Staining)
 
 **목적**: H&E 슬라이드에서 IHC 염색을 GAN으로 가상 생성 — 실제 IHC 염색 없이 membrane/nucleus 마커 시뮬레이션.
 
@@ -485,7 +485,7 @@ cutoff = 14%
 
 ### Process
 
-1. **캐시 확인** — `ai_results/VS-IHC/{stem}_VS-IHC_{stain}_mpp{p}.{png,json}`.
+1. **캐시 확인** — `ai_results/VS IHC/{stem}_VS IHC_{stain}_mpp{p}.{png,json}`.
    - 레거시 캐시에 타일 피라미드(`levels`)가 없으면 **자동 업그레이드**: PNG 로드 → 4-레벨 타일 생성 → meta 갱신.
 2. **해상도 계산**:
    ```
@@ -517,7 +517,7 @@ cutoff = 14%
 ```jsonc
 {
   "stain_type": "ihc_membrane",
-  "image_filename": "Sample_VS-IHC_ihc_membrane_mpp2.png",
+  "image_filename": "Sample_VS IHC_ihc_membrane_mpp2.png",
   "roi_origin": [0, 0],
   "canvas_l0_w": 87654,
   "canvas_l0_h": 65432,
@@ -558,7 +558,7 @@ cutoff = 14%
 ### 설정
 
 - `POST /api/slides/folder-config` — `path`, `enabled`, `tasks_json`
-  - `tasks_json` 예: `[{"model": "HE-Fit", "variant": "Stomach"}, {"model": "Precise-IHC", "variant": "KI_67"}, {"model": "VS-IHC", "variant": "ihc_membrane", "target_mpp": 2.0}]`
+  - `tasks_json` 예: `[{"model": "Quanti HE", "variant": "Stomach"}, {"model": "Quanti IHC", "variant": "KI_67"}, {"model": "VS IHC", "variant": "ihc_membrane", "target_mpp": 2.0}]`
 - `require_not_viewer` 의존성 (viewer는 설정 수정 불가, 조회만 가능).
 - `folder_ai_configs` 컬렉션에 upsert.
 
@@ -575,7 +575,7 @@ cutoff = 14%
 ### 사용자 플로우
 
 - 우측 패널에서 "폴더 자동 분석 설정" 열고 AI 작업 리스트 구성 → Enable.
-- 선택 가능한 작업: HE-Fit (Stomach/Breast/Other), PD-Score (Stomach/Lung), Precise-IHC (HER2/ER_PR/KI_67), VS-IHC (ihc_membrane/ihc_nucleus)
+- 선택 가능한 작업: Quanti HE (Stomach/Breast/Other), Quanti PD-L1 (Stomach/Lung), Quanti IHC (HER2/ER_PR/KI_67), VS IHC (ihc_membrane/ihc_nucleus)
 - 이후 해당 폴더에 업로드되는 모든 슬라이드가 자동으로 해당 AI 결과를 갖게 됨.
 
 ---
@@ -848,10 +848,10 @@ GET    /api/tiles/{slide_id}/stage-level                현재 stage 인덱스 �
 ### AI
 
 ```
-POST   /api/ai/detect                    HE-Fit (not viewer)
-POST   /api/ai/pd-score                  PD-Score (not viewer)
-POST   /api/ai/precise-ihc               Precise-IHC — HER2/ER_PR/KI_67 (not viewer)
-POST   /api/ai/virtual-stain             VS-IHC (not viewer)
+POST   /api/ai/detect                    Quanti HE (not viewer)
+POST   /api/ai/pd-score                  Quanti PD-L1 (not viewer)
+POST   /api/ai/precise-ihc               Quanti IHC — HER2/ER_PR/KI_67 (not viewer)
+POST   /api/ai/virtual-stain             VS IHC (not viewer)
 GET    /api/ai/virtual-stain/{id}/{type}.png                       가상염색 PNG (전체)
 GET    /api/ai/virtual-stain/{id}/{type}/tile/{lv}/{x}_{y}.jpeg    VS 피라미드 타일 (미디어 티켓)
 GET    /api/ai/active-tasks              실행 중 태스크 목록 (슬라이드별 그룹)
@@ -883,15 +883,15 @@ backend/
 │       ├── annotations.json                     # annotation
 │       └── .complete                            # JSON 마커 (version + ICC hash + LRU mtime)
 └── ai_results/                                  # AI 결과 캐시 (AI_RESULTS_DIR)
-    ├── HE-Fit/
-    │   └── {slide_stem}_HE-Fit_{tissue_type}.json
-    ├── PD-Score/
-    │   └── {slide_stem}_PD-Score_{tissue_type}.json
-    ├── Precise-IHC/
-    │   └── {slide_stem}_Precise-IHC_{marker}.json   # marker: HER2, ER_PR, KI_67
-    ├── VS-IHC/
-    │   ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.png
-    │   ├── {slide_stem}_VS-IHC_{stain_type}_mpp{N.N}.json
+    ├── Quanti HE/
+    │   └── {slide_stem}_Quanti HE_{tissue_type}.json
+    ├── Quanti PD-L1/
+    │   └── {slide_stem}_Quanti PD-L1_{tissue_type}.json
+    ├── Quanti IHC/
+    │   └── {slide_stem}_Quanti IHC_{marker}.json   # marker: HER2, ER_PR, KI_67
+    ├── VS IHC/
+    │   ├── {slide_stem}_VS IHC_{stain_type}_mpp{N.N}.png
+    │   ├── {slide_stem}_VS IHC_{stain_type}_mpp{N.N}.json
     │   └── tiles/{slide_stem}_{stain_type}_mpp{N.N}/{level}/{x}_{y}.jpeg
     └── user_edits/                               # 사용자별 셀 편집본 (원본 캐시와 분리)
         └── {user_id}/{ai_mode}/{slide_stem}_{variant}.json

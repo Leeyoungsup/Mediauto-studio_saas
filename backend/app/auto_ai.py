@@ -158,13 +158,13 @@ async def _run_auto_inference(
         return
 
     def _dispatch() -> None:
-        if str_model == "HE-Fit":
+        if str_model in ("Quanti HE", "HE-Fit"):
             ai_router._run_detection(str_task_id, str_slide_id, None, str_variant)
-        elif str_model == "PD-Score":
+        elif str_model in ("Quanti PD-L1", "PD-Score"):
             ai_router._run_pd_score(str_task_id, str_slide_id, None, str_variant)
-        elif str_model == "Precise-IHC":
+        elif str_model in ("Quanti IHC", "Precise-IHC"):
             ai_router._run_precise_ihc(str_task_id, str_slide_id, None, str_variant)
-        elif str_model == "VS-IHC":
+        elif str_model in ("VS IHC", "VS-IHC"):
             # variant = stain_type (e.g. "ihc_membrane"), target_mpp 는 task 설정값
             ai_router._run_virtual_stain(str_task_id, str_slide_id, None, str_variant, float_target_mpp)
         else:
@@ -235,12 +235,12 @@ async def _scan_and_infer_once() -> None:
                 continue
 
             float_target_mpp = 2.0
-            if str_model == "VS-IHC":
+            if str_model in ("VS IHC", "VS-IHC"):
                 try:
                     float_target_mpp = float(dict_task.get("target_mpp", 2.0))
                 except (TypeError, ValueError):
                     float_target_mpp = 2.0
-                # VS-IHC 는 per-mpp 캐시라 DB 로 base 필터만 하고 폴더 전체를 후보로 봄
+                # VS IHC 는 per-mpp 캐시라 DB 로 base 필터만 하고 폴더 전체를 후보로 봄
                 dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
                 list_candidates = list(dict_slides.values())
             else:
@@ -255,7 +255,7 @@ async def _scan_and_infer_once() -> None:
 
                 int_scanned += 1
 
-                if str_model == "VS-IHC" and _vs_cache_exists(str_full_path, float_target_mpp):
+                if str_model in ("VS IHC", "VS-IHC") and _vs_cache_exists(str_full_path, float_target_mpp):
                     # 캐시 있음 → 조용히 스킵 (로그 X)
                     continue
 

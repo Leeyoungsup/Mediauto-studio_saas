@@ -215,6 +215,37 @@ export const api = {
     },
 
     /** 서버에 파일이 있는지 확인 후 바로 열기 */
+    async listProjects() {
+        const res = await _authFetch(`${API_BASE}/slides/projects`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async createProject(name) {
+        const form = new FormData();
+        form.append('name', name);
+        const res = await _authFetch(`${API_BASE}/slides/project/create`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async renameProject(name, newName) {
+        const form = new FormData();
+        form.append('name', name);
+        form.append('new_name', newName);
+        const res = await _authFetch(`${API_BASE}/slides/project/rename`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async deleteProject(name) {
+        const form = new FormData();
+        form.append('name', name);
+        const res = await _authFetch(`${API_BASE}/slides/project/delete`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async openSlide(filename, path = '') {
         const form = new FormData();
         form.append('filename', filename);
@@ -475,7 +506,7 @@ export const api = {
         return res.json();
     },
 
-    /** PD-Score 시작 (Stomach → CPS, Lung → TPS) */
+    /** Quanti PD-L1 시작 (Stomach → CPS, Lung → TPS) */
     async startPdScore(slideId, roiPolygons = null, tissueType = 'Stomach') {
         const form = new FormData();
         form.append('slide_id', slideId);
@@ -486,7 +517,7 @@ export const api = {
         return res.json();
     },
 
-    /** Precise-IHC 시작 (현재 HER2 만 지원) */
+    /** Quanti IHC 시작 (현재 HER2 만 지원) */
     async startPreciseIhc(slideId, roiPolygons = null, marker = 'HER2') {
         const form = new FormData();
         form.append('slide_id', slideId);
@@ -498,7 +529,7 @@ export const api = {
     },
 
     /** 검출 결과 — 현재 사용자 전용 편집본으로 DB 저장 (원본 캐시는 유지) */
-    async saveDetectionResult(slideId, tissueType, result, aiMode = 'HE-Fit') {
+    async saveDetectionResult(slideId, tissueType, result, aiMode = 'Quanti HE') {
         const form = new FormData();
         form.append('slide_id', slideId);
         form.append('tissue_type', tissueType);
@@ -556,7 +587,7 @@ export const api = {
         return res.json();
     },
 
-    /** Virtual Stain (VS-IHC) 시작 */
+    /** Virtual Stain (VS IHC) 시작 */
     async startVirtualStain(slideId, stainType = 'ihc_membrane', roiPolygons = null, targetMpp = 2.0) {
         const form = new FormData();
         form.append('slide_id', slideId);

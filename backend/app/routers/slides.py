@@ -306,6 +306,79 @@ async def folder_tree():
     return {"folders": sorted(list_folders)}
 
 
+def _list_project_dirs() -> list[Path]:
+    upload_root = Path(settings.UPLOAD_DIR)
+    if not upload_root.exists():
+        return []
+    return sorted([
+        p for p in upload_root.iterdir()
+        if p.is_dir() and not p.name.startswith(".") and not p.name.startswith("_chunks_")
+    ], key=lambda p: p.name.lower())
+
+
+@router.get("/projects")
+async def list_projects():
+    """uploads/ 바로 아래 1차 폴더를 프로젝트 목록으로 반환."""
+    list_projects_out = []
+    for p in _list_project_dirs():
+        int_slide_count = 0
+        int_folder_count = 0
+        for root, dirs, files in os.walk(p):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("_chunks_")]
+            int_folder_count += len(dirs)
+            int_slide_count += sum(
+                1 for f in files
+                if Path(f).suffix.lower() in settings.SUPPORTED_EXTENSIONS
+            )
+        list_projects_out.append({
+            "name": p.name,
+            "path": p.name,
+            "slide_count": int_slide_count,
+            "folder_count": int_folder_count,
+        })
+    return {"projects": list_projects_out}
+
+
+@router.post("/project/create")
+async def create_project(name: str = Form(...)):
+    """프로젝트 생성. 프로젝트는 uploads/ 아래 최상위 폴더로 관리한다."""
+    name = _safe_filename(name)
+    target = _safe_subpath("") / name
+    if target.exists():
+        raise HTTPException(400, "이미 존재하는 프로젝트입니다")
+    target.mkdir(parents=True, exist_ok=True)
+    return {"status": "created", "name": name, "path": name}
+
+
+@router.post("/project/rename")
+async def rename_project(name: str = Form(...), new_name: str = Form(...)):
+    """프로젝트 이름 변경과 DB rel_path 동기화."""
+    name = _safe_filename(name)
+    new_name = _safe_filename(new_name)
+    target = _safe_subpath(name)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+    new_target = _safe_subpath("") / new_name
+    if new_target.exists():
+        raise HTTPException(400, "이미 존재하는 프로젝트 이름입니다")
+    target.rename(new_target)
+    await slide_store.rename_folder_in_db(name, new_name)
+    return {"status": "renamed", "name": new_name, "path": new_name}
+
+
+@router.post("/project/delete")
+async def delete_project(name: str = Form(...)):
+    """빈 프로젝트 삭제."""
+    name = _safe_filename(name)
+    target = _safe_subpath(name)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+    if any(target.iterdir()):
+        raise HTTPException(400, "프로젝트가 비어있지 않습니다")
+    target.rmdir()
+    return {"status": "deleted", "name": name}
+
+
 @router.post("/folder/create")
 async def create_folder(path: str = Form(""), name: str = Form(...)):
     """폴더 생성"""
@@ -355,11 +428,11 @@ def _cleanup_ai_caches_for_stem(str_stem: str) -> list:
     """주어진 slide stem 에 속한 AI 결과 캐시/타일 피라미드 제거.
 
     파일/폴더 명명 규칙:
-        - ai_results/HE-Fit/{stem}_HE-Fit_*.json
-        - ai_results/PD-Score/{stem}_PD-Score_*.json
-        - ai_results/Precise-IHC/{stem}_Precise-IHC_*.json
-        - ai_results/VS-IHC/{stem}_VS-IHC_*.(png|json)
-        - ai_results/VS-IHC/{stem}_VS-IHC_*_tile/  (피라미드 폴더)
+        - ai_results/Quanti HE/{stem}_Quanti HE_*.json
+        - ai_results/Quanti PD-L1/{stem}_Quanti PD-L1_*.json
+        - ai_results/Quanti IHC/{stem}_Quanti IHC_*.json
+        - ai_results/VS IHC/{stem}_VS IHC_*.(png|json)
+        - ai_results/VS IHC/{stem}_VS IHC_*_tile/  (피라미드 폴더)
         - ai_results/{stem}_*  (레거시 루트)
     """
     list_removed = []
@@ -369,7 +442,12 @@ def _cleanup_ai_caches_for_stem(str_stem: str) -> list:
         return list_removed
     if not ai_dir.exists():
         return list_removed
-    list_sub_dirs = [ai_dir] + [ai_dir / s for s in ("HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC")]
+    list_sub_dirs = [ai_dir] + [
+        ai_dir / s for s in (
+            "Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC",
+            "HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC",
+        )
+    ]
     for d in list_sub_dirs:
         if not d.exists() or not d.is_dir():
             continue
@@ -1005,8 +1083,8 @@ async def save_folder_config(
 ):
     """폴더의 AI 자동 추론 설정 저장/업서트.
 
-    tasks_json: JSON array — `[{"model": "HE-Fit", "variant": "Stomach"}, ...]`
-      model 은 {HE-Fit, PD-Score, Precise-IHC} 중 하나, variant 는 tissue_type/marker.
+    tasks_json: JSON array — `[{"model": "Quanti HE", "variant": "Stomach"}, ...]`
+      model 은 {Quanti HE, Quanti PD-L1, Quanti IHC} 중 하나, variant 는 tissue_type/marker.
     """
     if not is_db_connected():
         raise HTTPException(503, "DB 연결 필요")
@@ -1018,17 +1096,24 @@ async def save_folder_config(
     except Exception as e:
         raise HTTPException(400, f"잘못된 tasks_json: {e}")
 
-    set_allowed_models = {"HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"}
+    dict_legacy_models = {
+        "HE-Fit": "Quanti HE",
+        "PD-Score": "Quanti PD-L1",
+        "Precise-IHC": "Quanti IHC",
+        "VS-IHC": "VS IHC",
+    }
+    set_allowed_models = {"Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"}
     list_clean = []
     for dict_t in list_raw:
         if not isinstance(dict_t, dict):
             continue
         str_model = str(dict_t.get("model", "")).strip()
         str_variant = str(dict_t.get("variant", "")).strip()
+        str_model = dict_legacy_models.get(str_model, str_model)
         if str_model not in set_allowed_models or not str_variant:
             continue
         dict_entry = {"model": str_model, "variant": str_variant}
-        if str_model == "VS-IHC":
+        if str_model == "VS IHC":
             try:
                 float_mpp = float(dict_t.get("target_mpp", 2.0))
             except (TypeError, ValueError):

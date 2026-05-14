@@ -4,7 +4,7 @@
 불일치. 재추론 유도를 위해 다음을 모두 제거한다.
 
 대상:
-  1. ai_results/{HE-Fit,PD-Score,Precise-IHC,VS-IHC}/<stem>_* 파일·폴더
+  1. ai_results/{Quanti HE,Quanti PD-L1,Quanti IHC,VS IHC}/<stem>_* 파일·폴더
   2. ai_results/<stem>_* 레거시 루트 캐시
   3. db.slides 의 dict_ai_results 초기화 (전 슬라이드 대상, vendor 무관)
   4. db.user_ai_edits 전체 문서 삭제
@@ -15,9 +15,9 @@
     # 전체 리셋 (4개 모델 모두)
     python backend/scripts/reset_ai_results.py [--dry-run]
 
-    # 특정 모델만 리셋 (예: HE-Fit 만)
-    python backend/scripts/reset_ai_results.py --models HE-Fit [--dry-run]
-    python backend/scripts/reset_ai_results.py --models HE-Fit,PD-Score
+    # 특정 모델만 리셋 (예: Quanti HE 만)
+    python backend/scripts/reset_ai_results.py --models Quanti HE [--dry-run]
+    python backend/scripts/reset_ai_results.py --models Quanti HE,Quanti PD-L1
 """
 import argparse
 import shutil
@@ -35,7 +35,7 @@ from app.config import settings
 from app.slide_store import LIST_AI_MODEL_KEYS
 
 
-LIST_AI_SUBDIRS = list(LIST_AI_MODEL_KEYS)  # ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]
+LIST_AI_SUBDIRS = list(LIST_AI_MODEL_KEYS)  # ["Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"]
 
 
 def _empty_ai_results_for(list_models) -> dict:
@@ -85,7 +85,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--models", default=None,
-        help=("쉼표로 구분된 모델 키 (HE-Fit,PD-Score,Precise-IHC,VS-IHC). "
+        help=("쉼표로 구분된 모델 키 (Quanti HE,Quanti PD-L1,Quanti IHC,VS IHC). "
               "지정하지 않으면 전체 리셋."),
     )
     args = parser.parse_args()

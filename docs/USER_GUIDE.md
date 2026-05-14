@@ -26,10 +26,10 @@
 
 MeDIAuto Studio는 병리의의 진단을 보조하기 위한 디지털 병리 WSI 뷰어 + AI 분석 플랫폼이다.
 
-- H&E 슬라이드의 세포 검출 및 정량 분석: HE-Fit
-- PD-L1 IHC 점수 산출: PD-Score, Stomach CPS / Lung TPS
-- HER2, ER/PR, Ki-67 IHC 정량 분석: Precise-IHC
-- H&E 기반 가상 IHC 생성: VS-IHC
+- H&E 슬라이드의 세포 검출 및 정량 분석: Quanti HE
+- PD-L1 IHC 점수 산출: Quanti PD-L1, Stomach CPS / Lung TPS
+- HER2, ER/PR, Ki-67 IHC 정량 분석: Quanti IHC
+- H&E 기반 가상 IHC 생성: VS IHC
 - 슬라이드 업로드, annotation, 사용자별 AI 결과 편집본 저장
 - 감사 로그, 권한 관리, 파일 무결성 검증
 
@@ -42,7 +42,7 @@ MeDIAuto Studio는 병리의의 진단을 보조하기 위한 디지털 병리 W
 - 본 소프트웨어는 단독 진단 도구가 아니다.
 - AI 결과는 병리의 검토와 필요 시 수정을 거쳐야 한다.
 - 학습 데이터 범위를 벗어난 조직, 염색, 스캐너, fixation 상태에서는 성능이 저하될 수 있다.
-- VS-IHC 결과는 연구·교육용 우선이며 실제 IHC 염색을 대체하지 않는다.
+- VS IHC 결과는 연구·교육용 우선이며 실제 IHC 염색을 대체하지 않는다.
 - 사용자 편집본은 사용자별로 분리 저장되고 원본 AI 캐시는 보존된다.
 - 슬라이드 색감은 ICC 프로파일과 스캐너 특성에 영향을 받는다. Hamamatsu NDPI는 NDP 색보정 토글을 사용할 수 있다.
 - AI 모델, cutoff, score 해석 기준은 병원 SOP와 검증 데이터에 맞춰 검토해야 한다.
@@ -211,14 +211,14 @@ viewer 역할은 annotation을 그릴 수 있어도 저장할 수 없다.
 
 ---
 
-## 14. HE-Fit
+## 14. Quanti HE
 
-HE-Fit은 H&E 슬라이드에서 세포를 검출하고 클래스를 분류한다.
+Quanti HE은 H&E 슬라이드에서 세포를 검출하고 클래스를 분류한다.
 
 실행 절차:
 
 1. H&E 슬라이드를 연다.
-2. 우측 HE-Fit 탭에서 조직 타입을 고른다: Stomach, Breast, Other.
+2. 우측 Quanti HE 탭에서 조직 타입을 고른다: Stomach, Breast, Other.
 3. 필요하면 ROI polygon을 미리 그린다.
 4. 분석 시작을 누른다.
 5. 완료 후 세포 점 오버레이와 클래스별 카운트를 확인한다.
@@ -227,9 +227,9 @@ Stomach와 Breast는 Epithelial 세포를 Tumor Epithelial / Benign Epithelial�
 
 ---
 
-## 15. PD-Score
+## 15. Quanti PD-L1
 
-PD-Score는 PD-L1 IHC 슬라이드에서 CPS 또는 TPS를 계산한다.
+Quanti PD-L1는 PD-L1 IHC 슬라이드에서 CPS 또는 TPS를 계산한다.
 
 | 조직 | 점수 |
 | --- | --- |
@@ -248,9 +248,9 @@ Confidence cutoff는 재현성을 위해 고정 기준으로 관리된다.
 
 ---
 
-## 16. Precise-IHC
+## 16. Quanti IHC
 
-Precise-IHC는 IHC marker별 세포 염색 강도와 score를 계산한다.
+Quanti IHC는 IHC marker별 세포 염색 강도와 score를 계산한다.
 
 | Marker | 결과 |
 | --- | --- |
@@ -268,9 +268,9 @@ Precise-IHC는 IHC marker별 세포 염색 강도와 score를 계산한다.
 
 ---
 
-## 17. VS-IHC
+## 17. VS IHC
 
-VS-IHC는 H&E 슬라이드에서 가상 IHC 이미지를 생성한다.
+VS IHC는 H&E 슬라이드에서 가상 IHC 이미지를 생성한다.
 
 실행 절차:
 
@@ -280,7 +280,7 @@ VS-IHC는 H&E 슬라이드에서 가상 IHC 이미지를 생성한다.
 4. 분석을 실행한다.
 5. 완료 후 overlay 또는 split view로 원본과 비교한다.
 
-주의: VS-IHC는 실제 IHC 염색을 대체하지 않는다.
+주의: VS IHC는 실제 IHC 염색을 대체하지 않는다.
 
 ---
 
@@ -294,7 +294,7 @@ AI 분석 완료 후 사용자는 세포 단위 결과를 검토하고 수정할
 - delete: 선택 셀 삭제
 - sticky class: Shift 키를 누르면 현재 추가 클래스가 HUD로 표시됨
 
-PD-Score, Precise-IHC 점수는 셀 변경 즉시 재계산된다.
+Quanti PD-L1, Quanti IHC 점수는 셀 변경 즉시 재계산된다.
 
 ---
 

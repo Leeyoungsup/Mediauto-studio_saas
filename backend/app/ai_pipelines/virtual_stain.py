@@ -1,9 +1,9 @@
-"""Virtual Stain (VS-IHC) — IHC → H&E 추론 워커 + 타일 스트리밍/피라미드.
+"""Virtual Stain (VS IHC) worker + tile streaming/pyramid.
 
 routers/ai.py 의 모놀리스에서 분리. 큰 SVS 에서도 메모리 ~100 MB 수준으로 묶기
 위해 full canvas 누적 대신 타일 단위 streaming 누적을 사용한다 (VSTileStreamer).
 
-VS-IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간을 학습 데이터와
+VS IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간을 학습 데이터와
 정렬 — env `VS_SVS_INVERSE_CHAIN=0` 으로 즉시 비활성화 가능.
 """
 
@@ -33,7 +33,7 @@ VS_MODEL_FILES = {
 
 
 class VSTileStreamer:
-    """VS-IHC level-0 타일 스트리밍 누적기.
+    """VS IHC level-0 타일 스트리밍 누적기.
 
     기존엔 (out_h, out_w) 크기의 output_acc / input_acc / weight_acc float32 를
     통째로 메모리에 들고 blending 후 PNG 로 저장했다. 큰 SVS 에선 3~5 GB RAM.
@@ -339,7 +339,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
         import torch
         import openslide
 
-        from ai.virtual_stain import (
+        from ai.vs_ihc import (
             Generator, _make_blend_weight, _read_patch, VirtualStainWorker
         )
 
@@ -407,10 +407,10 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 if display_roi_polygons is not None:
                     cached_meta['roi_polygons'] = display_roi_polygons
                 # 캐시 hit 이어도 DB 플래그 동기화 — auto_ai 가 매 사이클 다시 안 잡도록.
-                # VS-IHC 는 list_slides_in_folder + per-mpp 디스크 캐시 검사로 동작하지만,
+                # VS IHC 는 list_slides_in_folder + per-mpp 디스크 캐시 검사로 동작하지만,
                 # bool_has_result / list_variants 플래그가 비어 있으면 다른 UI 가 "결과 없음" 표시한다.
                 from app import slide_store
-                slide_store.mark_ai_result_threadsafe(info.file_path, "VS-IHC", stain_type)
+                slide_store.mark_ai_result_threadsafe(info.file_path, "VS IHC", stain_type)
                 update_task(task_id, status="completed", progress=100,
                             status_msg="Loaded cached virtual stain",
                             result=cached_meta)
@@ -633,7 +633,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                     try:
                         region_np = _svs_to_ham(region_np)
                     except Exception as e:
-                        print(f"[vs-ihc] svs_to_hamamatsu failed at ({x0},{y0}): {e!r}")
+                        print(f"[VS IHC] svs_to_hamamatsu failed at ({x0},{y0}): {e!r}")
 
                 if not is_tissue:
                     # GAN 불필요 — input=output=region_np 로 바로 splat.
@@ -695,7 +695,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
             print(f"VS cached: {streamer.int_saved_tiles} level-0 tiles, "
                   f"{len(levels_meta)} pyramid levels total")
             from app import slide_store
-            slide_store.mark_ai_result_threadsafe(info.file_path, "VS-IHC", stain_type)
+            slide_store.mark_ai_result_threadsafe(info.file_path, "VS IHC", stain_type)
         except Exception as e:
             import traceback
             print(f"VS cache save failed: {e}\n{traceback.format_exc()}")

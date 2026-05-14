@@ -8,6 +8,7 @@ Claude.md 규칙 준수 (str_/int_/bool_/dict_/list_/dt_ 접두어).
 """
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -16,7 +17,17 @@ from app.database import get_db, is_db_connected, get_main_loop
 
 
 # AI 모델 종류 (dict_ai_results 의 key)
-LIST_AI_MODEL_KEYS = ["HE-Fit", "PD-Score", "Precise-IHC", "VS-IHC"]
+LIST_AI_MODEL_KEYS = ["Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"]
+DICT_LEGACY_AI_MODEL_KEYS = {
+    "HE-Fit": "Quanti HE",
+    "PD-Score": "Quanti PD-L1",
+    "Precise-IHC": "Quanti IHC",
+    "VS-IHC": "VS IHC",
+}
+DICT_CURRENT_TO_LEGACY_AI_MODEL_KEYS = {
+    str_current: str_legacy
+    for str_legacy, str_current in DICT_LEGACY_AI_MODEL_KEYS.items()
+}
 
 # 슬라이드 리뷰 상태 (str_status). "" = none.
 SET_SLIDE_STATUSES = {"", "pending", "in_progress", "done", "flagged"}
@@ -32,6 +43,18 @@ def _empty_ai_results() -> dict:
         }
         for str_key in LIST_AI_MODEL_KEYS
     }
+
+
+def _norm_ai_model_key(str_model: str) -> str:
+    return DICT_LEGACY_AI_MODEL_KEYS.get(str_model, str_model)
+
+
+def _legacy_ai_model_key(str_model: str) -> str:
+    return DICT_CURRENT_TO_LEGACY_AI_MODEL_KEYS.get(str_model, "")
+
+
+def _safe_ai_facet_key(str_model: str) -> str:
+    return f"ai_{str_model.replace('-', '_').replace(' ', '_')}"
 
 
 def _norm_rel_path(str_rel_path: str) -> str:
@@ -117,11 +140,12 @@ async def mark_ai_result(
 ) -> None:
     """AI 결과 캐시 생성 직후 호출 — 해당 모델 플래그 true + variant 추가.
 
-    str_model: LIST_AI_MODEL_KEYS 중 하나 ("HE-Fit"/"PD-Score"/"Precise-IHC"/"VS-IHC")
+    str_model: LIST_AI_MODEL_KEYS 중 하나 ("Quanti HE"/"Quanti PD-L1"/"Quanti IHC"/"VS IHC")
     str_variant: tissue_type/marker/stain_type 등 — 중복 없이 list_variants 에 추가.
     """
     if not is_db_connected():
         return
+    str_model = _norm_ai_model_key(str_model)
     if str_model not in LIST_AI_MODEL_KEYS:
         return
     db = get_db()
@@ -146,7 +170,7 @@ async def mark_ai_result(
             dict_update,
         )
     except Exception as e:
-        # MongoDB write error (예: dict_ai_results.HE-Fit 가 array 가 아니라 다른 타입)
+        # MongoDB write error (예: dict_ai_results.Quanti HE 가 array 가 아니라 다른 타입)
         # 가 코루틴에서 발생하면 main loop 의 unhandled exception 으로 묻혀버린다.
         # 여기서 잡아 명시적으로 출력 → auto_ai 가 같은 슬라이드를 매 사이클 다시
         # 추론하는 원인을 즉시 알 수 있다.
@@ -340,10 +364,11 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
     dt_now = datetime.now(timezone.utc)
 
     # 정확 일치 + 하위 경로 모두 변경
+    str_child_regex = f"^{re.escape(str_old_path)}/"
     async for dict_doc in db.slides.find({
         "$or": [
             {"str_rel_path": str_old_path},
-            {"str_rel_path": {"$regex": f"^{str_old_path}/"}},
+            {"str_rel_path": {"$regex": str_child_regex}},
         ]
     }):
         str_cur = dict_doc["str_rel_path"]
@@ -352,6 +377,22 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
             else str_new_path + str_cur[len(str_old_path):]
         )
         await db.slides.update_one(
+            {"_id": dict_doc["_id"]},
+            {"$set": {"str_rel_path": str_new_rel, "dt_updated_at": dt_now}},
+        )
+
+    async for dict_doc in db.folder_ai_configs.find({
+        "$or": [
+            {"str_rel_path": str_old_path},
+            {"str_rel_path": {"$regex": str_child_regex}},
+        ]
+    }):
+        str_cur = dict_doc["str_rel_path"]
+        str_new_rel = (
+            str_new_path if str_cur == str_old_path
+            else str_new_path + str_cur[len(str_old_path):]
+        )
+        await db.folder_ai_configs.update_one(
             {"_id": dict_doc["_id"]},
             {"$set": {"str_rel_path": str_new_rel, "dt_updated_at": dt_now}},
         )
@@ -377,7 +418,7 @@ async def list_slides_missing_variant(
     """폴더 내에서 (model, variant) 결과가 아직 없는 슬라이드만 DB 질의로 반환.
 
     `dict_ai_results.{model}.list_variants` 배열에 해당 variant 가 없는 도큐먼트만
-    골라 오므로 auto_ai 가 폴더 전체를 순회할 필요가 없다. VS-IHC 는 DB 에 target_mpp
+    골라 오므로 auto_ai 가 폴더 전체를 순회할 필요가 없다. VS IHC 는 DB 에 target_mpp
     를 기록하지 않으므로 이 함수로는 "base model 단계" 필터링만 하고, per-mpp 캐시
     존재 확인은 호출자가 따로 수행해야 한다.
     """
@@ -385,10 +426,15 @@ async def list_slides_missing_variant(
         return []
     db = get_db()
     str_rel_path = _norm_rel_path(str_rel_path)
+    str_legacy_model = _legacy_ai_model_key(str_model)
     str_field = f"dict_ai_results.{str_model}.list_variants"
+    str_legacy_field = f"dict_ai_results.{str_legacy_model}.list_variants"
     dict_query = {
         "str_rel_path": str_rel_path,
-        str_field: {"$ne": str_variant},
+        "$and": [
+            {str_field: {"$ne": str_variant}},
+            {str_legacy_field: {"$ne": str_variant}} if str_legacy_model else {},
+        ],
     }
     list_out = []
     async for dict_doc in db.slides.find(dict_query):
@@ -526,8 +572,11 @@ async def get_dashboard_stats() -> dict:
                 }},
             ],
             **{
-                f"ai_{str_k.replace('-', '_')}": [
-                    {"$match": {f"dict_ai_results.{str_k}.bool_has_result": True}},
+                _safe_ai_facet_key(str_k): [
+                    {"$match": {"$or": [
+                        {f"dict_ai_results.{str_k}.bool_has_result": True},
+                        {f"dict_ai_results.{_legacy_ai_model_key(str_k)}.bool_has_result": True},
+                    ]}},
                     {"$count": "n"},
                 ]
                 for str_k in LIST_AI_MODEL_KEYS
@@ -552,7 +601,7 @@ async def get_dashboard_stats() -> dict:
 
         # AI 모델별 카운트
         for str_k in LIST_AI_MODEL_KEYS:
-            safe_key = f"ai_{str_k.replace('-', '_')}"
+            safe_key = _safe_ai_facet_key(str_k)
             ai_list = facet.get(safe_key, [])
             dict_result["dict_ai_counts"][str_k] = ai_list[0]["n"] if ai_list else 0
 
@@ -581,6 +630,7 @@ async def upsert_user_ai_edit(
     """
     if not is_db_connected():
         return
+    str_ai_mode = _norm_ai_model_key(str_ai_mode)
     if str_ai_mode not in LIST_AI_MODEL_KEYS:
         return
     db = get_db()
@@ -616,11 +666,13 @@ async def list_user_ai_edits(
     """특정 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
     if not is_db_connected():
         return []
+    str_ai_mode = _norm_ai_model_key(str_ai_mode)
+    str_legacy_mode = _legacy_ai_model_key(str_ai_mode)
     db = get_db()
     list_out = []
     dict_query = {
         "str_slide_id": str_slide_id,
-        "str_ai_mode": str_ai_mode,
+        "str_ai_mode": {"$in": [m for m in (str_ai_mode, str_legacy_mode) if m]},
         "str_variant": str_variant or "",
     }
     async for dict_doc in db.user_ai_edits.find(
@@ -648,10 +700,12 @@ async def delete_user_ai_edit(
     """사용자 편집본 메타 삭제. 삭제된 문서(특히 str_file_path) 반환 — 호출자가 파일도 지움."""
     if not is_db_connected():
         return None
+    str_ai_mode = _norm_ai_model_key(str_ai_mode)
+    str_legacy_mode = _legacy_ai_model_key(str_ai_mode)
     db = get_db()
     return await db.user_ai_edits.find_one_and_delete({
         "str_slide_id": str_slide_id,
-        "str_ai_mode": str_ai_mode,
+        "str_ai_mode": {"$in": [m for m in (str_ai_mode, str_legacy_mode) if m]},
         "str_variant": str_variant or "",
         "str_user_id": str_user_id,
     })
@@ -666,10 +720,12 @@ async def get_user_ai_edit(
     """특정 사용자의 편집본 전체 결과."""
     if not is_db_connected():
         return None
+    str_ai_mode = _norm_ai_model_key(str_ai_mode)
+    str_legacy_mode = _legacy_ai_model_key(str_ai_mode)
     db = get_db()
     return await db.user_ai_edits.find_one({
         "str_slide_id": str_slide_id,
-        "str_ai_mode": str_ai_mode,
+        "str_ai_mode": {"$in": [m for m in (str_ai_mode, str_legacy_mode) if m]},
         "str_variant": str_variant or "",
         "str_user_id": str_user_id,
     })

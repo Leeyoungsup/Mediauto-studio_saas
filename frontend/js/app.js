@@ -62,7 +62,7 @@ const $btnSaveResults = $('#btn-save-results');
 const $btnLoadResults = $('#btn-load-results');
 let _lastDetectionResult = null;
 let _lastDetectionTissue = null;
-// 현재 뷰어에 올라간 결과의 AI 모드 ("HE-Fit" | "PD-Score" | "Precise-IHC")
+// 현재 뷰어에 올라간 결과의 AI 모드 ("Quanti HE" | "Quanti PD-L1" | "Quanti IHC")
 let _lastDetectionModel = null;
 // 로드된 결과를 onXxxComplete 로 재투입할 때 필요한 ROI (없으면 null)
 let _lastDetectionRoi = null;
@@ -73,7 +73,7 @@ const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 const $btnRuler = $('#btn-ruler');
 
-// VS-IHC
+// VS IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
 const $btnPdScore = $('#btn-pd-score');
 const $pdScoreResult = $('#pd-score-result');
@@ -95,6 +95,10 @@ let _vsRunning = false;
 let _vsLastTargetMpp = 2.0;
 
 const $slideList = $('#slide-list');
+const $projectSelect = $('#project-select');
+const $btnNewProject = $('#btn-new-project');
+const $btnRenameProject = $('#btn-rename-project');
+const $btnDeleteProject = $('#btn-delete-project');
 
 // ── 상태 ──
 let currentSlideId = null;
@@ -174,20 +178,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ── AI Analysis 도움말 (현재 탭의 모델 설명) ──
 const AI_MODEL_HELP = {
     'hne-tab': {
-        title: 'HE-Fit — H&E Cell Detection',
+        title: 'Quanti HE — H&E Cell Detection',
         body: 'H&E 염색 슬라이드에서 개별 세포를 검출하고 8가지 클래스로 분류합니다 (Neutrophil, Epithelial, Lymphocyte, Plasma, Eosinophil, Stromal cell, Tumor Epithelial, Benign Epithelial). Tumor Proportion (Tumor/(Tumor+Benign)) 을 자동 계산합니다. 조직 타입 (Breast/Stomach/Other) 에 따라 전용 가중치를 사용합니다.',
     },
     'vs-tab': {
-        title: 'VS-IHC — Virtual Staining',
+        title: 'VS IHC — Virtual Staining',
         body: 'IHC 슬라이드를 입력으로 가상의 H&E 이미지를 생성합니다 (Membrane/Nucleus 모델). Target Resolution (µm/px) 가 낮을수록 고배율 상세 이미지이지만 연산 비용이 큽니다 (기본 2.0 µm/px ≈ x5). 결과는 뷰어 오버레이 및 Split view 로 원본과 비교할 수 있습니다.',
     },
     'pd-tab': {
-        title: 'PD-Score — PD-L1 Scoring',
+        title: 'Quanti PD-L1 — PD-L1 Scoring',
         body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 검증된 고정 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다 (SaMD 재현성 보장).',
     },
     'ihc-tab': {
-        title: 'Precise-IHC — HER2 / ER / PR / KI-67',
-        body: 'Precise-IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로, KI-67 은 Labeling Index (Positive / Total × 100%) 로 판독합니다.',
+        title: 'Quanti IHC — HER2 / ER / PR / KI-67',
+        body: 'Quanti IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로, KI-67 은 Labeling Index (Positive / Total × 100%) 로 판독합니다.',
     },
 };
 const $aiHelpIcon = document.querySelector('#ai-help-icon');
@@ -447,7 +451,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // 결과 초기화
     clearResults();
 
-    // VS-IHC 오버레이 초기화
+    // VS IHC 오버레이 초기화
     viewer.clearVirtualStainOverlay();
     _setVsToggleState(false, true);
     _setVsSplitState(false, true);
@@ -500,21 +504,21 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         return bool_first_ok !== null;
     };
 
-    // HE-Fit
-    const bool_hnf_any = _restrictRadios('tissue-type', 'HE-Fit');
+    // Quanti HE
+    const bool_hnf_any = _restrictRadios('tissue-type', 'Quanti HE');
     $btnDetect.disabled = !bool_hnf_any;
 
-    // PD-Score
-    const bool_pd_any = _restrictRadios('pd-tissue-type', 'PD-Score');
+    // Quanti PD-L1
+    const bool_pd_any = _restrictRadios('pd-tissue-type', 'Quanti PD-L1');
     if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
 
-    // Precise-IHC — 마커별 버튼 단위
-    if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Precise-IHC::HER2');
-    if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Precise-IHC::ER_PR');
-    if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Precise-IHC::KI_67');
+    // Quanti IHC — 마커별 버튼 단위
+    if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Quanti IHC::HER2');
+    if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Quanti IHC::ER_PR');
+    if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Quanti IHC::KI_67');
 
-    // VS-IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
-    const bool_vs_any = set_allowed.has('VS-IHC::ihc_membrane');
+    // VS IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
+    const bool_vs_any = set_allowed.has('VS IHC::ihc_membrane');
     $btnVsMembrane.disabled = !bool_vs_any;
 
     // ── 활성 모델이 없는 탭 전체 숨김 ──
@@ -523,9 +527,9 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         'vs-tab': bool_vs_any,
         'pd-tab': bool_pd_any,
         'ihc-tab': !!(
-            set_allowed.has('Precise-IHC::HER2') ||
-            set_allowed.has('Precise-IHC::ER_PR') ||
-            set_allowed.has('Precise-IHC::KI_67')
+            set_allowed.has('Quanti IHC::HER2') ||
+            set_allowed.has('Quanti IHC::ER_PR') ||
+            set_allowed.has('Quanti IHC::KI_67')
         ),
     };
 
@@ -592,7 +596,8 @@ function _applyViewerRoleRestrictions() {
     ).forEach(el => { el.disabled = true; });
 
     // Annotation 패널의 저장/불러오기/초기화 버튼
-    ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load'].forEach(id => {
+    ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load',
+     'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.disabled = true;
     });
@@ -1739,7 +1744,7 @@ viewer.onCellEdited = () => {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
         buildResultList(_lastDetectionResult);
-        // 스코어 카드 재계산 (Allred / HER2 / PD-Score)
+        // 스코어 카드 재계산 (Allred / HER2 / Quanti PD-L1)
         _updateResultCounts();
     }
     setStatus(`Cell edited — ${viewer.detectionCells.length} cells`);
@@ -1952,7 +1957,7 @@ $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close())
 // AI 검출
 // ═══════════════════════════
 
-// 실행 중인 AI task 추적 — key: 버튼 고유 키 ('detect', 'vs-ihc_membrane', 'pd-score', 'ihc-HER2' 등)
+// 실행 중인 AI task 추적 — key: 버튼 고유 키 ('detect', 'VS IHC_membrane', 'Quanti PD-L1', 'ihc-HER2' 등)
 //   value: { task_id, buttonEl }
 // 같은 버튼 재클릭 시 cancelTask 호출.
 const _runningAiTasks = {};
@@ -2074,13 +2079,13 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     // 내부 저장용으로 최신 결과 보존
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
-    _lastDetectionModel = 'HE-Fit';
+    _lastDetectionModel = 'Quanti HE';
     _lastDetectionRoi = roiPolygons;
 
     // segmentation 데이터 저장 (Spatial Heatmap 시각화용)
     lastSegData = result.seg_data || null;
 
-    // HE-Fit 은 기본 CLASS_COLORS 사용 (override 해제)
+    // Quanti HE 은 기본 CLASS_COLORS 사용 (override 해제)
     viewer.classColorOverride = null;
     viewer.defaultConfidence = 0.1;  // 고정 (SaMD 재현성)
 
@@ -2478,7 +2483,7 @@ $btnVisualize.addEventListener('click', () => {
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
     const isKi67 = !!(_lastDetectionResult && _lastDetectionResult.ki67_score);
     const isIhc = isHer2 || isAllred || isKi67;
-    const modelType = isIhc ? 'Precise-IHC' : (isPdScore ? 'PD-Score' : 'HE-Fit');
+    const modelType = isIhc ? 'Quanti IHC' : (isPdScore ? 'Quanti PD-L1' : 'Quanti HE');
     const scoreType = isHer2 ? 'HER2'
         : isAllred ? 'Allred'
         : isKi67 ? 'KI67'
@@ -2500,7 +2505,7 @@ $btnSaveResults?.addEventListener('click', async () => {
         return;
     }
     const tissue = _lastDetectionTissue || 'Stomach';
-    const aiMode = _lastDetectionModel || 'HE-Fit';
+    const aiMode = _lastDetectionModel || 'Quanti HE';
     try {
         $btnSaveResults.disabled = true;
         // 뷰어에서 편집된 셀을 결과 객체에 반영 (class_id 변경 등)
@@ -2660,11 +2665,11 @@ function escapeHtml(s) {
 function _applyLoadedResult(aiMode, variant, result) {
     if (!result) return;
     const roi = _lastDetectionRoi || null;
-    if (aiMode === 'HE-Fit') {
+    if (aiMode === 'Quanti HE') {
         onDetectionComplete(result, roi, variant);
-    } else if (aiMode === 'PD-Score') {
+    } else if (aiMode === 'Quanti PD-L1') {
         onPdScoreComplete(result, roi, variant);
-    } else if (aiMode === 'Precise-IHC') {
+    } else if (aiMode === 'Quanti IHC') {
         onPreciseIhcComplete(result, roi, variant);
     }
     // 레거시 저장본에 class_confidence / default_confidence 필드가 있어도 무시.
@@ -2673,12 +2678,12 @@ function _applyLoadedResult(aiMode, variant, result) {
 
 function _rerunOriginalInference(aiMode, variant) {
     // 기존 AI 버튼과 동일한 경로로 재실행 — 서버 디스크 캐시가 있으면 즉시 반환됨
-    if (aiMode === 'HE-Fit') {
+    if (aiMode === 'Quanti HE') {
         // startDetection 은 버튼 핸들러 내부에 있으므로 버튼 클릭 트리거
         $('#btn-detect')?.click();
-    } else if (aiMode === 'PD-Score') {
+    } else if (aiMode === 'Quanti PD-L1') {
         $('#btn-pd-score')?.click();
-    } else if (aiMode === 'Precise-IHC') {
+    } else if (aiMode === 'Quanti IHC') {
         if (variant === 'ER_PR') $('#btn-ihc-erpr')?.click();
         else if (variant === 'KI_67') $('#btn-ihc-ki67')?.click();
         else $('#btn-ihc-her2')?.click();
@@ -2715,6 +2720,22 @@ function sleep(ms) {
 // ═══════════════════════════
 const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
+const $rightPanel = $('#right-panel');
+const $rightResizer = $('#right-panel-resizer');
+
+function _resizeViewerCanvasSoon() {
+    if (viewer && typeof viewer._resizeCanvas === 'function') {
+        viewer._resizeCanvas();
+    }
+}
+
+function _restorePanelSizes() {
+    const int_right_w = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
+    if (!Number.isNaN(int_right_w) && int_right_w >= 280 && int_right_w <= 560) {
+        document.documentElement.style.setProperty('--right-panel-w', `${int_right_w}px`);
+    }
+}
+_restorePanelSizes();
 
 // Ctrl + 휠로 슬라이드 리스트 썸네일 크기 조정 (리스트/그리드 각각)
 const THUMB_RANGE_LIST = { min: 28, max: 96, step: 6, key: '--slide-thumb-list', storage: 'thumbSizeList' };
@@ -2747,7 +2768,7 @@ $resizer.addEventListener('mousedown', (e) => {
     function onMove(ev) {
         const w = Math.max(160, Math.min(500, startW + ev.clientX - startX));
         document.documentElement.style.setProperty('--left-panel-w', `${w}px`);
-        viewer._resizeCanvas();
+        _resizeViewerCanvasSoon();
     }
     function onUp() {
         $resizer.classList.remove('dragging');
@@ -2758,16 +2779,102 @@ $resizer.addEventListener('mousedown', (e) => {
     window.addEventListener('mouseup', onUp);
 });
 
+if ($rightResizer && $rightPanel) {
+    $rightResizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        $rightResizer.classList.add('dragging');
+        const startX = e.clientX;
+        const startW = $rightPanel.offsetWidth;
+
+        function onMove(ev) {
+            const int_left_w = $leftPanel ? $leftPanel.offsetWidth : 0;
+            const int_max_by_viewport = Math.max(280, window.innerWidth - int_left_w - 360);
+            const int_max = Math.min(560, int_max_by_viewport);
+            const w = Math.max(280, Math.min(int_max, startW - (ev.clientX - startX)));
+            document.documentElement.style.setProperty('--right-panel-w', `${w}px`);
+            localStorage.setItem('rightPanelWidth', String(w));
+            _resizeViewerCanvasSoon();
+        }
+
+        function onUp() {
+            $rightResizer.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        }
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    });
+}
+
 // ═══════════════════════════
 // 좌측 슬라이드 리스트 + 폴더 탐색
 // ═══════════════════════════
 let currentBrowsePath = '';  // uploads/ 기준 상대경로
 const $breadcrumb = $('#folder-breadcrumb');
 
+function _getCurrentProjectName() {
+    return (currentBrowsePath || '').split('/').filter(Boolean)[0] || '';
+}
+
+function _setProjectControlsEnabled() {
+    const hasProject = !!_getCurrentProjectName();
+    const canEdit = window.__currentUserRole !== 'viewer';
+    if ($btnNewProject) $btnNewProject.disabled = !canEdit;
+    if ($btnRenameProject) $btnRenameProject.disabled = !hasProject || !canEdit;
+    if ($btnDeleteProject) $btnDeleteProject.disabled = !hasProject || !canEdit;
+}
+
+function _hasProjectOption(projectName) {
+    return !![...($projectSelect?.options || [])].find(opt => opt.value === projectName);
+}
+
+function _syncProjectSelect() {
+    if (!$projectSelect) return;
+    const projectName = _getCurrentProjectName();
+    if (projectName && !_hasProjectOption(projectName)) {
+        const opt = document.createElement('option');
+        opt.value = projectName;
+        opt.textContent = projectName;
+        $projectSelect.appendChild(opt);
+    }
+    $projectSelect.value = projectName;
+    _setProjectControlsEnabled();
+}
+
+async function loadProjectList() {
+    if (!$projectSelect) return;
+    try {
+        const data = await api.listProjects();
+        const currentProject = _getCurrentProjectName();
+        $projectSelect.innerHTML = '';
+        const rootOpt = document.createElement('option');
+        rootOpt.value = '';
+        rootOpt.textContent = 'All Projects / Root';
+        $projectSelect.appendChild(rootOpt);
+        for (const project of (data.projects || [])) {
+            const opt = document.createElement('option');
+            opt.value = project.path || project.name;
+            opt.textContent = `${project.name} (${project.slide_count || 0})`;
+            $projectSelect.appendChild(opt);
+        }
+        if (currentProject && !_hasProjectOption(currentProject)) {
+            const opt = document.createElement('option');
+            opt.value = currentProject;
+            opt.textContent = currentProject;
+            $projectSelect.appendChild(opt);
+        }
+        _syncProjectSelect();
+    } catch (err) {
+        console.warn('Project list load failed:', err);
+    }
+}
+
 async function loadSlideList() {
     try {
         const data = await api.browse(currentBrowsePath);
         $slideList.innerHTML = '';
+        _syncProjectSelect();
 
         // 빈 폴더
         if (data.folders.length === 0 && data.slides.length === 0) {
@@ -2976,6 +3083,61 @@ async function _refreshAiActiveBadges() {
 function navigateToFolder(path) {
     currentBrowsePath = path;
     loadSlideList();
+}
+
+if ($projectSelect) {
+    $projectSelect.addEventListener('change', () => {
+        navigateToFolder($projectSelect.value || '');
+    });
+}
+
+if ($btnNewProject) {
+    $btnNewProject.addEventListener('click', async () => {
+        const name = prompt('New project name:');
+        if (!name || !name.trim()) return;
+        try {
+            const result = await api.createProject(name.trim());
+            currentBrowsePath = result.path || name.trim();
+            await loadProjectList();
+            await loadSlideList();
+        } catch (err) {
+            alert(`Project create failed: ${err.message}`);
+        }
+    });
+}
+
+if ($btnRenameProject) {
+    $btnRenameProject.addEventListener('click', async () => {
+        const projectName = _getCurrentProjectName();
+        if (!projectName) return;
+        const newName = prompt('Rename project:', projectName);
+        if (!newName || !newName.trim() || newName.trim() === projectName) return;
+        try {
+            const result = await api.renameProject(projectName, newName.trim());
+            const restPath = currentBrowsePath.split('/').slice(1).join('/');
+            currentBrowsePath = restPath ? `${result.path}/${restPath}` : result.path;
+            await loadProjectList();
+            await loadSlideList();
+        } catch (err) {
+            alert(`Project rename failed: ${err.message}`);
+        }
+    });
+}
+
+if ($btnDeleteProject) {
+    $btnDeleteProject.addEventListener('click', async () => {
+        const projectName = _getCurrentProjectName();
+        if (!projectName) return;
+        if (!confirm(`Delete empty project "${projectName}"?`)) return;
+        try {
+            await api.deleteProject(projectName);
+            currentBrowsePath = '';
+            await loadProjectList();
+            await loadSlideList();
+        } catch (err) {
+            alert(`Project delete failed: ${err.message}`);
+        }
+    });
 }
 
 async function _dropMoveFiles(e, targetPath) {
@@ -3344,15 +3506,15 @@ $slideList.addEventListener('contextmenu', (e) => {
 
 // ── 폴더 AI 자동 분석 설정 다이얼로그 ──
 const AUTO_AI_TASK_OPTIONS = [
-    { model: 'HE-Fit',      variant: 'Stomach', label: 'HE-Fit · Stomach' },
-    { model: 'HE-Fit',      variant: 'Breast',  label: 'HE-Fit · Breast' },
-    { model: 'HE-Fit',      variant: 'Other',   label: 'HE-Fit · Other' },
-    { model: 'PD-Score',    variant: 'Stomach', label: 'PD-Score · Stomach (CPS)' },
-    { model: 'PD-Score',    variant: 'Lung',    label: 'PD-Score · Lung (TPS)' },
-    { model: 'Precise-IHC', variant: 'HER2',    label: 'Precise-IHC · HER2' },
-    { model: 'Precise-IHC', variant: 'ER_PR',   label: 'Precise-IHC · ER/PR (Allred)' },
-    { model: 'Precise-IHC', variant: 'KI_67',   label: 'Precise-IHC · KI-67' },
-    { model: 'VS-IHC',      variant: 'ihc_membrane', label: 'VS-IHC (Virtual Stain)', mpp: true },
+    { model: 'Quanti HE',      variant: 'Stomach', label: 'Quanti HE · Stomach' },
+    { model: 'Quanti HE',      variant: 'Breast',  label: 'Quanti HE · Breast' },
+    { model: 'Quanti HE',      variant: 'Other',   label: 'Quanti HE · Other' },
+    { model: 'Quanti PD-L1',    variant: 'Stomach', label: 'Quanti PD-L1 · Stomach (CPS)' },
+    { model: 'Quanti PD-L1',    variant: 'Lung',    label: 'Quanti PD-L1 · Lung (TPS)' },
+    { model: 'Quanti IHC', variant: 'HER2',    label: 'Quanti IHC · HER2' },
+    { model: 'Quanti IHC', variant: 'ER_PR',   label: 'Quanti IHC · ER/PR (Allred)' },
+    { model: 'Quanti IHC', variant: 'KI_67',   label: 'Quanti IHC · KI-67' },
+    { model: 'VS IHC',      variant: 'ihc_membrane', label: 'VS IHC (Virtual Stain)', mpp: true },
 ];
 const VS_MPP_CHOICES = [
     { value: 4.0, label: '4.0 µm/px (x2.5)' },
@@ -3368,11 +3530,11 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     catch (err) { console.warn('folder config 로드 실패:', err); }
 
     // 일반 모델: model::variant key 로 선택 여부 판단
-    // VS-IHC: variant 별 선택된 mpp set 을 따로 관리
+    // VS IHC: variant 별 선택된 mpp set 을 따로 관리
     const set_selected = new Set();
     const dict_vs_mpps = {};  // { variant: Set<number> }
     for (const t of (cfg.tasks || [])) {
-        if (t.model === 'VS-IHC') {
+        if (t.model === 'VS IHC') {
             if (!dict_vs_mpps[t.variant]) dict_vs_mpps[t.variant] = new Set();
             dict_vs_mpps[t.variant].add(Number(t.target_mpp ?? 2.0));
         } else {
@@ -3417,7 +3579,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         wrap.dataset.variant = opt.variant;
 
         if (opt.mpp) {
-            // VS-IHC: 상위 체크박스 = 선택된 mpp 가 하나라도 있으면 checked
+            // VS IHC: 상위 체크박스 = 선택된 mpp 가 하나라도 있으면 checked
             const set_current = dict_vs_mpps[opt.variant] || new Set();
             const bool_parent_checked = set_current.size > 0;
             wrap.innerHTML = `
@@ -3473,7 +3635,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         backdrop.querySelectorAll('.ai-cfg-item').forEach((wrap) => {
             const str_model = wrap.dataset.model;
             const str_variant = wrap.dataset.variant;
-            if (str_model === 'VS-IHC') {
+            if (str_model === 'VS IHC') {
                 const $parent = wrap.querySelector('.ai-cfg-parent');
                 if (!$parent || !$parent.checked) return;
                 const list_mpps = [...wrap.querySelectorAll('.ai-cfg-mpp:checked')]
@@ -3515,7 +3677,7 @@ $btnViewGrid.addEventListener('click', () => {
 });
 
 // ═══════════════════════════
-// VS-IHC (Virtual Staining)
+// VS IHC (Virtual Staining)
 // ═══════════════════════════
 async function startVirtualStain(stainType) {
     if (!currentSlideId) return;
@@ -3610,7 +3772,7 @@ function onVirtualStainComplete(result) {
     setStatus(`Virtual staining complete — ${tc}/${tot} tissue patches`);
 }
 
-// VS-IHC target mpp slider — index → mpp value
+// VS IHC target mpp slider — index → mpp value
 const VS_MPP_VALUES = [4.0, 2.0, 1.0, 0.5];
 const VS_MPP_LABELS = [
     '4.0 µm/px (x2.5)',
@@ -3633,7 +3795,7 @@ $vsMppSlider?.addEventListener('input', () => {
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 
 // ═══════════════════════════
-// PD-Score (PD-L1) — CPS / TPS
+// Quanti PD-L1 (PD-L1) — CPS / TPS
 // ═══════════════════════════
 $btnPdScore?.addEventListener('click', startPdScore);
 
@@ -3646,7 +3808,7 @@ async function startPdScore() {
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
     setProgress(0);
-    setStatus('PD-Score 시작...');
+    setStatus('Quanti PD-L1 시작...');
 
     viewer.setDrawMode(null);
 
@@ -3678,14 +3840,14 @@ async function startPdScore() {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('PD-Score 중지됨 — 부분 결과 정리 완료');
+                setStatus('Quanti PD-L1 중지됨 — 부분 결과 정리 완료');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`PD-Score 실패: ${err.message}`);
+        setStatus(`Quanti PD-L1 실패: ${err.message}`);
     } finally {
         delete _runningAiTasks['pd-score'];
         _setButtonRunning($btnPdScore, false);
@@ -3696,18 +3858,18 @@ async function startPdScore() {
 }
 
 function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
-    $progressLabel.textContent = 'PD-Score Complete';
+    $progressLabel.textContent = 'Quanti PD-L1 Complete';
 
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
-    _lastDetectionModel = 'PD-Score';
+    _lastDetectionModel = 'Quanti PD-L1';
     _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
-    // PD-Score 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
+    // Quanti PD-L1 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
     const colorMap = {};
     if (result.class_colors) {
         for (const [k, v] of Object.entries(result.class_colors)) {
@@ -3837,7 +3999,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
 
     _lastDetectionResult = result;
     _lastDetectionTissue = marker;
-    _lastDetectionModel = 'Precise-IHC';
+    _lastDetectionModel = 'Quanti IHC';
     _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
@@ -3984,6 +4146,7 @@ $btnVsSplit?.addEventListener('click', () => {
     const _paramPath = _urlParams.get('path');
     if (_paramPath !== null) currentBrowsePath = _paramPath;
 
+    await loadProjectList();
     await loadSlideList();
 
     if (_paramSlide) {

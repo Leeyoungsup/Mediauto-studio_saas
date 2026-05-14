@@ -142,6 +142,16 @@
                 </div>
             </div>
             <!-- 경로 표시 -->
+            <div class="project-bar">
+                <select id="project-select" class="project-select" title="Project">
+                    <option value="">All Projects / Root</option>
+                </select>
+                <div class="project-actions">
+                    <button id="btn-new-project" class="view-toggle-btn" type="button" title="New Project">+</button>
+                    <button id="btn-rename-project" class="view-toggle-btn" type="button" title="Rename Project">R</button>
+                    <button id="btn-delete-project" class="view-toggle-btn" type="button" title="Delete Project">-</button>
+                </div>
+            </div>
             <div id="folder-breadcrumb" class="folder-breadcrumb">
                 <span class="breadcrumb-item" data-path="">Root</span>
             </div>
@@ -206,6 +216,7 @@
         </main>
 
         <!-- 우측: AI 패널 -->
+        <div id="right-panel-resizer" class="panel-resizer"></div>
         <aside id="right-panel">
             <!-- AI Analysis 그룹 -->
             <div class="panel-group">
@@ -216,13 +227,13 @@
 
                 <!-- 탭 바 -->
                 <div class="tab-bar">
-                    <button class="tab-btn active" data-tab="hne-tab">HE-Fit</button>
-                    <button class="tab-btn" data-tab="vs-tab">VS-IHC</button>
-                    <button class="tab-btn" data-tab="pd-tab">PD-Score</button>
-                    <button class="tab-btn" data-tab="ihc-tab">Precise-IHC</button>
+                    <button class="tab-btn active" data-tab="hne-tab">Quanti HE</button>
+                    <button class="tab-btn" data-tab="vs-tab">VS IHC</button>
+                    <button class="tab-btn" data-tab="pd-tab">Quanti PD-L1</button>
+                    <button class="tab-btn" data-tab="ihc-tab">Quanti IHC</button>
                 </div>
 
-                <!-- HE-Fit 탭 -->
+                <!-- Quanti HE 탭 -->
                 <div id="hne-tab" class="tab-content active">
                     <div class="sub-group">
                         <div class="sub-header">Tissue Type</div>
@@ -233,7 +244,7 @@
                     <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
                 </div>
 
-                <!-- VS-IHC 탭 -->
+                <!-- VS IHC 탭 -->
                 <div id="vs-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">
@@ -260,7 +271,7 @@
                     </button>
                 </div>
 
-                <!-- PD-Score 탭 -->
+                <!-- Quanti PD-L1 탭 -->
                 <div id="pd-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">Tissue Type</div>
@@ -278,7 +289,7 @@
                     </div>
                 </div>
 
-                <!-- Precise-IHC 탭 -->
+                <!-- Quanti IHC 탭 -->
                 <div id="ihc-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">Marker</div>
@@ -418,7 +429,7 @@
                 <li><kbd>Delete</kbd>: 선택한 annotation 삭제</li>
             </ul>
 
-            <div class="ux-help-section">AI 결과 편집 (HE-Fit / PD-Score / Precise-IHC)</div>
+            <div class="ux-help-section">AI 결과 편집 (Quanti HE / Quanti PD-L1 / Quanti IHC)</div>
             <ul>
                 <li><kbd>Alt</kbd> + 클릭: 가장 가까운 셀 편집 팝업 (클래스 변경 / 삭제)</li>
                 <li><kbd>Alt</kbd> + 드래그: 라쏘 선택 → 여러 셀 일괄 편집</li>

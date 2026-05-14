@@ -15,7 +15,7 @@ const DEFAULT_CLASS_COLORS = {
 // 모델별 동적 클래스 메타 (showVisualization 호출 시 주입)
 let _activeNames = DEFAULT_CLASS_NAMES;
 let _activeColors = DEFAULT_CLASS_COLORS;
-let _activeModelType = 'HE-Fit';  // 'HE-Fit' | 'PD-Score' | 'Precise-IHC'
+let _activeModelType = 'Quanti HE';  // 'Quanti HE' | 'Quanti PD-L1' | 'Quanti IHC'
 let _activeScoreType = null;      // 'CPS' | 'TPS' | 'HER2' | 'Allred' | null
 let _activeTissue = null;
 
@@ -56,7 +56,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         ? _normalizeKeys(meta.classNames) : DEFAULT_CLASS_NAMES;
     _activeColors = (meta.classColors && Object.keys(meta.classColors).length > 0)
         ? _normalizeKeys(meta.classColors) : DEFAULT_CLASS_COLORS;
-    _activeModelType = meta.modelType || 'HE-Fit';
+    _activeModelType = meta.modelType || 'Quanti HE';
     _activeScoreType = meta.scoreType || null;
     _activeTissue = meta.tissue || 'Stomach';
 
@@ -93,9 +93,9 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     _configureTabs(_activeModelType);
 
     _renderClassDistribution(cells, countsByClass);
-    if (_activeModelType === 'PD-Score') {
+    if (_activeModelType === 'Quanti PD-L1') {
         _renderPdScoreAnalysis(countsByClass);
-    } else if (_activeModelType === 'Precise-IHC') {
+    } else if (_activeModelType === 'Quanti IHC') {
         if (_activeScoreType === 'Allred') {
             _renderAllredAnalysis(countsByClass);
         } else if (_activeScoreType === 'KI67') {
@@ -106,7 +106,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     } else {
         _renderTumorAnalysis(countsByClass);
     }
-    if (_activeModelType !== 'PD-Score' && _activeModelType !== 'Precise-IHC') {
+    if (_activeModelType !== 'Quanti PD-L1' && _activeModelType !== 'Quanti IHC') {
         _renderSpatialHeatmap(cells, countsByClass, segData);
     }
     _renderConfidenceDistribution(confsByClass);
@@ -131,8 +131,8 @@ function _normalizeKeys(obj) {
 }
 
 function _configureTabs(modelType) {
-    const isPdScore = modelType === 'PD-Score';
-    const isIhc = modelType === 'Precise-IHC';
+    const isPdScore = modelType === 'Quanti PD-L1';
+    const isIhc = modelType === 'Quanti IHC';
     const hideHeatmap = isPdScore || isIhc;
     let tumorLabel = 'Tumor Analysis';
     if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
@@ -644,7 +644,7 @@ function _scoreColor(v) {
     return v >= 50 ? '#E84040' : v >= 20 ? '#FF8C00' : '#2E7D32';
 }
 
-// ── HER2 Analysis 탭 (Precise-IHC 전용) ──
+// ── HER2 Analysis 탭 (Quanti IHC 전용) ──
 function _renderHer2Analysis(countsByClass) {
     const panel = document.getElementById('viz-tumor');
     panel.innerHTML = '';
@@ -745,7 +745,7 @@ function _drawHer2Gauge(ctx, w, h, weighted, dominant, gaugePct, barColor, ease,
     ctx.fillText(`Dominant: ${dominant}+`, cx, gaugeCy + 28);
 }
 
-// ── Allred Analysis 탭 (Precise-IHC ER/PR 전용) ──
+// ── Allred Analysis 탭 (Quanti IHC ER/PR 전용) ──
 function _allredFromCounts(counts) {
     const n0 = counts[0] || 0, n1 = counts[1] || 0, n2 = counts[2] || 0, n3 = counts[3] || 0;
     const total = n0 + n1 + n2 + n3;
@@ -1434,16 +1434,16 @@ async function _exportPDF(state) {
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = 297, pageH = 210;
 
-    const str_model_type = state.modelType || 'HE-Fit';
+    const str_model_type = state.modelType || 'Quanti HE';
     let list_pages;
-    if (str_model_type === 'PD-Score') {
+    if (str_model_type === 'Quanti PD-L1') {
         list_pages = [
             _pdfDrawCover(state),
             _pdfDrawClassDist(state),
             _pdfDrawPdScoreAnalysis(state),
             _pdfDrawConfidence(state),
         ];
-    } else if (str_model_type === 'Precise-IHC') {
+    } else if (str_model_type === 'Quanti IHC') {
         const analysisPage = (_activeScoreType === 'Allred') ? _pdfDrawAllredAnalysis(state)
             : (_activeScoreType === 'KI67') ? _pdfDrawKi67Analysis(state)
             : _pdfDrawHer2Analysis(state);
@@ -1469,7 +1469,7 @@ async function _exportPDF(state) {
     });
 
     const safeName = (state.slideName || 'slide').replace(/[\\/:*?"<>|]/g, '_');
-    const str_model_part = (state.modelType || 'HE-Fit').replace(/[\\/:*?"<>|]/g, '_');
+    const str_model_part = (state.modelType || 'Quanti HE').replace(/[\\/:*?"<>|]/g, '_');
     const str_variant_part = (state.tissue || '').replace(/[\\/:*?"<>|]/g, '_');
     const filename = str_variant_part
         ? `${safeName}_${str_model_part}_${str_variant_part}_report.pdf`
@@ -1554,15 +1554,15 @@ function _pdfHeader(ctx, title) {
 
 function _pdfDrawCover(state) {
     const { cells, countsByClass } = state;
-    const str_model_type = state.modelType || 'HE-Fit';
+    const str_model_type = state.modelType || 'Quanti HE';
     const str_tissue = state.tissue || '';
     const c = _pdfNewCanvas();
     const ctx = c.getContext('2d');
 
     let str_title = 'AI Detection Result Report';
-    if (str_model_type === 'PD-Score') str_title = `PD-L1 Analysis Report (${str_tissue || 'PD-Score'})`;
-    else if (str_model_type === 'Precise-IHC') str_title = `HER2 Analysis Report (${str_tissue || 'Precise-IHC'})`;
-    else str_title = `H&E Detection Report (${str_tissue || 'HE-Fit'})`;
+    if (str_model_type === 'Quanti PD-L1') str_title = `PD-L1 Analysis Report (${str_tissue || 'Quanti PD-L1'})`;
+    else if (str_model_type === 'Quanti IHC') str_title = `HER2 Analysis Report (${str_tissue || 'Quanti IHC'})`;
+    else str_title = `H&E Detection Report (${str_tissue || 'Quanti HE'})`;
     _pdfHeader(ctx, str_title);
 
     // Top stat panel
@@ -1583,7 +1583,7 @@ function _pdfDrawCover(state) {
     let str_metric_value = 'N/A';
     let str_metric_color = PDF_COL.subtext;
 
-    if (str_model_type === 'PD-Score') {
+    if (str_model_type === 'Quanti PD-L1') {
         if (str_tissue === 'Stomach') {
             const int_pos_tumor = countsByClass[3] || 0;
             const int_pos_immune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
@@ -1606,7 +1606,7 @@ function _pdfDrawCover(state) {
                 str_metric_color = _scoreColor(float_tps);
             }
         }
-    } else if (str_model_type === 'Precise-IHC') {
+    } else if (str_model_type === 'Quanti IHC') {
         const int_n0 = countsByClass[0] || 0;
         const int_n1 = countsByClass[1] || 0;
         const int_n2 = countsByClass[2] || 0;
@@ -1637,7 +1637,7 @@ function _pdfDrawCover(state) {
             }
         }
     } else {
-        // HE-Fit
+        // Quanti HE
         const int_tumor = countsByClass[6] || 0;
         const int_benign = countsByClass[7] || 0;
         const int_denom = int_tumor + int_benign;

@@ -22,7 +22,7 @@
 
 - **One Platform** — WSI 뷰어 + 4가지 AI 모델 + 자동 워크플로
 - **On-Premise** — 환자 데이터가 병원 밖으로 나가지 않음
-- **AI 보조 진단** — HE-Fit / PD-Score / Precise-IHC / VS-IHC
+- **AI 보조 진단** — Quanti HE / Quanti PD-L1 / Quanti IHC / VS IHC
 - **인허가 준비** — IEC 62304 / ISO 14971 / 21 CFR Part 11 / 식약처 가이드라인
 - **즉시 도입** — 단일 서버, 1일 안에 셋업
 
@@ -42,7 +42,7 @@
 
 | 진단실 현실 | MeDIAuto 가 풀어내는 방식 |
 |---|---|
-| 슬라이드 카운팅에 1장당 30분+ | HE-Fit 자동 검출 → 분 단위로 단축 |
+| 슬라이드 카운팅에 1장당 30분+ | Quanti HE 자동 검출 → 분 단위로 단축 |
 | PD-L1 CPS / TPS 계산이 주관적 | 정량 알고리즘 + 셀 단위 검증 가능 |
 | HER2 / ER / Ki-67 점수 산정 일관성 부족 | 표준 score (Allred / LI) 자동 산출 |
 | 클라우드 SaaS = 환자 데이터 외부 전송 우려 | **On-Premise 단일 서버** 로 차단 |
@@ -59,7 +59,7 @@
 
 ---
 
-## 6. 핵심 기능 — HE-Fit (H&E 세포 검출)
+## 6. 핵심 기능 — Quanti HE (H&E 세포 검출)
 
 - **Point Detection** 기반 8 클래스 세포 검출
 - 조직별 학습된 weights — Stomach / Breast / Other
@@ -69,7 +69,7 @@
 
 ---
 
-## 7. 핵심 기능 — PD-Score (PD-L1 IHC)
+## 7. 핵심 기능 — Quanti PD-L1 (PD-L1 IHC)
 
 - **CPS (Stomach)** — Combined Positive Score 0–100 자동 산출
 - **TPS (Lung)** — Tumor Proportion Score 0–100% 자동 산출
@@ -79,7 +79,7 @@
 
 ---
 
-## 8. 핵심 기능 — Precise-IHC
+## 8. 핵심 기능 — Quanti IHC
 
 | Marker | Score | 임상 활용 |
 |--------|-------|-----------|
@@ -92,7 +92,7 @@
 
 ---
 
-## 9. 핵심 기능 — VS-IHC (Virtual Staining)
+## 9. 핵심 기능 — VS IHC (Virtual Staining)
 
 - **H&E → IHC 가상 염색** (membrane / nucleus 모델)
 - pix2pix 계열 GAN — 학습 후 H&E 만으로 IHC 패턴 시뮬레이션
@@ -106,7 +106,7 @@
 
 - **폴더 자동 AI 추론** — 폴더에 작업 등록만 하면 신규 슬라이드 자동 분석
 - 60초 주기 백그라운드 워커, 사용자 활동 시 자동 양보
-- 4가지 모델 조합 자유 — HE-Fit + PD-Score + Precise-IHC + VS-IHC
+- 4가지 모델 조합 자유 — Quanti HE + Quanti PD-L1 + Quanti IHC + VS IHC
 - 진단실 운영자가 "한 번 설정하면 끝" — 매일 업로드 분량을 야간에 자동 처리
 
 ---

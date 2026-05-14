@@ -149,7 +149,7 @@ export class TileViewer {
         this._segOverlay = null;     // {image, sceneX, sceneY, sceneW, sceneH}
         this.segClassVisibility = {}; // {cls_id: bool}
 
-        // Virtual Stain (VS-IHC) 오버레이 — 타일 피라미드 기반
+        // Virtual Stain (VS IHC) 오버레이 — 타일 피라미드 기반
         // meta: {slideId, stainType, targetMpp, originX, originY, sceneW, sceneH,
         //        tileSize, levels: [{level,width,height,nx,ny}...], roiPolygons}
         this._vsOverlay = null;
@@ -2063,7 +2063,7 @@ export class TileViewer {
     }
 
     /**
-     * Virtual Stain (VS-IHC) 오버레이 설정 — 타일 피라미드 방식.
+     * Virtual Stain (VS IHC) 오버레이 설정 — 타일 피라미드 방식.
      * @param {object} meta - {
      *   slide_id, stain_type, target_mpp,
      *   roi_origin: [x,y], canvas_l0_w, canvas_l0_h,

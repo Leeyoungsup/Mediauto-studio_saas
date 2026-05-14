@@ -52,6 +52,7 @@ input[type="color"], input[type="file"], select {
     --danger: #e53935;
     --success: #1e8e3e;
     --left-panel-w: 240px;
+    --right-panel-w: 320px;
     --slide-thumb-list: 40px;
     --slide-thumb-grid: 80px;
 }
@@ -254,6 +255,26 @@ input[type="color"], input[type="file"], select {
 }
 .view-toggle-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
 .view-toggle-btn.active { background: var(--accent); color: #fff; }
+.project-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.project-select {
+    min-width: 0; flex: 1; height: 28px;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+    background: rgba(255,255,255,0.08); color: var(--sidebar-text);
+    font-size: 11px; font-weight: 600; padding: 0 8px;
+}
+.project-select:focus {
+    outline: none; border-color: var(--accent);
+}
+.project-select option {
+    background: var(--sidebar-dark-2); color: var(--sidebar-text);
+}
+.project-actions {
+    display: flex; gap: 2px; flex-shrink: 0;
+}
 
 /* 리사이즈 핸들 */
 .panel-resizer {
@@ -689,7 +710,10 @@ input[type="color"], input[type="file"], select {
 
 /* ═══ 우측 패널 ═══ */
 #right-panel {
-    width: 320px; min-width: 320px;
+    width: var(--right-panel-w);
+    min-width: 280px;
+    max-width: 560px;
+    flex: 0 0 var(--right-panel-w);
     background: transparent; border-left: none;
     display: flex; flex-direction: column;
     overflow-y: auto;
@@ -862,7 +886,7 @@ body.role-viewer .annotation-group::after {
 }
 .radio-item input[type="radio"] { accent-color: var(--accent); }
 
-/* VS-IHC target mpp slider */
+/* VS IHC target mpp slider */
 .vs-mpp-label {
     float: right;
     text-transform: none;
@@ -883,7 +907,7 @@ body.role-viewer .annotation-group::after {
     padding: 0 2px;
 }
 
-/* Toggle pill button (VS-IHC) */
+/* Toggle pill button (VS IHC) */
 .toggle-pill {
     display: flex;
     align-items: center;
@@ -949,8 +973,8 @@ body.role-viewer .annotation-group::after {
     box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4);
 }
 
-/* ═══ PD-Score 결과 디스플레이 ═══ */
-/* ═══ Score Card (PD-Score / Precise-IHC) ═══ */
+/* ═══ Quanti PD-L1 결과 디스플레이 ═══ */
+/* ═══ Score Card (Quanti PD-L1 / Quanti IHC) ═══ */
 .score-card {
     margin: 10px 14px 14px;
     padding: 14px 16px 12px;
@@ -998,7 +1022,7 @@ body.role-viewer .annotation-group::after {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
 
-/* ═══ Precise-IHC marker 버튼 행 ═══ */
+/* ═══ Quanti IHC marker 버튼 행 ═══ */
 .ihc-marker-row {
     display: flex;
     gap: 6px;
@@ -1289,7 +1313,8 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
         box-shadow: -4px 0 20px rgba(0,0,0,0.15);
         background: var(--bg-light);
     }
-    #left-panel-resizer { display: none; }
+    #left-panel-resizer,
+    #right-panel-resizer { display: none; }
 
     body.panel-left-open #left-panel { transform: translateX(0); }
     body.panel-right-open #right-panel { transform: translateX(0); }

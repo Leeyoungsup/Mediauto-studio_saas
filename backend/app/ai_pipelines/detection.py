@@ -1,4 +1,4 @@
-"""HE-Fit Detection 워커 + Epithelial 재분류 + 세그멘테이션 오버레이.
+"""Quanti HE detection worker + epithelial reclassification overlay.
 
 routers/ai.py 의 모놀리스에서 분리. desktop DetectionWorker.run() 과 동일한
 파이프라인 (조직 마스크 → I/O 프리페치 → 배치 GPU 추론 → Epithelial 재분류).
@@ -119,7 +119,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 # (과거 추론이 DB 미연결 상태에서 끝났거나 slide doc 이 늦게 생성된 케이스.)
                 # 멱등 — 이미 set 이면 변화 없음.
                 from app import slide_store
-                slide_store.mark_ai_result_threadsafe(info.file_path, "HE-Fit", tissue_type)
+                slide_store.mark_ai_result_threadsafe(info.file_path, "Quanti HE", tissue_type)
                 update_task(task_id, status="completed", progress=100,
                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                             result=cached)
@@ -132,7 +132,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     status_msg="Starting detection...")
 
         # ── 모델 로드 ──
-        from ai.detection import non_max_suppression, CLASS_NAMES, CLASS_COLORS
+        from ai.quanti_he import CLASS_NAMES, CLASS_COLORS
+        from ai.yolo_postprocess import non_max_suppression
         from ai.nets import nn as yolo_nn
 
         update_task(task_id, progress=1, status_msg="Loading detection model...")
@@ -418,7 +419,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     json.dump(result, f)
                 print(f"AI result cached: {cache_path}")
                 from app import slide_store
-                slide_store.mark_ai_result_threadsafe(info.file_path, "HE-Fit", tissue_type)
+                slide_store.mark_ai_result_threadsafe(info.file_path, "Quanti HE", tissue_type)
             except Exception as e:
                 import traceback
                 print(f"Cache save failed: {e}\n{traceback.format_exc()}")
