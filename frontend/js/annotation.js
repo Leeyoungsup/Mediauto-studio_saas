@@ -2984,7 +2984,6 @@ function _projectGateValue(project, key) {
     if (key === 'slides') return Number(project.slide_count || 0);
     if (key === 'reviewed') return Number(project.reviewed_count || 0);
     if (key === 'progress') return Number(project.in_progress_count || 0);
-    if (key === 'ai') return Number(project.ai_analyzed_count || 0);
     if (key === 'folders') return Number(project.folder_count || 0);
     if (key === 'status') return info.status || 'active';
     return '';
@@ -3072,7 +3071,7 @@ function _setProjectGateSort(key) {
     } else {
         _projectGateSort = {
             key,
-            dir: ['slides', 'reviewed', 'progress', 'ai', 'folders'].includes(key) ? 'desc' : 'asc',
+            dir: ['slides', 'reviewed', 'progress', 'folders'].includes(key) ? 'desc' : 'asc',
         };
     }
     _projectGatePage = 1;
@@ -3169,7 +3168,6 @@ function _renderProjectGate(list_projects) {
         { label: 'Slides', key: 'slides' },
         { label: 'Reviewed', key: 'reviewed' },
         { label: 'In Progress', key: 'progress' },
-        { label: 'AI Analyzed', key: 'ai' },
         { label: 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
         { label: '', key: '' },
@@ -3243,10 +3241,6 @@ function _renderProjectGate(list_projects) {
         progressEl.className = 'project-gate-cell project-gate-number';
         progressEl.textContent = project.in_progress_count || 0;
 
-        const aiEl = document.createElement('div');
-        aiEl.className = 'project-gate-cell project-gate-number';
-        aiEl.textContent = project.ai_analyzed_count || 0;
-
         const foldersEl = document.createElement('div');
         foldersEl.className = 'project-gate-cell project-gate-number';
         foldersEl.textContent = project.folder_count || 0;
@@ -3262,7 +3256,7 @@ function _renderProjectGate(list_projects) {
         actionEl.className = 'project-gate-action';
         actionEl.textContent = 'Open';
 
-        row.append(projectEl, hospitalEl, ownerEl, slidesEl, reviewedEl, progressEl, aiEl, foldersEl, statusEl, actionEl);
+        row.append(projectEl, hospitalEl, ownerEl, slidesEl, reviewedEl, progressEl, foldersEl, statusEl, actionEl);
         row.addEventListener('click', () => _enterProjectFromGate(path));
         $projectGateList.appendChild(row);
     }
@@ -3700,15 +3694,7 @@ function showFolderContextMenu(e, folderPath, folderName) {
         } catch (err) { alert(`삭제 실패: ${err.message}`); }
     });
 
-    const aiCfgBtn = document.createElement('div');
-    aiCfgBtn.className = 'ctx-menu-item';
-    aiCfgBtn.textContent = 'AI 자동 분석 설정...';
-    aiCfgBtn.addEventListener('click', () => {
-        removeCtxMenu();
-        openFolderAiConfigDialog(folderPath, folderName);
-    });
-
-    menu.append(renameBtn, deleteBtn, aiCfgBtn);
+    menu.append(renameBtn, deleteBtn);
     document.body.appendChild(menu);
     _ctxMenu = menu;
 }
