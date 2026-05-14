@@ -9,7 +9,7 @@
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -705,6 +705,8 @@ async def get_user_activity(
     user_id: str,
     int_limit: int = Query(200, ge=1, le=1000),
     int_skip: int = Query(0, ge=0),
+    str_start_date: str = Query("", description="Start date YYYY-MM-DD"),
+    str_end_date: str = Query("", description="End date YYYY-MM-DD"),
     str_category: str = Query(
         "all",
         pattern="^(all|login|slide|ai|project|file)$",
@@ -732,7 +734,28 @@ async def get_user_activity(
     if not dict_target:
         raise HTTPException(status_code=404, detail="User not found")
 
-    dict_filter: dict = {"str_user_id": user_id}
+    dict_base_filter: dict = {"str_user_id": user_id}
+    dict_date_filter = {}
+    if str_start_date:
+        try:
+            dict_date_filter["$gte"] = datetime.fromisoformat(str_start_date).replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid str_start_date")
+    if str_end_date:
+        try:
+            dt_end = datetime.fromisoformat(str_end_date).replace(tzinfo=timezone.utc)
+            dict_date_filter["$lt"] = dt_end + timedelta(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid str_end_date")
+    if dict_date_filter:
+        dict_base_filter["dt_created_at"] = dict_date_filter
+
+    def _with_action(value):
+        dict_f = dict_base_filter.copy()
+        dict_f["str_action"] = value
+        return dict_f
+
+    dict_filter: dict = dict_base_filter.copy()
     if str_category == "login":
         dict_filter["str_action"] = {"$in": ["user.login_success", "user.login_failed", "user.logout"]}
     elif str_category == "slide":
@@ -760,26 +783,26 @@ async def get_user_activity(
     # 카테고리별 총 카운트 — 뱃지 표시용
     dict_counts = {
         "login": await db.audit_logs.count_documents(
-            {"str_user_id": user_id, "str_action": {"$in": [
+            _with_action({"$in": [
                 "user.login_success", "user.login_failed", "user.logout",
-            ]}}
+            ]})
         ),
         "slide": await db.audit_logs.count_documents(
-            {"str_user_id": user_id, "str_action": "slide.view"}
+            _with_action("slide.view")
         ),
         "ai": await db.audit_logs.count_documents(
-            {"str_user_id": user_id, "str_action": "ai.analyze"}
+            _with_action("ai.analyze")
         ),
         "project": await db.audit_logs.count_documents(
-            {"str_user_id": user_id, "str_action": {"$regex": r"^project\."}}
+            _with_action({"$regex": r"^project\."})
         ),
         "file": await db.audit_logs.count_documents(
-            {"str_user_id": user_id, "str_action": {"$in": [
+            _with_action({"$in": [
                 "folder.create", "folder.rename", "folder.delete",
                 "folder.ai_config_update", "folder.ai_config_delete",
                 "file.delete", "file.move",
                 "slide.upload", "slide.status_update",
-            ]}}
+            ]})
         ),
     }
 

@@ -524,19 +524,47 @@ let _str_current_activity_user = null;
 let _str_current_activity_cat = 'all';
 let _int_user_activity_skip = 0;
 let _int_user_activity_total = 0;
+let _str_user_activity_start = '';
+let _str_user_activity_end = '';
 
 function _ensureUserActivityPager() {
     if (!$userActivityDialog || document.getElementById('user-activity-page-info')) return;
     const $body = $userActivityDialog.querySelector('.activity-body');
     if (!$body) return;
+    $body.insertAdjacentHTML('beforebegin', `
+        <div class="activity-date-filter">
+            <label>From <input id="user-activity-start-date" type="date"></label>
+            <label>To <input id="user-activity-end-date" type="date"></label>
+            <button id="btn-user-activity-apply-date" class="admin-btn-primary" type="button">Apply</button>
+            <button id="btn-user-activity-clear-date" class="admin-btn-secondary" type="button">Clear</button>
+        </div>
+    `);
     $body.insertAdjacentHTML('afterend', `
         <div class="pager user-activity-pager">
             <button id="btn-user-activity-prev" class="admin-btn-secondary" type="button">이전</button>
             <span id="user-activity-page-info">1 / 1</span>
+            <label class="page-jump">Page <input id="user-activity-page-input" type="number" min="1" value="1"></label>
+            <button id="btn-user-activity-page-go" class="admin-btn-secondary" type="button">Go</button>
             <button id="btn-user-activity-next" class="admin-btn-secondary" type="button">다음</button>
         </div>
         <div id="user-activity-range" class="activity-range"></div>
     `);
+    document.getElementById('btn-user-activity-apply-date')?.addEventListener('click', () => {
+        _str_user_activity_start = document.getElementById('user-activity-start-date')?.value || '';
+        _str_user_activity_end = document.getElementById('user-activity-end-date')?.value || '';
+        _int_user_activity_skip = 0;
+        _loadUserActivity();
+    });
+    document.getElementById('btn-user-activity-clear-date')?.addEventListener('click', () => {
+        _str_user_activity_start = '';
+        _str_user_activity_end = '';
+        const $start = document.getElementById('user-activity-start-date');
+        const $end = document.getElementById('user-activity-end-date');
+        if ($start) $start.value = '';
+        if ($end) $end.value = '';
+        _int_user_activity_skip = 0;
+        _loadUserActivity();
+    });
     document.getElementById('btn-user-activity-prev')?.addEventListener('click', () => {
         if (_int_user_activity_skip <= 0) return;
         _int_user_activity_skip = Math.max(0, _int_user_activity_skip - USER_ACTIVITY_PAGE_LIMIT);
@@ -546,6 +574,17 @@ function _ensureUserActivityPager() {
         if (_int_user_activity_skip + USER_ACTIVITY_PAGE_LIMIT >= _int_user_activity_total) return;
         _int_user_activity_skip += USER_ACTIVITY_PAGE_LIMIT;
         _loadUserActivity();
+    });
+    const jumpToPage = () => {
+        const $input = document.getElementById('user-activity-page-input');
+        const int_total_pages = Math.max(1, Math.ceil(_int_user_activity_total / USER_ACTIVITY_PAGE_LIMIT));
+        const int_page = Math.min(Math.max(parseInt($input?.value || '1', 10) || 1, 1), int_total_pages);
+        _int_user_activity_skip = (int_page - 1) * USER_ACTIVITY_PAGE_LIMIT;
+        _loadUserActivity();
+    };
+    document.getElementById('btn-user-activity-page-go')?.addEventListener('click', jumpToPage);
+    document.getElementById('user-activity-page-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') jumpToPage();
     });
 }
 
@@ -558,20 +597,31 @@ function _updateUserActivityPager(intCount) {
     const $range = document.getElementById('user-activity-range');
     const $prev = document.getElementById('btn-user-activity-prev');
     const $next = document.getElementById('btn-user-activity-next');
+    const $input = document.getElementById('user-activity-page-input');
     if ($info) $info.textContent = `${int_page} / ${int_total_pages}`;
     if ($range) $range.textContent = `${int_start} - ${int_end} / ${_int_user_activity_total}`;
     if ($prev) $prev.disabled = _int_user_activity_skip <= 0;
     if ($next) $next.disabled = _int_user_activity_skip + USER_ACTIVITY_PAGE_LIMIT >= _int_user_activity_total;
+    if ($input) {
+        $input.max = String(int_total_pages);
+        $input.value = String(int_page);
+    }
 }
 
 async function openUserActivityDialog(strUserId) {
     _str_current_activity_user = strUserId;
     _str_current_activity_cat = 'all';
     _int_user_activity_skip = 0;
+    _str_user_activity_start = '';
+    _str_user_activity_end = '';
     document.querySelectorAll('.activity-cat-tab').forEach(t =>
         t.classList.toggle('active', t.dataset.cat === 'all')
     );
     _ensureUserActivityPager();
+    const $start = document.getElementById('user-activity-start-date');
+    const $end = document.getElementById('user-activity-end-date');
+    if ($start) $start.value = '';
+    if ($end) $end.value = '';
     if (!$userActivityDialog.open) $userActivityDialog.showModal();
     await _loadUserActivity();
 }
@@ -585,6 +635,8 @@ async function _loadUserActivity() {
             int_skip: String(_int_user_activity_skip),
             str_category: _str_current_activity_cat,
         });
+        if (_str_user_activity_start) params.set('str_start_date', _str_user_activity_start);
+        if (_str_user_activity_end) params.set('str_end_date', _str_user_activity_end);
         const data = await apiGet(`/users/${encodeURIComponent(_str_current_activity_user)}/activity?${params}`);
         if (!data) return;
         const u = data.dict_user || {};
