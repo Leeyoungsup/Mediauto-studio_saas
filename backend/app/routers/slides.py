@@ -429,11 +429,11 @@ async def list_projects():
             )
             str_status = dict_doc.get("str_status") or ""
             str_annotation_status = dict_doc.get("str_annotation_status") or str_status
-            if str_annotation_status in {"annotation", "pending", "in_progress"}:
+            if str_annotation_status in {"review", "done", "termination", "flagged"}:
                 dict_project["annotation_count"] += 1
-            if str_annotation_status in {"review", "done"}:
-                dict_project["review_count"] += 1
             if str_annotation_status in {"termination", "flagged"}:
+                dict_project["review_count"] += 1
+            if str_annotation_status == "termination":
                 dict_project["termination_count"] += 1
             if str_status == "done":
                 dict_project["reviewed_count"] += 1

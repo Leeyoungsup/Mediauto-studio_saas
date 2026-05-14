@@ -1585,10 +1585,10 @@ body.annotation-page .project-gate-row {
     gap: 8px;
     padding: 12px 14px 14px;
     border-bottom: 1px solid var(--border-light);
-    background: linear-gradient(90deg, #331d72 0%, #4b2694 100%);
+    background: #fff;
 }
 .annotation-status-panel label {
-    color: rgba(255,255,255,0.72);
+    color: var(--text-dim);
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0;
@@ -1611,30 +1611,39 @@ body.annotation-page .project-gate-row {
 }
 .annotation-status-workflow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 26px minmax(0, 0.86fr) 26px minmax(0, 1.12fr);
+    grid-template-columns: minmax(0, 1fr) 18px minmax(0, 0.86fr) 18px minmax(0, 1.08fr);
     align-items: center;
-    gap: 4px;
+    gap: 3px;
 }
 .annotation-step {
     min-width: 0;
-    min-height: 32px;
-    padding: 0 8px;
+    min-height: 27px;
+    padding: 0 5px;
     border: 0;
     border-radius: 6px;
-    background: transparent;
-    color: rgba(255,255,255,0.72);
-    font-size: 12px;
+    border: 1px solid var(--border);
+    background: #f8f9fd;
+    color: var(--text-dim);
+    font-size: 10px;
     font-weight: 800;
     letter-spacing: 0;
     text-align: center;
     cursor: pointer;
 }
 .annotation-step.is-active {
-    background: rgba(255,255,255,0.14);
-    color: #fff;
+    border-color: #54a0ff;
+    background: #eef6ff;
+    color: #1f5f9c;
 }
 .annotation-step.is-complete {
-    color: #fff;
+    border-color: #bfe8cd;
+    background: #f0fbf4;
+    color: #1f7a43;
+}
+.annotation-step.is-running {
+    border-color: #f0c36b;
+    background: #fff7e6;
+    color: #9a6500;
 }
 .annotation-step:disabled {
     cursor: not-allowed;
@@ -1645,8 +1654,8 @@ body.annotation-page .project-gate-row {
     opacity: 1;
 }
 .annotation-step-connector {
-    color: #f6c344;
-    font-size: 18px;
+    color: #f0b429;
+    font-size: 13px;
     font-weight: 900;
     line-height: 1;
     text-align: center;

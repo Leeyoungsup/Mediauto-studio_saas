@@ -144,6 +144,8 @@ let currentSlideInfo = null;
 let currentSlideFilename = '';
 let currentAnnotationStatus = '';
 let _annotationStatusSaving = false;
+let _annotationRunningStep = '';
+let _annotationWorkflowFinished = false;
 let minimapImage = null;
 let lastSegData = null;  // segmentation overlay data from epithelial classification
 
@@ -163,6 +165,18 @@ function _annotationWorkflowStorageStatus(status) {
     return 'in_progress';
 }
 
+async function _saveAnnotationWorkflowStorageStatus(filename, status) {
+    try {
+        await api.setFileStatus([filename], status, currentBrowsePath, 'annotation');
+    } catch (err) {
+        if (status === 'termination') {
+            await api.setFileStatus([filename], 'flagged', currentBrowsePath, 'annotation');
+            return;
+        }
+        throw err;
+    }
+}
+
 function _annotationWorkflowMeta(status) {
     const strStatus = _normalizeAnnotationWorkflowStatus(status);
     return {
@@ -176,10 +190,9 @@ function _annotationWorkflowIndex(status) {
     return ANNOTATION_WORKFLOW_ORDER.indexOf(_normalizeAnnotationWorkflowStatus(status));
 }
 
-function _canMoveAnnotationWorkflowTo(targetStatus, currentStatus) {
-    const int_target = _annotationWorkflowIndex(targetStatus);
-    const int_current = _annotationWorkflowIndex(currentStatus);
-    return int_target === int_current + 1;
+function _nextAnnotationWorkflowStatus(status) {
+    const int_current = _annotationWorkflowIndex(status);
+    return ANNOTATION_WORKFLOW_ORDER[Math.min(int_current + 1, ANNOTATION_WORKFLOW_ORDER.length - 1)];
 }
 
 // ── 뷰어 초기화 ──
@@ -497,6 +510,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideInfo = slideInfo;
     currentSlideFilename = filename || slideInfo?.filename || '';
     currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
+    _annotationRunningStep = '';
+    _annotationWorkflowFinished = false;
     _syncAnnotationStatusControl(currentAnnotationStatus);
 
     // 슬라이드 전환 — 이전 슬라이드의 sticky 클래스는 의미 없음 (class id/이름 매핑이
@@ -549,7 +564,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     _setVsToggleState(false, true);
     _setVsSplitState(false, true);
 
-    // annotation은 사용자가 Load 버튼으로 파일에서 불러옴 (서버 자동 로드 X)
+    _loadSavedAnnotationsForSlide(slideId);
 
     setProgress(0);
 }
@@ -576,20 +591,28 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     const intCurrent = _annotationWorkflowIndex(strStatus);
     $annotationStatusWorkflow.dataset.status = strStatus;
     $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled);
+    $annotationStatusWorkflow.classList.toggle('is-running', !!_annotationRunningStep);
     $annotationStatusWorkflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
         const strTarget = _normalizeAnnotationWorkflowStatus(btn.dataset.annotationStatus);
         const intTarget = _annotationWorkflowIndex(strTarget);
-        btn.classList.toggle('is-active', strTarget === strStatus);
-        btn.classList.toggle('is-complete', intTarget < intCurrent);
-        btn.disabled = boolDisabled || !_canMoveAnnotationWorkflowTo(strTarget, strStatus);
-        btn.title = btn.disabled && !_isViewerRole()
-            ? (strTarget === strStatus ? 'Current step' : 'Proceed in order')
-            : `Set ${btn.textContent.trim()}`;
+        const boolComplete = intTarget < intCurrent || (_annotationWorkflowFinished && strTarget === 'termination');
+        const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
+        const boolRunning = _annotationRunningStep === strTarget;
+        const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
+        const strAction = boolComplete ? '완료' : (boolRunning ? '진행중' : (boolActive ? '▶' : '-'));
+        btn.textContent = `${strLabel} ${strAction}`;
+        btn.classList.toggle('is-active', boolActive);
+        btn.classList.toggle('is-complete', boolComplete);
+        btn.classList.toggle('is-running', boolRunning);
+        btn.disabled = boolDisabled || !boolActive;
+        btn.title = boolActive
+            ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
+            : (boolComplete ? `${strLabel} complete` : 'Proceed in order');
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) connectorA.textContent = strStatus === 'annotation' ? '▶' : '✓';
-    if (connectorB) connectorB.textContent = strStatus === 'review' ? '▶' : (strStatus === 'termination' ? '✓' : '-');
+    if (connectorA) connectorA.textContent = intCurrent > 0 ? '✓' : '-';
+    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? '✓' : '-';
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {
@@ -764,7 +787,7 @@ function _applyViewerRoleRestrictions() {
     });
 
     // Annotation 패널의 저장/불러오기/초기화 버튼
-    ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load',
+    ['btn-ann-clear', 'btn-ann-save',
      'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -1977,6 +2000,81 @@ function _normalizeColor(c) {
     return [0, 255, 0];
 }
 
+function _serializeAnnotations() {
+    return viewer.annotations.map(ann => ({
+        id: ann.id,
+        name: ann.name,
+        type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
+        coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
+        color: _normalizeColor(ann.color),
+        group: ann.group || 'default',
+        visible: ann.visible !== false,
+        properties: ann.properties || {},
+    }));
+}
+
+function _normalizeLoadedAnnotations(list) {
+    const loaded = [];
+    let counter = 0;
+    for (const item of Array.isArray(list) ? list : []) {
+        if (!item) continue;
+        const coords = item.coordinates || item.points;
+        if (!Array.isArray(coords)) continue;
+        counter++;
+        const typeRaw = (item.type || 'polygon').toString().toLowerCase();
+        const type = _LABEL_TO_TYPE[typeRaw] || 'polygon';
+        loaded.push({
+            id: item.id || crypto.randomUUID?.() || `${Date.now()}_${counter}`,
+            name: item.name || `ROI_${counter}`,
+            type,
+            coordinates: coords.map(p => [Number(p[0]), Number(p[1])]),
+            color: _normalizeColor(item.color),
+            group: item.group || 'default',
+            visible: item.visible !== false,
+            selected: false,
+            properties: item.properties || {},
+        });
+    }
+    return loaded;
+}
+
+function _applyLoadedAnnotations(list, label = 'saved annotations') {
+    const loaded = _normalizeLoadedAnnotations(list);
+    viewer.annotations = loaded;
+    viewer._annotationCounter = loaded.length;
+    viewer.selectedAnnotationId = null;
+    viewer.requestRender();
+    renderAnnotationPanel();
+    setStatus(loaded.length ? `Loaded ${loaded.length} ${label}` : 'No saved annotations');
+}
+
+async function _saveAnnotationsToServer() {
+    if (!currentSlideId) {
+        setStatus('Open a slide before saving annotations');
+        return;
+    }
+    const payload = _serializeAnnotations();
+    await api.saveAnnotations(currentSlideId, payload);
+    setStatus(`Annotations saved internally (${payload.length} items)`);
+}
+
+async function _loadSavedAnnotationsForSlide(slideId) {
+    if (_isViewerRole()) return;
+    const strSlideId = slideId || currentSlideId;
+    if (!strSlideId) return;
+    viewer.clearAnnotations();
+    renderAnnotationPanel();
+    try {
+        const list = await api.loadAnnotations(strSlideId);
+        if (currentSlideId !== strSlideId) return;
+        _applyLoadedAnnotations(list, 'saved annotations');
+    } catch (err) {
+        if (currentSlideId !== strSlideId) return;
+        console.warn('Saved annotation load failed:', err);
+        setStatus(`Annotation auto-load failed: ${err.message}`);
+    }
+}
+
 async function _downloadAnnotations() {
     if (!viewer.annotations.length) {
         setStatus('No annotations to save');
@@ -2092,11 +2190,15 @@ function _uploadAnnotations() {
     input.click();
 }
 
-$btnAnnSave?.addEventListener('click', () => {
+$btnAnnSave?.addEventListener('click', async () => {
     if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
-    _downloadAnnotations();
+    try {
+        await _saveAnnotationsToServer();
+    } catch (err) {
+        alert(`Failed to save annotations: ${err.message}`);
+    }
 });
-$btnAnnLoad?.addEventListener('click', () => {
+if (false) $btnAnnLoad?.addEventListener('click', () => {
     if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
     _uploadAnnotations();
 });
@@ -3088,12 +3190,24 @@ function _projectGateValue(project, key) {
     if (key === 'hospital') return info.institution || '';
     if (key === 'owner') return info.owner || '';
     if (key === 'slides') return Number(project.slide_count || 0);
-    if (key === 'annotation') return Number(project.annotation_count || 0);
-    if (key === 'review') return Number(project.review_count || 0);
+    if (key === 'annotation') return Number(project.annotation_count ?? project.reviewed_count ?? 0);
+    if (key === 'review') return Number(project.review_count ?? project.termination_count ?? 0);
     if (key === 'termination') return Number(project.termination_count || 0);
     if (key === 'folders') return Number(project.folder_count || 0);
     if (key === 'status') return info.status || 'active';
     return '';
+}
+
+function _bumpCurrentProjectWorkflowCount(stage) {
+    const strProject = _getCurrentProjectName();
+    if (!strProject) return;
+    const project = _projectListCache.find(p => (p.path || p.name) === strProject);
+    if (!project) return;
+    const strKey = `${stage}_count`;
+    project[strKey] = Number(project[strKey] || 0) + 1;
+    if (stage === 'annotation') {
+        project.reviewed_count = Math.max(Number(project.reviewed_count || 0), Number(project.annotation_count || 0));
+    }
 }
 
 function _getProjectGatePageSize() {
@@ -3343,15 +3457,15 @@ function _renderProjectGate(list_projects) {
 
         const annotationEl = document.createElement('div');
         annotationEl.className = 'project-gate-cell project-gate-number';
-        annotationEl.textContent = project.annotation_count || 0;
+        annotationEl.textContent = _projectGateValue(project, 'annotation');
 
         const reviewEl = document.createElement('div');
         reviewEl.className = 'project-gate-cell project-gate-number';
-        reviewEl.textContent = project.review_count || 0;
+        reviewEl.textContent = _projectGateValue(project, 'review');
 
         const terminationEl = document.createElement('div');
         terminationEl.className = 'project-gate-cell project-gate-number';
-        terminationEl.textContent = project.termination_count || 0;
+        terminationEl.textContent = _projectGateValue(project, 'termination');
 
         const foldersEl = document.createElement('div');
         foldersEl.className = 'project-gate-cell project-gate-number';
@@ -3827,17 +3941,34 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
         return;
     }
     const strNextStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
-    const strNextStorageStatus = _annotationWorkflowStorageStatus(strNextStatus);
+    if (strNextStatus !== _normalizeAnnotationWorkflowStatus(currentAnnotationStatus) || _annotationWorkflowFinished) {
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return;
+    }
+    if (_annotationRunningStep !== strNextStatus) {
+        _annotationRunningStep = strNextStatus;
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return;
+    }
+    const strCompletedStatus = strNextStatus;
+    const strTargetStatus = _nextAnnotationWorkflowStatus(strCompletedStatus);
+    const strNextStorageStatus = strCompletedStatus === 'termination'
+        ? 'termination'
+        : _annotationWorkflowStorageStatus(strTargetStatus);
     const strPrevStatus = currentAnnotationStatus || '';
     _annotationStatusSaving = true;
     _syncAnnotationStatusControl(currentAnnotationStatus);
     try {
-        await api.setFileStatus([currentSlideFilename], strNextStorageStatus, currentBrowsePath, 'annotation');
-        currentAnnotationStatus = strNextStatus;
-        _setSlideListItemAnnotationStatus(currentSlideFilename, strNextStatus);
+        await _saveAnnotationWorkflowStorageStatus(currentSlideFilename, strNextStorageStatus);
+        currentAnnotationStatus = strTargetStatus;
+        _annotationRunningStep = '';
+        _annotationWorkflowFinished = strCompletedStatus === 'termination';
+        _bumpCurrentProjectWorkflowCount(strCompletedStatus);
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strTargetStatus);
         setStatus(`Annotation status updated: ${currentSlideFilename}`);
     } catch (err) {
         currentAnnotationStatus = strPrevStatus;
+        _annotationRunningStep = strCompletedStatus;
         alert(`Failed to update annotation status: ${err.message}`);
     } finally {
         _annotationStatusSaving = false;
@@ -3865,6 +3996,8 @@ async function _applyStatusToSelected(strStatus) {
         await api.setFileStatus(list_filenames, strStorageStatus, currentBrowsePath, 'annotation');
         if (currentSlideFilename && list_filenames.includes(currentSlideFilename)) {
             currentAnnotationStatus = strWorkflowStatus;
+            _annotationRunningStep = '';
+            _annotationWorkflowFinished = false;
             _syncAnnotationStatusControl(currentAnnotationStatus);
         }
         setStatus(`Status updated: ${list_filenames.length} slide(s)`);
