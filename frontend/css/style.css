@@ -1252,6 +1252,15 @@ body.role-viewer .annotation-group .btn-row {
     pointer-events: none;
 }
 
+body.annotation-page #right-panel > .panel-group:not(.annotation-group),
+body.annotation-page #right-panel > .panel-section {
+    display: none;
+}
+
+body.annotation-page #right-panel {
+    padding-top: 12px;
+}
+
 .mouse-pos-overlay {
     position: absolute; right: 12px; bottom: 12px;
     padding: 5px 10px; border-radius: 6px;

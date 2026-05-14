@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>MeDIAuto Studio</title>
+    <title>MeDIAuto Studio - Annotation</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="annotation-page">
     <!-- ═══ 메뉴바 ═══ -->
     <header id="menubar">
         <div class="menu-left">
@@ -44,8 +44,8 @@
             </a>
             <nav class="project-mode-nav">
                 <a href="/home.html" class="project-mode-nav-item">Home</a>
-                <a href="/app.html" class="project-mode-nav-item active">AI</a>
-                <a href="/annotation.html" class="project-mode-nav-item">Annotation</a>
+                <a href="/app.html" class="project-mode-nav-item">AI</a>
+                <a href="/annotation.html" class="project-mode-nav-item active">Annotation</a>
                 <a href="/admin.html" class="project-mode-nav-item" id="project-link-admin" hidden>Admin</a>
             </nav>
             <div class="project-mode-user-info">
@@ -153,7 +153,7 @@
                 <div class="project-gate-header">
                     <div>
                         <h1>Projects</h1>
-                        <p>Select a project to open in AI.</p>
+                        <p>Select a project to open in Annotation.</p>
                     </div>
                 </div>
                 <section class="project-gate-stats" aria-label="Project summary" hidden>
@@ -567,6 +567,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/app.js?v=20260428-08"></script>
+    <script type="module" src="js/annotation.js?v=20260514-01"></script>
 </body>
 </html>

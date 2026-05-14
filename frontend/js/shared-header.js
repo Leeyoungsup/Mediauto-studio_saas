@@ -52,6 +52,7 @@
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home.html" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
                         <a href="/app.html" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
+                        <a href="/annotation.html" class="shared-nav-item ${active === 'annotation' ? 'active' : ''}">Annotation</a>
                         ${showAdmin ? `<a href="/admin.html" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
                     </nav>
                     <div class="shared-user-info">
