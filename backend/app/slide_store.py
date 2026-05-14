@@ -607,7 +607,7 @@ async def _get_disk_stats_cached() -> dict:
     return result
 
 
-async def get_dashboard_stats() -> dict:
+async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
     """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
     dict_result = {
         "int_total_slides": 0,
@@ -619,8 +619,9 @@ async def get_dashboard_stats() -> dict:
     }
 
     # 디스크 통계 — 캐시 + 스레드풀 (이벤트 루프 블로킹 방지)
-    dict_disk = await _get_disk_stats_cached()
-    dict_result.update(dict_disk)
+    if bool_include_disk:
+        dict_disk = await _get_disk_stats_cached()
+        dict_result.update(dict_disk)
 
     if not is_db_connected():
         return dict_result

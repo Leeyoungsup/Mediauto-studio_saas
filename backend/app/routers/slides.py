@@ -206,10 +206,10 @@ def _safe_filename(filename: str) -> str:
 
 
 @router.get("/dashboard")
-async def dashboard():
+async def dashboard(include_storage: bool = Query(False)):
     """대시보드 홈: 최근 슬라이드 + AI/상태 통계."""
     list_recent = await slide_store.get_recent_slides(12)
-    dict_stats = await slide_store.get_dashboard_stats()
+    dict_stats = await slide_store.get_dashboard_stats(bool_include_disk=include_storage)
 
     list_recent_out = []
     for dict_doc in list_recent:

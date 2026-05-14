@@ -371,9 +371,6 @@
             if ($storageTotal) $storageTotal.textContent = formatStorageShort(totalBytes);
             if ($storagePct) $storagePct.textContent = `(${storagePct.toFixed(1)}%)`;
 
-            // Folder tree
-            loadFolderTree();
-
             // Recent slides
             $recentGrid.innerHTML = '';
             if (!data.recent_slides || data.recent_slides.length === 0) {
@@ -509,5 +506,6 @@
         saveMoveFolderDialog().catch(err => alert(err.message));
     });
 
+    loadFolderTree();
     loadDashboard();
 })();
