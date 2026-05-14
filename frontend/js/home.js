@@ -24,13 +24,12 @@
     const $btnLogout = document.getElementById('btn-logout');
     const $quickAdmin = document.getElementById('quick-admin');
 
-    const $statTotal = document.getElementById('stat-total');
-    const $statDone = document.getElementById('stat-done');
-    const $statInProgress = document.getElementById('stat-in-progress');
-    const $statAiTotal = document.getElementById('stat-ai-total');
-
     const $recentGrid = document.getElementById('recent-grid');
     const $projectTableBody = document.getElementById('project-table-body');
+    const $projectPager = document.getElementById('project-pager');
+    const $projectPagePrev = document.getElementById('project-page-prev');
+    const $projectPageNext = document.getElementById('project-page-next');
+    const $projectPageInfo = document.getElementById('project-page-info');
     const $btnNewProject = document.getElementById('btn-new-project');
     const $btnRefreshProjects = document.getElementById('btn-refresh-projects');
     const $projectDialog = document.getElementById('project-dialog');
@@ -52,6 +51,8 @@
     const $moveProjectSelect = document.getElementById('move-project-select');
 
     let _projects = [];
+    let _projectPage = 1;
+    const PROJECT_PAGE_SIZE = 10;
     let _projectDialogMode = 'create';
     let _editingProjectPath = '';
 
@@ -353,17 +354,6 @@
             if (!res) return;
             const data = await res.json();
 
-            // Stat cards
-            $statTotal.textContent = data.total_slides || 0;
-            const sc = data.status_counts || {};
-            $statDone.textContent = sc.done || 0;
-            $statInProgress.textContent = (sc.in_progress || 0) + (sc.pending || 0);
-
-            // AI total (unique slides with any AI result)
-            const ac = data.ai_counts || {};
-            const aiTotal = Math.max(ac['Quanti HE'] || 0, ac['Quanti PD-L1'] || 0, ac['Quanti IHC'] || 0, ac['VS IHC'] || 0);
-            $statAiTotal.textContent = aiTotal;
-
             // Storage bar
             const usedBytes = data.storage_used_bytes || 0;
             const totalBytes = data.storage_total_bytes || 1;
@@ -399,9 +389,18 @@
         $projectTableBody.innerHTML = '';
         if (!projects.length) {
             $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">No projects yet</td></tr>';
+            if ($projectPager) $projectPager.hidden = true;
             return;
         }
-        for (const project of projects) {
+        const totalPages = Math.max(1, Math.ceil(projects.length / PROJECT_PAGE_SIZE));
+        _projectPage = Math.min(Math.max(_projectPage, 1), totalPages);
+        const start = (_projectPage - 1) * PROJECT_PAGE_SIZE;
+        const pagedProjects = projects.slice(start, start + PROJECT_PAGE_SIZE);
+        if ($projectPager) $projectPager.hidden = projects.length <= PROJECT_PAGE_SIZE;
+        if ($projectPageInfo) $projectPageInfo.textContent = `${_projectPage} / ${totalPages}`;
+        if ($projectPagePrev) $projectPagePrev.disabled = _projectPage <= 1;
+        if ($projectPageNext) $projectPageNext.disabled = _projectPage >= totalPages;
+        for (const project of pagedProjects) {
             const info = project.info || {};
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -494,10 +493,22 @@
     window.addEventListener('message', (e) => {
         if (e.data && e.data.type === 'upload-complete') {
             loadDashboard();
+            loadFolderTree();
         }
     });
 
     $btnRefreshProjects?.addEventListener('click', () => loadFolderTree());
+    $projectPagePrev?.addEventListener('click', () => {
+        if (_projectPage <= 1) return;
+        _projectPage -= 1;
+        renderProjects(_projects);
+    });
+    $projectPageNext?.addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(_projects.length / PROJECT_PAGE_SIZE));
+        if (_projectPage >= totalPages) return;
+        _projectPage += 1;
+        renderProjects(_projects);
+    });
     $btnNewProject?.addEventListener('click', () => openProjectDialog('create'));
     $projectDialogClose?.addEventListener('click', closeProjectDialog);
     $projectDialogCancel?.addEventListener('click', closeProjectDialog);

@@ -71,6 +71,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 4px 6px;
+    margin: -4px -6px;
+}
+
+.shared-user-name:hover {
+    background: rgba(255,255,255,0.12);
 }
 
 .shared-role {

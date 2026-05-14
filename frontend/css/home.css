@@ -80,7 +80,14 @@ html, body {
     max-width: 1400px;
     margin: 0 auto;
     padding: 28px 32px 60px;
+    display: flex;
+    flex-direction: column;
 }
+
+.home-main > .stat-cards { display: none; }
+.home-main > .home-section:nth-of-type(2) { order: 1; }
+.home-main > .home-section:nth-of-type(4) { order: 2; }
+.home-main > .home-section:nth-of-type(3) { order: 3; }
 
 /* ═══ Stat Cards ═══ */
 .stat-cards {
@@ -177,8 +184,21 @@ html, body {
     font-size: 11px; font-weight: 700; cursor: pointer;
 }
 .project-mini-btn:hover { border-color: var(--home-accent); color: var(--home-accent); }
+.project-mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.project-mini-btn:disabled:hover { border-color: var(--home-border); color: var(--home-text); }
 .project-mini-btn.danger:hover { border-color: var(--home-danger); color: var(--home-danger); }
 .project-empty { text-align: center; color: var(--home-text-dim); padding: 28px !important; }
+.project-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-top: 14px;
+    color: var(--home-text-dim);
+    font-size: 12px;
+    font-weight: 700;
+}
+.project-pager[hidden] { display: none; }
 .project-dialog {
     border: none; padding: 0; border-radius: 10px;
     width: min(720px, calc(100vw - 32px));

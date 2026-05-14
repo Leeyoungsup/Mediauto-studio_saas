@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDIAuto Studio - Profile</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/shared-header.css">
+    <link rel="stylesheet" href="css/profile.css">
+</head>
+<body>
+    <div id="shared-header-root"></div>
+
+    <main class="profile-main">
+        <section class="profile-section">
+            <div class="profile-heading">
+                <h1>My Profile</h1>
+                <p>Update your account information.</p>
+            </div>
+            <div id="profile-alert" class="profile-alert" hidden></div>
+
+            <div class="profile-grid">
+                <form id="profile-form" class="profile-card">
+                    <h2>Account Information</h2>
+                    <label>
+                        Login ID
+                        <input id="profile-login-id" type="text" disabled>
+                    </label>
+                    <label>
+                        Name
+                        <input id="profile-name" type="text" maxlength="100" required>
+                    </label>
+                    <label>
+                        Department
+                        <input id="profile-department" type="text" maxlength="100">
+                    </label>
+                    <label>
+                        Role
+                        <input id="profile-role" type="text" disabled>
+                    </label>
+                    <div class="profile-actions">
+                        <button class="profile-btn primary" type="submit">Save Profile</button>
+                    </div>
+                </form>
+
+                <form id="password-form" class="profile-card">
+                    <h2>Change Password</h2>
+                    <label>
+                        Current Password
+                        <input id="current-password" type="password" autocomplete="current-password" required>
+                    </label>
+                    <label>
+                        New Password
+                        <input id="new-password" type="password" autocomplete="new-password" minlength="8" required>
+                    </label>
+                    <label>
+                        Confirm New Password
+                        <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required>
+                    </label>
+                    <p class="profile-hint">Password must include uppercase, lowercase, number, and special character.</p>
+                    <div class="profile-actions">
+                        <button class="profile-btn secondary" type="submit">Change Password</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <script src="js/shared-header.js"></script>
+    <script src="js/profile.js"></script>
+</body>
+</html>

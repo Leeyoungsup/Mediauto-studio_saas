@@ -299,6 +299,82 @@ class UpdateUserRequest(BaseModel):
     str_password: str = Field(None, min_length=8, max_length=128)
 
 
+class UpdateMyProfileRequest(BaseModel):
+    str_name: str = Field(..., min_length=1, max_length=100)
+    str_department: str = Field(default="", max_length=100)
+
+
+@router.post("/me")
+async def update_my_profile(
+    body: UpdateMyProfileRequest,
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """현재 로그인 사용자의 표시 이름/부서 수정."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+    str_name = body.str_name.strip()
+    str_department = body.str_department.strip()
+    if not str_name:
+        raise HTTPException(400, "Name is required")
+
+    dict_before = {
+        "str_name": dict_current_user.get("str_name", ""),
+        "str_department": dict_current_user.get("str_department", ""),
+    }
+    dict_after = {
+        "str_name": str_name,
+        "str_department": str_department,
+    }
+    if dict_before == dict_after:
+        return {
+            "str_message": "No changes",
+            "dict_user": {
+                "str_id": str_user_id,
+                "str_login_id": dict_current_user.get("str_login_id", ""),
+                "str_name": dict_current_user.get("str_name", ""),
+                "str_role": dict_current_user.get("str_role", ""),
+                "str_department": dict_current_user.get("str_department", ""),
+            },
+        }
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {
+            "$set": {
+                "str_name": str_name,
+                "str_department": str_department,
+                "dt_updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    invalidate_user_cache(str_user_id)
+
+    await log_audit_event(
+        str_action="user.profile_updated",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=str_user_id,
+        str_detail="Updated own profile",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before=dict_before,
+        dict_after=dict_after,
+    )
+
+    return {
+        "str_message": "Profile updated",
+        "dict_user": {
+            "str_id": str_user_id,
+            "str_login_id": dict_current_user.get("str_login_id", ""),
+            "str_name": str_name,
+            "str_role": dict_current_user.get("str_role", ""),
+            "str_department": str_department,
+        },
+    }
+
+
 @router.post("/update")
 async def update_user(
     body: UpdateUserRequest,

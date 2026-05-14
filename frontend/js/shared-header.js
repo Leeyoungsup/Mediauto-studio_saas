@@ -5,6 +5,15 @@
         return role || 'viewer';
     }
 
+    function esc(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     async function defaultLogout() {
         const token = localStorage.getItem('access_token');
         try {
@@ -46,8 +55,8 @@
                         ${showAdmin ? `<a href="/admin.html" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
                     </nav>
                     <div class="shared-user-info">
-                        <span class="shared-user-name">${name}</span>
-                        <span class="shared-role">${labelForRole(role)}</span>
+                        <a href="/profile.html" class="shared-user-name" title="Edit profile">${esc(name)}</a>
+                        <span class="shared-role">${esc(labelForRole(role))}</span>
                         <button class="shared-logout" type="button">Logout</button>
                     </div>
                 </div>
