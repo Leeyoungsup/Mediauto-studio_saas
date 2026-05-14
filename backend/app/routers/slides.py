@@ -429,9 +429,9 @@ async def list_projects():
             )
             str_status = dict_doc.get("str_status") or ""
             str_annotation_status = dict_doc.get("str_annotation_status") or str_status
-            if str_annotation_status in {"review", "done", "termination", "flagged"}:
+            if str_annotation_status in {"review", "done", "termination_in_progress", "termination", "flagged"}:
                 dict_project["annotation_count"] += 1
-            if str_annotation_status in {"termination", "flagged"}:
+            if str_annotation_status in {"termination_in_progress", "termination", "flagged"}:
                 dict_project["review_count"] += 1
             if str_annotation_status == "termination":
                 dict_project["termination_count"] += 1
@@ -927,7 +927,7 @@ async def set_file_status(
 ):
     """슬라이드 리뷰 상태 일괄 설정.
 
-    status: "" | "pending" | "in_progress" | "done" | "flagged" | "annotation" | "review" | "termination"
+    status: "" | "pending" | "in_progress" | "done" | "flagged" | "annotation" | "review" | "termination_in_progress" | "termination"
     """
     str_scope = (scope or "").strip().lower()
     if str_scope not in {"", "ai", "annotation"}:

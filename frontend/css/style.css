@@ -1053,6 +1053,11 @@ body.annotation-page .slide-workflow-cell.is-active {
     border-color: rgba(84, 160, 255, 0.45);
     color: #7fc0ff;
 }
+body.annotation-page .slide-workflow-cell.is-running {
+    background: rgba(240, 195, 107, 0.2);
+    border-color: rgba(240, 195, 107, 0.52);
+    color: #f5c86f;
+}
 body.annotation-page .slide-workflow-cell.is-complete {
     background: rgba(46, 204, 113, 0.18);
     border-color: rgba(46, 204, 113, 0.45);

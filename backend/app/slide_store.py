@@ -33,7 +33,7 @@ DICT_CURRENT_TO_LEGACY_AI_MODEL_KEYS = {
 SET_SLIDE_STATUSES = {
     "",
     "pending", "in_progress", "done", "flagged",
-    "annotation", "review", "termination",
+    "annotation", "review", "termination_in_progress", "termination",
 }
 
 

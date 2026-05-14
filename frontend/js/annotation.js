@@ -154,7 +154,7 @@ const ANNOTATION_WORKFLOW_ORDER = ['annotation', 'review', 'termination'];
 function _normalizeAnnotationWorkflowStatus(status) {
     const strStatus = status || '';
     if (strStatus === 'review' || strStatus === 'done') return 'review';
-    if (strStatus === 'termination' || strStatus === 'flagged') return 'termination';
+    if (strStatus === 'termination' || strStatus === 'termination_in_progress' || strStatus === 'flagged') return 'termination';
     return 'annotation';
 }
 
@@ -162,7 +162,21 @@ function _annotationWorkflowStorageStatus(status) {
     const strStatus = _normalizeAnnotationWorkflowStatus(status);
     if (strStatus === 'review') return 'done';
     if (strStatus === 'termination') return 'flagged';
+    return 'pending';
+}
+
+function _annotationWorkflowRunningStorageStatus(status) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    if (strStatus === 'review') return 'review';
+    if (strStatus === 'termination') return 'termination_in_progress';
     return 'in_progress';
+}
+
+function _annotationWorkflowCompleteStorageStatus(status) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    if (strStatus === 'review') return 'flagged';
+    if (strStatus === 'termination') return 'termination';
+    return 'done';
 }
 
 async function _saveAnnotationWorkflowStorageStatus(filename, status) {
@@ -194,8 +208,17 @@ function _annotationWorkflowRawStatus(status) {
     return String(status || '').toLowerCase();
 }
 
+function _annotationWorkflowRunningStep(status) {
+    const strRawStatus = _annotationWorkflowRawStatus(status);
+    if (strRawStatus === 'in_progress') return 'annotation';
+    if (strRawStatus === 'review') return 'review';
+    if (strRawStatus === 'termination_in_progress') return 'termination';
+    return '';
+}
+
 function _annotationWorkflowStepState(status, step) {
     const strRawStatus = _annotationWorkflowRawStatus(status);
+    if (_annotationWorkflowRunningStep(status) === step) return 'running';
     const intCurrent = _annotationWorkflowIndex(status);
     const intStep = _annotationWorkflowIndex(step);
     if (step === 'termination' && strRawStatus === 'termination') return 'complete';
@@ -206,6 +229,7 @@ function _annotationWorkflowStepState(status, step) {
 
 function _annotationWorkflowStepSymbol(state) {
     if (state === 'complete') return '\u2713';
+    if (state === 'running') return '...';
     if (state === 'active') return '\u25b6';
     return '-';
 }
@@ -530,8 +554,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideInfo = slideInfo;
     currentSlideFilename = filename || slideInfo?.filename || '';
     currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
-    _annotationRunningStep = '';
-    _annotationWorkflowFinished = false;
+    _annotationRunningStep = _annotationWorkflowRunningStep(currentAnnotationStatus);
+    _annotationWorkflowFinished = _annotationWorkflowRawStatus(currentAnnotationStatus) === 'termination';
     _syncAnnotationStatusControl(currentAnnotationStatus);
 
     // 슬라이드 전환 — 이전 슬라이드의 sticky 클래스는 의미 없음 (class id/이름 매핑이
@@ -672,7 +696,7 @@ function _setSlideListItemAnnotationStatus(filename, status) {
     const items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
     for (const item of items) {
         if (item.dataset.filename !== filename) continue;
-        ['pending', 'in_progress', 'done', 'flagged', 'annotation', 'review', 'termination'].forEach(value => {
+        ['pending', 'in_progress', 'done', 'flagged', 'annotation', 'review', 'termination_in_progress', 'termination'].forEach(value => {
             item.classList.remove(`status-${value}`);
         });
         const strRawStatus = status || 'annotation';
@@ -4027,15 +4051,33 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
         return;
     }
     if (_annotationRunningStep !== strNextStatus) {
-        _annotationRunningStep = strNextStatus;
+        const strRunningStorageStatus = _annotationWorkflowRunningStorageStatus(strNextStatus);
+        const strPrevStatus = currentAnnotationStatus || '';
+        const strPrevRunningStep = _annotationRunningStep || '';
+        const boolPrevFinished = _annotationWorkflowFinished;
+        _annotationStatusSaving = true;
         _syncAnnotationStatusControl(currentAnnotationStatus);
+        try {
+            await _saveAnnotationWorkflowStorageStatus(currentSlideFilename, strRunningStorageStatus);
+            currentAnnotationStatus = strRunningStorageStatus;
+            _annotationRunningStep = strNextStatus;
+            _annotationWorkflowFinished = false;
+            _setSlideListItemAnnotationStatus(currentSlideFilename, strRunningStorageStatus);
+            setStatus(`Annotation status in progress: ${currentSlideFilename}`);
+        } catch (err) {
+            currentAnnotationStatus = strPrevStatus;
+            _annotationRunningStep = strPrevRunningStep;
+            _annotationWorkflowFinished = boolPrevFinished;
+            alert(`Failed to update annotation status: ${err.message}`);
+        } finally {
+            _annotationStatusSaving = false;
+            _syncAnnotationStatusControl(currentAnnotationStatus);
+        }
         return;
     }
     const strCompletedStatus = strNextStatus;
     const strTargetStatus = _nextAnnotationWorkflowStatus(strCompletedStatus);
-    const strNextStorageStatus = strCompletedStatus === 'termination'
-        ? 'termination'
-        : _annotationWorkflowStorageStatus(strTargetStatus);
+    const strNextStorageStatus = _annotationWorkflowCompleteStorageStatus(strCompletedStatus);
     const strPrevStatus = currentAnnotationStatus || '';
     _annotationStatusSaving = true;
     _syncAnnotationStatusControl(currentAnnotationStatus);
