@@ -86,6 +86,11 @@ class Settings:
     )
 
     # 타일 설정
+    ANNOTATIONS_DIR: str = os.environ.get(
+        "ANNOTATIONS_DIR",
+        str(Path(__file__).parent.parent / "annotations")
+    )
+
     TILE_SIZE: int = 1024
     TILE_FORMAT: str = "JPEG"  # JPEG이 PNG보다 빠르고 작음
     TILE_QUALITY: int = 85

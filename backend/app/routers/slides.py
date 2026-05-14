@@ -1682,6 +1682,24 @@ async def close_slide(slide_id: str):
 _INT_ANNOTATIONS_MAX_BYTES = 8 * 1024 * 1024  # 8 MB — annotation 한 슬라이드 합 상한
 
 
+def _annotation_slide_dirname(filename: str) -> str:
+    """슬라이드 파일명을 annotations 하위 폴더명으로 안전하게 변환."""
+    str_name = Path(filename).name.strip()
+    if not str_name:
+        str_name = "slide"
+    for ch in '<>:"/\\|?*':
+        str_name = str_name.replace(ch, "_")
+    str_name = "".join("_" if ord(ch) < 32 else ch for ch in str_name)
+    str_name = str_name.rstrip(" .")
+    if str_name in {"", ".", ".."}:
+        str_name = hashlib.sha256(filename.encode("utf-8", "ignore")).hexdigest()[:16]
+    return str_name
+
+
+def _annotation_path_for_filename(filename: str) -> Path:
+    return Path(settings.ANNOTATIONS_DIR) / _annotation_slide_dirname(filename) / "annotations.json"
+
+
 @router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
 async def save_annotations(slide_id: str, data: str = Form(...)):
     """슬라이드별 annotation JSON 저장.
@@ -1707,11 +1725,11 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
         raise HTTPException(400, "annotation 은 list 형식이어야 합니다")
 
     filename = Path(info.file_path).name
-    ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
+    ann_path = _annotation_path_for_filename(filename)
     ann_path.parent.mkdir(parents=True, exist_ok=True)
     with open(ann_path, "w", encoding="utf-8") as f:
         f.write(data)
-    return {"status": "saved", "count": len(list_parsed)}
+    return {"status": "saved", "count": len(list_parsed), "path": str(ann_path)}
 
 
 @router.get("/{slide_id}/annotations/load", dependencies=[Depends(require_not_viewer)])
@@ -1721,7 +1739,9 @@ async def load_annotations(slide_id: str):
     if not info:
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
     filename = Path(info.file_path).name
-    ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
+    ann_path = _annotation_path_for_filename(filename)
+    if not ann_path.exists():
+        ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
     if not ann_path.exists():
         return []
     with open(ann_path, "r", encoding="utf-8") as f:
