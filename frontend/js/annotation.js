@@ -604,10 +604,10 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         btn.classList.toggle('is-active', boolActive);
         btn.classList.toggle('is-complete', boolComplete);
         btn.classList.toggle('is-running', boolRunning);
-        btn.disabled = boolDisabled || !boolActive;
+        btn.disabled = boolDisabled;
         btn.title = boolActive
             ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
-            : (boolComplete ? `${strLabel} complete` : 'Proceed in order');
+            : `Move to ${strLabel}`;
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
@@ -3931,6 +3931,45 @@ const SLIDE_STATUS_OPTIONS = [
     { value: 'termination', label: 'Termination', color: '#6c5ce7' },
 ];
 
+function _annotationWorkflowLabel(status) {
+    const strStatus = _normalizeAnnotationWorkflowStatus(status);
+    return SLIDE_STATUS_OPTIONS.find(opt => opt.value === strStatus)?.label || strStatus;
+}
+
+async function _moveAnnotationWorkflowStatusDirect(strRequestedStatus) {
+    const strTargetStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
+    const strLabel = _annotationWorkflowLabel(strTargetStatus);
+    if (!confirm(`Annotation Status를 "${strLabel}" 단계로 변경할까요?`)) {
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return;
+    }
+
+    const strPrevStatus = currentAnnotationStatus || '';
+    const strPrevRunningStep = _annotationRunningStep || '';
+    const boolPrevFinished = _annotationWorkflowFinished;
+    _annotationStatusSaving = true;
+    _syncAnnotationStatusControl(currentAnnotationStatus);
+    try {
+        await _saveAnnotationWorkflowStorageStatus(
+            currentSlideFilename,
+            _annotationWorkflowStorageStatus(strTargetStatus)
+        );
+        currentAnnotationStatus = strTargetStatus;
+        _annotationRunningStep = '';
+        _annotationWorkflowFinished = false;
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strTargetStatus);
+        setStatus(`Annotation status changed to ${strLabel}: ${currentSlideFilename}`);
+    } catch (err) {
+        currentAnnotationStatus = strPrevStatus;
+        _annotationRunningStep = strPrevRunningStep;
+        _annotationWorkflowFinished = boolPrevFinished;
+        alert(`Failed to update annotation status: ${err.message}`);
+    } finally {
+        _annotationStatusSaving = false;
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+    }
+}
+
 async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
     if (!currentSlideFilename) {
         _syncAnnotationStatusControl('');
@@ -3942,7 +3981,7 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
     }
     const strNextStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
     if (strNextStatus !== _normalizeAnnotationWorkflowStatus(currentAnnotationStatus) || _annotationWorkflowFinished) {
-        _syncAnnotationStatusControl(currentAnnotationStatus);
+        await _moveAnnotationWorkflowStatusDirect(strNextStatus);
         return;
     }
     if (_annotationRunningStep !== strNextStatus) {
