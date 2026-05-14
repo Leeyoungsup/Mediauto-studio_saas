@@ -113,6 +113,10 @@ const $projectGateHasSlides = $('#project-gate-has-slides');
 const $projectGateHasFolders = $('#project-gate-has-folders');
 const $projectGateMinSlides = $('#project-gate-min-slides');
 const $projectGatePager = $('#project-gate-pager');
+const $projectStatTotal = $('#project-stat-total');
+const $projectStatDone = $('#project-stat-done');
+const $projectStatProgress = $('#project-stat-progress');
+const $projectStatAi = $('#project-stat-ai');
 const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
@@ -262,12 +266,18 @@ if ($projectBtnLogout) {
 // 파일 열기 + 업로드
 // ═══════════════════════════
 // ── 업로드 팝업 ──
-function openUploadPopup(files) {
+function openUploadPopup(files, targetPath = currentBrowsePath) {
+    const projectName = (targetPath || '').split('/').filter(Boolean)[0] || '';
+    if (!projectName) {
+        alert('Select a project before uploading slides.');
+        _showProjectGate(_projectListCache);
+        return;
+    }
     if (files) window._pendingUploadFiles = files;
     const w = 520, h = 600;
     const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
     window.open(
-        `/upload.html?path=${encodeURIComponent(currentBrowsePath)}`,
+        `/upload.html?path=${encodeURIComponent(targetPath || projectName)}`,
         'upload_popup',
         `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
@@ -296,7 +306,7 @@ async function uploadFiles(fileList, _targetPath) {
         setStatus('지원하는 슬라이드 파일이 없습니다');
         return;
     }
-    openUploadPopup(fileList);
+    openUploadPopup(fileList, _targetPath || currentBrowsePath);
 }
 
 // 하위 호환 — 기존 uploadOneFile 참조 방지 (사용처 없음)
@@ -2869,6 +2879,13 @@ function _syncProjectSelect() {
     _setProjectControlsEnabled();
 }
 
+function _projectLabel(project) {
+    const info = project?.info || {};
+    const name = project?.name || project?.path || '';
+    const title = info.title && info.title !== name ? `${info.title} (${name})` : name;
+    return `${title} · ${project?.slide_count || 0} slides`;
+}
+
 async function loadProjectList() {
     if (!$projectSelect) return [];
     try {
@@ -2877,20 +2894,22 @@ async function loadProjectList() {
         _projectListCache = list_projects;
         const currentProject = _getCurrentProjectName();
         $projectSelect.innerHTML = '';
-        const rootOpt = document.createElement('option');
-        rootOpt.value = '';
-        rootOpt.textContent = 'All Projects / Root';
-        $projectSelect.appendChild(rootOpt);
         for (const project of list_projects) {
             const opt = document.createElement('option');
             opt.value = project.path || project.name;
-            opt.textContent = `${project.name} (${project.slide_count || 0})`;
+            opt.textContent = _projectLabel(project);
             $projectSelect.appendChild(opt);
         }
         if (currentProject && !_hasProjectOption(currentProject)) {
             const opt = document.createElement('option');
             opt.value = currentProject;
             opt.textContent = currentProject;
+            $projectSelect.appendChild(opt);
+        }
+        if (!currentProject && !$projectSelect.options.length) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No projects';
             $projectSelect.appendChild(opt);
         }
         _syncProjectSelect();
@@ -2908,6 +2927,9 @@ function _projectGateValue(project, key) {
     if (key === 'hospital') return info.institution || '';
     if (key === 'owner') return info.owner || '';
     if (key === 'slides') return Number(project.slide_count || 0);
+    if (key === 'reviewed') return Number(project.reviewed_count || 0);
+    if (key === 'progress') return Number(project.in_progress_count || 0);
+    if (key === 'ai') return Number(project.ai_analyzed_count || 0);
     if (key === 'folders') return Number(project.folder_count || 0);
     if (key === 'status') return info.status || 'active';
     return '';
@@ -2993,7 +3015,10 @@ function _setProjectGateSort(key) {
     if (_projectGateSort.key === key) {
         _projectGateSort.dir = _projectGateSort.dir === 'asc' ? 'desc' : 'asc';
     } else {
-        _projectGateSort = { key, dir: key === 'slides' || key === 'folders' ? 'desc' : 'asc' };
+        _projectGateSort = {
+            key,
+            dir: ['slides', 'reviewed', 'progress', 'ai', 'folders'].includes(key) ? 'desc' : 'asc',
+        };
     }
     _projectGatePage = 1;
     _renderProjectGate(_projectListCache);
@@ -3044,6 +3069,26 @@ function _refreshProjectGate() {
     _renderProjectGate(_projectListCache);
 }
 
+async function _loadProjectGateStats() {
+    if (!$projectStatTotal) return;
+    try {
+        const data = await api.dashboard(false);
+        const counts = data.status_counts || {};
+        const ai = data.ai_counts || {};
+        $projectStatTotal.textContent = data.total_slides || 0;
+        $projectStatDone.textContent = counts.done || 0;
+        $projectStatProgress.textContent = (counts.in_progress || 0) + (counts.pending || 0);
+        $projectStatAi.textContent = Math.max(
+            ai['Quanti HE'] || 0,
+            ai['Quanti PD-L1'] || 0,
+            ai['Quanti IHC'] || 0,
+            ai['VS IHC'] || 0
+        );
+    } catch (err) {
+        console.warn('Project summary load failed:', err);
+    }
+}
+
 function _renderProjectGate(list_projects) {
     if (!$projectGateList) return;
     const list_source = Array.isArray(list_projects) ? list_projects : [];
@@ -3067,6 +3112,9 @@ function _renderProjectGate(list_projects) {
         { label: 'Hospital', key: 'hospital' },
         { label: 'Owner', key: 'owner' },
         { label: 'Slides', key: 'slides' },
+        { label: 'Reviewed', key: 'reviewed' },
+        { label: 'In Progress', key: 'progress' },
+        { label: 'AI Analyzed', key: 'ai' },
         { label: 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
         { label: '', key: '' },
@@ -3136,6 +3184,18 @@ function _renderProjectGate(list_projects) {
         slidesEl.className = 'project-gate-cell project-gate-number';
         slidesEl.textContent = project.slide_count || 0;
 
+        const reviewedEl = document.createElement('div');
+        reviewedEl.className = 'project-gate-cell project-gate-number';
+        reviewedEl.textContent = project.reviewed_count || 0;
+
+        const progressEl = document.createElement('div');
+        progressEl.className = 'project-gate-cell project-gate-number';
+        progressEl.textContent = project.in_progress_count || 0;
+
+        const aiEl = document.createElement('div');
+        aiEl.className = 'project-gate-cell project-gate-number';
+        aiEl.textContent = project.ai_analyzed_count || 0;
+
         const foldersEl = document.createElement('div');
         foldersEl.className = 'project-gate-cell project-gate-number';
         foldersEl.textContent = project.folder_count || 0;
@@ -3151,7 +3211,7 @@ function _renderProjectGate(list_projects) {
         actionEl.className = 'project-gate-action';
         actionEl.textContent = 'Open';
 
-        row.append(projectEl, hospitalEl, ownerEl, slidesEl, foldersEl, statusEl, actionEl);
+        row.append(projectEl, hospitalEl, ownerEl, slidesEl, reviewedEl, progressEl, aiEl, foldersEl, statusEl, actionEl);
         row.addEventListener('click', () => _enterProjectFromGate(path));
         $projectGateList.appendChild(row);
     }
@@ -3411,56 +3471,7 @@ function navigateToFolder(path) {
 
 if ($projectSelect) {
     $projectSelect.addEventListener('change', () => {
-        navigateToFolder($projectSelect.value || '');
-    });
-}
-
-if ($btnNewProject) {
-    $btnNewProject.addEventListener('click', async () => {
-        const name = prompt('New project name:');
-        if (!name || !name.trim()) return;
-        try {
-            const result = await api.createProject(name.trim());
-            currentBrowsePath = result.path || name.trim();
-            await loadProjectList();
-            await loadSlideList();
-        } catch (err) {
-            alert(`Project create failed: ${err.message}`);
-        }
-    });
-}
-
-if ($btnRenameProject) {
-    $btnRenameProject.addEventListener('click', async () => {
-        const projectName = _getCurrentProjectName();
-        if (!projectName) return;
-        const newName = prompt('Rename project:', projectName);
-        if (!newName || !newName.trim() || newName.trim() === projectName) return;
-        try {
-            const result = await api.renameProject(projectName, newName.trim());
-            const restPath = currentBrowsePath.split('/').slice(1).join('/');
-            currentBrowsePath = restPath ? `${result.path}/${restPath}` : result.path;
-            await loadProjectList();
-            await loadSlideList();
-        } catch (err) {
-            alert(`Project rename failed: ${err.message}`);
-        }
-    });
-}
-
-if ($btnDeleteProject) {
-    $btnDeleteProject.addEventListener('click', async () => {
-        const projectName = _getCurrentProjectName();
-        if (!projectName) return;
-        if (!confirm(`Delete empty project "${projectName}"?`)) return;
-        try {
-            await api.deleteProject(projectName);
-            currentBrowsePath = '';
-            await loadProjectList();
-            await loadSlideList();
-        } catch (err) {
-            alert(`Project delete failed: ${err.message}`);
-        }
+        if ($projectSelect.value) navigateToFolder($projectSelect.value);
     });
 }
 
@@ -3517,18 +3528,22 @@ function _makeBreadcrumbDroppable(el, targetPath) {
 
 function updateBreadcrumb() {
     $breadcrumb.innerHTML = '';
+    const projectName = _getCurrentProjectName();
     const root = document.createElement('span');
     root.className = 'breadcrumb-item';
-    root.textContent = 'Root';
-    root.addEventListener('click', () => navigateToFolder(''));
-    _makeBreadcrumbDroppable(root, '');
+    root.textContent = projectName || 'Projects';
+    root.addEventListener('click', () => {
+        if (projectName) navigateToFolder(projectName);
+        else _showProjectGate(_projectListCache);
+    });
+    if (projectName) _makeBreadcrumbDroppable(root, projectName);
     $breadcrumb.appendChild(root);
 
-    if (currentBrowsePath) {
-        const parts = currentBrowsePath.split('/');
+    if (projectName && currentBrowsePath) {
+        const parts = currentBrowsePath.split('/').slice(1);
         let accumulated = '';
         for (const part of parts) {
-            accumulated = accumulated ? `${accumulated}/${part}` : part;
+            accumulated = accumulated ? `${accumulated}/${part}` : `${projectName}/${part}`;
             const sep = document.createElement('span');
             sep.className = 'breadcrumb-sep';
             sep.textContent = '›';
@@ -3561,6 +3576,11 @@ async function openSavedSlide(filename, itemEl) {
 
 // ── 폴더 생성 ──
 $('#btn-new-folder').addEventListener('click', async () => {
+    if (!_getCurrentProjectName()) {
+        alert('Select a project before creating folders.');
+        _showProjectGate(_projectListCache);
+        return;
+    }
     const name = prompt('새 폴더 이름:');
     if (!name || !name.trim()) return;
     try {
@@ -4462,6 +4482,15 @@ $btnVsSplit?.addEventListener('click', () => {
             if ($linkAdmin) $linkAdmin.hidden = false;
             if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
+        window.MediautoHeader?.render({
+            active: 'viewer',
+            user: dict_me,
+            showAdmin: dict_me.str_role === 'admin',
+            logout: () => {
+                _stopAiActivePolling();
+                api.logout();
+            },
+        });
         window.__currentUserRole = dict_me.str_role || 'viewer';
         window.__currentUserId = String(dict_me._id || '');
         if (window.__currentUserRole === 'viewer') {

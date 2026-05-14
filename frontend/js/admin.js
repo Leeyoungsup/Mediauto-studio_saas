@@ -14,6 +14,11 @@ if (!accessToken || !userRaw) {
 
 let currentUser = null;
 try { currentUser = JSON.parse(userRaw); } catch { currentUser = null; }
+window.MediautoHeader?.render({
+    active: 'admin',
+    user: currentUser,
+    showAdmin: true,
+});
 
 if (!currentUser || currentUser.str_role !== 'admin') {
     alert('관리자 권한이 필요합니다.');

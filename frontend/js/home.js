@@ -55,6 +55,12 @@
     let _projectDialogMode = 'create';
     let _editingProjectPath = '';
 
+    window.MediautoHeader?.render({
+        active: 'home',
+        user: currentUser,
+        showAdmin: currentUser?.str_role === 'admin',
+    });
+
     function canEditProjects() {
         return currentUser && currentUser.str_role !== 'viewer';
     }

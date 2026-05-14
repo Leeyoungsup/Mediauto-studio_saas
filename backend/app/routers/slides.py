@@ -368,10 +368,38 @@ async def _upsert_project_info(
 async def list_projects():
     """uploads/ 바로 아래 1차 폴더를 프로젝트 목록으로 반환."""
     dict_infos = {}
+    dict_metrics = {}
     if is_db_connected():
         db = get_db()
         async for dict_doc in db.project_infos.find({}):
             dict_infos[dict_doc.get("str_project_path", "")] = dict_doc
+        async for dict_doc in db.slides.find(
+            {},
+            {"str_rel_path": 1, "str_status": 1, "dict_ai_results": 1},
+        ):
+            str_rel = (dict_doc.get("str_rel_path") or "").replace("\\", "/").strip("/")
+            str_project = str_rel.split("/", 1)[0] if str_rel else ""
+            if not str_project:
+                continue
+            dict_project = dict_metrics.setdefault(
+                str_project,
+                {"reviewed_count": 0, "in_progress_count": 0, "ai_analyzed_count": 0},
+            )
+            str_status = dict_doc.get("str_status") or ""
+            if str_status == "done":
+                dict_project["reviewed_count"] += 1
+            if str_status in {"pending", "in_progress"}:
+                dict_project["in_progress_count"] += 1
+            dict_ai = dict_doc.get("dict_ai_results") or {}
+            bool_has_ai = False
+            for str_model in slide_store.LIST_AI_MODEL_KEYS:
+                dict_cur = dict_ai.get(str_model) or {}
+                dict_legacy = dict_ai.get(slide_store._legacy_ai_model_key(str_model)) or {}
+                if dict_cur.get("bool_has_result") or dict_legacy.get("bool_has_result"):
+                    bool_has_ai = True
+                    break
+            if bool_has_ai:
+                dict_project["ai_analyzed_count"] += 1
 
     list_projects_out = []
     for p in _list_project_dirs():
@@ -389,6 +417,9 @@ async def list_projects():
             "path": p.name,
             "slide_count": int_slide_count,
             "folder_count": int_folder_count,
+            "reviewed_count": dict_metrics.get(p.name, {}).get("reviewed_count", 0),
+            "in_progress_count": dict_metrics.get(p.name, {}).get("in_progress_count", 0),
+            "ai_analyzed_count": dict_metrics.get(p.name, {}).get("ai_analyzed_count", 0),
             "info": _project_public_info(dict_infos.get(p.name)),
         })
     return {"projects": list_projects_out}

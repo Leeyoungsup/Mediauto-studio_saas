@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeDIAuto Studio — 관리자</title>
     <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/shared-header.css">
     <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
-    <header class="admin-header">
+    <div id="shared-header-root"></div>
+    <header class="admin-header" hidden>
         <div class="admin-header-inner">
             <a href="/home.html" class="admin-brand">
                 <img src="assets/logo.png" alt="logo" class="admin-logo">
@@ -222,6 +224,7 @@
         </form>
     </dialog>
 
+    <script src="js/shared-header.js"></script>
     <script src="js/admin.js"></script>
 </body>
 </html>

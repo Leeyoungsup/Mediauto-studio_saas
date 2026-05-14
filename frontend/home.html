@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeDIAuto Studio — Home</title>
     <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/shared-header.css">
     <link rel="stylesheet" href="css/home.css">
 </head>
 <body>
-    <header class="home-header">
+    <div id="shared-header-root"></div>
+    <header class="home-header" hidden>
         <div class="home-header-inner">
             <a href="/home.html" class="home-brand">
                 <img src="assets/logo.png" alt="MeDIAuto Studio" class="home-logo">
@@ -76,7 +78,7 @@
                 <div class="dialog-grid">
                     <label>Folder Name<input id="project-name-input" name="name" required></label>
                     <label>Title<input id="project-title-input" name="title"></label>
-                    <label>Institution<input id="project-institution-input" name="institution"></label>
+                    <label>Hospital<input id="project-institution-input" name="institution"></label>
                     <label>Department<input id="project-department-input" name="department"></label>
                     <label>Owner<input id="project-owner-input" name="owner"></label>
                     <label>Status
@@ -129,7 +131,7 @@
                     <thead>
                         <tr>
                             <th>Project</th>
-                            <th>Institution</th>
+                            <th>Hospital</th>
                             <th>Owner</th>
                             <th>Status</th>
                             <th>Slides</th>
@@ -206,6 +208,7 @@
         <span>MeDIAuto Studio &copy; 2024-2026</span>
     </footer>
 
+    <script src="js/shared-header.js"></script>
     <script src="js/home.js"></script>
 </body>
 </html>

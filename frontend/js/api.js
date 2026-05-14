@@ -221,6 +221,13 @@ export const api = {
         return res.json();
     },
 
+    async dashboard(includeStorage = false) {
+        const qs = includeStorage ? '?include_storage=true' : '';
+        const res = await _authFetch(`${API_BASE}/slides/dashboard${qs}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async createProject(name, info = {}) {
         const form = new FormData();
         form.append('name', name);

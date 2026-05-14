@@ -1,0 +1,117 @@
+.shared-header {
+    background: linear-gradient(135deg, #2d3142, #6c5ce7);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.shared-header-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    min-height: 80px;
+    padding: 14px 32px;
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+    align-items: center;
+    gap: 24px;
+}
+
+.shared-brand {
+    display: flex;
+    align-items: center;
+    color: #fff;
+    text-decoration: none;
+}
+
+.shared-logo {
+    height: 52px;
+    filter: brightness(0) invert(1);
+}
+
+.shared-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.shared-nav-item {
+    padding: 6px 16px;
+    border-radius: 6px;
+    color: rgba(255,255,255,0.72);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    transition: color 0.15s, background 0.15s;
+}
+
+.shared-nav-item:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+
+.shared-nav-item.active {
+    color: #fff;
+    background: rgba(255,255,255,0.18);
+}
+
+.shared-user-info {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    min-width: 0;
+    font-size: 13px;
+}
+
+.shared-user-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shared-role {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.2);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.shared-logout {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.34);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.shared-logout:hover {
+    background: rgba(255,255,255,0.15);
+}
+
+@media (max-width: 760px) {
+    .shared-header-inner {
+        grid-template-columns: auto 1fr auto;
+        min-height: 58px;
+        padding: 10px 16px;
+        gap: 10px;
+    }
+
+    .shared-logo { height: 34px; }
+    .shared-nav { justify-content: flex-start; gap: 2px; }
+    .shared-nav-item { padding: 5px 9px; font-size: 12px; }
+    .shared-user-info { gap: 6px; }
+    .shared-user-name,
+    .shared-role { display: none; }
+    .shared-logout { padding: 5px 10px; font-size: 12px; }
+}
