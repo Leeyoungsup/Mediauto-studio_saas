@@ -185,6 +185,7 @@ export class TileViewer {
         this._annotationCounter = 0;
         this.selectedAnnotationId = null;
         this._insertVertexPreview = null; // {annId, insertIndex, point:[sx,sy]} Ctrl+polygon edge insert preview
+        this._mergeHover = null;       // {annIds:[id,id], scenePoint:[sx,sy]} same-class polygon merge affordance
         this._dragControlPoint = null;  // {annId, pointIndex} 드래그 중인 컨트롤포인트
         this._dragAnnotation = null;    // {annId, startScene} 어노테이션 전체 이동
         this._lastDrawDragScene = null; // 폴리곤 드래그 점 추가용
@@ -497,6 +498,12 @@ export class TileViewer {
 
             // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
             // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
+            if (e.ctrlKey && e.button === 0 && this._isMergeHoverHit(cx, cy)) {
+                this._mergeHoveredPolygons();
+                e.preventDefault();
+                return;
+            }
+
             if (e.ctrlKey && e.button === 0 && this.drawMode) {
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
@@ -632,6 +639,13 @@ export class TileViewer {
                 this._vsSplitFrac = frac;
                 this.requestRender();
                 return;
+            }
+            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation) {
+                this._setMergeHover(e.ctrlKey ? this._findMergeHoverTarget(sx, sy) : null);
+                if (this._mergeHover) {
+                    this.canvas.style.cursor = 'pointer';
+                    return;
+                }
             }
             if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
                 this._setInsertVertexPreview(e.altKey ? this._findPolygonEdgeInsertTarget(sx, sy) : null);
@@ -828,6 +842,7 @@ export class TileViewer {
                     !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                     !this._vsSplitDragging) {
                 this.canvas.style.cursor = e.key === 'Alt' ? 'copy' : 'pointer';
+                if (e.key === 'Control') this.requestRender();
             }
             if (e.key === 'Escape') {
                 if (this._altPending) {
@@ -853,6 +868,9 @@ export class TileViewer {
         window.addEventListener('keyup', (e) => {
             if (e.key === 'Alt') {
                 this._setInsertVertexPreview(null);
+            }
+            if (e.key === 'Control') {
+                this._setMergeHover(null);
             }
             if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
                 // 다른 cursor 상태 (drawMode/패닝/이동) 가 아니면 grab 으로 복귀.
@@ -2885,7 +2903,35 @@ export class TileViewer {
 
         // 진행 중인 그리기 프리뷰
         this._renderInsertVertexPreview(octx);
+        this._renderMergeHover(octx);
         this._renderDrawingPreview(octx);
+    }
+
+    _renderMergeHover(octx) {
+        if (!this._mergeHover || !this._mergeHover.scenePoint) return;
+        const [cx, cy] = this.sceneToCanvas(this._mergeHover.scenePoint[0], this._mergeHover.scenePoint[1]);
+        octx.save();
+        octx.beginPath();
+        octx.arc(cx, cy, 13, 0, Math.PI * 2);
+        octx.fillStyle = 'rgba(255,255,255,0.94)';
+        octx.fill();
+        octx.strokeStyle = 'rgba(108,92,231,0.95)';
+        octx.lineWidth = 2;
+        octx.stroke();
+        octx.strokeStyle = 'rgba(108,92,231,0.95)';
+        octx.lineWidth = 2.2;
+        octx.lineCap = 'round';
+        octx.beginPath();
+        octx.arc(cx - 3.5, cy, 4.4, Math.PI * 0.25, Math.PI * 1.75);
+        octx.arc(cx + 3.5, cy, 4.4, Math.PI * 1.25, Math.PI * 0.75, true);
+        octx.stroke();
+        octx.beginPath();
+        octx.moveTo(cx - 1.5, cy);
+        octx.lineTo(cx + 1.5, cy);
+        octx.moveTo(cx, cy - 1.5);
+        octx.lineTo(cx, cy + 1.5);
+        octx.stroke();
+        octx.restore();
     }
 
     _renderInsertVertexPreview(octx) {
@@ -3360,6 +3406,188 @@ export class TileViewer {
             area += a[0] * b[1] - b[0] * a[1];
         }
         return area / 2;
+    }
+
+    _annotationClassKey(ann) {
+        return String(ann?.class_id || ann?.properties?.class_id || '');
+    }
+
+    _findMergeHoverTarget(sx, sy) {
+        const hits = [];
+        for (let i = this.annotations.length - 1; i >= 0; i--) {
+            const ann = this.annotations[i];
+            if (!ann || !ann.visible || ann.type !== 'polygon' || !Array.isArray(ann.coordinates) || ann.coordinates.length < 3) {
+                continue;
+            }
+            if (this._pointInPolygon(sx, sy, ann.coordinates) || this._pointNearPolyline(sx, sy, ann.coordinates, true, Math.max(4, 8 / Math.max(this.zoom, 0.0001)))) {
+                hits.push(ann);
+            }
+        }
+        for (let i = 0; i < hits.length; i++) {
+            for (let j = i + 1; j < hits.length; j++) {
+                if (this._annotationClassKey(hits[i]) !== this._annotationClassKey(hits[j])) continue;
+                if (!this._polygonsIntersectOrContain(hits[i].coordinates, hits[j].coordinates)) continue;
+                return { annIds: [hits[i].id, hits[j].id], scenePoint: [sx, sy] };
+            }
+        }
+        return null;
+    }
+
+    _setMergeHover(target) {
+        const prev = this._mergeHover;
+        const changed = (!!prev !== !!target) || (!!prev && !!target && (
+            prev.annIds[0] !== target.annIds[0] ||
+            prev.annIds[1] !== target.annIds[1] ||
+            Math.abs(prev.scenePoint[0] - target.scenePoint[0]) > 0.5 / Math.max(this.zoom, 0.0001) ||
+            Math.abs(prev.scenePoint[1] - target.scenePoint[1]) > 0.5 / Math.max(this.zoom, 0.0001)
+        ));
+        this._mergeHover = target;
+        if (changed) this.requestRender();
+    }
+
+    _isMergeHoverHit(cx, cy) {
+        if (!this._mergeHover || !this._mergeHover.scenePoint) return false;
+        const [mx, my] = this.sceneToCanvas(this._mergeHover.scenePoint[0], this._mergeHover.scenePoint[1]);
+        const dx = cx - mx;
+        const dy = cy - my;
+        return dx * dx + dy * dy <= 15 * 15;
+    }
+
+    _mergeHoveredPolygons() {
+        const hover = this._mergeHover;
+        if (!hover || !hover.annIds) return false;
+        const a = this.annotations.find(ann => ann.id === hover.annIds[0]);
+        const b = this.annotations.find(ann => ann.id === hover.annIds[1]);
+        if (!a || !b || a.type !== 'polygon' || b.type !== 'polygon') return false;
+        if (this._annotationClassKey(a) !== this._annotationClassKey(b)) return false;
+
+        const merged = this._unionPolygonOutlines(a.coordinates, b.coordinates);
+        if (!merged || merged.length < 3 || this._isSelfIntersecting(merged)) return false;
+
+        this.pushAnnotationUndo();
+        a.coordinates = merged;
+        if (!a.name || /^ROI_\d+$/.test(a.name)) a.name = `${a.class_name || 'Merged'} ROI`;
+        this.annotations = this.annotations.filter(ann => ann.id !== b.id);
+        this._setMergeHover(null);
+        this.selectAnnotation(a.id);
+        if (this.onAnnotationDeleted) this.onAnnotationDeleted(b);
+        if (this.onAnnotationChanged) this.onAnnotationChanged(a);
+        this.requestRender();
+        return true;
+    }
+
+    _polygonsIntersectOrContain(polyA, polyB) {
+        for (let i = 0; i < polyA.length; i++) {
+            const a1 = polyA[i];
+            const a2 = polyA[(i + 1) % polyA.length];
+            for (let j = 0; j < polyB.length; j++) {
+                const b1 = polyB[j];
+                const b2 = polyB[(j + 1) % polyB.length];
+                if (this._segmentIntersection(a1, a2, b1, b2)) return true;
+            }
+        }
+        return this._pointInPolygon(polyA[0][0], polyA[0][1], polyB) ||
+               this._pointInPolygon(polyB[0][0], polyB[0][1], polyA);
+    }
+
+    _unionPolygonOutlines(polyA, polyB) {
+        let a = this._cleanPolygonPoints(polyA);
+        let b = this._cleanPolygonPoints(polyB);
+        if (a.length < 3 || b.length < 3) return null;
+
+        const areaA = this._polygonSignedArea(a);
+        const areaB = this._polygonSignedArea(b);
+        if (areaA === 0 || areaB === 0) return null;
+        if ((areaA > 0) !== (areaB > 0)) b = [...b].reverse();
+
+        const hasIntersections = this._findPathPolygonIntersections(a, b.concat([b[0]])).length > 0;
+        if (!hasIntersections) {
+            if (this._pointInPolygon(a[0][0], a[0][1], b)) return b;
+            if (this._pointInPolygon(b[0][0], b[0][1], a)) return a;
+            return null;
+        }
+
+        const segments = [
+            ...this._outsideBoundarySegments(a, b),
+            ...this._outsideBoundarySegments(b, a),
+        ];
+        const loops = this._segmentsToLoops(segments);
+        if (!loops.length) return this._radialUnionFallback(a, b);
+
+        loops.sort((p, q) => Math.abs(this._polygonSignedArea(q)) - Math.abs(this._polygonSignedArea(p)));
+        return this._cleanPolygonPoints(loops[0]);
+    }
+
+    _outsideBoundarySegments(subject, clip) {
+        const segments = [];
+        for (let i = 0; i < subject.length; i++) {
+            const a = subject[i];
+            const b = subject[(i + 1) % subject.length];
+            const split = [{ t: 0, point: a }, { t: 1, point: b }];
+            for (let j = 0; j < clip.length; j++) {
+                const hit = this._segmentIntersection(a, b, clip[j], clip[(j + 1) % clip.length]);
+                if (hit && hit.t > 1e-7 && hit.t < 1 - 1e-7) split.push({ t: hit.t, point: hit.point });
+            }
+            split.sort((p, q) => p.t - q.t);
+            const unique = [];
+            for (const item of split) {
+                const prev = unique[unique.length - 1];
+                if (prev && Math.abs(prev.t - item.t) < 1e-7) continue;
+                unique.push(item);
+            }
+            for (let k = 0; k < unique.length - 1; k++) {
+                const p = unique[k].point;
+                const q = unique[k + 1].point;
+                if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-6) continue;
+                const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+                if (!this._pointInPolygon(mid[0], mid[1], clip)) {
+                    segments.push({ a: p, b: q });
+                }
+            }
+        }
+        return segments;
+    }
+
+    _segmentsToLoops(segments) {
+        const pointKey = (p) => `${Math.round(p[0] * 1000) / 1000},${Math.round(p[1] * 1000) / 1000}`;
+        const starts = new Map();
+        segments.forEach((seg, idx) => {
+            const key = pointKey(seg.a);
+            if (!starts.has(key)) starts.set(key, []);
+            starts.get(key).push(idx);
+        });
+
+        const used = new Set();
+        const loops = [];
+        for (let i = 0; i < segments.length; i++) {
+            if (used.has(i)) continue;
+            const loop = [segments[i].a, segments[i].b];
+            used.add(i);
+            const startKey = pointKey(segments[i].a);
+            let endKey = pointKey(segments[i].b);
+            let guard = 0;
+            while (endKey !== startKey && guard < segments.length + 2) {
+                const nextList = starts.get(endKey) || [];
+                const nextIdx = nextList.find(idx => !used.has(idx));
+                if (nextIdx == null) break;
+                used.add(nextIdx);
+                loop.push(segments[nextIdx].b);
+                endKey = pointKey(segments[nextIdx].b);
+                guard++;
+            }
+            const clean = this._cleanPolygonPoints(loop);
+            if (clean.length >= 3 && endKey === startKey) loops.push(clean);
+        }
+        return loops;
+    }
+
+    _radialUnionFallback(polyA, polyB) {
+        const points = [...polyA, ...polyB];
+        const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length;
+        const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+        return this._cleanPolygonPoints(points.sort((p, q) =>
+            Math.atan2(p[1] - cy, p[0] - cx) - Math.atan2(q[1] - cy, q[0] - cx)
+        ));
     }
 
     _hitControlPoint(cx, cy) {
