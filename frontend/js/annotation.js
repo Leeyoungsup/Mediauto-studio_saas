@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-17';
+import { TileViewer } from './tile-viewer.js?v=20260518-18';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -87,7 +87,9 @@ function _blockViewerAction(message = 'Viewer 권한은 AI/annotation 기능을 
 }
 
 const $btnDrawPolygon = $('#btn-draw-polygon');
+const $btnDrawBrush = $('#btn-draw-brush');
 const $btnDrawRect = $('#btn-draw-rect');
+const $btnDrawPoint = $('#btn-draw-point');
 const $btnCutPolygon = $('#btn-cut-polygon');
 const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
@@ -822,7 +824,7 @@ function _applyViewerRoleRestrictions() {
     _stopAiActivePolling();
 
     // Annotation 그리기 도구 (상단 툴바)
-    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect', 'btn-cut-polygon',
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-brush', 'btn-draw-rect', 'btn-draw-point', 'btn-cut-polygon',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
         const el = document.getElementById(id);
@@ -998,7 +1000,9 @@ $btnFit.addEventListener('click', () => viewer.fitToWindow());
 // ═══════════════════════════
 const drawButtons = {
     polygon: $btnDrawPolygon,
+    brush: $btnDrawBrush,
     rectangle: $btnDrawRect,
+    point: $btnDrawPoint,
     cut: $btnCutPolygon,
     'rect-1mm2': $btnDrawRect1mm2,
     'circle-1mm2': $btnDrawCircle1mm2,
@@ -1014,11 +1018,15 @@ function setDrawMode(mode) {
     if (newMode && drawButtons[newMode]) drawButtons[newMode].classList.add('active');
     if (newMode === 'cut') {
         setStatus('Cut: select a polygon, then drag a stroke across its boundary');
+    } else if (newMode === 'brush') {
+        setStatus('Brush: drag to paint a polygon. Alt + wheel changes brush size');
     }
 }
 
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
+if ($btnDrawBrush) $btnDrawBrush.addEventListener('click', () => setDrawMode('brush'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
+if ($btnDrawPoint) $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
 if ($btnCutPolygon) $btnCutPolygon.addEventListener('click', () => setDrawMode('cut'));
 if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));

@@ -91,8 +91,25 @@
             <button id="btn-draw-polygon" class="toolbar-btn toggle-btn" title="Draw Polygon" disabled>
                 <img src="assets/Polygon.png" alt="Polygon">
             </button>
+            <button id="btn-draw-brush" class="toolbar-btn toggle-btn" title="Polygon Brush (Alt + wheel: brush size)" aria-label="Polygon Brush" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12.8 3.2l4 4-7.7 7.7-4.6 1.1 1.1-4.6z"/>
+                    <path d="M11.2 4.8l4 4"/>
+                    <path d="M4.2 16.1c1.8.8 4.7.7 6.7-.3"/>
+                    <circle cx="6.4" cy="13.6" r="1.4" fill="currentColor" stroke="none"/>
+                </svg>
+            </button>
             <button id="btn-draw-rect" class="toolbar-btn toggle-btn" title="Draw Rectangle" disabled>
                 <img src="assets/Rectangular_ROI_measurement.png" alt="Rectangle">
+            </button>
+            <button id="btn-draw-point" class="toolbar-btn toggle-btn" title="Draw Point" aria-label="Draw Point" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none"/>
+                    <circle cx="10" cy="10" r="7.2"/>
+                    <path d="M10 1.8v3M10 15.2v3M1.8 10h3M15.2 10h3"/>
+                </svg>
             </button>
             <button id="btn-cut-polygon" class="toolbar-btn toggle-btn" title="Cut / reshape selected polygon" aria-label="Cut polygon" disabled>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -569,6 +586,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/annotation.js?v=20260518-27"></script>
+    <script type="module" src="js/annotation.js?v=20260518-28"></script>
 </body>
 </html>

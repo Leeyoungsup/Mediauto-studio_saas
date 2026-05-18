@@ -172,10 +172,12 @@ export class TileViewer {
 
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
-        this.drawMode = null;         // 'polygon' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
+        this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
         this._drawingPoints = [];     // 진행 중인 폴리곤 좌표 (scene)
         this._drawingStart = null;    // 사각형 시작점 (scene)
         this._drawingCurrent = null;  // 사각형/폴리곤 현재 마우스 (scene)
+        this._brushSizePx = Number(localStorage.getItem('annotationBrushSizePx') || 28);
+        this._brushSizePx = Math.max(4, Math.min(120, this._brushSizePx));
         // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
         // mode 해제 / 새 측정 시작 시 사라짐.
         this._rulerStart = null;      // [sx, sy]
@@ -470,6 +472,10 @@ export class TileViewer {
         // ── 줌 ──
         this.canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
+            if (e.altKey && this.drawMode === 'brush') {
+                this._adjustBrushSize(e.deltaY < 0 ? 2 : -2);
+                return;
+            }
             if (!this.slideInfo) return;
             const rect = this.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
@@ -711,6 +717,10 @@ export class TileViewer {
                 return;
             }
             // 1mm² 고정 크기 모드는 클릭 없이도 커서 따라가는 미리보기 표시
+            if (this.drawMode === 'brush') {
+                this._drawingCurrent = [sx, sy];
+                this.requestRender();
+            }
             if (this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2') {
                 this._drawingCurrent = [sx, sy];
                 this.requestRender();
@@ -2601,11 +2611,21 @@ export class TileViewer {
     // ── Annotation 그리기 ──
 
     setDrawMode(mode) {
-        // mode: 'polygon' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | null
+        // mode: 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | null
         this._cancelDrawing();
         this.drawMode = mode;
         this.canvas.style.cursor = mode ? 'crosshair' : 'grab';
         if (this.onDrawModeChange) this.onDrawModeChange(mode);
+    }
+
+    _adjustBrushSize(deltaPx) {
+        this._brushSizePx = Math.max(4, Math.min(120, (this._brushSizePx || 28) + deltaPx));
+        localStorage.setItem('annotationBrushSizePx', String(this._brushSizePx));
+        this.requestRender();
+    }
+
+    _brushRadiusScene() {
+        return (this._brushSizePx || 28) / (2 * Math.max(this.zoom, 0.0001));
     }
 
     /**
@@ -2648,6 +2668,12 @@ export class TileViewer {
     _onDrawMouseDown(sx, sy, cx, cy, e) {
         if (this.drawMode === 'polygon') {
             // 누르는 순간 시작, 드래그하면서 점 추가, 떼면 완성
+            this._drawingPoints = [[sx, sy]];
+            this._isDrawing = true;
+            this._drawingCurrent = [sx, sy];
+            this._lastDrawDragCanvas = [cx, cy];
+            this.requestRender();
+        } else if (this.drawMode === 'brush') {
             this._drawingPoints = [[sx, sy]];
             this._isDrawing = true;
             this._drawingCurrent = [sx, sy];
@@ -2703,12 +2729,13 @@ export class TileViewer {
         this._drawingCurrent = [sx, sy];
 
         // 폴리곤 드래그로 점 추가 (10px 간격)
-        if ((this.drawMode === 'polygon' || this.drawMode === 'cut') &&
+        if ((this.drawMode === 'polygon' || this.drawMode === 'brush' || this.drawMode === 'cut') &&
                 this._drawingPoints.length > 0 && (cx !== undefined)) {
             if (this._lastDrawDragCanvas) {
                 const ddx = cx - this._lastDrawDragCanvas[0];
                 const ddy = cy - this._lastDrawDragCanvas[1];
-                if (Math.sqrt(ddx * ddx + ddy * ddy) >= 10) {
+                const step = this.drawMode === 'brush' ? Math.max(3, (this._brushSizePx || 28) * 0.25) : 10;
+                if (Math.sqrt(ddx * ddx + ddy * ddy) >= step) {
                     this._drawingPoints.push([sx, sy]);
                     this._lastDrawDragCanvas = [cx, cy];
                 }
@@ -2726,6 +2753,23 @@ export class TileViewer {
             } else {
                 this._cancelDrawing();
             }
+            return;
+        }
+        if (this.drawMode === 'brush' && this._isDrawing) {
+            const pts = [...this._drawingPoints];
+            const last = pts[pts.length - 1];
+            if (!last || Math.hypot(last[0] - sx, last[1] - sy) > 1 / Math.max(this.zoom, 0.0001)) {
+                pts.push([sx, sy]);
+            }
+            const brushPolygon = this._makeBrushPolygonFromPath(pts);
+            if (brushPolygon && brushPolygon.length >= 3) {
+                this._createAnnotation('polygon', brushPolygon);
+            }
+            this._drawingPoints = [];
+            this._drawingCurrent = null;
+            this._isDrawing = false;
+            this._lastDrawDragCanvas = null;
+            this.requestRender();
             return;
         }
         if (this.drawMode === 'cut' && this._isDrawing) {
@@ -2777,6 +2821,44 @@ export class TileViewer {
     }
 
     /** 폴리곤 선분들이 자기 자신과 교차하는지 검사 */
+    _makeCirclePolygon(cx, cy, radius, count = 28) {
+        const pts = [];
+        for (let i = 0; i < count; i++) {
+            const a = (i / count) * Math.PI * 2;
+            pts.push([cx + Math.cos(a) * radius, cy + Math.sin(a) * radius]);
+        }
+        return pts;
+    }
+
+    _makeBrushPolygonFromPath(points) {
+        const path = this._cleanPolylinePoints(points);
+        const radius = this._brushRadiusScene();
+        if (!path.length) return null;
+        if (path.length === 1) return this._makeCirclePolygon(path[0][0], path[0][1], radius);
+
+        const left = [];
+        const right = [];
+        for (let i = 0; i < path.length; i++) {
+            const prev = path[Math.max(0, i - 1)];
+            const next = path[Math.min(path.length - 1, i + 1)];
+            let dx = next[0] - prev[0];
+            let dy = next[1] - prev[1];
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-9) {
+                dx = 1;
+                dy = 0;
+            } else {
+                dx /= len;
+                dy /= len;
+            }
+            const nx = -dy * radius;
+            const ny = dx * radius;
+            left.push([path[i][0] + nx, path[i][1] + ny]);
+            right.push([path[i][0] - nx, path[i][1] - ny]);
+        }
+        return this._cleanPolygonPoints(left.concat(right.reverse()));
+    }
+
     _isSelfIntersecting(pts) {
         const n = pts.length;
         if (n < 4) return false; // 삼각형은 교차 불가
@@ -3121,6 +3203,43 @@ export class TileViewer {
                 octx.arc(cx, cy, 3, 0, Math.PI * 2);
                 octx.fillStyle = '#0f0';
                 octx.fill();
+            }
+        }
+
+        if (this.drawMode === 'brush') {
+            if (this._isDrawing && this._drawingPoints.length > 0) {
+                octx.save();
+                octx.beginPath();
+                const [cx0, cy0] = this.sceneToCanvas(this._drawingPoints[0][0], this._drawingPoints[0][1]);
+                octx.moveTo(cx0, cy0);
+                for (let i = 1; i < this._drawingPoints.length; i++) {
+                    const [cx, cy] = this.sceneToCanvas(this._drawingPoints[i][0], this._drawingPoints[i][1]);
+                    octx.lineTo(cx, cy);
+                }
+                if (this._drawingCurrent) {
+                    const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
+                    octx.lineTo(cx, cy);
+                }
+                octx.strokeStyle = 'rgba(0,255,0,0.36)';
+                octx.lineWidth = this._brushSizePx || 28;
+                octx.lineCap = 'round';
+                octx.lineJoin = 'round';
+                octx.stroke();
+                octx.restore();
+            }
+            if (this._drawingCurrent) {
+                const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
+                octx.save();
+                octx.beginPath();
+                octx.arc(cx, cy, (this._brushSizePx || 28) / 2, 0, Math.PI * 2);
+                octx.fillStyle = 'rgba(0,255,0,0.08)';
+                octx.fill();
+                octx.strokeStyle = 'rgba(0,255,0,0.78)';
+                octx.lineWidth = 1.5;
+                octx.setLineDash([4, 3]);
+                octx.stroke();
+                octx.setLineDash([]);
+                octx.restore();
             }
         }
 
