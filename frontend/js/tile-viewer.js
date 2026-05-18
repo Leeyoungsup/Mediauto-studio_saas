@@ -2866,14 +2866,55 @@ export class TileViewer {
         if (!path.length) return null;
         if (path.length === 1) return this._makeCirclePolygon(path[0][0], path[0][1], radius);
 
-        let contour = this._resampleBrushPath(path, Math.max(radius * 0.2, 1 / Math.max(this.zoom, 0.0001)));
-        if (contour.length > 1200) {
-            const stride = Math.ceil(contour.length / 1200);
-            contour = contour.filter((_, index) => index % stride === 0);
-            contour.push(path[path.length - 1]);
+        let stroke = this._resampleBrushPath(path, Math.max(radius * 0.3, 1 / Math.max(this.zoom, 0.0001)));
+        if (stroke.length > 900) {
+            const stride = Math.ceil(stroke.length / 900);
+            stroke = stroke.filter((_, index) => index % stride === 0);
+            stroke.push(path[path.length - 1]);
+        }
+        if (stroke.length < 2) return null;
+
+        const normals = [];
+        for (let i = 0; i < stroke.length; i++) {
+            const prev = stroke[Math.max(0, i - 1)];
+            const next = stroke[Math.min(stroke.length - 1, i + 1)];
+            let dx = next[0] - prev[0];
+            let dy = next[1] - prev[1];
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-9) {
+                dx = 1;
+                dy = 0;
+            } else {
+                dx /= len;
+                dy /= len;
+            }
+            normals.push([-dy, dx]);
         }
 
-        return contour.length >= 3 ? this._cleanPolygonPoints(contour) : null;
+        const left = stroke.map((p, i) => [p[0] + normals[i][0] * radius, p[1] + normals[i][1] * radius]);
+        const right = stroke.map((p, i) => [p[0] - normals[i][0] * radius, p[1] - normals[i][1] * radius]);
+        const capSteps = 12;
+        const polygon = [...left];
+
+        const end = stroke[stroke.length - 1];
+        const endNormal = normals[normals.length - 1];
+        const endLeftAngle = Math.atan2(endNormal[1], endNormal[0]);
+        for (let i = 1; i < capSteps; i++) {
+            const a = endLeftAngle - (Math.PI * i) / capSteps;
+            polygon.push([end[0] + Math.cos(a) * radius, end[1] + Math.sin(a) * radius]);
+        }
+
+        polygon.push(...right.reverse());
+
+        const start = stroke[0];
+        const startNormal = normals[0];
+        const startRightAngle = Math.atan2(-startNormal[1], -startNormal[0]);
+        for (let i = 1; i < capSteps; i++) {
+            const a = startRightAngle - (Math.PI * i) / capSteps;
+            polygon.push([start[0] + Math.cos(a) * radius, start[1] + Math.sin(a) * radius]);
+        }
+
+        return this._cleanPolygonPoints(polygon);
     }
 
     _isSelfIntersecting(pts) {
