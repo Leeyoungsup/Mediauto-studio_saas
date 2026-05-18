@@ -1998,7 +1998,9 @@ function _annotationSortValue(ann, index, key) {
     }
     if (key === 'memo') {
         const memo = _annotationMemo(ann);
-        return memo ? `1:${memo.toLowerCase()}` : '0:';
+        if (memo) return `2:${memo.toLowerCase()}`;
+        const hasAnsweredMemo = _annotationMemoHistory(ann).some(item => item.answer);
+        return hasAnsweredMemo ? '1:history' : '0:';
     }
     if (key === 'visual') return ann.visible !== false ? 1 : 0;
     return index + 1;
@@ -2049,9 +2051,10 @@ function renderAnnotationPanel() {
         const displayId = _annotationDisplayId(ann);
         const memo = _annotationMemo(ann);
         const memoHistory = _annotationMemoHistory(ann);
-        const memoLabel = memo ? 'M' : '-';
+        const hasAnsweredMemo = memoHistory.some(item => item.answer);
+        const memoLabel = memo ? 'M' : (hasAnsweredMemo ? 'H' : '-');
         const memoTitle = memo ? memo : (memoHistory.length ? `${memoHistory.length} previous memo(s)` : 'No memo');
-        const memoClass = memo ? ' has-memo' : '';
+        const memoClass = memo ? ' has-memo' : (hasAnsweredMemo ? ' has-history' : '');
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
