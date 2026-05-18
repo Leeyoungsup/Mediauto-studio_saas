@@ -3647,6 +3647,10 @@ const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
 const $rightPanel = $('#right-panel');
 const $rightResizer = $('#right-panel-resizer');
+const LEFT_PANEL_MIN_W = 260;
+const LEFT_PANEL_MAX_W = 500;
+const LEFT_PANEL_COLLAPSE_W = 220;
+const LEFT_PANEL_DEFAULT_W = 260;
 const RIGHT_PANEL_MIN_W = 360;
 const RIGHT_PANEL_MAX_W = 600;
 const RIGHT_PANEL_COLLAPSE_W = 300;
@@ -3658,6 +3662,12 @@ function _resizeViewerCanvasSoon() {
     }
 }
 
+function _setLeftPanelCollapsed(collapsed) {
+    document.body.classList.toggle('left-panel-collapsed', !!collapsed);
+    localStorage.setItem('leftPanelCollapsed', collapsed ? '1' : '0');
+    _resizeViewerCanvasSoon();
+}
+
 function _setRightPanelCollapsed(collapsed) {
     document.body.classList.toggle('right-panel-collapsed', !!collapsed);
     localStorage.setItem('rightPanelCollapsed', collapsed ? '1' : '0');
@@ -3665,6 +3675,14 @@ function _setRightPanelCollapsed(collapsed) {
 }
 
 function _restorePanelSizes() {
+    const int_left_w = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
+    if (!Number.isNaN(int_left_w) && int_left_w >= LEFT_PANEL_MIN_W && int_left_w <= LEFT_PANEL_MAX_W) {
+        document.documentElement.style.setProperty('--left-panel-w', `${int_left_w}px`);
+    } else {
+        document.documentElement.style.setProperty('--left-panel-w', `${LEFT_PANEL_DEFAULT_W}px`);
+    }
+    _setLeftPanelCollapsed(localStorage.getItem('leftPanelCollapsed') === '1');
+
     const int_right_w = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
     if (!Number.isNaN(int_right_w) && int_right_w >= RIGHT_PANEL_MIN_W && int_right_w <= RIGHT_PANEL_MAX_W) {
         document.documentElement.style.setProperty('--right-panel-w', `${int_right_w}px`);
@@ -3701,11 +3719,21 @@ $resizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
     $resizer.classList.add('dragging');
     const startX = e.clientX;
-    const startW = $leftPanel.offsetWidth;
+    const storedW = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
+    const startW = document.body.classList.contains('left-panel-collapsed')
+        ? 0
+        : ($leftPanel.offsetWidth || (Number.isFinite(storedW) ? storedW : LEFT_PANEL_DEFAULT_W));
 
     function onMove(ev) {
-        const w = Math.max(160, Math.min(500, startW + ev.clientX - startX));
+        const rawW = startW + ev.clientX - startX;
+        if (rawW < LEFT_PANEL_COLLAPSE_W) {
+            _setLeftPanelCollapsed(true);
+            return;
+        }
+        _setLeftPanelCollapsed(false);
+        const w = Math.max(LEFT_PANEL_MIN_W, Math.min(LEFT_PANEL_MAX_W, rawW));
         document.documentElement.style.setProperty('--left-panel-w', `${w}px`);
+        localStorage.setItem('leftPanelWidth', String(w));
         _resizeViewerCanvasSoon();
     }
     function onUp() {
@@ -3715,6 +3743,17 @@ $resizer.addEventListener('mousedown', (e) => {
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+});
+
+$resizer.addEventListener('dblclick', () => {
+    const collapsed = document.body.classList.contains('left-panel-collapsed');
+    if (!collapsed) {
+        _setLeftPanelCollapsed(true);
+        return;
+    }
+    document.documentElement.style.setProperty('--left-panel-w', `${LEFT_PANEL_DEFAULT_W}px`);
+    localStorage.setItem('leftPanelWidth', String(LEFT_PANEL_DEFAULT_W));
+    _setLeftPanelCollapsed(false);
 });
 
 if ($rightResizer && $rightPanel) {

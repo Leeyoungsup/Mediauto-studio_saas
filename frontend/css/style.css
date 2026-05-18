@@ -51,7 +51,7 @@ input[type="color"], input[type="file"], select {
     --card-shadow-lg: 0 4px 16px rgba(45, 45, 95, 0.10);
     --danger: #e53935;
     --success: #1e8e3e;
-    --left-panel-w: 240px;
+    --left-panel-w: 260px;
     --right-panel-w: 380px;
     --slide-thumb-list: 40px;
     --slide-thumb-grid: 80px;
@@ -702,12 +702,47 @@ body.project-gate-open #app-body {
 }
 
 #left-panel {
-    width: var(--left-panel-w); min-width: 160px; max-width: 500px;
+    width: var(--left-panel-w); min-width: 260px; max-width: 500px;
     background: var(--sidebar-dark-2);
     color: var(--sidebar-text);
     border-right: none;
     display: flex; flex-direction: column;
     overflow: hidden; position: relative;
+}
+@media (min-width: 901px) {
+    body.left-panel-collapsed .menu-left {
+        width: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+    body.left-panel-collapsed #menubar::after {
+        left: 0;
+    }
+    body.left-panel-collapsed #toolbar {
+        padding-left: 14px;
+    }
+    body.left-panel-collapsed #toolbar::before {
+        width: 0;
+    }
+    body.left-panel-collapsed #toolbar::after {
+        left: 0;
+    }
+    body.left-panel-collapsed #left-panel {
+        width: 0;
+        min-width: 0;
+        flex-basis: 0;
+        opacity: 0;
+        overflow: hidden;
+        pointer-events: none;
+    }
+    body.left-panel-collapsed #left-panel-resizer {
+        width: 8px;
+        background: rgba(108, 92, 231, 0.16);
+    }
+    body.left-panel-collapsed #left-panel-resizer:hover,
+    body.left-panel-collapsed #left-panel-resizer.dragging {
+        background: var(--accent);
+    }
 }
 #left-panel .panel-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -1005,9 +1040,9 @@ body.annotation-page .slide-list:not(.grid-view) {
 body.annotation-page .slide-list-table-header,
 body.annotation-page .slide-list:not(.grid-view) .slide-list-item:not(.folder-item) {
     display: grid;
-    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(76px, 1fr) 30px 30px 30px;
+    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(0, 1fr) 24px 24px 24px;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
 }
 body.annotation-page .slide-list-table-header {
     position: sticky;
@@ -1025,7 +1060,7 @@ body.annotation-page .slide-list-table-header {
 }
 body.annotation-page .slide-list:not(.grid-view) .slide-list-item {
     gap: 4px;
-    padding: 5px 8px;
+    padding: 5px 6px;
 }
 body.annotation-page .slide-list:not(.grid-view) .slide-list-item:not(.folder-item) {
     min-height: 42px;
@@ -1037,10 +1072,11 @@ body.annotation-page .slide-list:not(.grid-view) .slide-thumb {
 body.annotation-page .slide-list:not(.grid-view) .slide-list-name {
     min-width: 0;
     -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
 }
 body.annotation-page .slide-list:not(.grid-view) .folder-item {
     display: grid;
-    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(76px, 1fr);
+    grid-template-columns: minmax(30px, var(--slide-thumb-list)) minmax(0, 1fr);
 }
 body.annotation-page .slide-list:not(.grid-view) .folder-item .slide-list-name {
     grid-column: 2 / -1;
@@ -1052,9 +1088,10 @@ body.annotation-page .slide-list-empty {
     text-align: center;
 }
 body.annotation-page .slide-workflow-cell {
-    width: 24px;
-    height: 22px;
-    border-radius: 6px;
+    width: 22px;
+    min-width: 22px;
+    height: 20px;
+    border-radius: 5px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
