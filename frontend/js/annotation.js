@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-03';
+import { TileViewer } from './tile-viewer.js?v=20260518-04';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──

@@ -519,6 +519,15 @@ export class TileViewer {
                 return;
             }
 
+            if (e.button === 0 && e.ctrlKey && !this.drawMode) {
+                const insertHit = this._findPolygonEdgeInsertTarget(sx, sy);
+                if (insertHit) {
+                    this._insertVertexAtEdge(insertHit);
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             // 컨트롤포인트 드래그 감지 (선택된 annotation의 꼭짓점)
             // Ctrl 누른 상태면 annotation 내부여도 pan 우선 (주석 이동 방지)
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
@@ -583,6 +592,13 @@ export class TileViewer {
                 this._vsSplitFrac = frac;
                 this.requestRender();
                 return;
+            }
+            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
+                this._setInsertVertexPreview(e.ctrlKey ? this._findPolygonEdgeInsertTarget(sx, sy) : null);
+                if (this._insertVertexPreview) {
+                    this.canvas.style.cursor = 'copy';
+                    return;
+                }
             }
             // hover 시 cursor 힌트 (드래그/패닝/그리기 중이 아닐 때만)
             if (this._vsSplitMode && this._vsOverlay && this._vsVisible &&
@@ -786,6 +802,9 @@ export class TileViewer {
             }
         });
         window.addEventListener('keyup', (e) => {
+            if (e.key === 'Control') {
+                this._setInsertVertexPreview(null);
+            }
             if (e.key === 'Shift') {
                 // 다른 cursor 상태 (drawMode/패닝/이동) 가 아니면 grab 으로 복귀.
                 if (!this.drawMode && !this._isPanning && !this._dragControlPoint &&
@@ -796,6 +815,7 @@ export class TileViewer {
         });
         // 창 포커스가 빠진 사이 Shift 가 떼져도 keyup 을 못 받을 수 있어 blur 시 복원.
         window.addEventListener('blur', () => {
+            this._setInsertVertexPreview(null);
             if (!this.drawMode && !this._isPanning) {
                 this.canvas.style.cursor = 'grab';
             }
@@ -2719,7 +2739,30 @@ export class TileViewer {
         }
 
         // 진행 중인 그리기 프리뷰
+        this._renderInsertVertexPreview(octx);
         this._renderDrawingPreview(octx);
+    }
+
+    _renderInsertVertexPreview(octx) {
+        const preview = this._insertVertexPreview;
+        if (!preview || !preview.point) return;
+        const ann = this.annotations.find(a => a.id === preview.annId);
+        if (!ann || !ann.visible) return;
+        const [r, g, b] = ann.color || [0, 255, 0];
+        const [cx, cy] = this.sceneToCanvas(preview.point[0], preview.point[1]);
+        octx.save();
+        octx.beginPath();
+        octx.arc(cx, cy, 6, 0, Math.PI * 2);
+        octx.fillStyle = `rgba(${r},${g},${b},0.35)`;
+        octx.fill();
+        octx.strokeStyle = `rgba(${r},${g},${b},0.95)`;
+        octx.lineWidth = 2;
+        octx.stroke();
+        octx.beginPath();
+        octx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        octx.fillStyle = 'rgba(255,255,255,0.75)';
+        octx.fill();
+        octx.restore();
     }
 
     _drawPolygon(octx, coords, strokeColor, fillColor, lineWidth) {
@@ -2993,6 +3036,56 @@ export class TileViewer {
         return null;
     }
 
+    _findPolygonEdgeInsertTarget(sx, sy) {
+        const threshold = Math.max(4, 10 / Math.max(this.zoom, 0.0001));
+        const thresholdSq = threshold * threshold;
+        let best = null;
+        for (let annIdx = this.annotations.length - 1; annIdx >= 0; annIdx--) {
+            const ann = this.annotations[annIdx];
+            if (!ann.visible || ann.type !== 'polygon' || ann.coordinates.length < 3) continue;
+            for (let i = 0; i < ann.coordinates.length; i++) {
+                const a = ann.coordinates[i];
+                const b = ann.coordinates[(i + 1) % ann.coordinates.length];
+                const projection = this._projectPointToSegment(sx, sy, a[0], a[1], b[0], b[1]);
+                if (projection.distSq > thresholdSq) continue;
+                if (!best || projection.distSq < best.distSq) {
+                    best = {
+                        annId: ann.id,
+                        insertIndex: i + 1,
+                        point: [projection.x, projection.y],
+                        distSq: projection.distSq,
+                    };
+                }
+            }
+        }
+        return best;
+    }
+
+    _insertVertexAtEdge(target) {
+        if (!target) return false;
+        const ann = this.annotations.find(a => a.id === target.annId);
+        if (!ann || ann.type !== 'polygon') return false;
+        ann.coordinates.splice(target.insertIndex, 0, target.point);
+        this.selectAnnotation(ann.id);
+        this._setInsertVertexPreview(null);
+        if (this.onAnnotationChanged) this.onAnnotationChanged(ann);
+        this.requestRender();
+        return true;
+    }
+
+    _setInsertVertexPreview(target) {
+        const prev = this._insertVertexPreview;
+        const changed = (!!prev !== !!target) || (!!prev && !!target && (
+            prev.annId !== target.annId ||
+            prev.insertIndex !== target.insertIndex ||
+            !prev.point ||
+            Math.abs(prev.point[0] - target.point[0]) > 0.01 ||
+            Math.abs(prev.point[1] - target.point[1]) > 0.01
+        ));
+        this._insertVertexPreview = target;
+        if (changed) this.requestRender();
+    }
+
     _pointNearPolyline(px, py, points, closed = false, threshold = 8) {
         if (!Array.isArray(points) || points.length < 2) return false;
         const thresholdSq = threshold * threshold;
@@ -3007,21 +3100,25 @@ export class TileViewer {
         return false;
     }
 
-    _distancePointToSegmentSq(px, py, ax, ay, bx, by) {
+    _projectPointToSegment(px, py, ax, ay, bx, by) {
         const dx = bx - ax;
         const dy = by - ay;
         const lenSq = dx * dx + dy * dy;
         if (lenSq <= 0) {
-            const x = px - ax;
-            const y = py - ay;
-            return x * x + y * y;
+            const ddx = px - ax;
+            const ddy = py - ay;
+            return { x: ax, y: ay, distSq: ddx * ddx + ddy * ddy };
         }
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
         const x = ax + t * dx;
         const y = ay + t * dy;
         const ddx = px - x;
         const ddy = py - y;
-        return ddx * ddx + ddy * ddy;
+        return { x, y, distSq: ddx * ddx + ddy * ddy };
+    }
+
+    _distancePointToSegmentSq(px, py, ax, ay, bx, by) {
+        return this._projectPointToSegment(px, py, ax, ay, bx, by).distSq;
     }
 
     /** Ray-casting point-in-polygon test */
