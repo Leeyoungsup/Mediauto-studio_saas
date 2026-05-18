@@ -1428,7 +1428,7 @@ body.role-viewer #right-panel .panel-group:first-child::after {
     text-align: center;
 }
 body.role-viewer .annotation-group::after {
-    content: 'Viewer 권한 — annotation 비활성';
+    content: 'Viewer 권한 - annotation 보기 전용';
     display: block; margin: 4px 12px 8px;
     padding: 6px 10px; border-radius: 6px;
     background: rgba(255, 180, 60, 0.12);
@@ -1439,10 +1439,6 @@ body.role-viewer #right-panel .panel-group:first-child .tab-bar,
 body.role-viewer #right-panel .panel-group:first-child .tab-content {
     pointer-events: none;
 }
-body.role-viewer .annotation-group::after {
-    content: 'Viewer role - annotations are read-only';
-}
-
 body.annotation-page #right-panel > .panel-group:not(.annotation-group),
 body.annotation-page #right-panel > .panel-section {
     display: none;
