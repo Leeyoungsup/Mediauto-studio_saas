@@ -1260,6 +1260,157 @@ function renderClassManagementPanel() {
     }
 }
 
+let _projectClassModal = null;
+
+function _normalizeProjectClassList(list) {
+    const source = Array.isArray(list) && list.length ? list : _DEFAULT_ANNOTATION_CLASSES;
+    const seen = new Set();
+    return source.map((cls, idx) => {
+        const name = String(cls?.name || `Class ${idx + 1}`).trim().slice(0, 64) || `Class ${idx + 1}`;
+        const base = String(cls?.id || name)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9가-힣_-]+/g, '_')
+            .replace(/^_+|_+$/g, '') || 'class';
+        let id = base;
+        let n = 2;
+        while (seen.has(id)) id = `${base}_${n++}`;
+        seen.add(id);
+        return { id, name, color: _normalizeColor(cls?.color) };
+    });
+}
+
+async function _openProjectClassManager(project) {
+    const path = project?.path || project?.name || '';
+    if (!path) return;
+    if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
+
+    _projectClassModal?.remove();
+    const projectTitle = _projectLabel(project) || path;
+    let localClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+
+    const modal = document.createElement('div');
+    modal.className = 'project-class-modal';
+    modal.innerHTML = `
+        <div class="project-class-dialog" role="dialog" aria-modal="true" aria-labelledby="project-class-title">
+            <div class="project-class-header">
+                <div>
+                    <h2 id="project-class-title">Class Management</h2>
+                    <p>${_esc(projectTitle)}</p>
+                </div>
+                <button type="button" class="project-class-close" aria-label="Close">x</button>
+            </div>
+            <div class="project-class-body">
+                <div class="project-class-toolbar">
+                    <button type="button" class="small-btn project-class-add">Add Class</button>
+                    <span class="project-class-status">Loading...</span>
+                </div>
+                <div class="project-class-list"></div>
+            </div>
+            <div class="project-class-footer">
+                <button type="button" class="small-btn project-class-cancel">Cancel</button>
+                <button type="button" class="small-btn primary project-class-save">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    _projectClassModal = modal;
+
+    const listEl = modal.querySelector('.project-class-list');
+    const statusEl = modal.querySelector('.project-class-status');
+    const saveBtn = modal.querySelector('.project-class-save');
+    const makeLocalClassId = (name) => {
+        const base = String(name || 'Class')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9가-힣_-]+/g, '_')
+            .replace(/^_+|_+$/g, '') || 'class';
+        let id = base;
+        let i = 2;
+        while (localClasses.some(c => c.id === id)) id = `${base}_${i++}`;
+        return id;
+    };
+
+    const close = () => {
+        modal.remove();
+        if (_projectClassModal === modal) _projectClassModal = null;
+    };
+
+    const render = () => {
+        listEl.innerHTML = '';
+        localClasses.forEach((cls, idx) => {
+            const [r, g, b] = _normalizeColor(cls.color);
+            const row = document.createElement('div');
+            row.className = 'project-class-row';
+            row.innerHTML = `
+                <input type="color" class="project-class-color" value="${rgbToHex(r, g, b)}" title="Class color">
+                <input type="text" class="project-class-name" value="${_esc(cls.name)}" title="Class name">
+                <button type="button" class="project-class-delete">Delete</button>
+            `;
+            row.querySelector('.project-class-color').addEventListener('input', (e) => {
+                cls.color = hexToRgb(e.target.value);
+            });
+            row.querySelector('.project-class-name').addEventListener('input', (e) => {
+                cls.name = e.target.value.trim() || `Class ${idx + 1}`;
+            });
+            row.querySelector('.project-class-delete').addEventListener('click', () => {
+                if (localClasses.length <= 1) {
+                    alert('At least one class is required.');
+                    return;
+                }
+                localClasses.splice(idx, 1);
+                render();
+            });
+            listEl.appendChild(row);
+        });
+    };
+
+    modal.querySelector('.project-class-close').addEventListener('click', close);
+    modal.querySelector('.project-class-cancel').addEventListener('click', close);
+    modal.addEventListener('mousedown', (e) => {
+        if (e.target === modal) close();
+    });
+    modal.querySelector('.project-class-add').addEventListener('click', () => {
+        const name = `Class ${localClasses.length + 1}`;
+        localClasses.push({ id: makeLocalClassId(name), name, color: [0, 255, 0] });
+        render();
+    });
+    saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        statusEl.textContent = 'Saving...';
+        try {
+            localClasses = _normalizeProjectClassList(localClasses);
+            const res = await api.saveAnnotationClasses(path, localClasses);
+            localClasses = _normalizeProjectClassList(res.classes);
+            if (_getCurrentProjectName() === path) {
+                _annotationClasses = localClasses.map(c => ({ ...c, color: [...c.color] }));
+                _classesLoadedForProject = path;
+                if (!_annotationClasses.some(c => c.id === _activeAnnotationClassId)) {
+                    _activeAnnotationClassId = _annotationClasses[0]?.id || 'default';
+                }
+                _syncAnnotationClassMetadata();
+                renderClassManagementPanel();
+                renderAnnotationPanel();
+            }
+            setStatus('Project classes saved');
+            close();
+        } catch (err) {
+            statusEl.textContent = `Save failed: ${err.message}`;
+            saveBtn.disabled = false;
+        }
+    });
+
+    render();
+    try {
+        const res = await api.loadAnnotationClasses(path);
+        localClasses = _normalizeProjectClassList(res.classes);
+        statusEl.textContent = `${localClasses.length} classes`;
+        render();
+    } catch (err) {
+        statusEl.textContent = `Load failed: ${err.message}`;
+    }
+}
+
 $btnClassAdd?.addEventListener('click', () => {
     if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
     const name = prompt('Class name:', `Class ${_annotationClasses.length + 1}`);
@@ -3701,7 +3852,7 @@ function _renderProjectGate(list_projects) {
         { label: 'Termination', key: 'termination' },
         { label: 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
-        { label: '', key: '' },
+        { label: 'Actions', key: '' },
     ].forEach((col) => {
         const cell = document.createElement(col.key ? 'button' : 'span');
         if (col.key) {
@@ -3738,8 +3889,9 @@ function _renderProjectGate(list_projects) {
         const path = project.path || project.name || '';
         const title = info.title || project.name || path;
 
-        const row = document.createElement('button');
-        row.type = 'button';
+        const row = document.createElement('div');
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
         row.className = 'project-gate-row';
         row.dataset.path = path;
 
@@ -3788,11 +3940,36 @@ function _renderProjectGate(list_projects) {
         statusEl.appendChild(statusChip);
 
         const actionEl = document.createElement('div');
-        actionEl.className = 'project-gate-action';
-        actionEl.textContent = 'Open';
+        actionEl.className = 'project-gate-actions';
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'project-gate-action';
+        openBtn.textContent = 'Open';
+        const classBtn = document.createElement('button');
+        classBtn.type = 'button';
+        classBtn.className = 'project-gate-action secondary';
+        classBtn.textContent = 'Classes';
+        classBtn.disabled = _isViewerRole();
+        actionEl.append(openBtn, classBtn);
+        actionEl.addEventListener('click', (e) => e.stopPropagation());
 
         row.append(projectEl, hospitalEl, ownerEl, slidesEl, annotationEl, reviewEl, terminationEl, foldersEl, statusEl, actionEl);
         row.addEventListener('click', () => _enterProjectFromGate(path));
+        row.addEventListener('keydown', (e) => {
+            if (e.target !== row) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                _enterProjectFromGate(path);
+            }
+        });
+        openBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _enterProjectFromGate(path);
+        });
+        classBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _openProjectClassManager(project);
+        });
         $projectGateList.appendChild(row);
     }
     _renderProjectGatePager(list.length, start + 1, start + paged.length, totalPages);

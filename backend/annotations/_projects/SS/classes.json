@@ -1,0 +1,31 @@
+{
+  "classes": [
+    {
+      "id": "default",
+      "name": "Default",
+      "color": [
+        0,
+        255,
+        0
+      ]
+    },
+    {
+      "id": "class_2",
+      "name": "Class 2",
+      "color": [
+        30,
+        0,
+        255
+      ]
+    },
+    {
+      "id": "class_3",
+      "name": "Class 3",
+      "color": [
+        200,
+        0,
+        255
+      ]
+    }
+  ]
+}
