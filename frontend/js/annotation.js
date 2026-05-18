@@ -1046,16 +1046,103 @@ if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 const $btnUxHelp = $('#btn-ux-help');
 const $uxHelpModal = $('#shortcuts-modal');
 const $uxHelpClose = $('#shortcuts-close');
+const $shortcutPreview = $('#shortcut-preview-popover');
+const $shortcutPreviewVideo = $('#shortcut-preview-video');
+const $shortcutVideoModal = $('#shortcut-video-modal');
+const $shortcutVideoLarge = $('#shortcut-video-large');
+const $shortcutVideoClose = $('#shortcut-video-close');
 function _openUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.add('visible'); }
-function _closeUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.remove('visible'); }
+function _hideShortcutPreview() {
+    if (!$shortcutPreview || !$shortcutPreviewVideo) return;
+    $shortcutPreview.hidden = true;
+    $shortcutPreviewVideo.pause();
+    $shortcutPreviewVideo.removeAttribute('src');
+    $shortcutPreviewVideo.load();
+}
+function _hideShortcutVideoModal() {
+    if (!$shortcutVideoModal || !$shortcutVideoLarge) return;
+    $shortcutVideoModal.hidden = true;
+    $shortcutVideoLarge.pause();
+    $shortcutVideoLarge.removeAttribute('src');
+    $shortcutVideoLarge.load();
+}
+function _closeUxHelp() {
+    if ($uxHelpModal) $uxHelpModal.classList.remove('visible');
+    _hideShortcutPreview();
+    _hideShortcutVideoModal();
+}
+function _positionShortcutPreview(row) {
+    if (!$shortcutPreview) return;
+    const rect = row.getBoundingClientRect();
+    const popWidth = 330;
+    const popHeight = 196;
+    const gap = 14;
+    const viewportPad = 12;
+    let left = rect.right + gap;
+    if (left + popWidth > window.innerWidth - viewportPad) {
+        left = rect.left - popWidth - gap;
+    }
+    left = Math.max(viewportPad, Math.min(left, window.innerWidth - popWidth - viewportPad));
+    let top = rect.top + (rect.height / 2) - (popHeight / 2);
+    top = Math.max(viewportPad, Math.min(top, window.innerHeight - popHeight - viewportPad));
+    $shortcutPreview.style.left = `${left}px`;
+    $shortcutPreview.style.top = `${top}px`;
+}
+function _showShortcutPreview(row) {
+    if (!$shortcutPreview || !$shortcutPreviewVideo || !row?.dataset.preview) return;
+    const src = `assets/info_video/${row.dataset.preview}.mp4`;
+    _positionShortcutPreview(row);
+    if (!$shortcutPreviewVideo.src.endsWith(src)) {
+        $shortcutPreviewVideo.src = src;
+        $shortcutPreviewVideo.load();
+    }
+    $shortcutPreview.hidden = false;
+    $shortcutPreviewVideo.currentTime = 0;
+    $shortcutPreviewVideo.play().catch(() => {});
+}
+function _showShortcutVideoModal(row) {
+    if (!$shortcutVideoModal || !$shortcutVideoLarge || !row?.dataset.preview) return;
+    const src = `assets/info_video/${row.dataset.preview}.mp4`;
+    _hideShortcutPreview();
+    $shortcutVideoLarge.src = src;
+    $shortcutVideoLarge.load();
+    $shortcutVideoModal.hidden = false;
+    $shortcutVideoLarge.currentTime = 0;
+    $shortcutVideoLarge.play().catch(() => {});
+}
 if ($btnUxHelp) $btnUxHelp.addEventListener('click', _openUxHelp);
 if ($uxHelpClose) $uxHelpClose.addEventListener('click', _closeUxHelp);
+if ($shortcutVideoClose) $shortcutVideoClose.addEventListener('click', _hideShortcutVideoModal);
+if ($shortcutVideoModal) {
+    $shortcutVideoModal.addEventListener('click', (e) => {
+        if (e.target === $shortcutVideoModal) _hideShortcutVideoModal();
+    });
+}
 if ($uxHelpModal) {
     $uxHelpModal.addEventListener('click', (e) => {
         if (e.target === $uxHelpModal) _closeUxHelp();
     });
+    $uxHelpModal.querySelectorAll('.shortcut-row[data-preview]').forEach(row => {
+        row.tabIndex = 0;
+        row.addEventListener('mouseenter', () => _showShortcutPreview(row));
+        row.addEventListener('focusin', () => _showShortcutPreview(row));
+        row.addEventListener('mousemove', () => _positionShortcutPreview(row));
+        row.addEventListener('mouseleave', _hideShortcutPreview);
+        row.addEventListener('focusout', _hideShortcutPreview);
+        row.addEventListener('click', () => _showShortcutVideoModal(row));
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                _showShortcutVideoModal(row);
+            }
+        });
+    });
 }
 window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $shortcutVideoModal && !$shortcutVideoModal.hidden) {
+        _hideShortcutVideoModal();
+        return;
+    }
     if (e.key === 'Escape' && $uxHelpModal && $uxHelpModal.classList.contains('visible')) {
         _closeUxHelp();
     }
