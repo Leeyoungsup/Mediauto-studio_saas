@@ -520,6 +520,22 @@ export class TileViewer {
             // Shift + 좌클릭: 새 셀 추가 (drawMode 가 아닌 경우만 — drawMode 는 자체 click 처리).
             // detection 결과가 있을 때만 의미 — class_names 가 결정되어 있어야 클래스 선택 가능.
             // 클래스 변경은 Shift+A 단축키로 별도 처리 (Ctrl 사용 안 함 — Ctrl 은 패닝 modifier).
+            if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey) {
+                const hitAnn = this._hitAnnotation(sx, sy);
+                if (hitAnn) {
+                    this.pushAnnotationUndo();
+                    this.selectAnnotation(hitAnn.id);
+                    this._dragAnnotation = {
+                        annId: hitAnn.id,
+                        startScene: [sx, sy],
+                        origCoords: hitAnn.coordinates.map(([x, y]) => [x, y]),
+                    };
+                    this.canvas.style.cursor = 'move';
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey && !this.drawMode &&
                     this.onCellAddRequested && this.detectionCells.length > 0) {
                 this._shiftAddPending = {
