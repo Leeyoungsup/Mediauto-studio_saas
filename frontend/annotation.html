@@ -97,6 +97,15 @@
             <button id="btn-draw-rect" class="toolbar-btn toggle-btn" title="Draw Rectangle" disabled>
                 <img src="assets/Rectangular_ROI_measurement.png" alt="Rectangle">
             </button>
+            <button id="btn-cut-polygon" class="toolbar-btn toggle-btn" title="Cut / reshape selected polygon" aria-label="Cut polygon" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4l12 12"/>
+                    <path d="M15 4c-4.5 2-7.5 5-9 9"/>
+                    <circle cx="4" cy="4" r="1.8"/>
+                    <circle cx="16" cy="16" r="1.8"/>
+                </svg>
+            </button>
         </div>
         <div class="toolbar-separator"></div>
         <!-- 고정 크기 드로잉 (1mm²) -->
@@ -563,6 +572,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/annotation.js?v=20260518-16"></script>
+    <script type="module" src="js/annotation.js?v=20260518-17"></script>
 </body>
 </html>

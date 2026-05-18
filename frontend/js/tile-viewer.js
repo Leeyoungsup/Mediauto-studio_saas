@@ -172,7 +172,7 @@ export class TileViewer {
 
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
-        this.drawMode = null;         // 'polygon' | 'rectangle' | 'point' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
+        this.drawMode = null;         // 'polygon' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
         this._drawingPoints = [];     // 진행 중인 폴리곤 좌표 (scene)
         this._drawingStart = null;    // 사각형 시작점 (scene)
         this._drawingCurrent = null;  // 사각형/폴리곤 현재 마우스 (scene)
@@ -2557,7 +2557,7 @@ export class TileViewer {
     // ── Annotation 그리기 ──
 
     setDrawMode(mode) {
-        // mode: 'polygon' | 'rectangle' | 'point' | 'rect-1mm2' | 'circle-1mm2' | null
+        // mode: 'polygon' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | null
         this._cancelDrawing();
         this.drawMode = mode;
         this.canvas.style.cursor = mode ? 'crosshair' : 'grab';
@@ -2609,6 +2609,20 @@ export class TileViewer {
             this._drawingCurrent = [sx, sy];
             this._lastDrawDragCanvas = [cx, cy];
             this.requestRender();
+        } else if (this.drawMode === 'cut') {
+            const hitAnn = this._hitAnnotation(sx, sy);
+            if (hitAnn && (hitAnn.type === 'polygon' || hitAnn.type === 'rectangle')) {
+                this.selectAnnotation(hitAnn.id);
+            }
+            if (!this._getEditableSelectedPolygon()) {
+                this._cancelDrawing();
+                return;
+            }
+            this._drawingPoints = [[sx, sy]];
+            this._isDrawing = true;
+            this._drawingCurrent = [sx, sy];
+            this._lastDrawDragCanvas = [cx, cy];
+            this.requestRender();
         } else if (this.drawMode === 'rectangle') {
             this._drawingStart = [sx, sy];
             this._drawingCurrent = [sx, sy];
@@ -2645,7 +2659,8 @@ export class TileViewer {
         this._drawingCurrent = [sx, sy];
 
         // 폴리곤 드래그로 점 추가 (10px 간격)
-        if (this.drawMode === 'polygon' && this._drawingPoints.length > 0 && (cx !== undefined)) {
+        if ((this.drawMode === 'polygon' || this.drawMode === 'cut') &&
+                this._drawingPoints.length > 0 && (cx !== undefined)) {
             if (this._lastDrawDragCanvas) {
                 const ddx = cx - this._lastDrawDragCanvas[0];
                 const ddy = cy - this._lastDrawDragCanvas[1];
@@ -2667,6 +2682,20 @@ export class TileViewer {
             } else {
                 this._cancelDrawing();
             }
+            return;
+        }
+        if (this.drawMode === 'cut' && this._isDrawing) {
+            const pts = [...this._drawingPoints];
+            const last = pts[pts.length - 1];
+            if (!last || Math.hypot(last[0] - sx, last[1] - sy) > 1 / Math.max(this.zoom, 0.0001)) {
+                pts.push([sx, sy]);
+            }
+            if (pts.length >= 2) this._applyPolygonCutPath(pts);
+            this._drawingPoints = [];
+            this._drawingCurrent = null;
+            this._isDrawing = false;
+            this._lastDrawDragCanvas = null;
+            this.requestRender();
             return;
         }
         if (this.drawMode === 'rectangle' && this._drawingStart) {
@@ -3023,6 +3052,35 @@ export class TileViewer {
             }
         }
 
+        if (this.drawMode === 'cut' && this._drawingPoints.length > 0) {
+            octx.beginPath();
+            const [cx0, cy0] = this.sceneToCanvas(this._drawingPoints[0][0], this._drawingPoints[0][1]);
+            octx.moveTo(cx0, cy0);
+            for (let i = 1; i < this._drawingPoints.length; i++) {
+                const [cx, cy] = this.sceneToCanvas(this._drawingPoints[i][0], this._drawingPoints[i][1]);
+                octx.lineTo(cx, cy);
+            }
+            if (this._drawingCurrent) {
+                const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
+                octx.lineTo(cx, cy);
+            }
+            octx.strokeStyle = 'rgba(0,145,255,0.95)';
+            octx.lineWidth = 3;
+            octx.setLineDash([8, 4]);
+            octx.stroke();
+            octx.setLineDash([]);
+            for (const [sx, sy] of [this._drawingPoints[0], this._drawingCurrent || this._drawingPoints[this._drawingPoints.length - 1]]) {
+                const [cx, cy] = this.sceneToCanvas(sx, sy);
+                octx.beginPath();
+                octx.arc(cx, cy, 4, 0, Math.PI * 2);
+                octx.fillStyle = 'rgba(0,145,255,0.85)';
+                octx.fill();
+                octx.strokeStyle = '#fff';
+                octx.lineWidth = 1.5;
+                octx.stroke();
+            }
+        }
+
         if (this.drawMode === 'rectangle' && this._drawingStart && this._drawingCurrent) {
             const [cx0, cy0] = this.sceneToCanvas(this._drawingStart[0], this._drawingStart[1]);
             const [cx1, cy1] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
@@ -3084,6 +3142,182 @@ export class TileViewer {
     // ── Hit Testing ──
 
     /** 캔버스 좌표에서 선택된 annotation의 컨트롤포인트 히트 테스트 */
+    _getEditableSelectedPolygon() {
+        const ann = this.annotations.find(a => a.id === this.selectedAnnotationId);
+        if (!ann || !ann.visible) return null;
+        if ((ann.type !== 'polygon' && ann.type !== 'rectangle') || ann.coordinates.length < 3) return null;
+        return ann;
+    }
+
+    _applyPolygonCutPath(path) {
+        const ann = this._getEditableSelectedPolygon();
+        if (!ann || !Array.isArray(path) || path.length < 2) return false;
+
+        const poly = this._cleanPolygonPoints(ann.coordinates);
+        const stroke = this._cleanPolylinePoints(path);
+        if (poly.length < 3 || stroke.length < 2) return false;
+
+        const hits = this._findPathPolygonIntersections(poly, stroke);
+        if (hits.length < 2) return false;
+
+        const first = hits[0];
+        const last = hits[hits.length - 1];
+        if (Math.hypot(first.point[0] - last.point[0], first.point[1] - last.point[1]) < 1e-6) {
+            return false;
+        }
+
+        const strokeForward = this._extractStrokeSubpath(stroke, first, last);
+        if (strokeForward.length < 2) return false;
+
+        const boundary12 = this._polygonBoundaryPath(poly, first, last);
+        const boundary21 = this._polygonBoundaryPath(poly, last, first);
+        const candidates = [
+            this._cleanPolygonPoints(boundary12.concat([...strokeForward].reverse().slice(1, -1))),
+            this._cleanPolygonPoints(boundary21.concat(strokeForward.slice(1, -1))),
+        ].filter(points => points.length >= 3 && !this._isSelfIntersecting(points));
+
+        if (!candidates.length) return false;
+
+        const originalArea = Math.abs(this._polygonSignedArea(poly));
+        const startInside = this._pointInPolygon(stroke[0][0], stroke[0][1], poly);
+        const endInside = this._pointInPolygon(stroke[stroke.length - 1][0], stroke[stroke.length - 1][1], poly);
+
+        let ranked = candidates
+            .map(points => ({ points, area: Math.abs(this._polygonSignedArea(points)) }))
+            .filter(item => item.area > 1e-6);
+        if (!ranked.length) return false;
+
+        if (!(startInside && endInside)) {
+            const nonExpanding = ranked.filter(item => item.area <= originalArea * 1.02);
+            if (nonExpanding.length) ranked = nonExpanding;
+        }
+
+        ranked.sort((a, b) => b.area - a.area);
+        const next = ranked[0].points;
+        if (!next || next.length < 3) return false;
+
+        this.pushAnnotationUndo();
+        ann.type = 'polygon';
+        ann.coordinates = next;
+        this.selectAnnotation(ann.id);
+        if (this.onAnnotationChanged) this.onAnnotationChanged(ann);
+        this.requestRender();
+        return true;
+    }
+
+    _findPathPolygonIntersections(poly, path) {
+        const hits = [];
+        for (let pi = 0; pi < path.length - 1; pi++) {
+            const a = path[pi];
+            const b = path[pi + 1];
+            if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-9) continue;
+            for (let ei = 0; ei < poly.length; ei++) {
+                const c = poly[ei];
+                const d = poly[(ei + 1) % poly.length];
+                const hit = this._segmentIntersection(a, b, c, d);
+                if (!hit) continue;
+                hits.push({
+                    point: hit.point,
+                    pathSegIndex: pi,
+                    pathT: hit.t,
+                    pathPos: pi + hit.t,
+                    edgeIndex: ei,
+                    edgeT: hit.u,
+                });
+            }
+        }
+
+        hits.sort((a, b) => a.pathPos - b.pathPos);
+        const deduped = [];
+        for (const hit of hits) {
+            const prev = deduped[deduped.length - 1];
+            if (prev && Math.hypot(prev.point[0] - hit.point[0], prev.point[1] - hit.point[1]) < 1e-5) {
+                continue;
+            }
+            deduped.push(hit);
+        }
+        return deduped;
+    }
+
+    _segmentIntersection(a, b, c, d) {
+        const r = [b[0] - a[0], b[1] - a[1]];
+        const s = [d[0] - c[0], d[1] - c[1]];
+        const denom = r[0] * s[1] - r[1] * s[0];
+        if (Math.abs(denom) < 1e-12) return null;
+        const qmp = [c[0] - a[0], c[1] - a[1]];
+        const t = (qmp[0] * s[1] - qmp[1] * s[0]) / denom;
+        const u = (qmp[0] * r[1] - qmp[1] * r[0]) / denom;
+        const eps = 1e-9;
+        if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return null;
+        const tt = Math.max(0, Math.min(1, t));
+        const uu = Math.max(0, Math.min(1, u));
+        return {
+            point: [a[0] + r[0] * tt, a[1] + r[1] * tt],
+            t: tt,
+            u: uu,
+        };
+    }
+
+    _extractStrokeSubpath(path, startHit, endHit) {
+        const pts = [startHit.point];
+        for (let i = startHit.pathSegIndex + 1; i <= endHit.pathSegIndex; i++) {
+            if (path[i]) pts.push(path[i]);
+        }
+        pts.push(endHit.point);
+        return this._cleanPolylinePoints(pts);
+    }
+
+    _polygonBoundaryPath(poly, startHit, endHit) {
+        const n = poly.length;
+        const pts = [startHit.point];
+        const stop = (endHit.edgeIndex + 1) % n;
+        let idx = (startHit.edgeIndex + 1) % n;
+        let guard = 0;
+        while (guard < n + 1) {
+            const sameEdgeWrap = startHit.edgeIndex === endHit.edgeIndex &&
+                startHit.edgeT > endHit.edgeT && guard === 0;
+            if (idx === stop && !sameEdgeWrap) break;
+            pts.push(poly[idx]);
+            idx = (idx + 1) % n;
+            guard++;
+        }
+        pts.push(endHit.point);
+        return this._cleanPolylinePoints(pts);
+    }
+
+    _cleanPolylinePoints(points) {
+        const clean = [];
+        for (const p of points || []) {
+            if (!p || p.length < 2) continue;
+            const last = clean[clean.length - 1];
+            if (last && Math.hypot(last[0] - p[0], last[1] - p[1]) < 1e-6) continue;
+            clean.push([p[0], p[1]]);
+        }
+        return clean;
+    }
+
+    _cleanPolygonPoints(points) {
+        const clean = this._cleanPolylinePoints(points);
+        if (clean.length > 1) {
+            const first = clean[0];
+            const last = clean[clean.length - 1];
+            if (Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-6) {
+                clean.pop();
+            }
+        }
+        return clean;
+    }
+
+    _polygonSignedArea(points) {
+        let area = 0;
+        for (let i = 0; i < points.length; i++) {
+            const a = points[i];
+            const b = points[(i + 1) % points.length];
+            area += a[0] * b[1] - b[0] * a[1];
+        }
+        return area / 2;
+    }
+
     _hitControlPoint(cx, cy) {
         const sel = this.annotations.find(a => a.id === this.selectedAnnotationId);
         if (!sel || !sel.visible) return null;
