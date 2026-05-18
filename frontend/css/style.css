@@ -1810,6 +1810,16 @@ body.annotation-page .project-gate-row {
     border: 1px solid transparent;
     border-radius: 6px;
 }
+.class-row[draggable="true"] {
+    cursor: grab;
+}
+.class-row.dragging {
+    opacity: 0.45;
+}
+.class-row.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
 .class-row.active {
     border-color: rgba(105, 83, 232, 0.25);
     background: rgba(105, 83, 232, 0.08);
@@ -1855,6 +1865,12 @@ body.annotation-page .project-gate-row {
     font-size: 10px;
     font-weight: 800;
     cursor: pointer;
+}
+.class-color-input:disabled,
+.class-name-input:disabled,
+.class-delete-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
 }
 .project-class-modal {
     position: fixed;
@@ -1931,9 +1947,27 @@ body.annotation-page .project-gate-row {
 }
 .project-class-row {
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) auto;
+    grid-template-columns: 22px 30px minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
+}
+.project-class-row {
+    cursor: grab;
+}
+.project-class-row.dragging {
+    opacity: 0.45;
+}
+.project-class-row.drag-over {
+    border-radius: 6px;
+    outline: 2px solid var(--accent-light);
+    background: var(--accent-soft);
+}
+.project-class-drag {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    text-align: center;
 }
 .project-class-color {
     width: 28px;

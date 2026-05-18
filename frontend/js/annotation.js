@@ -1087,6 +1087,17 @@ let _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [.
 let _activeAnnotationClassId = 'default';
 let _classesLoadedForProject = null;
 let _classSaveTimer = null;
+let _draggingClassId = null;
+
+function _canManageAnnotationClasses() {
+    return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
+}
+
+function _blockClassManageAction() {
+    if (_canManageAnnotationClasses()) return false;
+    alert('Class management is available to doctor/admin only.');
+    return true;
+}
 
 function _getAnnotationClass(classId) {
     return _annotationClasses.find(c => c.id === classId) || _annotationClasses[0] || _DEFAULT_ANNOTATION_CLASSES[0];
@@ -1197,12 +1208,18 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
 
 function renderClassManagementPanel() {
     if (!$classList) return;
+    const canManage = _canManageAnnotationClasses();
+    if ($btnClassAdd) {
+        $btnClassAdd.disabled = !canManage;
+        $btnClassAdd.title = canManage ? 'Add class' : 'Doctor/Admin only';
+    }
     $classList.innerHTML = '';
     for (const cls of _annotationClasses) {
         const [r, g, b] = _normalizeColor(cls.color);
         const row = document.createElement('div');
         row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '');
         row.dataset.classId = cls.id;
+        row.draggable = canManage;
         row.innerHTML = `
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
@@ -1213,6 +1230,10 @@ function renderClassManagementPanel() {
         const colorInput = row.querySelector('.class-color-input');
         const nameInput = row.querySelector('.class-name-input');
         const deleteBtn = row.querySelector('.class-delete-btn');
+        colorInput.disabled = !canManage;
+        nameInput.disabled = !canManage;
+        deleteBtn.disabled = !canManage;
+        deleteBtn.title = canManage ? 'Delete class' : 'Doctor/Admin only';
 
         const setActive = () => {
             _activeAnnotationClassId = cls.id;
@@ -1227,19 +1248,52 @@ function renderClassManagementPanel() {
         };
         activeBtn.addEventListener('click', setActive);
         row.addEventListener('dblclick', setActive);
+        row.addEventListener('dragstart', (e) => {
+            if (!canManage) return;
+            _draggingClassId = cls.id;
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', cls.id);
+        });
+        row.addEventListener('dragend', () => {
+            _draggingClassId = null;
+            row.classList.remove('dragging');
+        });
+        row.addEventListener('dragover', (e) => {
+            if (!canManage || !_draggingClassId || _draggingClassId === cls.id) return;
+            e.preventDefault();
+            row.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', (e) => {
+            row.classList.remove('drag-over');
+            if (!canManage || !_draggingClassId || _draggingClassId === cls.id) return;
+            e.preventDefault();
+            const from = _annotationClasses.findIndex(c => c.id === _draggingClassId);
+            const to = _annotationClasses.findIndex(c => c.id === cls.id);
+            if (from < 0 || to < 0 || from === to) return;
+            const [moved] = _annotationClasses.splice(from, 1);
+            _annotationClasses.splice(to, 0, moved);
+            _queueSaveAnnotationClasses();
+            renderClassManagementPanel();
+            renderAnnotationPanel();
+        });
         colorInput.addEventListener('input', (e) => {
+            if (!canManage) return;
             cls.color = hexToRgb(e.target.value);
             _syncAnnotationClassMetadata();
             renderAnnotationPanel();
             _queueSaveAnnotationClasses();
         });
         nameInput.addEventListener('change', (e) => {
+            if (!canManage) return;
             cls.name = e.target.value.trim() || cls.name;
             _syncAnnotationClassMetadata();
             renderAnnotationPanel();
             _queueSaveAnnotationClasses();
         });
         deleteBtn.addEventListener('click', () => {
+            if (!canManage) return;
             if (_annotationClasses.length <= 1) {
                 alert('At least one class is required.');
                 return;
@@ -1283,11 +1337,13 @@ function _normalizeProjectClassList(list) {
 async function _openProjectClassManager(project) {
     const path = project?.path || project?.name || '';
     if (!path) return;
+    if (_blockClassManageAction()) return;
     if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
 
     _projectClassModal?.remove();
     const projectTitle = _projectLabel(project) || path;
     let localClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+    let draggingProjectClassId = null;
 
     const modal = document.createElement('div');
     modal.className = 'project-class-modal';
@@ -1342,11 +1398,41 @@ async function _openProjectClassManager(project) {
             const [r, g, b] = _normalizeColor(cls.color);
             const row = document.createElement('div');
             row.className = 'project-class-row';
+            row.draggable = true;
+            row.dataset.classId = cls.id;
             row.innerHTML = `
+                <span class="project-class-drag" title="Drag to reorder">::</span>
                 <input type="color" class="project-class-color" value="${rgbToHex(r, g, b)}" title="Class color">
                 <input type="text" class="project-class-name" value="${_esc(cls.name)}" title="Class name">
                 <button type="button" class="project-class-delete">Delete</button>
             `;
+            row.addEventListener('dragstart', (e) => {
+                draggingProjectClassId = cls.id;
+                row.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', cls.id);
+            });
+            row.addEventListener('dragend', () => {
+                draggingProjectClassId = null;
+                row.classList.remove('dragging');
+            });
+            row.addEventListener('dragover', (e) => {
+                if (!draggingProjectClassId || draggingProjectClassId === cls.id) return;
+                e.preventDefault();
+                row.classList.add('drag-over');
+            });
+            row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+            row.addEventListener('drop', (e) => {
+                row.classList.remove('drag-over');
+                if (!draggingProjectClassId || draggingProjectClassId === cls.id) return;
+                e.preventDefault();
+                const from = localClasses.findIndex(c => c.id === draggingProjectClassId);
+                const to = localClasses.findIndex(c => c.id === cls.id);
+                if (from < 0 || to < 0 || from === to) return;
+                const [moved] = localClasses.splice(from, 1);
+                localClasses.splice(to, 0, moved);
+                render();
+            });
             row.querySelector('.project-class-color').addEventListener('input', (e) => {
                 cls.color = hexToRgb(e.target.value);
             });
@@ -1412,7 +1498,7 @@ async function _openProjectClassManager(project) {
 }
 
 $btnClassAdd?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
+    if (_blockClassManageAction()) return;
     const name = prompt('Class name:', `Class ${_annotationClasses.length + 1}`);
     if (!name || !name.trim()) return;
     const cls = {
@@ -4010,7 +4096,8 @@ function _renderProjectGate(list_projects) {
         classBtn.type = 'button';
         classBtn.className = 'project-gate-action secondary';
         classBtn.textContent = 'Classes';
-        classBtn.disabled = _isViewerRole();
+        classBtn.disabled = !_canManageAnnotationClasses();
+        classBtn.title = _canManageAnnotationClasses() ? 'Manage classes' : 'Doctor/Admin only';
         actionEl.append(openBtn, classBtn);
         actionEl.addEventListener('click', (e) => e.stopPropagation());
 

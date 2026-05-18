@@ -1783,7 +1783,7 @@ async def load_annotation_classes(path: str = Query(..., description="project pa
     return {"classes": _normalize_annotation_classes(classes)}
 
 
-@router.post("/annotation-classes", dependencies=[Depends(require_not_viewer)])
+@router.post("/annotation-classes", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
 async def save_annotation_classes(
     request: Request,
     path: str = Form(...),
