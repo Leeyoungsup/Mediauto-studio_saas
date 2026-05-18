@@ -1034,8 +1034,8 @@ if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
 // ── UX 기능 설명 모달 ──
 const $btnUxHelp = $('#btn-ux-help');
-const $uxHelpModal = $('#ux-help-modal');
-const $uxHelpClose = $('#ux-help-close');
+const $uxHelpModal = $('#shortcuts-modal');
+const $uxHelpClose = $('#shortcuts-close');
 function _openUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.add('visible'); }
 function _closeUxHelp() { if ($uxHelpModal) $uxHelpModal.classList.remove('visible'); }
 if ($btnUxHelp) $btnUxHelp.addEventListener('click', _openUxHelp);
@@ -1088,6 +1088,13 @@ viewer.onDrawModeChange = (mode) => {
 
 // ── Annotation Panel ──
 const $annList = $('#annotation-list');
+const $annStylePanel = $('#annotation-style-panel');
+const $annStyleControls = $annStylePanel?.querySelector('.annotation-style-controls');
+const $annStyleEmpty = $annStylePanel?.querySelector('.annotation-style-empty');
+const $annStrokeWidth = $('#ann-stroke-width');
+const $annStrokeWidthValue = $('#ann-stroke-width-value');
+const $annFillOpacity = $('#ann-fill-opacity');
+const $annFillOpacityValue = $('#ann-fill-opacity-value');
 const $btnAnnClear = $('#btn-ann-clear');
 const $btnAnnSave = $('#btn-ann-save');
 const $btnAnnLoad = $('#btn-ann-load');
@@ -1151,6 +1158,54 @@ function _applyClassToAnnotation(ann, classId) {
         class_id: cls.id,
         class_name: cls.name,
     };
+}
+
+function _annotationStrokeWidth(ann) {
+    const raw = Number(ann?.stroke_width ?? ann?.properties?.stroke_width ?? 2);
+    return Math.max(1, Math.min(12, Number.isFinite(raw) ? raw : 2));
+}
+
+function _annotationFillOpacity(ann) {
+    const raw = Number(ann?.fill_opacity ?? ann?.properties?.fill_opacity ?? 0.1);
+    return Math.max(0, Math.min(0.8, Number.isFinite(raw) ? raw : 0.1));
+}
+
+function _selectedStyleAnnotation() {
+    const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
+    if (!ann || (ann.type !== 'polygon' && ann.type !== 'rectangle')) return null;
+    return ann;
+}
+
+function renderAnnotationStylePanel() {
+    if (!$annStylePanel || !$annStyleControls || !$annStyleEmpty) return;
+    const ann = _selectedStyleAnnotation();
+    const enabled = !!ann;
+    $annStyleControls.hidden = !enabled;
+    $annStyleEmpty.hidden = enabled;
+    if (!enabled) return;
+
+    const stroke = _annotationStrokeWidth(ann);
+    const opacity = _annotationFillOpacity(ann);
+    if ($annStrokeWidth) $annStrokeWidth.value = String(stroke);
+    if ($annStrokeWidthValue) $annStrokeWidthValue.textContent = `${stroke} px`;
+    if ($annFillOpacity) $annFillOpacity.value = String(Math.round(opacity * 100));
+    if ($annFillOpacityValue) $annFillOpacityValue.textContent = `${Math.round(opacity * 100)}%`;
+}
+
+function _updateSelectedAnnotationStyle(patch, pushUndo = false) {
+    const ann = _selectedStyleAnnotation();
+    if (!ann) return;
+    if (pushUndo) viewer.pushAnnotationUndo?.();
+    if (patch.stroke_width != null) ann.stroke_width = _annotationStrokeWidth({ stroke_width: patch.stroke_width });
+    if (patch.fill_opacity != null) ann.fill_opacity = _annotationFillOpacity({ fill_opacity: patch.fill_opacity });
+    ann.properties = {
+        ...(ann.properties || {}),
+        stroke_width: ann.stroke_width ?? _annotationStrokeWidth(ann),
+        fill_opacity: ann.fill_opacity ?? _annotationFillOpacity(ann),
+    };
+    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+    viewer.requestRender();
+    renderAnnotationStylePanel();
 }
 
 function _syncAnnotationClassMetadata() {
@@ -1628,6 +1683,28 @@ function renderAnnotationPanel() {
         });
         $annList.appendChild(el);
     }
+    renderAnnotationStylePanel();
+}
+
+if ($annStrokeWidth) {
+    $annStrokeWidth.addEventListener('input', (e) => {
+        const value = Number(e.target.value);
+        _updateSelectedAnnotationStyle({ stroke_width: value });
+    });
+    $annStrokeWidth.addEventListener('change', (e) => {
+        const value = Number(e.target.value);
+        _updateSelectedAnnotationStyle({ stroke_width: value }, true);
+    });
+}
+if ($annFillOpacity) {
+    $annFillOpacity.addEventListener('input', (e) => {
+        const value = Number(e.target.value) / 100;
+        _updateSelectedAnnotationStyle({ fill_opacity: value });
+    });
+    $annFillOpacity.addEventListener('change', (e) => {
+        const value = Number(e.target.value) / 100;
+        _updateSelectedAnnotationStyle({ fill_opacity: value }, true);
+    });
 }
 
 function rgbToHex(r, g, b) {

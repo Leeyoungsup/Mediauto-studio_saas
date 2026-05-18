@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio - Annotation</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css">
-    <link rel="stylesheet" href="css/style.css?v=20260518-16">
+    <link rel="stylesheet" href="css/style.css?v=20260518-19">
 </head>
 <body class="annotation-page">
     <!-- ═══ 메뉴바 ═══ -->
@@ -150,6 +150,13 @@
                     <path d="M5.7 9.8l1.4 1.4M8 7.5l2 2M10.3 5.2l1.4 1.4M12.6 2.9l2 2M3.4 12.1l2 2"/>
                 </svg>
             </button>
+            <button id="btn-ux-help" class="toolbar-btn" title="Shortcuts" aria-label="Shortcuts">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="8"/>
+                    <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
+                    <circle cx="10" cy="15.3" r="0.6" fill="currentColor" stroke="none"/>
+                </svg>
+            </button>
         </div>
         <div class="toolbar-spacer"></div>
         <!-- 상태 -->
@@ -160,7 +167,7 @@
         <div class="toolbar-separator"></div>
         <!-- 헬프 -->
         <div class="toolbar-group">
-            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
+            <button id="btn-ux-help-legacy" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="10" cy="10" r="8"/>
                     <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
@@ -463,6 +470,21 @@
                 </div>
                 <div class="panel-header">Annotations</div>
                 <div id="annotation-list" class="annotation-list"></div>
+                <div id="annotation-style-panel" class="annotation-style-panel">
+                    <div class="annotation-style-empty">Select a polygon or rectangle to edit style.</div>
+                    <div class="annotation-style-controls" hidden>
+                        <label class="annotation-style-row">
+                            <span>Line</span>
+                            <input id="ann-stroke-width" type="range" min="1" max="12" step="1" value="2">
+                            <output id="ann-stroke-width-value">2 px</output>
+                        </label>
+                        <label class="annotation-style-row">
+                            <span>Fill</span>
+                            <input id="ann-fill-opacity" type="range" min="0" max="80" step="5" value="10">
+                            <output id="ann-fill-opacity-value">10%</output>
+                        </label>
+                    </div>
+                </div>
                 <div class="btn-row compact">
                     <button id="btn-ann-clear" class="small-btn">Clear All</button>
                     <button id="btn-ann-save" class="small-btn">Save</button>
@@ -507,6 +529,37 @@
         </div>
         <div id="slide-info-content" class="dialog-body"></div>
     </dialog>
+
+    <div id="shortcuts-modal" class="ux-help-modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="ux-help-card shortcuts-card">
+            <div class="ux-help-header">
+                <div id="shortcuts-title" class="ux-help-title">Shortcuts</div>
+                <button id="shortcuts-close" class="ux-help-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="shortcut-list" aria-label="Annotation shortcuts">
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></span><span>Undo last annotation/cell edit.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></span><span>Redo last annotation/cell edit.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd></span><span>Redo last annotation/cell edit.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>S</kbd></span><span>Save annotations for the current slide.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Del</kbd></span><span>Delete the selected annotation.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Esc</kbd></span><span>Cancel drawing mode or close this popup.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>1</kbd><span>-</span><kbd>9</kbd><span>/</span><kbd>0</kbd></span><span>Assign class 1-10 to the selected annotation.</span></div>
+                <div class="ux-help-section">Mouse</div>
+                <div class="shortcut-row"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan the slide.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Zoom around the cursor.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan over annotations or while drawing mode is active.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Shift</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Move the selected annotation.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"></span></span><span>Select an annotation, including while drawing mode is active.</span></div>
+                <div class="ux-help-section">Drawing Mode</div>
+                <div class="shortcut-row"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Draw with the active tool: Brush, Rectangle, fixed 1mm shape, Cut, or Ruler.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Change Polygon Brush size.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-hover" aria-label="mouse hover"></span></span><span>Preview where a polygon point will be inserted.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"></span></span><span>Insert a point on a polygon edge.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-hover" aria-label="mouse hover"></span></span><span>Show merge icon for overlapping same-class polygons.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"></span></span><span>Merge overlapping same-class polygons.</span></div>
+            </div>
+        </div>
+    </div>
 
     <!-- 사용자별 AI 편집본 로드 다이얼로그 -->
     <dialog id="load-user-edit-dialog">
@@ -587,6 +640,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/annotation.js?v=20260518-34"></script>
+    <script type="module" src="js/annotation.js?v=20260518-35"></script>
 </body>
 </html>

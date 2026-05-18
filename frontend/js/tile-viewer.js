@@ -3189,8 +3189,10 @@ export class TileViewer {
             if (!ann.visible) continue;
             const [r, g, b] = ann.color;
             const strokeColor = `rgb(${r},${g},${b})`;
-            const fillColor = `rgba(${r},${g},${b},0.1)`;
-            const lineWidth = ann.selected ? 3 : 2;
+            const fillOpacity = Math.max(0, Math.min(1, Number(ann.fill_opacity ?? ann.properties?.fill_opacity ?? 0.1)));
+            const strokeWidth = Math.max(1, Math.min(20, Number(ann.stroke_width ?? ann.properties?.stroke_width ?? 2)));
+            const fillColor = `rgba(${r},${g},${b},${fillOpacity})`;
+            const lineWidth = ann.selected ? strokeWidth + 1 : strokeWidth;
 
             if (ann.type === 'polygon') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);

@@ -323,6 +323,10 @@ body.project-gate-open #toolbar {
     background: var(--accent);
     box-shadow: 0 0 6px var(--accent);
 }
+#toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator,
+#toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator + .toolbar-group {
+    display: none;
+}
 
 .zoom-info-text {
     font-size: 11px; color: var(--accent); font-family: 'Consolas', 'Courier New', monospace;
@@ -1505,6 +1509,193 @@ body.annotation-page .project-gate-row {
     background: #2a2e44; border: 1px solid #3a3f5a;
     border-radius: 4px; font-size: 11px; font-family: inherit;
     color: #f5f6fa;
+}
+.shortcuts-modal {
+    background: rgba(15, 23, 42, 0.2);
+}
+.shortcuts-modal .shortcuts-card {
+    width: 620px;
+    max-width: calc(100vw - 28px);
+    padding: 0;
+    background: #fff;
+    color: #1f2937;
+    border-radius: 0;
+    border: 1px solid #6c5ce7;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.22);
+}
+.shortcuts-modal .ux-help-header {
+    height: 46px;
+    margin: 0;
+    padding: 0 8px 0 16px;
+    border-bottom: 2px solid #6c5ce7;
+}
+.shortcuts-modal .ux-help-title {
+    flex: 1;
+    text-align: center;
+    color: #3f278f;
+    font-size: 20px;
+    font-weight: 700;
+}
+.shortcuts-modal .ux-help-close {
+    color: #111827;
+    border: 1px solid #111827;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 28px;
+    line-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.shortcuts-modal .ux-help-close:hover {
+    background: #111827;
+    color: #fff;
+}
+.shortcut-list {
+    max-height: min(70vh, 720px);
+    overflow-y: auto;
+}
+.shortcut-row {
+    display: grid;
+    grid-template-columns: 172px minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+    min-height: 37px;
+    padding: 5px 12px;
+    border-bottom: 1px solid #edf0f5;
+    font-size: 14px;
+    line-height: 1.35;
+}
+.shortcut-row > span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.shortcut-keys {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    color: #c4c8d0;
+    white-space: nowrap;
+}
+.shortcuts-modal .shortcut-keys kbd,
+.shortcuts-modal .mouse-key {
+    min-width: 28px;
+    padding: 2px 8px;
+    margin: 0;
+    text-align: center;
+    background: #fff;
+    color: #555b66;
+    border: 1px solid #cfd4dc;
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+    font-size: 13px;
+    font-family: inherit;
+}
+.shortcuts-modal .mouse-key {
+    min-width: auto;
+}
+.shortcuts-modal .mouse-icon {
+    position: relative;
+    width: 18px;
+    height: 28px;
+    display: inline-block;
+    flex: 0 0 auto;
+    border: 1.5px solid #777d89;
+    border-radius: 9px;
+    background: #fff;
+    box-sizing: border-box;
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.05);
+}
+.shortcuts-modal .mouse-icon::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    width: 1.5px;
+    height: 8px;
+    background: #777d89;
+    transform: translateX(-50%);
+}
+.shortcuts-modal .mouse-icon::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 2px;
+    width: 5.5px;
+    height: 8px;
+    border-radius: 7px 0 2px 0;
+    background: #f4d03f;
+    opacity: 0;
+}
+.shortcuts-modal .mouse-drag::after,
+.shortcuts-modal .mouse-click::after {
+    opacity: 1;
+}
+.shortcuts-modal .mouse-drag {
+    margin-right: 18px;
+}
+.shortcuts-modal .drag-arrow {
+    position: absolute;
+    left: 22px;
+    top: 9px;
+    width: 13px;
+    height: 9px;
+}
+.shortcuts-modal .drag-arrow::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 10px;
+    height: 2px;
+    background: #6c5ce7;
+    border-radius: 999px;
+}
+.shortcuts-modal .drag-arrow::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 1px;
+    width: 7px;
+    height: 7px;
+    border-top: 2px solid #6c5ce7;
+    border-right: 2px solid #6c5ce7;
+    transform: rotate(45deg);
+}
+.shortcuts-modal .mouse-wheel::before {
+    width: 4px;
+    height: 7px;
+    border: 1px solid #777d89;
+    border-radius: 5px;
+    background: #f4d03f;
+    top: 4px;
+}
+.shortcuts-modal .mouse-hover::after {
+    opacity: 0.42;
+}
+.shortcuts-modal .mouse-click {
+    transform: translateY(1px);
+    border-color: #4b5563;
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.18), 0 0 0 2px rgba(244, 208, 63, 0.26);
+}
+.shortcuts-modal .mouse-click::after {
+    height: 10px;
+    background: #f1c40f;
+    box-shadow: inset 0 2px 2px rgba(15, 23, 42, 0.18);
+}
+.shortcuts-modal .mouse-hover {
+    border-style: dashed;
+}
+.shortcuts-modal .ux-help-section {
+    margin: 0;
+    padding: 10px 12px 5px;
+    color: #3f278f;
+    background: #fafaff;
+    border-bottom: 1px solid #edf0f5;
+    font-size: 11px;
+    letter-spacing: 0.7px;
 }
 .panel-section {
     padding: 12px 16px;
