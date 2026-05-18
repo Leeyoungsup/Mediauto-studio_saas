@@ -509,7 +509,6 @@ export class TileViewer {
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
                     e.preventDefault();
-                    return;
                 }
             }
 
