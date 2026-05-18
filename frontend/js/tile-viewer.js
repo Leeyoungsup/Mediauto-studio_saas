@@ -789,6 +789,11 @@ export class TileViewer {
 
         // ── 키보드 ──
         window.addEventListener('keydown', (e) => {
+            if ((e.key === 'Control' || e.key === 'Alt') &&
+                    !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
+                    !this._vsSplitDragging) {
+                this.canvas.style.cursor = e.key === 'Control' ? 'copy' : 'pointer';
+            }
             if (e.key === 'Escape') {
                 if (this._altPending) {
                     this._altPending = null;
@@ -814,19 +819,20 @@ export class TileViewer {
             if (e.key === 'Control') {
                 this._setInsertVertexPreview(null);
             }
-            if (e.key === 'Shift') {
+            if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
                 // 다른 cursor 상태 (drawMode/패닝/이동) 가 아니면 grab 으로 복귀.
-                if (!this.drawMode && !this._isPanning && !this._dragControlPoint &&
-                        !this._dragAnnotation) {
-                    this.canvas.style.cursor = 'grab';
+                if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
+                        !this._vsSplitDragging) {
+                    this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
                 }
             }
         });
         // 창 포커스가 빠진 사이 Shift 가 떼져도 keyup 을 못 받을 수 있어 blur 시 복원.
         window.addEventListener('blur', () => {
             this._setInsertVertexPreview(null);
-            if (!this.drawMode && !this._isPanning) {
-                this.canvas.style.cursor = 'grab';
+            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
+                    !this._vsSplitDragging) {
+                this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
             }
         });
 

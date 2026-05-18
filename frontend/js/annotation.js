@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-05';
+import { TileViewer } from './tile-viewer.js?v=20260518-06';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1535,6 +1535,48 @@ function hexToRgb(hex) {
 }
 
 // 캔버스 ↔ 패널 동기화
+function _classShortcutIndexFromKey(e) {
+    if (/^Digit[0-9]$/.test(e.code)) {
+        const n = Number(e.code.slice(5));
+        return n === 0 ? 9 : n - 1;
+    }
+    if (/^Numpad[0-9]$/.test(e.code)) {
+        const n = Number(e.code.slice(6));
+        return n === 0 ? 9 : n - 1;
+    }
+    if (/^[0-9]$/.test(e.key)) {
+        const n = Number(e.key);
+        return n === 0 ? 9 : n - 1;
+    }
+    return -1;
+}
+
+function _assignSelectedAnnotationClassByShortcut(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return false;
+    if (_projectClassModal) return false;
+    const idx = _classShortcutIndexFromKey(e);
+    if (idx < 0 || idx >= _annotationClasses.length) return false;
+    const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
+    if (!ann) return false;
+    if (_blockViewerAction('Viewer 권한은 annotation class를 변경할 수 없습니다.')) return true;
+    const cls = _annotationClasses[idx];
+    _activeAnnotationClassId = cls.id;
+    _applyClassToAnnotation(ann, cls.id);
+    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+    viewer.requestRender();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+    setStatus(`${ann.name} class: ${cls.name}`);
+    e.preventDefault();
+    return true;
+}
+
+window.addEventListener('keydown', (e) => {
+    _assignSelectedAnnotationClassByShortcut(e);
+}, true);
+
 viewer.onAnnotationCreated = (ann) => {
     _applyClassToAnnotation(ann, _activeAnnotationClassId);
     setStatus(`${ann.name} created`);
