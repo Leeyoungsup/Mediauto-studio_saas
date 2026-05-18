@@ -489,6 +489,15 @@ export class TileViewer {
 
             // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
             // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
+            if (e.altKey && e.button === 0 && this.drawMode) {
+                const hitAnn = this._hitAnnotation(sx, sy);
+                if (hitAnn) {
+                    this.selectAnnotation(hitAnn.id);
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             if (e.altKey && e.button === 0 && this.detectionCells.length > 0) {
                 this._altPending = {
                     sx, sy, cx, cy,

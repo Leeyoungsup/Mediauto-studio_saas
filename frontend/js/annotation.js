@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-04';
+import { TileViewer } from './tile-viewer.js?v=20260518-05';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1440,7 +1440,7 @@ function renderAnnotationPanel() {
         el.innerHTML = `
             <input type="color" class="ann-color-swatch" value="${rgbToHex(r, g, b)}"
                    title="Change color" style="background:rgb(${r},${g},${b})">
-            <span class="ann-name" title="Double-click to rename">${_esc(ann.name)}</span>
+            <span class="ann-name" title="Double-click to center, Shift+double-click to rename">${_esc(ann.name)}</span>
             <select class="ann-class-select" title="Annotation class">
                 ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
             </select>
@@ -1455,9 +1455,28 @@ function renderAnnotationPanel() {
                 e.target.closest('.ann-class-select')) return;
             viewer.selectAnnotation(ann.id);
         });
+        el.addEventListener('dblclick', (e) => {
+            if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
+                e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
+                e.target.closest('.ann-class-select')) return;
+            e.preventDefault();
+            viewer.selectAnnotation(ann.id);
+            if (typeof viewer.centerOnAnnotation === 'function') {
+                viewer.centerOnAnnotation(ann);
+                setStatus(`Centered on ${ann.name}`);
+            }
+        });
         // 더블클릭 이름 → 리네임
         el.querySelector('.ann-name').addEventListener('dblclick', (e) => {
             e.stopPropagation();
+            if (!e.shiftKey) {
+                viewer.selectAnnotation(ann.id);
+                if (typeof viewer.centerOnAnnotation === 'function') {
+                    viewer.centerOnAnnotation(ann);
+                    setStatus(`Centered on ${ann.name}`);
+                }
+                return;
+            }
             const nameSpan = e.target;
             const input = document.createElement('input');
             input.className = 'ann-name-input';
