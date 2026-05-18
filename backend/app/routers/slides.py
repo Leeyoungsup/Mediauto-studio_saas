@@ -596,6 +596,11 @@ async def rename_project(
         raise HTTPException(400, "이미 존재하는 프로젝트 이름입니다")
     target.rename(new_target)
     await slide_store.rename_folder_in_db(name, new_name)
+    old_class_dir = Path(settings.ANNOTATIONS_DIR) / "_projects" / _annotation_slide_dirname(name)
+    new_class_dir = Path(settings.ANNOTATIONS_DIR) / "_projects" / _annotation_slide_dirname(new_name)
+    if old_class_dir.exists() and not new_class_dir.exists():
+        new_class_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(old_class_dir), str(new_class_dir))
     if is_db_connected():
         db = get_db()
         await db.project_infos.update_one(
@@ -676,6 +681,9 @@ async def delete_project(
         await db.project_infos.delete_one({"str_project_path": name})
     else:
         dict_before = None
+    class_dir = Path(settings.ANNOTATIONS_DIR) / "_projects" / _annotation_slide_dirname(name)
+    if class_dir.exists():
+        shutil.rmtree(class_dir)
     await _log_management_event(
         request,
         dict_user,
@@ -1680,6 +1688,10 @@ async def close_slide(slide_id: str):
 # ── Annotation 저장/불러오기 ──
 
 _INT_ANNOTATIONS_MAX_BYTES = 8 * 1024 * 1024  # 8 MB — annotation 한 슬라이드 합 상한
+_INT_ANNOTATION_CLASSES_MAX_BYTES = 256 * 1024
+_DEFAULT_ANNOTATION_CLASSES = [
+    {"id": "default", "name": "Default", "color": [0, 255, 0]},
+]
 
 
 def _annotation_slide_dirname(filename: str) -> str:
@@ -1698,6 +1710,108 @@ def _annotation_slide_dirname(filename: str) -> str:
 
 def _annotation_path_for_filename(filename: str) -> Path:
     return Path(settings.ANNOTATIONS_DIR) / _annotation_slide_dirname(filename) / "annotations.json"
+
+
+def _annotation_classes_path_for_project(project_path: str) -> Path:
+    str_project = (project_path or "").replace("\\", "/").split("/")[0].strip()
+    if not str_project:
+        raise HTTPException(400, "Project path is required")
+    str_project = _safe_filename(str_project)
+    project_dir = _safe_subpath(str_project)
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise HTTPException(404, "Project not found")
+    return Path(settings.ANNOTATIONS_DIR) / "_projects" / _annotation_slide_dirname(str_project) / "classes.json"
+
+
+def _normalize_annotation_color(value) -> list[int]:
+    if isinstance(value, str):
+        raw = value.strip().lstrip("#")
+        if len(raw) == 6:
+            try:
+                return [int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)]
+            except Exception:
+                pass
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        out = []
+        for item in value[:3]:
+            try:
+                out.append(max(0, min(255, int(item))))
+            except Exception:
+                out.append(0)
+        return out
+    return [0, 255, 0]
+
+
+def _normalize_annotation_classes(value) -> list[dict]:
+    if not isinstance(value, list):
+        raise HTTPException(400, "annotation classes must be a list")
+    list_classes = []
+    set_seen = set()
+    for idx, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:64] or f"Class {idx}"
+        raw_id = str(item.get("id") or name).strip()[:80]
+        raw_id = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in raw_id)
+        raw_id = raw_id.strip("_-") or hashlib.sha256(name.encode("utf-8", "ignore")).hexdigest()[:10]
+        base_id = raw_id
+        suffix = 2
+        while raw_id in set_seen:
+            raw_id = f"{base_id}_{suffix}"
+            suffix += 1
+        set_seen.add(raw_id)
+        list_classes.append({
+            "id": raw_id,
+            "name": name,
+            "color": _normalize_annotation_color(item.get("color")),
+        })
+    return list_classes or list(_DEFAULT_ANNOTATION_CLASSES)
+
+
+@router.get("/annotation-classes")
+async def load_annotation_classes(path: str = Query(..., description="project path or current folder path")):
+    """프로젝트 단위 annotation class palette."""
+    class_path = _annotation_classes_path_for_project(path)
+    if not class_path.exists():
+        return {"classes": list(_DEFAULT_ANNOTATION_CLASSES)}
+    with open(class_path, "r", encoding="utf-8") as f:
+        try:
+            payload = json.loads(f.read())
+        except Exception as e:
+            raise HTTPException(400, f"Invalid annotation class JSON: {e}")
+    classes = payload.get("classes") if isinstance(payload, dict) else payload
+    return {"classes": _normalize_annotation_classes(classes)}
+
+
+@router.post("/annotation-classes", dependencies=[Depends(require_not_viewer)])
+async def save_annotation_classes(
+    request: Request,
+    path: str = Form(...),
+    data: str = Form(...),
+    dict_user: dict = Depends(get_current_user),
+):
+    if len(data.encode("utf-8")) > _INT_ANNOTATION_CLASSES_MAX_BYTES:
+        raise HTTPException(413, "annotation class data is too large")
+    try:
+        payload = json.loads(data)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid annotation class JSON: {e}")
+    classes = _normalize_annotation_classes(payload.get("classes") if isinstance(payload, dict) else payload)
+    class_path = _annotation_classes_path_for_project(path)
+    class_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(class_path, "w", encoding="utf-8") as f:
+        json.dump({"classes": classes}, f, ensure_ascii=False, indent=2)
+    str_project_id = (path or "").replace("\\", "/").split("/")[0]
+    await _log_management_event(
+        request,
+        dict_user,
+        str_action="annotation_classes.update",
+        str_resource_type="project",
+        str_resource_id=str_project_id,
+        str_detail=f"Updated annotation classes for {str_project_id}",
+        dict_after={"classes": classes},
+    )
+    return {"status": "saved", "count": len(classes), "classes": classes}
 
 
 @router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])

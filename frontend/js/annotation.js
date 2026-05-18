@@ -1077,12 +1077,211 @@ const $annList = $('#annotation-list');
 const $btnAnnClear = $('#btn-ann-clear');
 const $btnAnnSave = $('#btn-ann-save');
 const $btnAnnLoad = $('#btn-ann-load');
+const $classList = $('#annotation-class-list');
+const $btnClassAdd = $('#btn-class-add');
+
+const _DEFAULT_ANNOTATION_CLASSES = [
+    { id: 'default', name: 'Default', color: [0, 255, 0] },
+];
+let _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+let _activeAnnotationClassId = 'default';
+let _classesLoadedForProject = null;
+let _classSaveTimer = null;
+
+function _getAnnotationClass(classId) {
+    return _annotationClasses.find(c => c.id === classId) || _annotationClasses[0] || _DEFAULT_ANNOTATION_CLASSES[0];
+}
+
+function _makeClassId(name) {
+    const base = String(name || 'Class')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9가-힣_-]+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'class';
+    let id = base;
+    let i = 2;
+    while (_annotationClasses.some(c => c.id === id)) {
+        id = `${base}_${i++}`;
+    }
+    return id;
+}
+
+function _normalizeAnnotationClass(cls, idx = 1) {
+    const name = String(cls?.name || `Class ${idx}`).trim().slice(0, 64) || `Class ${idx}`;
+    return {
+        id: String(cls?.id || _makeClassId(name)).trim() || _makeClassId(name),
+        name,
+        color: _normalizeColor(cls?.color),
+    };
+}
+
+function _applyClassToAnnotation(ann, classId) {
+    if (!ann) return;
+    const cls = _getAnnotationClass(classId);
+    ann.class_id = cls.id;
+    ann.class_name = cls.name;
+    ann.color = _normalizeColor(cls.color);
+    ann.properties = {
+        ...(ann.properties || {}),
+        class_id: cls.id,
+        class_name: cls.name,
+    };
+}
+
+function _syncAnnotationClassMetadata() {
+    for (const ann of viewer.annotations || []) {
+        const classId = ann.class_id || ann.properties?.class_id || _activeAnnotationClassId;
+        const cls = _getAnnotationClass(classId);
+        if (!cls) continue;
+        ann.class_id = cls.id;
+        ann.class_name = cls.name;
+        ann.color = _normalizeColor(cls.color);
+        ann.properties = {
+            ...(ann.properties || {}),
+            class_id: cls.id,
+            class_name: cls.name,
+        };
+    }
+    viewer.requestRender();
+}
+
+function _queueSaveAnnotationClasses() {
+    if (_classSaveTimer) clearTimeout(_classSaveTimer);
+    _classSaveTimer = setTimeout(async () => {
+        const projectName = _getCurrentProjectName();
+        if (!projectName) return;
+        try {
+            const res = await api.saveAnnotationClasses(projectName, _annotationClasses);
+            if (Array.isArray(res.classes)) {
+                _annotationClasses = res.classes.map(_normalizeAnnotationClass);
+            }
+            setStatus('Annotation classes saved');
+        } catch (err) {
+            console.warn('Annotation class save failed:', err);
+            setStatus(`Class save failed: ${err.message}`);
+        }
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+    }, 500);
+}
+
+async function _loadAnnotationClassesForCurrentProject(force = false) {
+    const projectName = _getCurrentProjectName();
+    if (!projectName) {
+        _classesLoadedForProject = null;
+        _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+        _activeAnnotationClassId = 'default';
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+        return;
+    }
+    if (!force && _classesLoadedForProject === projectName) return;
+    _classesLoadedForProject = projectName;
+    try {
+        const res = await api.loadAnnotationClasses(projectName);
+        const list = Array.isArray(res.classes) ? res.classes : _DEFAULT_ANNOTATION_CLASSES;
+        _annotationClasses = list.map((cls, idx) => _normalizeAnnotationClass(cls, idx + 1));
+        if (!_annotationClasses.some(c => c.id === _activeAnnotationClassId)) {
+            _activeAnnotationClassId = _annotationClasses[0]?.id || 'default';
+        }
+    } catch (err) {
+        console.warn('Annotation class load failed:', err);
+        _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+        _activeAnnotationClassId = 'default';
+        setStatus(`Class load failed: ${err.message}`);
+    }
+    _syncAnnotationClassMetadata();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+}
+
+function renderClassManagementPanel() {
+    if (!$classList) return;
+    $classList.innerHTML = '';
+    for (const cls of _annotationClasses) {
+        const [r, g, b] = _normalizeColor(cls.color);
+        const row = document.createElement('div');
+        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '');
+        row.dataset.classId = cls.id;
+        row.innerHTML = `
+            <button type="button" class="class-active-btn" title="Use this class"></button>
+            <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
+            <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
+            <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
+        `;
+        const activeBtn = row.querySelector('.class-active-btn');
+        const colorInput = row.querySelector('.class-color-input');
+        const nameInput = row.querySelector('.class-name-input');
+        const deleteBtn = row.querySelector('.class-delete-btn');
+
+        const setActive = () => {
+            _activeAnnotationClassId = cls.id;
+            const selected = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
+            if (selected) {
+                _applyClassToAnnotation(selected, cls.id);
+                if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(selected);
+                viewer.requestRender();
+            }
+            renderClassManagementPanel();
+            renderAnnotationPanel();
+        };
+        activeBtn.addEventListener('click', setActive);
+        row.addEventListener('dblclick', setActive);
+        colorInput.addEventListener('input', (e) => {
+            cls.color = hexToRgb(e.target.value);
+            _syncAnnotationClassMetadata();
+            renderAnnotationPanel();
+            _queueSaveAnnotationClasses();
+        });
+        nameInput.addEventListener('change', (e) => {
+            cls.name = e.target.value.trim() || cls.name;
+            _syncAnnotationClassMetadata();
+            renderAnnotationPanel();
+            _queueSaveAnnotationClasses();
+        });
+        deleteBtn.addEventListener('click', () => {
+            if (_annotationClasses.length <= 1) {
+                alert('At least one class is required.');
+                return;
+            }
+            if (!confirm(`Delete class "${cls.name}"? Existing annotations will move to the first class.`)) return;
+            const fallback = _annotationClasses.find(c => c.id !== cls.id);
+            _annotationClasses = _annotationClasses.filter(c => c.id !== cls.id);
+            if (_activeAnnotationClassId === cls.id) _activeAnnotationClassId = fallback.id;
+            for (const ann of viewer.annotations) {
+                if ((ann.class_id || ann.properties?.class_id) === cls.id) _applyClassToAnnotation(ann, fallback.id);
+            }
+            _syncAnnotationClassMetadata();
+            _queueSaveAnnotationClasses();
+            renderClassManagementPanel();
+            renderAnnotationPanel();
+        });
+        $classList.appendChild(row);
+    }
+}
+
+$btnClassAdd?.addEventListener('click', () => {
+    if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
+    const name = prompt('Class name:', `Class ${_annotationClasses.length + 1}`);
+    if (!name || !name.trim()) return;
+    const cls = {
+        id: _makeClassId(name),
+        name: name.trim().slice(0, 64),
+        color: [0, 255, 0],
+    };
+    _annotationClasses.push(cls);
+    _activeAnnotationClassId = cls.id;
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+    _queueSaveAnnotationClasses();
+});
 
 function renderAnnotationPanel() {
     if (!$annList) return;
     $annList.innerHTML = '';
     for (const ann of viewer.annotations) {
-        const [r, g, b] = ann.color;
+        const annClass = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
+        const [r, g, b] = _normalizeColor(ann.color);
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
@@ -1091,6 +1290,9 @@ function renderAnnotationPanel() {
             <input type="color" class="ann-color-swatch" value="${rgbToHex(r, g, b)}"
                    title="Change color" style="background:rgb(${r},${g},${b})">
             <span class="ann-name" title="Double-click to rename">${_esc(ann.name)}</span>
+            <select class="ann-class-select" title="Annotation class">
+                ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
+            </select>
             <span class="ann-type">${_esc(ann.type)}</span>
             <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? '👁' : '👁‍🗨'}</button>
             <button class="ann-btn-del" title="Delete">✕</button>
@@ -1098,7 +1300,8 @@ function renderAnnotationPanel() {
         // 클릭 → 선택
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
-                e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input')) return;
+                e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
+                e.target.closest('.ann-class-select')) return;
             viewer.selectAnnotation(ann.id);
         });
         // 더블클릭 이름 → 리네임
@@ -1123,9 +1326,19 @@ function renderAnnotationPanel() {
         el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
             const hex = e.target.value;
             ann.color = hexToRgb(hex);
+            ann.class_id = '';
+            ann.class_name = '';
+            ann.properties = { ...(ann.properties || {}), class_id: '', class_name: '' };
             e.target.style.background = `rgb(${ann.color[0]},${ann.color[1]},${ann.color[2]})`;
             if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
             viewer.requestRender();
+        });
+        el.querySelector('.ann-class-select').addEventListener('change', (e) => {
+            e.stopPropagation();
+            _applyClassToAnnotation(ann, e.target.value);
+            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            viewer.requestRender();
+            renderAnnotationPanel();
         });
         // 가시성 토글
         el.querySelector('.ann-btn-vis').addEventListener('click', (e) => {
@@ -1153,10 +1366,16 @@ function hexToRgb(hex) {
 
 // 캔버스 ↔ 패널 동기화
 viewer.onAnnotationCreated = (ann) => {
+    _applyClassToAnnotation(ann, _activeAnnotationClassId);
     setStatus(`${ann.name} created`);
     renderAnnotationPanel();
 };
 viewer.onAnnotationSelected = (ann) => {
+    if (ann?.class_id || ann?.properties?.class_id) {
+        const cls = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
+        if (cls) _activeAnnotationClassId = cls.id;
+    }
+    renderClassManagementPanel();
     renderAnnotationPanel();
 };
 viewer.onAnnotationDeleted = (ann) => {
@@ -2077,6 +2296,8 @@ function _serializeAnnotations() {
         type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
         coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
         color: _normalizeColor(ann.color),
+        class_id: ann.class_id || ann.properties?.class_id || '',
+        class_name: ann.class_name || ann.properties?.class_name || '',
         group: ann.group || 'default',
         visible: ann.visible !== false,
         properties: ann.properties || {},
@@ -2093,16 +2314,24 @@ function _normalizeLoadedAnnotations(list) {
         counter++;
         const typeRaw = (item.type || 'polygon').toString().toLowerCase();
         const type = _LABEL_TO_TYPE[typeRaw] || 'polygon';
+        const classId = item.class_id || item.classId || item.properties?.class_id || '';
+        const cls = classId ? _getAnnotationClass(classId) : null;
         loaded.push({
             id: item.id || crypto.randomUUID?.() || `${Date.now()}_${counter}`,
             name: item.name || `ROI_${counter}`,
             type,
             coordinates: coords.map(p => [Number(p[0]), Number(p[1])]),
-            color: _normalizeColor(item.color),
+            color: cls ? _normalizeColor(cls.color) : _normalizeColor(item.color),
+            class_id: cls?.id || classId,
+            class_name: cls?.name || item.class_name || item.className || item.properties?.class_name || '',
             group: item.group || 'default',
             visible: item.visible !== false,
             selected: false,
-            properties: item.properties || {},
+            properties: {
+                ...(item.properties || {}),
+                class_id: cls?.id || classId,
+                class_name: cls?.name || item.class_name || item.className || item.properties?.class_name || '',
+            },
         });
     }
     return loaded;
@@ -3606,6 +3835,7 @@ if ($projectGateAdditional) {
 
 async function loadSlideList() {
     try {
+        await _loadAnnotationClassesForCurrentProject();
         const data = await api.browse(currentBrowsePath);
         $slideList.innerHTML = '';
         _appendAnnotationSlideListHeader();

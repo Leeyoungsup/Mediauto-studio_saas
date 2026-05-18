@@ -527,6 +527,21 @@ export const api = {
     // ── AI ──
 
     /** 검출 시작 */
+    async loadAnnotationClasses(path) {
+        const res = await _authFetch(`${API_BASE}/slides/annotation-classes?path=${encodeURIComponent(path || '')}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async saveAnnotationClasses(path, classes) {
+        const form = new FormData();
+        form.append('path', path || '');
+        form.append('data', JSON.stringify({ classes }));
+        const res = await _authFetch(`${API_BASE}/slides/annotation-classes`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async startDetection(slideId, roiPolygons = null, tissueType = 'Stomach') {
         const form = new FormData();
         form.append('slide_id', slideId);
