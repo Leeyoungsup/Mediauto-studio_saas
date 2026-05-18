@@ -180,6 +180,7 @@ export class TileViewer {
         this._brushSizePx = Math.max(4, Math.min(120, this._brushSizePx));
         this.annotationStrokeWidth = 2;
         this.annotationFillOpacity = 0.1;
+        this.annotationDrawColor = [0, 255, 0];
         // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
         // mode 해제 / 새 측정 시작 시 사라짐.
         this._rulerStart = null;      // [sx, sy]
@@ -2642,6 +2643,19 @@ export class TileViewer {
         this.requestRender();
     }
 
+    setAnnotationDrawColor(color = [0, 255, 0]) {
+        if (Array.isArray(color)) {
+            const rgb = color.slice(0, 3).map(v => Math.max(0, Math.min(255, Number(v) || 0)));
+            this.annotationDrawColor = rgb.length === 3 ? rgb : [0, 255, 0];
+        } else if (typeof color === 'string') {
+            const m = color.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+            this.annotationDrawColor = m
+                ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+                : [0, 255, 0];
+        }
+        this.requestRender();
+    }
+
     /**
      * 슬라이드 좌표계 기준 1mm 가 몇 px 인지. mpp(µm/px) 가 0.25 면 4000 px = 1mm.
      * slideInfo 가 없거나 mpp 가 없으면 null — 호출 측에서 가드 필요.
@@ -3146,12 +3160,15 @@ export class TileViewer {
         this._annotationCounter++;
         const COLORS = { polygon: [0, 255, 0], rectangle: [255, 0, 0], point: [0, 0, 255] };
         const NAMES = { polygon: 'ROI', rectangle: 'Rectangle', point: 'Point' };
+        const drawColor = Array.isArray(options.color)
+            ? options.color.slice(0, 3)
+            : (Array.isArray(this.annotationDrawColor) ? this.annotationDrawColor.slice(0, 3) : COLORS[type]);
         const ann = {
             id: crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name: `${NAMES[type]}_${this._annotationCounter}`,
             type,
             coordinates,
-            color: COLORS[type],
+            color: drawColor || COLORS[type],
             visible: true,
             selected: false,
             source: options.source || '',
@@ -3415,6 +3432,14 @@ export class TileViewer {
     }
 
     _renderDrawingPreview(octx) {
+        const [pr, pg, pb] = Array.isArray(this.annotationDrawColor) ? this.annotationDrawColor : [0, 255, 0];
+        const previewStroke = `rgba(${pr},${pg},${pb},0.82)`;
+        const previewStrokeStrong = `rgba(${pr},${pg},${pb},0.95)`;
+        const previewFill = `rgba(${pr},${pg},${pb},0.10)`;
+        const previewFillStrong = `rgba(${pr},${pg},${pb},0.60)`;
+        const previewBrushFill = `rgba(${pr},${pg},${pb},0.08)`;
+        const previewBrushStroke = `rgba(${pr},${pg},${pb},0.78)`;
+        const previewBrushPath = `rgba(${pr},${pg},${pb},0.24)`;
         if (this.drawMode === 'polygon' && this._drawingPoints.length > 0) {
             octx.beginPath();
             const [cx0, cy0] = this.sceneToCanvas(this._drawingPoints[0][0], this._drawingPoints[0][1]);
@@ -3427,7 +3452,7 @@ export class TileViewer {
                 const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
                 octx.lineTo(cx, cy);
             }
-            octx.strokeStyle = 'rgba(0,255,0,0.8)';
+            octx.strokeStyle = previewStroke;
             octx.lineWidth = 2;
             octx.setLineDash([6, 3]);
             octx.stroke();
@@ -3436,7 +3461,7 @@ export class TileViewer {
             // 시작점 표시
             octx.beginPath();
             octx.arc(cx0, cy0, 6, 0, Math.PI * 2);
-            octx.fillStyle = 'rgba(0,255,0,0.6)';
+            octx.fillStyle = previewFillStrong;
             octx.fill();
             octx.strokeStyle = '#fff';
             octx.lineWidth = 1;
@@ -3447,7 +3472,7 @@ export class TileViewer {
                 const [cx, cy] = this.sceneToCanvas(sx, sy);
                 octx.beginPath();
                 octx.arc(cx, cy, 3, 0, Math.PI * 2);
-                octx.fillStyle = '#0f0';
+                octx.fillStyle = previewStrokeStrong;
                 octx.fill();
             }
         }
@@ -3466,7 +3491,7 @@ export class TileViewer {
                     const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
                     octx.lineTo(cx, cy);
                 }
-                octx.strokeStyle = 'rgba(0,255,0,0.24)';
+                octx.strokeStyle = previewBrushPath;
                 octx.lineWidth = this._brushSizePx || 28;
                 octx.lineCap = 'round';
                 octx.lineJoin = 'round';
@@ -3478,9 +3503,9 @@ export class TileViewer {
                 octx.save();
                 octx.beginPath();
                 octx.arc(cx, cy, (this._brushSizePx || 28) / 2, 0, Math.PI * 2);
-                octx.fillStyle = 'rgba(0,255,0,0.08)';
+                octx.fillStyle = previewBrushFill;
                 octx.fill();
-                octx.strokeStyle = 'rgba(0,255,0,0.78)';
+                octx.strokeStyle = previewBrushStroke;
                 octx.lineWidth = 1.5;
                 octx.setLineDash([4, 3]);
                 octx.stroke();
@@ -3523,9 +3548,9 @@ export class TileViewer {
             const [cx1, cy1] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
             const x = Math.min(cx0, cx1), y = Math.min(cy0, cy1);
             const w = Math.abs(cx1 - cx0), h = Math.abs(cy1 - cy0);
-            octx.fillStyle = 'rgba(255,0,0,0.1)';
+            octx.fillStyle = previewFill;
             octx.fillRect(x, y, w, h);
-            octx.strokeStyle = 'rgba(255,0,0,0.8)';
+            octx.strokeStyle = previewStroke;
             octx.lineWidth = 2;
             octx.setLineDash([6, 3]);
             octx.strokeRect(x, y, w, h);
@@ -3545,10 +3570,8 @@ export class TileViewer {
                 ? this._makeRect1mm2Coords(sx, sy)
                 : this._makeCircle1mm2Coords(sx, sy);
             if (coords) {
-                const fillColor = this.drawMode === 'rect-1mm2'
-                    ? 'rgba(255,0,0,0.10)' : 'rgba(0,128,255,0.10)';
-                const strokeColor = this.drawMode === 'rect-1mm2'
-                    ? 'rgba(255,0,0,0.85)' : 'rgba(0,128,255,0.85)';
+                const fillColor = previewFill;
+                const strokeColor = previewStrokeStrong;
                 octx.beginPath();
                 const [c0x, c0y] = this.sceneToCanvas(coords[0][0], coords[0][1]);
                 octx.moveTo(c0x, c0y);

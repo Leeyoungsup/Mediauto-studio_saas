@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-27';
+import { TileViewer } from './tile-viewer.js?v=20260518-28';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1129,6 +1129,11 @@ function _getAnnotationClass(classId) {
     return _annotationClasses.find(c => c.id === classId) || _annotationClasses[0] || _DEFAULT_ANNOTATION_CLASSES[0];
 }
 
+function _syncActiveAnnotationClassToViewer() {
+    const cls = _getAnnotationClass(_activeAnnotationClassId);
+    if (cls) viewer.setAnnotationDrawColor?.(cls.color);
+}
+
 function _makeClassId(name) {
     const base = String(name || 'Class')
         .trim()
@@ -1275,6 +1280,7 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
         _classesLoadedForProject = null;
         _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
         _activeAnnotationClassId = 'default';
+        _syncActiveAnnotationClassToViewer();
         renderClassManagementPanel();
         renderAnnotationPanel();
         return;
@@ -1294,6 +1300,7 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
         _activeAnnotationClassId = 'default';
         setStatus(`Class load failed: ${err.message}`);
     }
+    _syncActiveAnnotationClassToViewer();
     _syncAnnotationClassMetadata();
     renderClassManagementPanel();
     renderAnnotationPanel();
@@ -1355,6 +1362,7 @@ function renderClassManagementPanel() {
 
         const setActive = () => {
             _activeAnnotationClassId = cls.id;
+            _syncActiveAnnotationClassToViewer();
             renderClassManagementPanel();
             renderAnnotationPanel();
         };
@@ -1397,6 +1405,7 @@ function renderClassManagementPanel() {
             colorInput.addEventListener('input', (e) => {
                 if (!isSettings) return;
                 cls.color = hexToRgb(e.target.value);
+                if (_activeAnnotationClassId === cls.id) _syncActiveAnnotationClassToViewer();
                 _syncAnnotationClassMetadata();
                 renderAnnotationPanel();
                 _queueSaveAnnotationClasses();
@@ -1422,6 +1431,7 @@ function renderClassManagementPanel() {
                 const fallback = _annotationClasses.find(c => c.id !== cls.id);
                 _annotationClasses = _annotationClasses.filter(c => c.id !== cls.id);
                 if (_activeAnnotationClassId === cls.id) _activeAnnotationClassId = fallback.id;
+                _syncActiveAnnotationClassToViewer();
                 for (const ann of viewer.annotations) {
                     if ((ann.class_id || ann.properties?.class_id) === cls.id) _applyClassToAnnotation(ann, fallback.id);
                 }
@@ -1594,6 +1604,7 @@ async function _openProjectClassManager(project) {
                 if (!_annotationClasses.some(c => c.id === _activeAnnotationClassId)) {
                     _activeAnnotationClassId = _annotationClasses[0]?.id || 'default';
                 }
+                _syncActiveAnnotationClassToViewer();
                 _syncAnnotationClassMetadata();
                 renderClassManagementPanel();
                 renderAnnotationPanel();
@@ -1629,6 +1640,7 @@ $btnClassAdd?.addEventListener('click', () => {
     };
     _annotationClasses.push(cls);
     _activeAnnotationClassId = cls.id;
+    _syncActiveAnnotationClassToViewer();
     renderClassManagementPanel();
     renderAnnotationPanel();
     _queueSaveAnnotationClasses();
@@ -1654,6 +1666,7 @@ function _applyActiveClassToSelectedAnnotation() {
     if (_blockViewerAction('Viewer role can view annotations only.')) return;
     const cls = _getAnnotationClass(_activeAnnotationClassId);
     _activeAnnotationClassId = cls.id;
+    _syncActiveAnnotationClassToViewer();
     viewer.pushAnnotationUndo?.();
     _applyClassToAnnotation(ann, cls.id);
     if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
@@ -1688,7 +1701,6 @@ function renderAnnotationPanel() {
         `;
         // 클릭 → 선택
         const annDeleteButton = el.querySelector('.ann-btn-del');
-        if (annDeleteButton) annDeleteButton.textContent = 'Delete';
         if (_isViewerRole()) {
             const readOnlyTitle = 'Viewer role can view annotations only';
             el.querySelector('.ann-color-swatch').disabled = true;
@@ -1844,6 +1856,7 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     if (_blockViewerAction('Viewer 권한은 annotation class를 변경할 수 없습니다.')) return true;
     const cls = _annotationClasses[idx];
     _activeAnnotationClassId = cls.id;
+    _syncActiveAnnotationClassToViewer();
     viewer.pushAnnotationUndo?.();
     _applyClassToAnnotation(ann, cls.id);
     if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
@@ -1861,13 +1874,17 @@ window.addEventListener('keydown', (e) => {
 
 viewer.onAnnotationCreated = (ann) => {
     _applyClassToAnnotation(ann, _activeAnnotationClassId);
+    _syncActiveAnnotationClassToViewer();
     setStatus(`${ann.name} created`);
     renderAnnotationPanel();
 };
 viewer.onAnnotationSelected = (ann) => {
     if (ann?.class_id || ann?.properties?.class_id) {
         const cls = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
-        if (cls) _activeAnnotationClassId = cls.id;
+        if (cls) {
+            _activeAnnotationClassId = cls.id;
+            _syncActiveAnnotationClassToViewer();
+        }
     }
     renderClassManagementPanel();
     renderAnnotationPanel();
