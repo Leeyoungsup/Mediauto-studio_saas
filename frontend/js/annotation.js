@@ -2128,6 +2128,16 @@ async function _saveAnnotationsToServer() {
     setStatus(`Annotations saved internally (${payload.length} items)`);
 }
 
+window.addEventListener('keydown', (e) => {
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key.toLowerCase() !== 's') return;
+    e.preventDefault();
+    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    _saveAnnotationsToServer().catch(err => alert(`Failed to save annotations: ${err.message}`));
+}, true);
+
 async function _loadSavedAnnotationsForSlide(slideId) {
     if (_isViewerRole()) return;
     const strSlideId = slideId || currentSlideId;
