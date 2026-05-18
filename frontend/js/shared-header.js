@@ -33,6 +33,26 @@
         location.href = '/login.html';
     }
 
+    async function loadVersion(root) {
+        const badge = root.querySelector('.shared-version');
+        if (!badge) return;
+        try {
+            const res = await fetch('/api/version', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                cache: 'no-store',
+            });
+            if (!res.ok) return;
+            const info = await res.json();
+            const version = info.version ? `v${info.version}` : '';
+            const channel = info.channel && info.channel !== 'production' ? info.channel : '';
+            badge.textContent = channel ? `${version} ${channel}` : version;
+            badge.title = [info.name, version, channel, info.release_date].filter(Boolean).join(' ');
+            badge.hidden = !version;
+        } catch (_) {
+            badge.hidden = true;
+        }
+    }
+
     function render(options = {}) {
         const root = document.getElementById(options.rootId || 'shared-header-root');
         if (!root) return null;
@@ -48,6 +68,7 @@
                 <div class="shared-header-inner">
                     <a href="/home.html" class="shared-brand">
                         <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
+                        <span class="shared-version" hidden></span>
                     </a>
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home.html" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
@@ -66,6 +87,7 @@
 
         const logout = root.querySelector('.shared-logout');
         logout?.addEventListener('click', options.logout || defaultLogout);
+        loadVersion(root);
         return root;
     }
 

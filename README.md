@@ -1,5 +1,7 @@
 # MeDIAuto Studio SaaS
 
+Current version: **1.1.0**. See [CHANGELOG.md](CHANGELOG.md) and [docs/VERSIONING.md](docs/VERSIONING.md).
+
 병원 온프레미스(On-Premise) 배포용 디지털 병리 WSI(Whole Slide Image) 뷰어 + AI 분석 플랫폼.
 
 PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔드 + Vanilla JS 프론트엔드로 포팅한 웹 버전. 단일 프로세스에서 멀티 사용자, 멀티 AI 모델, 대용량 WSI(최대 20 GB)를 다루기 위해 CPU 파티셔닝·뷰어 우선순위 게이팅·idle-aware 자동 추론·HMAC 체인 감사 로그까지 담고 있다.

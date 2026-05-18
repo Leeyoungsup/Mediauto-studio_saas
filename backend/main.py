@@ -88,6 +88,7 @@ from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, s
 from app.routers import slides, tiles, ai, auth, users
 from app import auto_ai
 from app import tile_worker
+from app.version import APP_VERSION, get_version_info
 
 
 @asynccontextmanager
@@ -127,7 +128,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MeDIAuto Studio SaaS",
     description="병리 AI 분석 SaaS API",
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -177,10 +178,15 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-if FRONTEND_DIR.exists():
-    app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
-
-
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "MeDIAuto Studio SaaS"}
+    return {"status": "ok", "service": "MeDIAuto Studio SaaS", "version": APP_VERSION}
+
+
+@app.get("/api/version")
+async def version_check():
+    return get_version_info()
+
+
+if FRONTEND_DIR.exists():
+    app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

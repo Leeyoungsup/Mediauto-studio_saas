@@ -1,0 +1,7 @@
+{
+  "name": "MeDIAuto Studio",
+  "version": "1.1.0",
+  "channel": "production",
+  "release_date": "2026-05-19",
+  "description": "Minor release adding project management, AI workflow separation, and the annotation workspace."
+}
