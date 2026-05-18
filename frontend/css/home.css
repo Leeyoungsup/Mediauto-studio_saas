@@ -232,6 +232,65 @@ html, body {
 }
 
 /* ═══ Storage & Folders ═══ */
+.project-open-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.project-open-eyebrow {
+    margin: 0 0 4px;
+    color: var(--home-text-dim);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.project-open-title {
+    margin: 0;
+    color: var(--home-text);
+    font-size: 15px;
+    font-weight: 800;
+    word-break: break-word;
+}
+.project-open-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.project-open-option {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 82px;
+    padding: 14px;
+    border: 1px solid var(--home-border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--home-text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.project-open-option:hover {
+    border-color: var(--home-accent);
+    box-shadow: 0 8px 22px rgba(108, 92, 231, 0.16);
+    transform: translateY(-1px);
+}
+.project-open-option-title {
+    font-size: 14px;
+    font-weight: 800;
+}
+.project-open-option-desc {
+    color: var(--home-text-dim);
+    font-size: 12px;
+    line-height: 1.35;
+}
+@media (max-width: 520px) {
+    .project-open-options {
+        grid-template-columns: 1fr;
+    }
+}
 .storage-overview { display: flex; flex-direction: column; gap: 20px; }
 .storage-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
 .storage-bar-track {

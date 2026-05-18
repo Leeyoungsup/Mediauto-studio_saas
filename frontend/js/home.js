@@ -48,12 +48,18 @@
     const $projectMoveCancel = document.getElementById('project-move-cancel');
     const $moveFolderSelect = document.getElementById('move-folder-select');
     const $moveProjectSelect = document.getElementById('move-project-select');
+    const $projectOpenDialog = document.getElementById('project-open-dialog');
+    const $projectOpenClose = document.getElementById('project-open-close');
+    const $projectOpenTitle = document.getElementById('project-open-title');
+    const $projectOpenAi = document.getElementById('project-open-ai');
+    const $projectOpenAnnotation = document.getElementById('project-open-annotation');
 
     let _projects = [];
     let _projectPage = 1;
     const PROJECT_PAGE_SIZE = 10;
     let _projectDialogMode = 'create';
     let _editingProjectPath = '';
+    let _openingProjectPath = '';
 
     window.MediautoHeader?.render({
         active: 'home',
@@ -287,6 +293,28 @@
         if ($projectDialog?.open) $projectDialog.close();
     }
 
+    function closeProjectOpenDialog() {
+        if ($projectOpenDialog?.open) $projectOpenDialog.close();
+    }
+
+    function openProjectRouteDialog(project) {
+        const projectPath = project?.path || project?.name || '';
+        if (!projectPath) return;
+        const info = project.info || {};
+        _openingProjectPath = projectPath;
+        if ($projectOpenTitle) {
+            $projectOpenTitle.textContent = info.title || project.name || projectPath;
+        }
+        if ($projectOpenDialog?.showModal) $projectOpenDialog.showModal();
+        else location.href = `/app.html?path=${encodeURIComponent(projectPath)}`;
+    }
+
+    function openSelectedProjectRoute(page) {
+        if (!_openingProjectPath) return;
+        closeProjectOpenDialog();
+        location.href = `/${page}.html?path=${encodeURIComponent(_openingProjectPath)}`;
+    }
+
     async function saveProjectDialog() {
         const payload = projectInfoPayload();
         if (!payload.title) throw new Error('Project title is required.');
@@ -403,13 +431,14 @@
         if ($projectPageNext) $projectPageNext.disabled = _projectPage >= totalPages;
         for (const project of pagedProjects) {
             const info = project.info || {};
+            const projectPath = project.path || project.name;
             const tr = document.createElement('tr');
             const subtitle = info.description
                 ? `<span class="project-subtitle">${_esc(info.description)}</span>`
                 : '';
             tr.innerHTML = `
                 <td><div class="project-title">
-                    <a href="/app.html?path=${encodeURIComponent(project.path || project.name)}">${_esc(info.title || project.name)}</a>
+                    <a href="/app.html?path=${encodeURIComponent(projectPath)}" class="project-open-link">${_esc(info.title || project.name)}</a>
                     ${subtitle}
                 </div></td>
                 <td>${_esc(info.institution || '-')}</td>
@@ -419,11 +448,15 @@
                 <td>${_esc(info.due_date || '-')}</td>
                 <td><div class="project-actions-cell"></div></td>
             `;
+            tr.querySelector('.project-open-link')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                openProjectRouteDialog(project);
+            });
             const actions = tr.querySelector('.project-actions-cell');
             const openBtn = document.createElement('button');
             openBtn.className = 'project-mini-btn';
             openBtn.textContent = 'Open';
-            openBtn.addEventListener('click', () => { location.href = `/app.html?path=${encodeURIComponent(project.path)}`; });
+            openBtn.addEventListener('click', () => openProjectRouteDialog(project));
             actions.appendChild(openBtn);
             if (canEditProjects()) {
                 const editBtn = document.createElement('button');
@@ -522,6 +555,9 @@
         e.preventDefault();
         saveMoveFolderDialog().catch(err => alert(err.message));
     });
+    $projectOpenClose?.addEventListener('click', closeProjectOpenDialog);
+    $projectOpenAi?.addEventListener('click', () => openSelectedProjectRoute('app'));
+    $projectOpenAnnotation?.addEventListener('click', () => openSelectedProjectRoute('annotation'));
 
     loadFolderTree();
     loadDashboard();

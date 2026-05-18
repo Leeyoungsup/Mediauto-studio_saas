@@ -117,6 +117,31 @@
         </dialog>
 
         <!-- 저장공간 + 폴더 구성 -->
+        <dialog id="project-open-dialog" class="project-dialog">
+            <form method="dialog" class="project-dialog-card compact">
+                <div class="dialog-header">
+                    <h3>Open Project</h3>
+                    <button id="project-open-close" class="dialog-x" type="button">&times;</button>
+                </div>
+                <div class="project-open-body">
+                    <div>
+                        <p class="project-open-eyebrow">Project</p>
+                        <p id="project-open-title" class="project-open-title">-</p>
+                    </div>
+                    <div class="project-open-options">
+                        <button id="project-open-ai" class="project-open-option" type="button">
+                            <span class="project-open-option-title">AI</span>
+                            <span class="project-open-option-desc">Open AI analysis workspace</span>
+                        </button>
+                        <button id="project-open-annotation" class="project-open-option" type="button">
+                            <span class="project-open-option-title">Annotation</span>
+                            <span class="project-open-option-desc">Open annotation workflow</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </dialog>
+
         <section class="home-section">
             <div class="section-header">
                 <h2 class="section-title">Project Management</h2>
@@ -220,6 +245,6 @@
     </footer>
 
     <script src="js/shared-header.js"></script>
-    <script src="js/home.js"></script>
+    <script src="js/home.js?v=20260518-01"></script>
 </body>
 </html>
