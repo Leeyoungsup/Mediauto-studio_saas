@@ -2763,7 +2763,7 @@ export class TileViewer {
             }
             const brushPolygon = this._makeBrushPolygonFromPath(pts);
             if (brushPolygon && brushPolygon.length >= 3) {
-                this._createAnnotation('polygon', brushPolygon);
+                this._createAnnotation('polygon', brushPolygon, { source: 'brush' });
             }
             this._drawingPoints = [];
             this._drawingCurrent = null;
@@ -2866,6 +2866,13 @@ export class TileViewer {
         if (!path.length) return null;
         if (path.length === 1) return this._makeCirclePolygon(path[0][0], path[0][1], radius);
 
+        const rasterPolygon = this._makeRasterBrushPolygon(path, radius);
+        if (rasterPolygon && rasterPolygon.length >= 3) return rasterPolygon;
+
+        return this._makeOffsetBrushPolygon(path, radius);
+    }
+
+    _makeOffsetBrushPolygon(path, radius) {
         let stroke = this._resampleBrushPath(path, Math.max(radius * 0.3, 1 / Math.max(this.zoom, 0.0001)));
         if (stroke.length > 900) {
             const stride = Math.ceil(stroke.length / 900);
@@ -2917,6 +2924,166 @@ export class TileViewer {
         return this._cleanPolygonPoints(polygon);
     }
 
+    _makeRasterBrushPolygon(path, radius) {
+        if (typeof document === 'undefined' || !path || path.length < 2 || radius <= 0) return null;
+
+        const pad = radius + 2;
+        const xs = path.map(p => p[0]);
+        const ys = path.map(p => p[1]);
+        const minX = Math.min(...xs) - pad;
+        const minY = Math.min(...ys) - pad;
+        const maxX = Math.max(...xs) + pad;
+        const maxY = Math.max(...ys) + pad;
+        const widthScene = Math.max(1, maxX - minX);
+        const heightScene = Math.max(1, maxY - minY);
+        const maxSide = 1400;
+        let scale = 14 / radius;
+        scale = Math.min(scale, maxSide / Math.max(widthScene, heightScene));
+        if (!Number.isFinite(scale) || scale <= 0) return null;
+
+        const width = Math.max(4, Math.ceil(widthScene * scale) + 2);
+        const height = Math.max(4, Math.ceil(heightScene * scale) + 2);
+        if (width > maxSide + 4 || height > maxSide + 4 || radius * scale < 2) return null;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return null;
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.beginPath();
+        ctx.moveTo((path[0][0] - minX) * scale, (path[0][1] - minY) * scale);
+        for (let i = 1; i < path.length; i++) {
+            ctx.lineTo((path[i][0] - minX) * scale, (path[i][1] - minY) * scale);
+        }
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = Math.max(2, radius * 2 * scale);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+
+        const image = ctx.getImageData(0, 0, width, height).data;
+        const mask = new Uint8Array(width * height);
+        for (let i = 0, p = 0; i < image.length; i += 4, p++) {
+            mask[p] = image[i + 3] > 0 ? 1 : 0;
+        }
+
+        const loop = this._traceLargestMaskLoop(mask, width, height);
+        if (!loop || loop.length < 3) return null;
+        const simplified = this._simplifyPolylineRdp(loop, 1.2);
+        const scene = simplified.map(p => [p[0] / scale + minX, p[1] / scale + minY]);
+        return this._cleanPolygonPoints(scene);
+    }
+
+    _traceLargestMaskLoop(mask, width, height) {
+        const filled = (x, y) => x >= 0 && y >= 0 && x < width && y < height && mask[y * width + x];
+        const segments = [];
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (!filled(x, y)) continue;
+                if (!filled(x, y - 1)) segments.push({ a: [x, y], b: [x + 1, y] });
+                if (!filled(x + 1, y)) segments.push({ a: [x + 1, y], b: [x + 1, y + 1] });
+                if (!filled(x, y + 1)) segments.push({ a: [x + 1, y + 1], b: [x, y + 1] });
+                if (!filled(x - 1, y)) segments.push({ a: [x, y + 1], b: [x, y] });
+            }
+        }
+        if (!segments.length) return null;
+
+        const key = (p) => `${p[0]},${p[1]}`;
+        const starts = new Map();
+        segments.forEach((seg, index) => {
+            const k = key(seg.a);
+            if (!starts.has(k)) starts.set(k, []);
+            starts.get(k).push(index);
+        });
+
+        const used = new Set();
+        const loops = [];
+        for (let i = 0; i < segments.length; i++) {
+            if (used.has(i)) continue;
+            const startKey = key(segments[i].a);
+            const loop = [segments[i].a];
+            let current = segments[i].b;
+            used.add(i);
+            let guard = 0;
+            while (guard < segments.length + 2) {
+                loop.push(current);
+                const currentKey = key(current);
+                if (currentKey === startKey) break;
+                const candidates = starts.get(currentKey) || [];
+                const nextIndex = candidates.find(index => !used.has(index));
+                if (nextIndex == null) break;
+                used.add(nextIndex);
+                current = segments[nextIndex].b;
+                guard++;
+            }
+            if (key(loop[loop.length - 1]) === startKey) {
+                loop.pop();
+                const clean = this._removeCollinearGridPoints(loop);
+                if (clean.length >= 3) loops.push(clean);
+            }
+        }
+        if (!loops.length) return null;
+        loops.sort((a, b) => Math.abs(this._polygonSignedArea(b)) - Math.abs(this._polygonSignedArea(a)));
+        return loops[0];
+    }
+
+    _removeCollinearGridPoints(points) {
+        const clean = this._cleanPolylinePoints(points);
+        let changed = true;
+        while (changed && clean.length > 3) {
+            changed = false;
+            for (let i = clean.length - 1; i >= 0; i--) {
+                const prev = clean[(i - 1 + clean.length) % clean.length];
+                const curr = clean[i];
+                const next = clean[(i + 1) % clean.length];
+                const cross = (curr[0] - prev[0]) * (next[1] - curr[1]) - (curr[1] - prev[1]) * (next[0] - curr[0]);
+                if (Math.abs(cross) < 1e-9) {
+                    clean.splice(i, 1);
+                    changed = true;
+                }
+            }
+        }
+        return clean;
+    }
+
+    _simplifyPolylineRdp(points, tolerance) {
+        if (!points || points.length <= 3 || tolerance <= 0) return points || [];
+        const closed = points.concat([points[0]]);
+        const simplified = this._simplifyOpenPolylineRdp(closed, tolerance);
+        simplified.pop();
+        return simplified.length >= 3 ? simplified : points;
+    }
+
+    _simplifyOpenPolylineRdp(points, tolerance) {
+        if (points.length <= 2) return points;
+        let maxDistance = 0;
+        let index = -1;
+        const start = points[0];
+        const end = points[points.length - 1];
+        for (let i = 1; i < points.length - 1; i++) {
+            const distance = this._pointToSegmentDistance(points[i], start, end);
+            if (distance > maxDistance) {
+                maxDistance = distance;
+                index = i;
+            }
+        }
+        if (maxDistance <= tolerance || index < 0) return [start, end];
+        const left = this._simplifyOpenPolylineRdp(points.slice(0, index + 1), tolerance);
+        const right = this._simplifyOpenPolylineRdp(points.slice(index), tolerance);
+        return left.slice(0, -1).concat(right);
+    }
+
+    _pointToSegmentDistance(p, a, b) {
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const len2 = dx * dx + dy * dy;
+        if (len2 < 1e-12) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+        return Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dy * t));
+    }
+
     _isSelfIntersecting(pts) {
         const n = pts.length;
         if (n < 4) return false; // 삼각형은 교차 불가
@@ -2960,7 +3127,7 @@ export class TileViewer {
         this.requestRender();
     }
 
-    _createAnnotation(type, coordinates) {
+    _createAnnotation(type, coordinates, options = {}) {
         this.pushAnnotationUndo();
         this._annotationCounter++;
         const COLORS = { polygon: [0, 255, 0], rectangle: [255, 0, 0], point: [0, 0, 255] };
@@ -2973,6 +3140,11 @@ export class TileViewer {
             color: COLORS[type],
             visible: true,
             selected: false,
+            source: options.source || '',
+            properties: {
+                ...(options.properties || {}),
+                source: options.source || options.properties?.source || '',
+            },
         };
         this.annotations.push(ann);
         this.selectAnnotation(ann.id);
@@ -3022,7 +3194,9 @@ export class TileViewer {
 
             if (ann.type === 'polygon') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);
-                if (ann.selected) this._drawControlPoints(octx, ann.coordinates, strokeColor);
+                if (ann.selected && ann.source !== 'brush' && ann.properties?.source !== 'brush') {
+                    this._drawControlPoints(octx, ann.coordinates, strokeColor);
+                }
             } else if (ann.type === 'rectangle') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);
                 if (ann.selected) this._drawControlPoints(octx, ann.coordinates, strokeColor);

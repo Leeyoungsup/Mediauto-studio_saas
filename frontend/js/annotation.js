@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-22';
+import { TileViewer } from './tile-viewer.js?v=20260518-24';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -2636,6 +2636,7 @@ function _serializeAnnotations() {
         class_name: ann.class_name || ann.properties?.class_name || '',
         group: ann.group || 'default',
         visible: ann.visible !== false,
+        source: ann.source || ann.properties?.source || '',
         properties: ann.properties || {},
     }));
 }
@@ -2663,10 +2664,12 @@ function _normalizeLoadedAnnotations(list) {
             group: item.group || 'default',
             visible: item.visible !== false,
             selected: false,
+            source: item.source || item.properties?.source || '',
             properties: {
                 ...(item.properties || {}),
                 class_id: cls?.id || classId,
                 class_name: cls?.name || item.class_name || item.className || item.properties?.class_name || '',
+                source: item.source || item.properties?.source || '',
             },
         });
     }
