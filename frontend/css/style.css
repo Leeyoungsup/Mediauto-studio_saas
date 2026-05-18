@@ -52,7 +52,7 @@ input[type="color"], input[type="file"], select {
     --danger: #e53935;
     --success: #1e8e3e;
     --left-panel-w: 240px;
-    --right-panel-w: 320px;
+    --right-panel-w: 380px;
     --slide-thumb-list: 40px;
     --slide-thumb-grid: 80px;
 }
@@ -1271,8 +1271,8 @@ body.annotation-page .slide-list.grid-view .slide-workflow-cell {
 /* ═══ 우측 패널 ═══ */
 #right-panel {
     width: var(--right-panel-w);
-    min-width: 280px;
-    max-width: 560px;
+    min-width: 360px;
+    max-width: 600px;
     flex: 0 0 var(--right-panel-w);
     background: transparent; border-left: none;
     display: flex; flex-direction: column;
@@ -1282,6 +1282,24 @@ body.annotation-page .slide-list.grid-view .slide-workflow-cell {
     gap: 10px;
     min-height: 0;
     height: 100%;
+}
+body.right-panel-collapsed #right-panel {
+    width: 0;
+    min-width: 0;
+    flex-basis: 0;
+    padding: 0;
+    gap: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+body.right-panel-collapsed #right-panel-resizer {
+    width: 8px;
+    background: rgba(108, 92, 231, 0.16);
+}
+body.right-panel-collapsed #right-panel-resizer:hover,
+body.right-panel-collapsed #right-panel-resizer.dragging {
+    background: var(--accent);
 }
 
 .panel-group {
@@ -2325,6 +2343,14 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
         transition: transform 0.25s ease;
         box-shadow: -4px 0 20px rgba(0,0,0,0.15);
         background: var(--bg-light);
+    }
+    body.right-panel-collapsed #right-panel {
+        width: 88%;
+        max-width: 360px;
+        min-width: 0;
+        padding: 10px;
+        opacity: 1;
+        pointer-events: auto;
     }
     #left-panel-resizer,
     #right-panel-resizer { display: none; }
