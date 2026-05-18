@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-29';
+import { TileViewer } from './tile-viewer.js?v=20260518-30';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -147,6 +147,7 @@ let currentSlideId = null;
 let currentSlideInfo = null;
 let currentSlideFilename = '';
 let currentSlideMemo = '';
+let currentSlideMemoHistory = [];
 let currentAnnotationStatus = '';
 let _annotationStatusSaving = false;
 let _annotationRunningStep = '';
@@ -559,6 +560,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideInfo = slideInfo;
     currentSlideFilename = filename || slideInfo?.filename || '';
     currentSlideMemo = '';
+    currentSlideMemoHistory = [];
     currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
     _annotationRunningStep = _annotationWorkflowRunningStep(currentAnnotationStatus);
     _annotationWorkflowFinished = _annotationWorkflowRawStatus(currentAnnotationStatus) === 'termination';
@@ -584,7 +586,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     $btnInfo.disabled = false;
     if ($btnSlideMemo) {
         $btnSlideMemo.disabled = _isViewerRole();
-        $btnSlideMemo.classList.remove('has-memo');
+        $btnSlideMemo.classList.remove('has-memo', 'has-history');
     }
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
     // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
@@ -1122,6 +1124,7 @@ let _classSaveTimer = null;
 let _draggingClassId = null;
 let _annotationDisplayStyle = { strokeWidth: 2, fillOpacity: 0.1 };
 let _classManagementMode = 'apply';
+let _hiddenAnnotationClassIds = new Set();
 
 function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
@@ -1140,6 +1143,23 @@ function _getAnnotationClass(classId) {
 function _syncActiveAnnotationClassToViewer() {
     const cls = _getAnnotationClass(_activeAnnotationClassId);
     if (cls) viewer.setAnnotationDrawColor?.(cls.color);
+}
+
+function _syncHiddenAnnotationClassesToViewer() {
+    const validIds = new Set(_annotationClasses.map(cls => cls.id));
+    _hiddenAnnotationClassIds = new Set([..._hiddenAnnotationClassIds].filter(id => validIds.has(id)));
+    viewer.setHiddenAnnotationClassIds?.([..._hiddenAnnotationClassIds]);
+}
+
+function _toggleAnnotationClassVisibility(classId) {
+    if (_hiddenAnnotationClassIds.has(classId)) {
+        _hiddenAnnotationClassIds.delete(classId);
+    } else {
+        _hiddenAnnotationClassIds.add(classId);
+    }
+    _syncHiddenAnnotationClassesToViewer();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
 }
 
 function _makeClassId(name) {
@@ -1289,6 +1309,7 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
         _annotationClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
         _activeAnnotationClassId = 'default';
         _syncActiveAnnotationClassToViewer();
+        _syncHiddenAnnotationClassesToViewer();
         renderClassManagementPanel();
         renderAnnotationPanel();
         return;
@@ -1309,6 +1330,7 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
         setStatus(`Class load failed: ${err.message}`);
     }
     _syncActiveAnnotationClassToViewer();
+    _syncHiddenAnnotationClassesToViewer();
     _syncAnnotationClassMetadata();
     renderClassManagementPanel();
     renderAnnotationPanel();
@@ -1342,24 +1364,28 @@ function renderClassManagementPanel() {
     $classList.innerHTML = '';
     for (const cls of _annotationClasses) {
         const [r, g, b] = _normalizeColor(cls.color);
+        const classHidden = _hiddenAnnotationClassIds.has(cls.id);
         const row = document.createElement('div');
-        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '') + (isSettings ? ' settings' : ' apply');
+        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '') + (classHidden ? ' hidden-class' : '') + (isSettings ? ' settings' : ' apply');
         row.dataset.classId = cls.id;
         row.draggable = isSettings;
         row.innerHTML = isSettings ? `
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
             <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '◌' : '●'}</button>
             <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
         ` : `
             <button type="button" class="class-active-btn" title="Select class"></button>
             <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
             <span class="class-name-label" title="${_esc(cls.name)}">${_esc(cls.name)}</span>
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '◌' : '●'}</button>
             <span class="class-shortcut-label">${_annotationClasses.indexOf(cls) < 9 ? _annotationClasses.indexOf(cls) + 1 : _annotationClasses.indexOf(cls) === 9 ? 0 : ''}</span>
         `;
         const activeBtn = row.querySelector('.class-active-btn');
         const colorInput = row.querySelector('.class-color-input');
         const nameInput = row.querySelector('.class-name-input');
+        const visibilityBtn = row.querySelector('.class-visibility-btn');
         const deleteBtn = row.querySelector('.class-delete-btn');
         if (colorInput) colorInput.disabled = !isSettings;
         if (nameInput) nameInput.disabled = !isSettings;
@@ -1375,8 +1401,12 @@ function renderClassManagementPanel() {
             renderAnnotationPanel();
         };
         activeBtn.addEventListener('click', setActive);
+        visibilityBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _toggleAnnotationClassVisibility(cls.id);
+        });
         row.addEventListener('click', (e) => {
-            if (e.target === colorInput || e.target === nameInput || e.target === deleteBtn) return;
+            if (e.target === colorInput || e.target === nameInput || e.target === deleteBtn || e.target === visibilityBtn) return;
             setActive();
         });
         row.addEventListener('dragstart', (e) => {
@@ -1438,8 +1468,10 @@ function renderClassManagementPanel() {
                 if (!confirm(`Delete class "${cls.name}"? Existing annotations will move to the first class.`)) return;
                 const fallback = _annotationClasses.find(c => c.id !== cls.id);
                 _annotationClasses = _annotationClasses.filter(c => c.id !== cls.id);
+                _hiddenAnnotationClassIds.delete(cls.id);
                 if (_activeAnnotationClassId === cls.id) _activeAnnotationClassId = fallback.id;
                 _syncActiveAnnotationClassToViewer();
+                _syncHiddenAnnotationClassesToViewer();
                 for (const ann of viewer.annotations) {
                     if ((ann.class_id || ann.properties?.class_id) === cls.id) _applyClassToAnnotation(ann, fallback.id);
                 }
@@ -1681,13 +1713,35 @@ function _applyActiveClassToSelectedAnnotation() {
     viewer.requestRender();
     renderClassManagementPanel();
     renderAnnotationPanel();
-    setStatus(`${ann.name} class: ${cls.name}`);
+    setStatus(`Annotation ${_annotationDisplayId(ann)} class: ${cls.name}`);
 }
 
 $btnClassApply?.addEventListener('click', _applyActiveClassToSelectedAnnotation);
 
+function _annotationDisplayId(ann) {
+    const idx = viewer.annotations.findIndex(item => item === ann || item.id === ann?.id);
+    return idx >= 0 ? String(idx + 1) : '-';
+}
+
 function _annotationMemo(ann) {
     return String(ann?.memo ?? ann?.properties?.memo ?? '').trim();
+}
+
+function _normalizeMemoHistory(value) {
+    const list = Array.isArray(value) ? value : [];
+    return list
+        .map(item => {
+            if (typeof item === 'string') return { text: item, accepted_at: '' };
+            return {
+                text: String(item?.text ?? item?.memo ?? '').trim(),
+                accepted_at: String(item?.accepted_at ?? item?.created_at ?? ''),
+            };
+        })
+        .filter(item => item.text);
+}
+
+function _annotationMemoHistory(ann) {
+    return _normalizeMemoHistory(ann?.memo_history ?? ann?.properties?.memo_history);
 }
 
 function _setAnnotationMemo(ann, memo) {
@@ -1697,8 +1751,35 @@ function _setAnnotationMemo(ann, memo) {
     ann.properties = { ...(ann.properties || {}), memo: text };
 }
 
+function _setAnnotationMemoHistory(ann, history) {
+    if (!ann) return;
+    const list = _normalizeMemoHistory(history);
+    ann.memo_history = list;
+    ann.properties = { ...(ann.properties || {}), memo_history: list };
+}
+
 function _currentSlideHasMemo() {
     return Boolean(String(currentSlideMemo || '').trim() || viewer.annotations.some(ann => _annotationMemo(ann)));
+}
+
+function _currentSlideHasMemoHistory() {
+    return Boolean(
+        _normalizeMemoHistory(currentSlideMemoHistory).length ||
+        viewer.annotations.some(ann => _annotationMemoHistory(ann).length)
+    );
+}
+
+function _syncSlideMemoButton() {
+    if (!$btnSlideMemo) return;
+    const hasMemo = Boolean(String(currentSlideMemo || '').trim());
+    const hasHistory = _normalizeMemoHistory(currentSlideMemoHistory).length > 0;
+    $btnSlideMemo.classList.toggle('has-memo', hasMemo);
+    $btnSlideMemo.classList.toggle('has-history', !hasMemo && hasHistory);
+    $btnSlideMemo.title = hasMemo
+        ? 'Slide Memo (current memo exists)'
+        : hasHistory
+            ? 'Slide Memo (previous memos exist)'
+            : 'Slide Memo (Ctrl+M)';
 }
 
 function _setSlideListMemoIndicator(filename = currentSlideFilename, hasMemo = _currentSlideHasMemo()) {
@@ -1723,7 +1804,7 @@ function _setSlideListMemoIndicator(filename = currentSlideFilename, hasMemo = _
 async function _saveAnnotationsAfterMemoChange(message) {
     renderAnnotationPanel();
     _setSlideListMemoIndicator();
-    if ($btnSlideMemo) $btnSlideMemo.classList.toggle('has-memo', Boolean(String(currentSlideMemo || '').trim()));
+    _syncSlideMemoButton();
     try {
         await _saveAnnotationsToServer();
         if (message) setStatus(message);
@@ -1732,18 +1813,126 @@ async function _saveAnnotationsAfterMemoChange(message) {
     }
 }
 
+function _openMemoDialog({ title, value = '', history = [], onSave, onAccept, onDelete, onDeleteHistory }) {
+    const existing = document.querySelector('.memo-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.className = 'memo-modal';
+    modal.innerHTML = `
+        <div class="memo-dialog" role="dialog" aria-modal="true" aria-labelledby="memo-title">
+            <div class="memo-dialog-header">
+                <h2 id="memo-title">${_esc(title)}</h2>
+                <button type="button" class="memo-close" aria-label="Close">x</button>
+            </div>
+            <div class="memo-dialog-body">
+                <label class="memo-current">
+                    <span>Current memo</span>
+                    <textarea class="memo-textarea" rows="6" placeholder="Write memo...">${_esc(value)}</textarea>
+                </label>
+                <div class="memo-history">
+                    <div class="memo-history-title">Previous memo list</div>
+                    <div class="memo-history-list"></div>
+                </div>
+            </div>
+            <div class="memo-dialog-footer">
+                <button type="button" class="small-btn memo-delete">Delete</button>
+                <button type="button" class="small-btn memo-save">Save</button>
+                <button type="button" class="small-btn primary memo-accept">Accept</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    const textarea = modal.querySelector('.memo-textarea');
+    const listEl = modal.querySelector('.memo-history-list');
+    let historyList = _normalizeMemoHistory(history);
+    const renderHistory = () => {
+        listEl.innerHTML = '';
+        if (!historyList.length) {
+            const empty = document.createElement('div');
+            empty.className = 'memo-history-empty';
+            empty.textContent = 'No previous memos';
+            listEl.appendChild(empty);
+            return;
+        }
+        historyList.forEach((item, idx) => {
+            const row = document.createElement('div');
+            row.className = 'memo-history-item';
+            row.innerHTML = `
+                <div class="memo-history-text">${_esc(item.text)}</div>
+                <time>${_esc(item.accepted_at || '')}</time>
+                <button type="button" class="memo-history-delete" title="Delete previous memo">x</button>
+            `;
+            row.querySelector('.memo-history-delete').addEventListener('click', async () => {
+                if (!confirm('Delete previous memo?')) return;
+                const nextHistory = historyList.filter((_, itemIdx) => itemIdx !== idx);
+                await onDeleteHistory?.(nextHistory, idx);
+                historyList = nextHistory;
+                renderHistory();
+            });
+            listEl.appendChild(row);
+        });
+    };
+    const close = () => modal.remove();
+    modal.querySelector('.memo-close').addEventListener('click', close);
+    modal.addEventListener('mousedown', (e) => { if (e.target === modal) close(); });
+    modal.querySelector('.memo-save').addEventListener('click', async () => {
+        await onSave?.(textarea.value.trim());
+        close();
+    });
+    modal.querySelector('.memo-accept').addEventListener('click', async () => {
+        await onAccept?.(textarea.value.trim());
+        close();
+    });
+    modal.querySelector('.memo-delete').addEventListener('click', async () => {
+        if (!textarea.value.trim() && !value) return close();
+        if (!confirm('Delete current memo?')) return;
+        await onDelete?.();
+        close();
+    });
+    renderHistory();
+    textarea.focus();
+    textarea.select();
+}
+
 function _editAnnotationMemo(ann) {
     if (!ann || _blockViewerAction('Viewer role can view annotations only.')) return;
-    const before = _annotationMemo(ann);
-    const next = prompt(`Memo for ${ann.name}:`, before);
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (trimmed === before) return;
-    viewer.pushAnnotationUndo?.();
-    _setAnnotationMemo(ann, trimmed);
-    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
-    viewer.requestRender();
-    _saveAnnotationsAfterMemoChange(trimmed ? `Memo saved: ${ann.name}` : `Memo cleared: ${ann.name}`);
+    const displayId = _annotationDisplayId(ann);
+    _openMemoDialog({
+        title: `Annotation memo - ${displayId}`,
+        value: _annotationMemo(ann),
+        history: _annotationMemoHistory(ann),
+        onSave: async (text) => {
+            viewer.pushAnnotationUndo?.();
+            _setAnnotationMemo(ann, text);
+            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            viewer.requestRender();
+            await _saveAnnotationsAfterMemoChange(text ? `Memo saved: annotation ${displayId}` : `Memo cleared: annotation ${displayId}`);
+        },
+        onAccept: async (text) => {
+            viewer.pushAnnotationUndo?.();
+            const list = _annotationMemoHistory(ann);
+            if (text) list.unshift({ text, accepted_at: new Date().toISOString() });
+            _setAnnotationMemo(ann, '');
+            _setAnnotationMemoHistory(ann, list);
+            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            viewer.requestRender();
+            await _saveAnnotationsAfterMemoChange(`Memo accepted: annotation ${displayId}`);
+        },
+        onDelete: async () => {
+            viewer.pushAnnotationUndo?.();
+            _setAnnotationMemo(ann, '');
+            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            viewer.requestRender();
+            await _saveAnnotationsAfterMemoChange(`Memo deleted: annotation ${displayId}`);
+        },
+        onDeleteHistory: async (nextHistory) => {
+            viewer.pushAnnotationUndo?.();
+            _setAnnotationMemoHistory(ann, nextHistory);
+            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            viewer.requestRender();
+            await _saveAnnotationsAfterMemoChange(`Previous memo deleted: annotation ${displayId}`);
+        },
+    });
 }
 
 function _editSlideMemo() {
@@ -1752,22 +1941,44 @@ function _editSlideMemo() {
         return;
     }
     if (_blockViewerAction('Viewer role can view annotations only.')) return;
-    const next = prompt(`Slide memo: ${currentSlideFilename || currentSlideId}`, currentSlideMemo || '');
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (trimmed === String(currentSlideMemo || '').trim()) return;
-    currentSlideMemo = trimmed;
-    _saveAnnotationsAfterMemoChange(trimmed ? 'Slide memo saved' : 'Slide memo cleared');
+    _openMemoDialog({
+        title: `Slide memo - ${currentSlideFilename || currentSlideId}`,
+        value: currentSlideMemo || '',
+        history: currentSlideMemoHistory,
+        onSave: async (text) => {
+            currentSlideMemo = text;
+            await _saveAnnotationsAfterMemoChange(text ? 'Slide memo saved' : 'Slide memo cleared');
+        },
+        onAccept: async (text) => {
+            if (text) currentSlideMemoHistory = [{ text, accepted_at: new Date().toISOString() }, ..._normalizeMemoHistory(currentSlideMemoHistory)];
+            currentSlideMemo = '';
+            await _saveAnnotationsAfterMemoChange('Slide memo accepted');
+        },
+        onDelete: async () => {
+            currentSlideMemo = '';
+            await _saveAnnotationsAfterMemoChange('Slide memo deleted');
+        },
+        onDeleteHistory: async (nextHistory) => {
+            currentSlideMemoHistory = _normalizeMemoHistory(nextHistory);
+            await _saveAnnotationsAfterMemoChange('Previous slide memo deleted');
+        },
+    });
 }
 
 $btnSlideMemo?.addEventListener('click', _editSlideMemo);
+
+function _visibilityIcon(visible) {
+    return visible
+        ? `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 10s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.4"/></svg>`
+        : `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l14 14"/><path d="M7.4 5.6A7.2 7.2 0 0 1 10 5c4.7 0 7.5 5 7.5 5a12.8 12.8 0 0 1-2.1 2.6"/><path d="M12.1 12.1A2.8 2.8 0 0 1 7.9 7.9"/><path d="M5.4 7.4A12.8 12.8 0 0 0 2.5 10s2.8 5 7.5 5c1 0 1.9-.2 2.7-.6"/></svg>`;
+}
 
 function renderAnnotationPanel() {
     if (!$annList) return;
     $annList.innerHTML = '';
     const header = document.createElement('div');
     header.className = 'ann-list-header';
-    ['Name', 'Class', 'Type', 'Memo', 'Visual', 'Del'].forEach(label => {
+    ['ID', 'Class', 'Memo', 'Visual', 'Del'].forEach(label => {
         const cell = document.createElement('span');
         cell.textContent = label;
         header.appendChild(cell);
@@ -1775,20 +1986,25 @@ function renderAnnotationPanel() {
     $annList.appendChild(header);
     for (const ann of viewer.annotations) {
         const annClass = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
-        const [r, g, b] = _normalizeColor(ann.color);
+        const displayId = _annotationDisplayId(ann);
         const memo = _annotationMemo(ann);
+        const memoHistory = _annotationMemoHistory(ann);
+        const memoLabel = memo ? 'M' : '-';
+        const memoTitle = memo ? memo : (memoHistory.length ? `${memoHistory.length} previous memo(s)` : 'No memo');
+        const memoClass = memo ? ' has-memo' : '';
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
         // ann.name 은 사용자 더블클릭 rename 으로 임의 문자열 가능 — 반드시 escape
         el.innerHTML = `
-            <span class="ann-name" title="Double-click to center, Shift+double-click to rename">${_esc(ann.name)}</span>
-            <select class="ann-class-select" title="Annotation class">
-                ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
-            </select>
-            <span class="ann-type">${_esc(ann.type)}</span>
-            <button class="ann-btn-memo${memo ? ' has-memo' : ''}" title="${memo ? _esc(memo) : 'No memo'}">${memo ? 'M' : '-'}</button>
-            <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? 'Show' : 'Hide'}</button>
+            <span class="ann-id" title="Double-click to center">${_esc(displayId)}</span>
+            <span class="ann-class-wrap" style="--ann-class-color: rgb(${_normalizeColor(annClass.color).join(',')})">
+                <select class="ann-class-select" title="Annotation class">
+                    ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
+                </select>
+            </span>
+            <button class="ann-btn-memo${memoClass}" title="${_esc(memoTitle)}">${memoLabel}</button>
+            <button class="ann-btn-vis" title="${ann.visible ? 'Hide annotation' : 'Show annotation'}">${_visibilityIcon(ann.visible !== false)}</button>
             <button class="ann-btn-del" title="Delete">Del</button>
         `;
         // 클릭 → 선택
@@ -1804,7 +2020,7 @@ function renderAnnotationPanel() {
         }
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-btn-memo') || e.target.closest('.ann-btn-vis') ||
-                e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
+                e.target.closest('.ann-btn-del') ||
                 e.target.closest('.ann-class-select')) return;
             viewer.selectAnnotation(ann.id);
         });
@@ -1815,17 +2031,17 @@ function renderAnnotationPanel() {
         });
         el.addEventListener('dblclick', (e) => {
             if (e.target.closest('.ann-btn-memo') || e.target.closest('.ann-btn-vis') ||
-                e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
+                e.target.closest('.ann-btn-del') ||
                 e.target.closest('.ann-class-select')) return;
             e.preventDefault();
             viewer.selectAnnotation(ann.id);
             if (typeof viewer.centerOnAnnotation === 'function') {
                 viewer.centerOnAnnotation(ann);
-                setStatus(`Centered on ${ann.name}`);
+                setStatus(`Centered on annotation ${displayId}`);
             }
         });
         // 더블클릭 이름 → 리네임
-        el.querySelector('.ann-name').addEventListener('dblclick', (e) => {
+        el.querySelector('.ann-name')?.addEventListener('dblclick', (e) => {
             e.stopPropagation();
             if (!e.shiftKey) {
                 viewer.selectAnnotation(ann.id);
@@ -1950,7 +2166,7 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     viewer.requestRender();
     renderClassManagementPanel();
     renderAnnotationPanel();
-    setStatus(`${ann.name} class: ${cls.name}`);
+    setStatus(`Annotation ${_annotationDisplayId(ann)} class: ${cls.name}`);
     e.preventDefault();
     return true;
 }
@@ -1962,7 +2178,7 @@ window.addEventListener('keydown', (e) => {
 viewer.onAnnotationCreated = (ann) => {
     _applyClassToAnnotation(ann, _activeAnnotationClassId);
     _syncActiveAnnotationClassToViewer();
-    setStatus(`${ann.name} created`);
+    setStatus(`Annotation ${_annotationDisplayId(ann)} created`);
     renderAnnotationPanel();
 };
 viewer.onAnnotationSelected = (ann) => {
@@ -2914,19 +3130,19 @@ function _normalizeColor(c) {
 }
 
 function _serializeAnnotations() {
-    return viewer.annotations.map(ann => ({
-        id: ann.id,
-        name: ann.name,
+    return viewer.annotations.map((ann, index) => ({
+        id: index + 1,
         type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
         coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
         color: _normalizeColor(ann.color),
         class_id: ann.class_id || ann.properties?.class_id || '',
         class_name: ann.class_name || ann.properties?.class_name || '',
         memo: _annotationMemo(ann),
+        memo_history: _annotationMemoHistory(ann),
         group: ann.group || 'default',
         visible: ann.visible !== false,
         source: ann.source || ann.properties?.source || '',
-        properties: ann.properties || {},
+        properties: { ...(ann.properties || {}), annotation_id: index + 1 },
     }));
 }
 
@@ -2935,6 +3151,7 @@ function _normalizeLoadedAnnotations(list) {
     let counter = 0;
     for (const item of Array.isArray(list) ? list : []) {
         if (!item) continue;
+        if (item.type === '__meta__' || item.kind === 'annotation_meta') continue;
         const coords = item.coordinates || item.points;
         if (!Array.isArray(coords)) continue;
         counter++;
@@ -2954,17 +3171,35 @@ function _normalizeLoadedAnnotations(list) {
             visible: item.visible !== false,
             selected: false,
             memo: item.memo || item.properties?.memo || '',
+            memo_history: _normalizeMemoHistory(item.memo_history || item.memoHistory || item.properties?.memo_history),
             source: item.source || item.properties?.source || '',
             properties: {
                 ...(item.properties || {}),
                 class_id: cls?.id || classId,
                 class_name: cls?.name || item.class_name || item.className || item.properties?.class_name || '',
                 memo: item.memo || item.properties?.memo || '',
+                memo_history: _normalizeMemoHistory(item.memo_history || item.memoHistory || item.properties?.memo_history),
                 source: item.source || item.properties?.source || '',
             },
         });
     }
     return loaded;
+}
+
+function _splitAnnotationPayload(payload) {
+    if (Array.isArray(payload)) {
+        const meta = payload.find(item => item && (item.type === '__meta__' || item.kind === 'annotation_meta')) || {};
+        return {
+            annotations: payload.filter(item => !(item && (item.type === '__meta__' || item.kind === 'annotation_meta'))),
+            slideMemo: String(meta.slide_memo ?? meta.memo ?? meta.properties?.slide_memo ?? '').trim(),
+            slideMemoHistory: _normalizeMemoHistory(meta.slide_memo_history || meta.properties?.slide_memo_history),
+        };
+    }
+    return {
+        annotations: payload?.annotations || [],
+        slideMemo: String(payload?.slide_memo || payload?.memo || '').trim(),
+        slideMemoHistory: _normalizeMemoHistory(payload?.slide_memo_history || payload?.memo_history),
+    };
 }
 
 function _applyLoadedAnnotations(list, label = 'saved annotations') {
@@ -2976,7 +3211,7 @@ function _applyLoadedAnnotations(list, label = 'saved annotations') {
     viewer.requestRender();
     renderAnnotationPanel();
     _setSlideListMemoIndicator();
-    if ($btnSlideMemo) $btnSlideMemo.classList.toggle('has-memo', Boolean(String(currentSlideMemo || '').trim()));
+    _syncSlideMemoButton();
     setStatus(loaded.length ? `Loaded ${loaded.length} ${label}` : 'No saved annotations');
 }
 
@@ -2986,10 +3221,20 @@ async function _saveAnnotationsToServer() {
         return;
     }
     const annotations = _serializeAnnotations();
-    const payload = {
-        slide_memo: currentSlideMemo || '',
-        annotations,
-    };
+    const payload = [
+        {
+            type: '__meta__',
+            kind: 'annotation_meta',
+            memo: currentSlideMemo || '',
+            slide_memo: currentSlideMemo || '',
+            slide_memo_history: _normalizeMemoHistory(currentSlideMemoHistory),
+            properties: {
+                slide_memo: currentSlideMemo || '',
+                slide_memo_history: _normalizeMemoHistory(currentSlideMemoHistory),
+            },
+        },
+        ...annotations,
+    ];
     await api.saveAnnotations(currentSlideId, payload);
     _setSlideListMemoIndicator();
     setStatus(`Annotations saved internally (${annotations.length} items)`);
@@ -3018,9 +3263,10 @@ async function _loadSavedAnnotationsForSlide(slideId) {
     try {
         const payload = await api.loadAnnotations(strSlideId);
         if (currentSlideId !== strSlideId) return;
-        const list = Array.isArray(payload) ? payload : (payload?.annotations || []);
-        currentSlideMemo = Array.isArray(payload) ? '' : String(payload?.slide_memo || payload?.memo || '');
-        _applyLoadedAnnotations(list, 'saved annotations');
+        const parsed = _splitAnnotationPayload(payload);
+        currentSlideMemo = parsed.slideMemo;
+        currentSlideMemoHistory = parsed.slideMemoHistory;
+        _applyLoadedAnnotations(parsed.annotations, 'saved annotations');
     } catch (err) {
         if (currentSlideId !== strSlideId) return;
         console.warn('Saved annotation load failed:', err);
@@ -3035,18 +3281,19 @@ async function _downloadAnnotations() {
     }
     const payload = {
         slide_memo: currentSlideMemo || '',
-        annotations: viewer.annotations.map(ann => ({
-            id: ann.id,
-            name: ann.name,
+        slide_memo_history: _normalizeMemoHistory(currentSlideMemoHistory),
+        annotations: viewer.annotations.map((ann, index) => ({
+            id: index + 1,
             type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
             coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
             color: _normalizeColor(ann.color),
             class_id: ann.class_id || ann.properties?.class_id || '',
             class_name: ann.class_name || ann.properties?.class_name || '',
             memo: _annotationMemo(ann),
+            memo_history: _annotationMemoHistory(ann),
             group: ann.group || 'default',
             visible: ann.visible !== false,
-            properties: ann.properties || {},
+            properties: { ...(ann.properties || {}), annotation_id: index + 1 },
         }))
     };
     const json = JSON.stringify(payload, null, 2);
@@ -3106,12 +3353,14 @@ function _uploadAnnotations() {
         reader.onload = () => {
             try {
                 const parsed = JSON.parse(reader.result);
-                const list = Array.isArray(parsed) ? parsed : parsed?.annotations;
+                const split = _splitAnnotationPayload(parsed);
+                const list = split.annotations;
                 if (!Array.isArray(list)) {
                     setStatus('Invalid file format.');
                     return;
                 }
-                currentSlideMemo = Array.isArray(parsed) ? '' : String(parsed.slide_memo || parsed.memo || '');
+                currentSlideMemo = split.slideMemo;
+                currentSlideMemoHistory = split.slideMemoHistory;
                 const loaded = _normalizeLoadedAnnotations(list);
                 viewer.annotations = loaded;
                 viewer._annotationCounter = loaded.length;

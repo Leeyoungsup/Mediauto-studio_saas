@@ -2102,7 +2102,7 @@ body.annotation-page .project-gate-row {
 }
 .class-row {
     display: grid;
-    grid-template-columns: 18px 24px minmax(0, 1fr) auto;
+    grid-template-columns: 18px 24px minmax(0, 1fr) 24px auto;
     align-items: center;
     gap: 6px;
     padding: 4px 5px;
@@ -2128,6 +2128,9 @@ body.annotation-page .project-gate-row {
 .class-row.active {
     border-color: rgba(105, 83, 232, 0.25);
     background: rgba(105, 83, 232, 0.08);
+}
+.class-row.hidden-class {
+    opacity: 0.58;
 }
 .class-active-btn {
     width: 14px;
@@ -2162,6 +2165,22 @@ body.annotation-page .project-gate-row {
     font-size: 10px;
     font-weight: 800;
     text-align: center;
+}
+.class-visibility-btn {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.class-visibility-btn:hover {
+    color: var(--accent);
+    border-color: rgba(108, 92, 231, 0.4);
+    background: rgba(108, 92, 231, 0.08);
 }
 .class-color-input {
     width: 22px;
@@ -2365,7 +2384,7 @@ body.annotation-page .annotation-list {
 .ann-list-header,
 .ann-item {
     display: grid;
-    grid-template-columns: minmax(80px, 1fr) minmax(68px, 88px) 48px 42px 42px 34px;
+    grid-template-columns: minmax(80px, 1fr) minmax(74px, 104px) 42px 42px 34px;
     align-items: center;
     gap: 5px;
 }
@@ -2441,6 +2460,25 @@ body.annotation-page .annotation-list {
     font-size: 10px;
     font-weight: 700;
 }
+.ann-class-wrap {
+    position: relative;
+    min-width: 0;
+}
+.ann-class-wrap::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--ann-class-color, #00ff00);
+    z-index: 1;
+    pointer-events: none;
+}
+.ann-class-wrap .ann-class-select {
+    padding-left: 8px;
+}
 .ann-name-input {
     min-width: 0; font-size: 12px; padding: 1px 4px;
     border: 1px solid var(--accent); border-radius: 3px; outline: none;
@@ -2466,19 +2504,169 @@ body.annotation-page .annotation-list {
     opacity: 0.72;
     transition: opacity 0.15s, background 0.15s;
 }
+.ann-btn-vis svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+    margin: 0 auto;
+}
 .ann-btn-memo:hover, .ann-btn-vis:hover, .ann-btn-del:hover { opacity: 1; background: var(--bg-hover); }
 .ann-btn-memo.has-memo {
     border-color: rgba(245, 176, 65, 0.7);
     background: rgba(255, 193, 7, 0.14);
     color: #9a6400;
 }
+.ann-btn-memo.has-history {
+    border-color: rgba(84, 160, 255, 0.55);
+    background: rgba(84, 160, 255, 0.12);
+    color: #2868ad;
+}
 .ann-btn-del { color: #e74c3c; }
 .toolbar-btn.has-memo {
     color: #9a6400;
     background: rgba(255, 193, 7, 0.18);
 }
+.toolbar-btn.has-history {
+    color: #2868ad;
+    background: rgba(84, 160, 255, 0.16);
+}
 
 /* ═══ 다이얼로그 ═══ */
+.memo-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10030;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(14, 16, 32, 0.42);
+}
+.memo-dialog {
+    width: min(560px, 92vw);
+    max-height: min(720px, 86vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(31, 32, 58, 0.3);
+}
+.memo-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border-light);
+}
+.memo-dialog-header h2 {
+    margin: 0;
+    color: var(--text-bright);
+    font-size: 15px;
+    line-height: 1.3;
+}
+.memo-close {
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+}
+.memo-dialog-body {
+    padding: 14px 18px;
+    display: grid;
+    gap: 14px;
+    overflow-y: auto;
+}
+.memo-current {
+    display: grid;
+    gap: 7px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+.memo-textarea {
+    width: 100%;
+    min-height: 130px;
+    resize: vertical;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 11px;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+    outline: none;
+}
+.memo-textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.12);
+}
+.memo-history-title {
+    margin-bottom: 7px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+.memo-history-list {
+    display: grid;
+    gap: 7px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.memo-history-empty,
+.memo-history-item {
+    position: relative;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 9px 34px 9px 10px;
+    background: #fafbff;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.45;
+}
+.memo-history-empty {
+    color: var(--text-dim);
+}
+.memo-history-item time {
+    display: block;
+    margin-top: 5px;
+    color: var(--text-dim);
+    font-size: 10px;
+}
+.memo-history-delete {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--border-light);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--danger);
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: pointer;
+}
+.memo-history-delete:hover {
+    border-color: rgba(231, 76, 60, 0.4);
+    background: rgba(231, 76, 60, 0.08);
+}
+.memo-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--border-light);
+}
+.memo-dialog-footer .primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
 dialog {
     border: none; border-radius: 16px;
     background: var(--bg-white); color: var(--text); padding: 0;

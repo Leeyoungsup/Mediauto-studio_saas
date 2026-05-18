@@ -1728,7 +1728,8 @@ def _annotation_summary_for_filename(filename: str) -> dict:
         slide_memo = str(payload.get("slide_memo") or payload.get("memo") or "").strip()
         annotations = payload.get("annotations") if isinstance(payload.get("annotations"), list) else []
     elif isinstance(payload, list):
-        slide_memo = ""
+        meta = next((item for item in payload if isinstance(item, dict) and (item.get("type") == "__meta__" or item.get("kind") == "annotation_meta")), {})
+        slide_memo = str(meta.get("slide_memo") or meta.get("memo") or (meta.get("properties") or {}).get("slide_memo") or "").strip()
         annotations = payload
     else:
         slide_memo = ""
@@ -1875,6 +1876,7 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
         list_parsed = parsed.get("annotations") or []
         payload_to_save = {
             "slide_memo": str(parsed.get("slide_memo") or parsed.get("memo") or "")[:10000],
+            "slide_memo_history": parsed.get("slide_memo_history") or parsed.get("memo_history") or [],
             "annotations": list_parsed,
         }
     else:

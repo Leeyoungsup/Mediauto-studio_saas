@@ -181,6 +181,7 @@ export class TileViewer {
         this.annotationStrokeWidth = 2;
         this.annotationFillOpacity = 0.1;
         this.annotationDrawColor = [0, 255, 0];
+        this.hiddenAnnotationClassIds = new Set();
         // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
         // mode 해제 / 새 측정 시작 시 사라짐.
         this._rulerStart = null;      // [sx, sy]
@@ -2667,6 +2668,20 @@ export class TileViewer {
         this.requestRender();
     }
 
+    setHiddenAnnotationClassIds(ids = []) {
+        this.hiddenAnnotationClassIds = new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean));
+        this.requestRender();
+    }
+
+    _annotationClassId(ann) {
+        return String(ann?.class_id || ann?.properties?.class_id || '');
+    }
+
+    _isAnnotationClassHidden(ann) {
+        const classId = this._annotationClassId(ann);
+        return Boolean(classId && this.hiddenAnnotationClassIds?.has(classId));
+    }
+
     /**
      * 슬라이드 좌표계 기준 1mm 가 몇 px 인지. mpp(µm/px) 가 0.25 면 4000 px = 1mm.
      * slideInfo 가 없거나 mpp 가 없으면 null — 호출 측에서 가드 필요.
@@ -3170,13 +3185,12 @@ export class TileViewer {
         this.pushAnnotationUndo();
         this._annotationCounter++;
         const COLORS = { polygon: [0, 255, 0], rectangle: [255, 0, 0], point: [0, 0, 255] };
-        const NAMES = { polygon: 'ROI', rectangle: 'Rectangle', point: 'Point' };
         const drawColor = Array.isArray(options.color)
             ? options.color.slice(0, 3)
             : (Array.isArray(this.annotationDrawColor) ? this.annotationDrawColor.slice(0, 3) : COLORS[type]);
         const ann = {
             id: crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            name: `${NAMES[type]}_${this._annotationCounter}`,
+            name: String(this._annotationCounter),
             type,
             coordinates,
             color: drawColor || COLORS[type],
@@ -3229,6 +3243,7 @@ export class TileViewer {
         // 확정된 annotation
         for (const ann of this.annotations) {
             if (!ann.visible) continue;
+            if (this._isAnnotationClassHidden(ann)) continue;
             const [r, g, b] = ann.color;
             const strokeColor = `rgb(${r},${g},${b})`;
             const fillOpacity = Math.max(0, Math.min(0.8, Number(this.annotationFillOpacity ?? 0.1)));
@@ -3294,7 +3309,7 @@ export class TileViewer {
         const preview = this._insertVertexPreview;
         if (!preview || !preview.point) return;
         const ann = this.annotations.find(a => a.id === preview.annId);
-        if (!ann || !ann.visible) return;
+        if (!ann || !ann.visible || this._isAnnotationClassHidden(ann)) return;
         const [r, g, b] = ann.color || [0, 255, 0];
         const [cx, cy] = this.sceneToCanvas(preview.point[0], preview.point[1]);
         octx.save();
@@ -3615,7 +3630,7 @@ export class TileViewer {
     /** 캔버스 좌표에서 선택된 annotation의 컨트롤포인트 히트 테스트 */
     _getEditableSelectedPolygon() {
         const ann = this.annotations.find(a => a.id === this.selectedAnnotationId);
-        if (!ann || !ann.visible) return null;
+        if (!ann || !ann.visible || this._isAnnotationClassHidden(ann)) return null;
         if ((ann.type !== 'polygon' && ann.type !== 'rectangle') || ann.coordinates.length < 3) return null;
         return ann;
     }
@@ -3815,7 +3830,7 @@ export class TileViewer {
         const hits = [];
         for (let i = this.annotations.length - 1; i >= 0; i--) {
             const ann = this.annotations[i];
-            if (!ann || !ann.visible || ann.type !== 'polygon' || !Array.isArray(ann.coordinates) || ann.coordinates.length < 3) {
+            if (!ann || !ann.visible || this._isAnnotationClassHidden(ann) || ann.type !== 'polygon' || !Array.isArray(ann.coordinates) || ann.coordinates.length < 3) {
                 continue;
             }
             if (this._pointInPolygon(sx, sy, ann.coordinates) || this._pointNearPolyline(sx, sy, ann.coordinates, true, Math.max(4, 8 / Math.max(this.zoom, 0.0001)))) {
@@ -3991,7 +4006,7 @@ export class TileViewer {
 
     _hitControlPoint(cx, cy) {
         const sel = this.annotations.find(a => a.id === this.selectedAnnotationId);
-        if (!sel || !sel.visible) return null;
+        if (!sel || !sel.visible || this._isAnnotationClassHidden(sel)) return null;
         const HIT_RADIUS = 8;
         for (let i = 0; i < sel.coordinates.length; i++) {
             const [pcx, pcy] = this.sceneToCanvas(sel.coordinates[i][0], sel.coordinates[i][1]);
@@ -4009,6 +4024,7 @@ export class TileViewer {
         for (let i = this.annotations.length - 1; i >= 0; i--) {
             const ann = this.annotations[i];
             if (!ann.visible) continue;
+            if (this._isAnnotationClassHidden(ann)) continue;
 
             if (ann.type === 'point') {
                 const pointThreshold = Math.max(threshold, 15 / Math.max(this.zoom, 0.0001));
@@ -4038,6 +4054,7 @@ export class TileViewer {
         for (let annIdx = this.annotations.length - 1; annIdx >= 0; annIdx--) {
             const ann = this.annotations[annIdx];
             if (!ann.visible || ann.type !== 'polygon' || ann.coordinates.length < 3) continue;
+            if (this._isAnnotationClassHidden(ann)) continue;
             for (let i = 0; i < ann.coordinates.length; i++) {
                 const a = ann.coordinates[i];
                 const b = ann.coordinates[(i + 1) % ann.coordinates.length];
