@@ -181,6 +181,7 @@ export class TileViewer {
         this._isDrawing = false;
         this._annotationCounter = 0;
         this.selectedAnnotationId = null;
+        this._insertVertexPreview = null; // {annId, insertIndex, point:[sx,sy]} Ctrl+polygon edge insert preview
         this._dragControlPoint = null;  // {annId, pointIndex} 드래그 중인 컨트롤포인트
         this._dragAnnotation = null;    // {annId, startScene} 어노테이션 전체 이동
         this._lastDrawDragScene = null; // 폴리곤 드래그 점 추가용
@@ -532,13 +533,11 @@ export class TileViewer {
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
-                    this._dragAnnotation = { annId: hitAnn.id, startScene: [sx, sy], origCoords: hitAnn.coordinates.map(c => [...c]) };
-                    this.canvas.style.cursor = 'move';
-                    return;
+                    this.canvas.style.cursor = 'grabbing';
                 }
 
                 // 빈 공간 클릭 → 선택 해제
-                if (!e.ctrlKey && this.selectedAnnotationId) {
+                if (!hitAnn && !e.ctrlKey && this.selectedAnnotationId) {
                     this.selectAnnotation(null);
                 }
             }
@@ -597,6 +596,14 @@ export class TileViewer {
                     } else if (this.canvas.style.cursor === 'ew-resize') {
                         this.canvas.style.cursor = 'grab';
                     }
+                }
+            }
+            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
+                const insideCanvas = cx >= 0 && cy >= 0 &&
+                                     cx <= this._viewW && cy <= this._viewH;
+                if (insideCanvas) {
+                    const cp = this._hitControlPoint(cx, cy);
+                    this.canvas.style.cursor = cp ? 'move' : 'grab';
                 }
             }
 
@@ -2960,27 +2967,61 @@ export class TileViewer {
 
     /** scene 좌표에서 annotation 히트 테스트 (역순: 위에 그려진 것 우선) */
     _hitAnnotation(sx, sy) {
+        const threshold = Math.max(4, 8 / Math.max(this.zoom, 0.0001));
         for (let i = this.annotations.length - 1; i >= 0; i--) {
             const ann = this.annotations[i];
             if (!ann.visible) continue;
 
             if (ann.type === 'point') {
-                const threshold = 15 / this.zoom;
+                const pointThreshold = Math.max(threshold, 15 / Math.max(this.zoom, 0.0001));
                 const dx = sx - ann.coordinates[0][0];
                 const dy = sy - ann.coordinates[0][1];
-                if (dx * dx + dy * dy <= threshold * threshold) return ann;
+                if (dx * dx + dy * dy <= pointThreshold * pointThreshold) return ann;
             } else if (ann.type === 'rectangle') {
                 const xs = ann.coordinates.map(c => c[0]);
                 const ys = ann.coordinates.map(c => c[1]);
                 const xMin = Math.min(...xs), xMax = Math.max(...xs);
                 const yMin = Math.min(...ys), yMax = Math.max(...ys);
                 if (sx >= xMin && sx <= xMax && sy >= yMin && sy <= yMax) return ann;
+                if (this._pointNearPolyline(sx, sy, ann.coordinates, true, threshold)) return ann;
             } else if (ann.type === 'polygon') {
                 // Ray-casting algorithm
                 if (this._pointInPolygon(sx, sy, ann.coordinates)) return ann;
+                if (this._pointNearPolyline(sx, sy, ann.coordinates, true, threshold)) return ann;
             }
         }
         return null;
+    }
+
+    _pointNearPolyline(px, py, points, closed = false, threshold = 8) {
+        if (!Array.isArray(points) || points.length < 2) return false;
+        const thresholdSq = threshold * threshold;
+        const count = closed ? points.length : points.length - 1;
+        for (let i = 0; i < count; i++) {
+            const a = points[i];
+            const b = points[(i + 1) % points.length];
+            if (this._distancePointToSegmentSq(px, py, a[0], a[1], b[0], b[1]) <= thresholdSq) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _distancePointToSegmentSq(px, py, ax, ay, bx, by) {
+        const dx = bx - ax;
+        const dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq <= 0) {
+            const x = px - ax;
+            const y = py - ay;
+            return x * x + y * y;
+        }
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+        const x = ax + t * dx;
+        const y = ay + t * dy;
+        const ddx = px - x;
+        const ddy = py - y;
+        return ddx * ddx + ddy * ddy;
     }
 
     /** Ray-casting point-in-polygon test */
