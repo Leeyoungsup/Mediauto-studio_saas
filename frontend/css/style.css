@@ -1696,25 +1696,29 @@ body.annotation-page .project-gate-row {
 .shortcuts-modal .mouse-click {
     transform: translateY(1px);
     border-color: #4b5563;
-    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.18), 0 0 0 2px rgba(244, 208, 63, 0.26);
+    box-shadow: inset 0 3px 5px rgba(15, 23, 42, 0.22);
 }
 .shortcuts-modal .mouse-click::after {
-    height: 10px;
+    top: 3px;
+    height: 9px;
     background: #f1c40f;
-    box-shadow: inset 0 2px 2px rgba(15, 23, 42, 0.18);
+    box-shadow: inset 0 3px 2px rgba(15, 23, 42, 0.24);
+    transform: translateY(1px);
 }
 .shortcuts-modal .mouse-right-click {
     transform: translateY(1px);
     border-color: #4b5563;
-    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.18), 0 0 0 2px rgba(244, 208, 63, 0.26);
+    box-shadow: inset 0 3px 5px rgba(15, 23, 42, 0.22);
 }
 .shortcuts-modal .mouse-right-click::after {
     left: auto;
     right: 3px;
-    height: 10px;
+    top: 3px;
+    height: 9px;
     border-radius: 0 7px 0 2px;
     background: #f1c40f;
-    box-shadow: inset 0 2px 2px rgba(15, 23, 42, 0.18);
+    box-shadow: inset 0 3px 2px rgba(15, 23, 42, 0.24);
+    transform: translateY(1px);
 }
 .shortcuts-modal .mouse-hover {
     border-style: dashed;

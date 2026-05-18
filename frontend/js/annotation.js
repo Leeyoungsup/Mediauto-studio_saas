@@ -1834,7 +1834,7 @@ function _openMemoDialog({ title, value = '', history = [], onSave, onAccept, on
                 </label>
                 <label class="memo-answer" ${hasCurrentMemo ? '' : 'hidden'}>
                     <span>Answer</span>
-                    <textarea class="memo-answer-textarea" rows="4" placeholder="Write answer..."></textarea>
+                    <textarea class="memo-answer-textarea" rows="4" placeholder="Write answer..."${hasCurrentMemo ? '' : ' disabled'}></textarea>
                 </label>
                 <div class="memo-history">
                     <div class="memo-history-title">Previous memo list</div>
