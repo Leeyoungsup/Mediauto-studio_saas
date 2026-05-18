@@ -13,3 +13,4 @@ tools/
 certs/
 /backend/certs/*
 /mongo_dump/*
+annotations/

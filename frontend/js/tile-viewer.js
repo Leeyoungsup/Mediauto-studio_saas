@@ -661,7 +661,11 @@ export class TileViewer {
             if (this._dragControlPoint) {
                 const ann = this.annotations.find(a => a.id === this._dragControlPoint.annId);
                 if (ann) {
-                    ann.coordinates[this._dragControlPoint.pointIndex] = [sx, sy];
+                    if (ann.type === 'rectangle' && ann.coordinates.length === 4) {
+                        this._resizeRectangleFromCorner(ann, this._dragControlPoint.pointIndex, sx, sy);
+                    } else {
+                        ann.coordinates[this._dragControlPoint.pointIndex] = [sx, sy];
+                    }
                     if (this.onAnnotationChanged) this.onAnnotationChanged(ann);
                     this.requestRender();
                 }
@@ -3163,6 +3167,24 @@ export class TileViewer {
         if (!ann || !ann.visible) return null;
         if ((ann.type !== 'polygon' && ann.type !== 'rectangle') || ann.coordinates.length < 3) return null;
         return ann;
+    }
+
+    _resizeRectangleFromCorner(ann, pointIndex, sx, sy) {
+        const coords = ann.coordinates;
+        if (!coords || coords.length !== 4) return;
+        const idx = Math.max(0, Math.min(3, pointIndex | 0));
+        const opp = coords[(idx + 2) % 4];
+        if (!opp) return;
+
+        if (idx === 0) {
+            ann.coordinates = [[sx, sy], [opp[0], sy], [opp[0], opp[1]], [sx, opp[1]]];
+        } else if (idx === 1) {
+            ann.coordinates = [[opp[0], sy], [sx, sy], [sx, opp[1]], [opp[0], opp[1]]];
+        } else if (idx === 2) {
+            ann.coordinates = [[opp[0], opp[1]], [sx, opp[1]], [sx, sy], [opp[0], sy]];
+        } else {
+            ann.coordinates = [[sx, opp[1]], [opp[0], opp[1]], [opp[0], sy], [sx, sy]];
+        }
     }
 
     _applyPolygonCutPath(path) {
