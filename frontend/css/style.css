@@ -1436,11 +1436,11 @@ body.role-viewer .annotation-group::after {
     text-align: center;
 }
 body.role-viewer #right-panel .panel-group:first-child .tab-bar,
-body.role-viewer #right-panel .panel-group:first-child .tab-content,
-body.role-viewer .annotation-group .class-management-panel,
-body.role-viewer .annotation-group .annotation-list,
-body.role-viewer .annotation-group .btn-row {
+body.role-viewer #right-panel .panel-group:first-child .tab-content {
     pointer-events: none;
+}
+body.role-viewer .annotation-group::after {
+    content: 'Viewer role - annotations are read-only';
 }
 
 body.annotation-page #right-panel > .panel-group:not(.annotation-group),
@@ -2066,6 +2066,16 @@ body.annotation-page .project-gate-row {
     padding: 0 10px;
     font-size: 10px;
 }
+.class-management-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.class-management-actions .primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
 .annotation-class-list {
     display: flex;
     flex-direction: column;
@@ -2081,6 +2091,12 @@ body.annotation-page .project-gate-row {
     padding: 4px 5px;
     border: 1px solid transparent;
     border-radius: 6px;
+}
+.class-row.apply {
+    cursor: pointer;
+}
+.class-row.apply:hover {
+    background: var(--bg-hover);
 }
 .class-row[draggable="true"] {
     cursor: grab;
@@ -2107,6 +2123,28 @@ body.annotation-page .project-gate-row {
 .class-row.active .class-active-btn {
     border-color: var(--accent);
     background: radial-gradient(circle, var(--accent) 45%, transparent 49%);
+}
+.class-color-chip {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+.class-name-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 700;
+}
+.class-shortcut-label {
+    min-width: 18px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 800;
+    text-align: center;
 }
 .class-color-input {
     width: 22px;
@@ -2296,6 +2334,7 @@ body.annotation-page .annotation-group {
 body.annotation-page .annotation-status-panel,
 body.annotation-page .class-management-panel,
 body.annotation-page .annotation-group > .panel-header,
+body.annotation-page .annotation-style-panel,
 body.annotation-page .annotation-group > .btn-row {
     flex: 0 0 auto;
 }
@@ -2323,6 +2362,37 @@ body.annotation-page .annotation-list {
 .ann-color-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
 .ann-name {
     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.annotation-style-panel {
+    padding: 8px 10px;
+    background: #fff;
+    border-bottom: 1px solid var(--border-light);
+}
+.annotation-style-empty {
+    padding: 6px 2px;
+    color: var(--text-dim);
+    font-size: 11px;
+}
+.annotation-style-controls {
+    display: grid;
+    gap: 8px;
+}
+.annotation-style-row {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text);
+}
+.annotation-style-row input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+.annotation-style-row output {
+    text-align: right;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
 }
 .ann-class-select {
     min-width: 74px;

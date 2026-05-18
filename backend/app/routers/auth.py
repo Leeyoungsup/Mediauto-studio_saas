@@ -356,6 +356,7 @@ async def login(body: LoginRequest, request: Request):
             "str_name": dict_user["str_name"],
             "str_role": dict_user["str_role"],
             "str_department": dict_user.get("str_department", ""),
+            "dict_preferences": dict_user.get("dict_preferences", {}),
         },
     )
 
@@ -436,6 +437,7 @@ async def refresh_token(body: RefreshRequest, request: Request):
                 "str_name": dict_user["str_name"],
                 "str_role": dict_user["str_role"],
                 "str_department": dict_user.get("str_department", ""),
+                "dict_preferences": dict_user.get("dict_preferences", {}),
             },
         )
 
@@ -493,6 +495,7 @@ async def refresh_token(body: RefreshRequest, request: Request):
                     "str_name": dict_user["str_name"],
                     "str_role": dict_user["str_role"],
                     "str_department": dict_user.get("str_department", ""),
+                    "dict_preferences": dict_user.get("dict_preferences", {}),
                 },
             )
     # 유예 밖 또는 replacement 사라짐 → 의심스럽지만 전체 revoke 는 과잉.
@@ -561,6 +564,7 @@ async def get_me(dict_current_user: dict = Depends(get_current_user)):
         "str_name": dict_current_user["str_name"],
         "str_role": dict_current_user["str_role"],
         "str_department": dict_current_user.get("str_department", ""),
+        "dict_preferences": dict_current_user.get("dict_preferences", {}),
         "dt_last_login": dict_current_user.get("dt_last_login"),
     }
 

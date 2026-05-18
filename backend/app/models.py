@@ -83,6 +83,12 @@ def create_user_document(
         "bool_is_active": bool_is_active,
         "bool_is_locked": False,
         "int_failed_login_attempts": 0,
+        "dict_preferences": {
+            "annotation_display": {
+                "stroke_width": 2,
+                "fill_opacity": 0.1,
+            },
+        },
         "dt_locked_until": None,
         "dt_created_at": dt_now,
         "dt_updated_at": dt_now,

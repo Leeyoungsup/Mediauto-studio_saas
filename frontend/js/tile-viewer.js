@@ -178,6 +178,8 @@ export class TileViewer {
         this._drawingCurrent = null;  // 사각형/폴리곤 현재 마우스 (scene)
         this._brushSizePx = Number(localStorage.getItem('annotationBrushSizePx') || 28);
         this._brushSizePx = Math.max(4, Math.min(120, this._brushSizePx));
+        this.annotationStrokeWidth = 2;
+        this.annotationFillOpacity = 0.1;
         // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
         // mode 해제 / 새 측정 시작 시 사라짐.
         this._rulerStart = null;      // [sx, sy]
@@ -2628,6 +2630,18 @@ export class TileViewer {
         return (this._brushSizePx || 28) / (2 * Math.max(this.zoom, 0.0001));
     }
 
+    setAnnotationDisplayStyle(style = {}) {
+        if (style.strokeWidth != null) {
+            const value = Number(style.strokeWidth);
+            if (Number.isFinite(value)) this.annotationStrokeWidth = Math.max(1, Math.min(12, value));
+        }
+        if (style.fillOpacity != null) {
+            const value = Number(style.fillOpacity);
+            if (Number.isFinite(value)) this.annotationFillOpacity = Math.max(0, Math.min(0.8, value));
+        }
+        this.requestRender();
+    }
+
     /**
      * 슬라이드 좌표계 기준 1mm 가 몇 px 인지. mpp(µm/px) 가 0.25 면 4000 px = 1mm.
      * slideInfo 가 없거나 mpp 가 없으면 null — 호출 측에서 가드 필요.
@@ -3189,16 +3203,14 @@ export class TileViewer {
             if (!ann.visible) continue;
             const [r, g, b] = ann.color;
             const strokeColor = `rgb(${r},${g},${b})`;
-            const fillOpacity = Math.max(0, Math.min(1, Number(ann.fill_opacity ?? ann.properties?.fill_opacity ?? 0.1)));
-            const strokeWidth = Math.max(1, Math.min(20, Number(ann.stroke_width ?? ann.properties?.stroke_width ?? 2)));
+            const fillOpacity = Math.max(0, Math.min(0.8, Number(this.annotationFillOpacity ?? 0.1)));
+            const strokeWidth = Math.max(1, Math.min(12, Number(this.annotationStrokeWidth ?? 2)));
             const fillColor = `rgba(${r},${g},${b},${fillOpacity})`;
             const lineWidth = ann.selected ? strokeWidth + 1 : strokeWidth;
 
             if (ann.type === 'polygon') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);
-                if (ann.selected && ann.source !== 'brush' && ann.properties?.source !== 'brush') {
-                    this._drawControlPoints(octx, ann.coordinates, strokeColor);
-                }
+                if (ann.selected) this._drawControlPoints(octx, ann.coordinates, strokeColor);
             } else if (ann.type === 'rectangle') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);
                 if (ann.selected) this._drawControlPoints(octx, ann.coordinates, strokeColor);

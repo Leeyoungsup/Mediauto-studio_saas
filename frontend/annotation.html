@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio - Annotation</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css">
-    <link rel="stylesheet" href="css/style.css?v=20260518-19">
+    <link rel="stylesheet" href="css/style.css?v=20260518-22">
 </head>
 <body class="annotation-page">
     <!-- ═══ 메뉴바 ═══ -->
@@ -464,14 +464,19 @@
                 <div class="class-management-panel">
                     <div class="class-management-header">
                         <span>Class Management</span>
-                        <button id="btn-class-add" class="small-btn" type="button">Add</button>
+                        <div class="class-management-actions">
+                            <button id="btn-class-apply" class="small-btn primary" type="button">Apply</button>
+                            <button id="btn-class-setting" class="small-btn" type="button">Setting</button>
+                            <button id="btn-class-add" class="small-btn" type="button" hidden>Add</button>
+                            <button id="btn-class-done" class="small-btn" type="button" hidden>Done</button>
+                        </div>
                     </div>
                     <div id="annotation-class-list" class="annotation-class-list"></div>
                 </div>
                 <div class="panel-header">Annotations</div>
                 <div id="annotation-list" class="annotation-list"></div>
                 <div id="annotation-style-panel" class="annotation-style-panel">
-                    <div class="annotation-style-empty">Select a polygon or rectangle to edit style.</div>
+                    <div class="annotation-style-empty">Applied to all annotations in this account.</div>
                     <div class="annotation-style-controls" hidden>
                         <label class="annotation-style-row">
                             <span>Line</span>
@@ -640,6 +645,6 @@
     </div>
 
     <script src="js/shared-header.js"></script>
-    <script type="module" src="js/annotation.js?v=20260518-35"></script>
+    <script type="module" src="js/annotation.js?v=20260518-40"></script>
 </body>
 </html>

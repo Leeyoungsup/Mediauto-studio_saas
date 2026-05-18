@@ -304,6 +304,10 @@ class UpdateMyProfileRequest(BaseModel):
     str_department: str = Field(default="", max_length=100)
 
 
+class UpdateMyPreferencesRequest(BaseModel):
+    dict_preferences: dict = Field(default_factory=dict)
+
+
 @router.post("/me")
 async def update_my_profile(
     body: UpdateMyProfileRequest,
@@ -335,6 +339,7 @@ async def update_my_profile(
                 "str_name": dict_current_user.get("str_name", ""),
                 "str_role": dict_current_user.get("str_role", ""),
                 "str_department": dict_current_user.get("str_department", ""),
+                "dict_preferences": dict_current_user.get("dict_preferences", {}),
             },
         }
 
@@ -371,7 +376,50 @@ async def update_my_profile(
             "str_name": str_name,
             "str_role": dict_current_user.get("str_role", ""),
             "str_department": str_department,
+            "dict_preferences": dict_current_user.get("dict_preferences", {}),
         },
+    }
+
+
+@router.post("/me/preferences")
+async def update_my_preferences(
+    body: UpdateMyPreferencesRequest,
+    request: Request,
+    dict_current_user: dict = Depends(get_current_user),
+):
+    """현재 사용자의 UI preference를 저장한다."""
+    db = get_db()
+    str_user_id = dict_current_user["_id"]
+    dict_current = dict_current_user.get("dict_preferences", {}) or {}
+    dict_next = {**dict_current, **(body.dict_preferences or {})}
+
+    await db.users.update_one(
+        {"_id": ObjectId(str_user_id)},
+        {
+            "$set": {
+                "dict_preferences": dict_next,
+                "dt_updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    invalidate_user_cache(str_user_id)
+
+    await log_audit_event(
+        str_action="user.preferences_updated",
+        str_user_id=str_user_id,
+        str_user_email=dict_current_user.get("str_login_id", ""),
+        str_resource_type="user",
+        str_resource_id=str_user_id,
+        str_detail="Updated own preferences",
+        str_ip_address=get_client_ip(request),
+        str_user_agent=request.headers.get("User-Agent", ""),
+        dict_before={"dict_preferences": dict_current},
+        dict_after={"dict_preferences": dict_next},
+    )
+
+    return {
+        "str_message": "Preferences updated",
+        "dict_preferences": dict_next,
     }
 
 

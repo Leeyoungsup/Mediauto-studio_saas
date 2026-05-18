@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-24';
+import { TileViewer } from './tile-viewer.js?v=20260518-27';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1100,6 +1100,9 @@ const $btnAnnSave = $('#btn-ann-save');
 const $btnAnnLoad = $('#btn-ann-load');
 const $classList = $('#annotation-class-list');
 const $btnClassAdd = $('#btn-class-add');
+const $btnClassApply = $('#btn-class-apply');
+const $btnClassSetting = $('#btn-class-setting');
+const $btnClassDone = $('#btn-class-done');
 
 const _DEFAULT_ANNOTATION_CLASSES = [
     { id: 'default', name: 'Default', color: [0, 255, 0] },
@@ -1109,6 +1112,8 @@ let _activeAnnotationClassId = 'default';
 let _classesLoadedForProject = null;
 let _classSaveTimer = null;
 let _draggingClassId = null;
+let _annotationDisplayStyle = { strokeWidth: 2, fillOpacity: 0.1 };
+let _classManagementMode = 'apply';
 
 function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
@@ -1160,52 +1165,71 @@ function _applyClassToAnnotation(ann, classId) {
     };
 }
 
-function _annotationStrokeWidth(ann) {
-    const raw = Number(ann?.stroke_width ?? ann?.properties?.stroke_width ?? 2);
+function _annotationStrokeWidth(value = _annotationDisplayStyle.strokeWidth) {
+    const raw = Number(value);
     return Math.max(1, Math.min(12, Number.isFinite(raw) ? raw : 2));
 }
 
-function _annotationFillOpacity(ann) {
-    const raw = Number(ann?.fill_opacity ?? ann?.properties?.fill_opacity ?? 0.1);
+function _annotationFillOpacity(value = _annotationDisplayStyle.fillOpacity) {
+    const raw = Number(value);
     return Math.max(0, Math.min(0.8, Number.isFinite(raw) ? raw : 0.1));
 }
 
-function _selectedStyleAnnotation() {
-    const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
-    if (!ann || (ann.type !== 'polygon' && ann.type !== 'rectangle')) return null;
-    return ann;
+function _applyAnnotationDisplayStyle(style = {}) {
+    _annotationDisplayStyle = {
+        strokeWidth: _annotationStrokeWidth(style.strokeWidth ?? style.stroke_width ?? _annotationDisplayStyle.strokeWidth),
+        fillOpacity: _annotationFillOpacity(style.fillOpacity ?? style.fill_opacity ?? _annotationDisplayStyle.fillOpacity),
+    };
+    viewer.setAnnotationDisplayStyle?.(_annotationDisplayStyle);
+    renderAnnotationStylePanel();
 }
 
 function renderAnnotationStylePanel() {
     if (!$annStylePanel || !$annStyleControls || !$annStyleEmpty) return;
-    const ann = _selectedStyleAnnotation();
-    const enabled = !!ann;
-    $annStyleControls.hidden = !enabled;
-    $annStyleEmpty.hidden = enabled;
-    if (!enabled) return;
-
-    const stroke = _annotationStrokeWidth(ann);
-    const opacity = _annotationFillOpacity(ann);
+    $annStyleControls.hidden = false;
+    $annStyleEmpty.hidden = false;
+    $annStyleEmpty.textContent = 'Applied to all annotations in this account.';
+    const stroke = _annotationStrokeWidth();
+    const opacity = _annotationFillOpacity();
     if ($annStrokeWidth) $annStrokeWidth.value = String(stroke);
     if ($annStrokeWidthValue) $annStrokeWidthValue.textContent = `${stroke} px`;
     if ($annFillOpacity) $annFillOpacity.value = String(Math.round(opacity * 100));
     if ($annFillOpacityValue) $annFillOpacityValue.textContent = `${Math.round(opacity * 100)}%`;
 }
 
-function _updateSelectedAnnotationStyle(patch, pushUndo = false) {
-    const ann = _selectedStyleAnnotation();
-    if (!ann) return;
-    if (pushUndo) viewer.pushAnnotationUndo?.();
-    if (patch.stroke_width != null) ann.stroke_width = _annotationStrokeWidth({ stroke_width: patch.stroke_width });
-    if (patch.fill_opacity != null) ann.fill_opacity = _annotationFillOpacity({ fill_opacity: patch.fill_opacity });
-    ann.properties = {
-        ...(ann.properties || {}),
-        stroke_width: ann.stroke_width ?? _annotationStrokeWidth(ann),
-        fill_opacity: ann.fill_opacity ?? _annotationFillOpacity(ann),
+async function _saveAnnotationDisplayStyle() {
+    const payload = {
+        annotation_display: {
+            stroke_width: _annotationDisplayStyle.strokeWidth,
+            fill_opacity: _annotationDisplayStyle.fillOpacity,
+        },
     };
-    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
-    viewer.requestRender();
-    renderAnnotationStylePanel();
+    const res = await api.saveUserPreferences(payload);
+    const userRaw = localStorage.getItem('user');
+    let user = {};
+    try { user = userRaw ? JSON.parse(userRaw) : {}; } catch { user = {}; }
+    user.dict_preferences = res.dict_preferences || { ...(user.dict_preferences || {}), ...payload };
+    localStorage.setItem('user', JSON.stringify(user));
+}
+
+function _updateAnnotationDisplayStyle(patch, persist = false) {
+    _applyAnnotationDisplayStyle({
+        strokeWidth: patch.stroke_width ?? patch.strokeWidth ?? _annotationDisplayStyle.strokeWidth,
+        fillOpacity: patch.fill_opacity ?? patch.fillOpacity ?? _annotationDisplayStyle.fillOpacity,
+    });
+    if (persist) {
+        _saveAnnotationDisplayStyle()
+            .then(() => setStatus('Annotation display settings saved'))
+            .catch(err => setStatus(`Failed to save annotation display settings: ${err.message}`));
+    }
+}
+
+function _loadAnnotationDisplayStyleFromPreferences(preferences = {}) {
+    const style = preferences.annotation_display || preferences.annotationDisplay || {};
+    _applyAnnotationDisplayStyle({
+        strokeWidth: style.stroke_width ?? style.strokeWidth ?? 2,
+        fillOpacity: style.fill_opacity ?? style.fillOpacity ?? 0.1,
+    });
 }
 
 function _syncAnnotationClassMetadata() {
@@ -1278,48 +1302,69 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
 function renderClassManagementPanel() {
     if (!$classList) return;
     const canManage = _canManageAnnotationClasses();
+    const isSettings = canManage && _classManagementMode === 'settings';
+    if (!canManage && _classManagementMode !== 'apply') _classManagementMode = 'apply';
+    if ($btnClassApply) {
+        $btnClassApply.hidden = isSettings;
+        $btnClassApply.disabled = _isViewerRole();
+        $btnClassApply.title = _isViewerRole() ? 'Viewer role can view annotations only' : 'Apply selected class to selected annotation';
+    }
+    if ($btnClassSetting) {
+        $btnClassSetting.hidden = !canManage || isSettings;
+        $btnClassSetting.disabled = !canManage;
+        $btnClassSetting.title = canManage ? 'Edit classes' : 'Doctor/Admin only';
+    }
     if ($btnClassAdd) {
-        $btnClassAdd.disabled = !canManage;
+        $btnClassAdd.hidden = !isSettings;
+        $btnClassAdd.disabled = !isSettings;
         $btnClassAdd.title = canManage ? 'Add class' : 'Doctor/Admin only';
+    }
+    if ($btnClassDone) {
+        $btnClassDone.hidden = !isSettings;
+        $btnClassDone.disabled = !isSettings;
+        $btnClassDone.title = 'Back to apply mode';
     }
     $classList.innerHTML = '';
     for (const cls of _annotationClasses) {
         const [r, g, b] = _normalizeColor(cls.color);
         const row = document.createElement('div');
-        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '');
+        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '') + (isSettings ? ' settings' : ' apply');
         row.dataset.classId = cls.id;
-        row.draggable = canManage;
-        row.innerHTML = `
+        row.draggable = isSettings;
+        row.innerHTML = isSettings ? `
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
             <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
             <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
+        ` : `
+            <button type="button" class="class-active-btn" title="Select class"></button>
+            <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
+            <span class="class-name-label" title="${_esc(cls.name)}">${_esc(cls.name)}</span>
+            <span class="class-shortcut-label">${_annotationClasses.indexOf(cls) < 9 ? _annotationClasses.indexOf(cls) + 1 : _annotationClasses.indexOf(cls) === 9 ? 0 : ''}</span>
         `;
         const activeBtn = row.querySelector('.class-active-btn');
         const colorInput = row.querySelector('.class-color-input');
         const nameInput = row.querySelector('.class-name-input');
         const deleteBtn = row.querySelector('.class-delete-btn');
-        colorInput.disabled = !canManage;
-        nameInput.disabled = !canManage;
-        deleteBtn.disabled = !canManage;
-        deleteBtn.title = canManage ? 'Delete class' : 'Doctor/Admin only';
+        if (colorInput) colorInput.disabled = !isSettings;
+        if (nameInput) nameInput.disabled = !isSettings;
+        if (deleteBtn) {
+            deleteBtn.disabled = !isSettings;
+            deleteBtn.title = canManage ? 'Delete class' : 'Doctor/Admin only';
+        }
 
         const setActive = () => {
             _activeAnnotationClassId = cls.id;
-            const selected = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
-            if (selected) {
-                viewer.pushAnnotationUndo?.();
-                _applyClassToAnnotation(selected, cls.id);
-                if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(selected);
-                viewer.requestRender();
-            }
             renderClassManagementPanel();
             renderAnnotationPanel();
         };
         activeBtn.addEventListener('click', setActive);
-        row.addEventListener('dblclick', setActive);
+        row.addEventListener('click', (e) => {
+            if (e.target === colorInput || e.target === nameInput || e.target === deleteBtn) return;
+            setActive();
+        });
         row.addEventListener('dragstart', (e) => {
-            if (!canManage) return;
+            if (!isSettings) return;
             _draggingClassId = cls.id;
             row.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
@@ -1330,14 +1375,14 @@ function renderClassManagementPanel() {
             row.classList.remove('dragging');
         });
         row.addEventListener('dragover', (e) => {
-            if (!canManage || !_draggingClassId || _draggingClassId === cls.id) return;
+            if (!isSettings || !_draggingClassId || _draggingClassId === cls.id) return;
             e.preventDefault();
             row.classList.add('drag-over');
         });
         row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
         row.addEventListener('drop', (e) => {
             row.classList.remove('drag-over');
-            if (!canManage || !_draggingClassId || _draggingClassId === cls.id) return;
+            if (!isSettings || !_draggingClassId || _draggingClassId === cls.id) return;
             e.preventDefault();
             const from = _annotationClasses.findIndex(c => c.id === _draggingClassId);
             const to = _annotationClasses.findIndex(c => c.id === cls.id);
@@ -1348,38 +1393,44 @@ function renderClassManagementPanel() {
             renderClassManagementPanel();
             renderAnnotationPanel();
         });
-        colorInput.addEventListener('input', (e) => {
-            if (!canManage) return;
-            cls.color = hexToRgb(e.target.value);
-            _syncAnnotationClassMetadata();
-            renderAnnotationPanel();
-            _queueSaveAnnotationClasses();
-        });
-        nameInput.addEventListener('change', (e) => {
-            if (!canManage) return;
-            cls.name = e.target.value.trim() || cls.name;
-            _syncAnnotationClassMetadata();
-            renderAnnotationPanel();
-            _queueSaveAnnotationClasses();
-        });
-        deleteBtn.addEventListener('click', () => {
-            if (!canManage) return;
-            if (_annotationClasses.length <= 1) {
-                alert('At least one class is required.');
-                return;
-            }
-            if (!confirm(`Delete class "${cls.name}"? Existing annotations will move to the first class.`)) return;
-            const fallback = _annotationClasses.find(c => c.id !== cls.id);
-            _annotationClasses = _annotationClasses.filter(c => c.id !== cls.id);
-            if (_activeAnnotationClassId === cls.id) _activeAnnotationClassId = fallback.id;
-            for (const ann of viewer.annotations) {
-                if ((ann.class_id || ann.properties?.class_id) === cls.id) _applyClassToAnnotation(ann, fallback.id);
-            }
-            _syncAnnotationClassMetadata();
-            _queueSaveAnnotationClasses();
-            renderClassManagementPanel();
-            renderAnnotationPanel();
-        });
+        if (colorInput) {
+            colorInput.addEventListener('input', (e) => {
+                if (!isSettings) return;
+                cls.color = hexToRgb(e.target.value);
+                _syncAnnotationClassMetadata();
+                renderAnnotationPanel();
+                _queueSaveAnnotationClasses();
+            });
+        }
+        if (nameInput) {
+            nameInput.addEventListener('change', (e) => {
+                if (!isSettings) return;
+                cls.name = e.target.value.trim() || cls.name;
+                _syncAnnotationClassMetadata();
+                renderAnnotationPanel();
+                _queueSaveAnnotationClasses();
+            });
+        }
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                if (!isSettings) return;
+                if (_annotationClasses.length <= 1) {
+                    alert('At least one class is required.');
+                    return;
+                }
+                if (!confirm(`Delete class "${cls.name}"? Existing annotations will move to the first class.`)) return;
+                const fallback = _annotationClasses.find(c => c.id !== cls.id);
+                _annotationClasses = _annotationClasses.filter(c => c.id !== cls.id);
+                if (_activeAnnotationClassId === cls.id) _activeAnnotationClassId = fallback.id;
+                for (const ann of viewer.annotations) {
+                    if ((ann.class_id || ann.properties?.class_id) === cls.id) _applyClassToAnnotation(ann, fallback.id);
+                }
+                _syncAnnotationClassMetadata();
+                _queueSaveAnnotationClasses();
+                renderClassManagementPanel();
+                renderAnnotationPanel();
+            });
+        }
         $classList.appendChild(row);
     }
 }
@@ -1568,6 +1619,7 @@ async function _openProjectClassManager(project) {
 
 $btnClassAdd?.addEventListener('click', () => {
     if (_blockClassManageAction()) return;
+    _classManagementMode = 'settings';
     const name = prompt('Class name:', `Class ${_annotationClasses.length + 1}`);
     if (!name || !name.trim()) return;
     const cls = {
@@ -1581,6 +1633,37 @@ $btnClassAdd?.addEventListener('click', () => {
     renderAnnotationPanel();
     _queueSaveAnnotationClasses();
 });
+
+$btnClassSetting?.addEventListener('click', () => {
+    if (_blockClassManageAction()) return;
+    _classManagementMode = 'settings';
+    renderClassManagementPanel();
+});
+
+$btnClassDone?.addEventListener('click', () => {
+    _classManagementMode = 'apply';
+    renderClassManagementPanel();
+});
+
+function _applyActiveClassToSelectedAnnotation() {
+    const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
+    if (!ann) {
+        setStatus('Select an annotation first');
+        return;
+    }
+    if (_blockViewerAction('Viewer role can view annotations only.')) return;
+    const cls = _getAnnotationClass(_activeAnnotationClassId);
+    _activeAnnotationClassId = cls.id;
+    viewer.pushAnnotationUndo?.();
+    _applyClassToAnnotation(ann, cls.id);
+    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+    viewer.requestRender();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+    setStatus(`${ann.name} class: ${cls.name}`);
+}
+
+$btnClassApply?.addEventListener('click', _applyActiveClassToSelectedAnnotation);
 
 function renderAnnotationPanel() {
     if (!$annList) return;
@@ -1604,6 +1687,19 @@ function renderAnnotationPanel() {
             <button class="ann-btn-del" title="Delete">✕</button>
         `;
         // 클릭 → 선택
+        const annDeleteButton = el.querySelector('.ann-btn-del');
+        if (annDeleteButton) annDeleteButton.textContent = 'Delete';
+        if (_isViewerRole()) {
+            const readOnlyTitle = 'Viewer role can view annotations only';
+            el.querySelector('.ann-color-swatch').disabled = true;
+            el.querySelector('.ann-color-swatch').title = readOnlyTitle;
+            el.querySelector('.ann-class-select').disabled = true;
+            el.querySelector('.ann-class-select').title = readOnlyTitle;
+            if (annDeleteButton) {
+                annDeleteButton.disabled = true;
+                annDeleteButton.title = readOnlyTitle;
+            }
+        }
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
@@ -1632,6 +1728,7 @@ function renderAnnotationPanel() {
                 }
                 return;
             }
+            if (_blockViewerAction('Viewer role can view annotations only.')) return;
             const nameSpan = e.target;
             const input = document.createElement('input');
             input.className = 'ann-name-input';
@@ -1651,6 +1748,7 @@ function renderAnnotationPanel() {
         });
         // 색상 변경
         el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
+            if (_blockViewerAction('Viewer role can view annotations only.')) return;
             const hex = e.target.value;
             viewer.pushAnnotationUndo?.();
             ann.color = hexToRgb(hex);
@@ -1663,6 +1761,7 @@ function renderAnnotationPanel() {
         });
         el.querySelector('.ann-class-select').addEventListener('change', (e) => {
             e.stopPropagation();
+            if (_blockViewerAction('Viewer role can view annotations only.')) return;
             viewer.pushAnnotationUndo?.();
             _applyClassToAnnotation(ann, e.target.value);
             if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
@@ -1679,6 +1778,7 @@ function renderAnnotationPanel() {
         // 삭제
         el.querySelector('.ann-btn-del').addEventListener('click', (e) => {
             e.stopPropagation();
+            if (_blockViewerAction('Viewer role can view annotations only.')) return;
             viewer.deleteAnnotation(ann.id);
         });
         $annList.appendChild(el);
@@ -1689,21 +1789,21 @@ function renderAnnotationPanel() {
 if ($annStrokeWidth) {
     $annStrokeWidth.addEventListener('input', (e) => {
         const value = Number(e.target.value);
-        _updateSelectedAnnotationStyle({ stroke_width: value });
+        _updateAnnotationDisplayStyle({ stroke_width: value });
     });
     $annStrokeWidth.addEventListener('change', (e) => {
         const value = Number(e.target.value);
-        _updateSelectedAnnotationStyle({ stroke_width: value }, true);
+        _updateAnnotationDisplayStyle({ stroke_width: value }, true);
     });
 }
 if ($annFillOpacity) {
     $annFillOpacity.addEventListener('input', (e) => {
         const value = Number(e.target.value) / 100;
-        _updateSelectedAnnotationStyle({ fill_opacity: value });
+        _updateAnnotationDisplayStyle({ fill_opacity: value });
     });
     $annFillOpacity.addEventListener('change', (e) => {
         const value = Number(e.target.value) / 100;
-        _updateSelectedAnnotationStyle({ fill_opacity: value }, true);
+        _updateAnnotationDisplayStyle({ fill_opacity: value }, true);
     });
 }
 
@@ -5680,6 +5780,8 @@ $btnVsSplit?.addEventListener('click', () => {
         });
         window.__currentUserRole = dict_me.str_role || 'viewer';
         window.__currentUserId = String(dict_me._id || '');
+        _loadAnnotationDisplayStyleFromPreferences(dict_me.dict_preferences || {});
+        localStorage.setItem('user', JSON.stringify(dict_me));
         if (window.__currentUserRole === 'viewer') {
             _applyViewerRoleRestrictions();
         }

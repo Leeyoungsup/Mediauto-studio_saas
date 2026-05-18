@@ -542,6 +542,16 @@ export const api = {
         return res.json();
     },
 
+    async saveUserPreferences(preferences = {}) {
+        const res = await _authFetch(`${API_BASE}/users/me/preferences`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dict_preferences: preferences }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async startDetection(slideId, roiPolygons = null, tissueType = 'Stomach') {
         const form = new FormData();
         form.append('slide_id', slideId);
