@@ -1694,31 +1694,69 @@ body.annotation-page .project-gate-row {
     opacity: 0.42;
 }
 .shortcuts-modal .mouse-click {
-    transform: translateY(1px);
     border-color: #4b5563;
-    box-shadow: inset 0 3px 5px rgba(15, 23, 42, 0.22);
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.05);
 }
 .shortcuts-modal .mouse-click::after {
-    top: 3px;
-    height: 9px;
+    top: 2px;
+    height: 8px;
     background: #f1c40f;
-    box-shadow: inset 0 3px 2px rgba(15, 23, 42, 0.24);
-    transform: translateY(1px);
+    box-shadow: none;
+    transform: none;
+}
+.shortcuts-modal .mouse-click .click-mark,
+.shortcuts-modal .mouse-right-click .click-mark {
+    position: absolute;
+    left: -5px;
+    top: -2px;
+    width: 11px;
+    height: 11px;
+    pointer-events: none;
+}
+.shortcuts-modal .mouse-click .click-mark::before,
+.shortcuts-modal .mouse-click .click-mark::after,
+.shortcuts-modal .mouse-right-click .click-mark::before,
+.shortcuts-modal .mouse-right-click .click-mark::after {
+    content: '';
+    position: absolute;
+    background: #f1c40f;
+    border-radius: 999px;
+    transform-origin: center;
+}
+.shortcuts-modal .mouse-click .click-mark::before,
+.shortcuts-modal .mouse-right-click .click-mark::before {
+    left: 4px;
+    top: 0;
+    width: 2px;
+    height: 7px;
+    transform: rotate(-28deg);
+}
+.shortcuts-modal .mouse-click .click-mark::after,
+.shortcuts-modal .mouse-right-click .click-mark::after {
+    left: 0;
+    top: 5px;
+    width: 7px;
+    height: 2px;
+    transform: rotate(18deg);
 }
 .shortcuts-modal .mouse-right-click {
-    transform: translateY(1px);
     border-color: #4b5563;
-    box-shadow: inset 0 3px 5px rgba(15, 23, 42, 0.22);
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.05);
 }
 .shortcuts-modal .mouse-right-click::after {
     left: auto;
     right: 3px;
-    top: 3px;
-    height: 9px;
+    top: 2px;
+    height: 8px;
     border-radius: 0 7px 0 2px;
     background: #f1c40f;
-    box-shadow: inset 0 3px 2px rgba(15, 23, 42, 0.24);
-    transform: translateY(1px);
+    box-shadow: none;
+    transform: none;
+}
+.shortcuts-modal .mouse-right-click .click-mark {
+    left: auto;
+    right: -5px;
+    transform: scaleX(-1);
 }
 .shortcuts-modal .mouse-hover {
     border-style: dashed;
