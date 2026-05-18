@@ -2830,33 +2830,50 @@ export class TileViewer {
         return pts;
     }
 
+    _resampleBrushPath(path, spacing) {
+        const clean = this._cleanPolylinePoints(path);
+        if (clean.length <= 1) return clean;
+        const samples = [clean[0]];
+        let carry = 0;
+        for (let i = 1; i < clean.length; i++) {
+            const a = clean[i - 1];
+            const b = clean[i];
+            const dx = b[0] - a[0];
+            const dy = b[1] - a[1];
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-9) continue;
+
+            let dist = spacing - carry;
+            while (dist <= len) {
+                const t = dist / len;
+                samples.push([a[0] + dx * t, a[1] + dy * t]);
+                dist += spacing;
+            }
+            carry = len - (dist - spacing);
+            if (carry >= spacing || carry < 0) carry = 0;
+        }
+        const last = clean[clean.length - 1];
+        const prev = samples[samples.length - 1];
+        if (!prev || Math.hypot(prev[0] - last[0], prev[1] - last[1]) > spacing * 0.35) {
+            samples.push(last);
+        }
+        return samples;
+    }
+
     _makeBrushPolygonFromPath(points) {
         const path = this._cleanPolylinePoints(points);
         const radius = this._brushRadiusScene();
         if (!path.length) return null;
         if (path.length === 1) return this._makeCirclePolygon(path[0][0], path[0][1], radius);
 
-        const left = [];
-        const right = [];
-        for (let i = 0; i < path.length; i++) {
-            const prev = path[Math.max(0, i - 1)];
-            const next = path[Math.min(path.length - 1, i + 1)];
-            let dx = next[0] - prev[0];
-            let dy = next[1] - prev[1];
-            const len = Math.hypot(dx, dy);
-            if (len < 1e-9) {
-                dx = 1;
-                dy = 0;
-            } else {
-                dx /= len;
-                dy /= len;
-            }
-            const nx = -dy * radius;
-            const ny = dx * radius;
-            left.push([path[i][0] + nx, path[i][1] + ny]);
-            right.push([path[i][0] - nx, path[i][1] - ny]);
+        let contour = this._resampleBrushPath(path, Math.max(radius * 0.2, 1 / Math.max(this.zoom, 0.0001)));
+        if (contour.length > 1200) {
+            const stride = Math.ceil(contour.length / 1200);
+            contour = contour.filter((_, index) => index % stride === 0);
+            contour.push(path[path.length - 1]);
         }
-        return this._cleanPolygonPoints(left.concat(right.reverse()));
+
+        return contour.length >= 3 ? this._cleanPolygonPoints(contour) : null;
     }
 
     _isSelfIntersecting(pts) {
@@ -3220,7 +3237,7 @@ export class TileViewer {
                     const [cx, cy] = this.sceneToCanvas(this._drawingCurrent[0], this._drawingCurrent[1]);
                     octx.lineTo(cx, cy);
                 }
-                octx.strokeStyle = 'rgba(0,255,0,0.36)';
+                octx.strokeStyle = 'rgba(0,255,0,0.24)';
                 octx.lineWidth = this._brushSizePx || 28;
                 octx.lineCap = 'round';
                 octx.lineJoin = 'round';

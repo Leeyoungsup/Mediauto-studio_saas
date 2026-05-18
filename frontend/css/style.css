@@ -282,12 +282,38 @@ body.project-gate-open #toolbar {
 .toolbar-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .toolbar-btn img,
 .toolbar-btn svg { width: 20px; height: 20px; display: block; }
+.toolbar-combo-icon {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    display: block;
+}
+.toolbar-combo-icon > img {
+    width: 20px;
+    height: 20px;
+}
+.toolbar-combo-icon .toolbar-combo-badge {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 12px;
+    height: 12px;
+    padding: 1px;
+    border-radius: 999px;
+    background: var(--bg-white);
+    color: currentColor;
+    box-shadow: 0 0 0 1px rgba(108,92,231,0.3);
+}
 .toolbar-btn.toggle-btn.active {
     background: var(--accent); color: #fff;
     box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(108,92,231,0.55);
     position: relative;
 }
 .toolbar-btn.toggle-btn.active img { filter: brightness(0) invert(1); }
+.toolbar-btn.toggle-btn.active .toolbar-combo-badge {
+    background: rgba(255,255,255,0.18);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.7);
+}
 /* 1mm² 고정 크기 버튼은 SVG 안 라벨 가독성을 위해 살짝 큰 아이콘 */
 .toolbar-btn.fixed-area-btn svg { width: 22px; height: 22px; }
 .toolbar-btn.toggle-btn.active::after {
