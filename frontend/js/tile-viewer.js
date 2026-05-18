@@ -144,6 +144,9 @@ export class TileViewer {
         this._undoStack = [];
         this._redoStack = [];
         this._maxUndo = 200;
+        this._annotationUndoStack = [];
+        this._annotationRedoStack = [];
+        this._maxAnnotationUndo = 100;
 
         // Segmentation 오버레이
         this._segOverlay = null;     // {image, sceneX, sceneY, sceneW, sceneH}
@@ -226,6 +229,11 @@ export class TileViewer {
         this._activeLoads = 0;
         this._thumbnailBitmap = null;
         this.detectionCells = [];
+        this.annotations = [];
+        this.selectedAnnotationId = null;
+        this._annotationCounter = 0;
+        this._annotationUndoStack = [];
+        this._annotationRedoStack = [];
         this._thumbnailBitmap = null;
 
         // 이전 슬라이드의 프리로드 상태 초기화
@@ -542,6 +550,7 @@ export class TileViewer {
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
                 const cp = this._hitControlPoint(cx, cy);
                 if (cp) {
+                    this.pushAnnotationUndo();
                     this._dragControlPoint = cp;
                     this.canvas.style.cursor = 'move';
                     return;
@@ -1897,6 +1906,68 @@ export class TileViewer {
         }
     }
 
+    _cloneAnnotationList(list = this.annotations) {
+        return list.map(ann => ({
+            ...ann,
+            coordinates: (ann.coordinates || []).map(p => [Number(p[0]), Number(p[1])]),
+            color: Array.isArray(ann.color) ? [...ann.color] : ann.color,
+            properties: ann.properties ? { ...ann.properties } : {},
+        }));
+    }
+
+    _captureAnnotationState() {
+        return {
+            annotations: this._cloneAnnotationList(this.annotations),
+            selectedAnnotationId: this.selectedAnnotationId,
+            annotationCounter: this._annotationCounter,
+        };
+    }
+
+    _restoreAnnotationState(state) {
+        if (!state) return false;
+        this.annotations = this._cloneAnnotationList(state.annotations || []);
+        this.selectedAnnotationId = state.selectedAnnotationId || null;
+        this._annotationCounter = Number(state.annotationCounter || this.annotations.length || 0);
+        this.annotations.forEach(a => { a.selected = a.id === this.selectedAnnotationId; });
+        if (!this.annotations.some(a => a.id === this.selectedAnnotationId)) {
+            this.selectedAnnotationId = null;
+            this.annotations.forEach(a => { a.selected = false; });
+        }
+        if (this.onAnnotationSelected) {
+            this.onAnnotationSelected(this.annotations.find(a => a.id === this.selectedAnnotationId) || null);
+        }
+        this.requestRender();
+        return true;
+    }
+
+    pushAnnotationUndo() {
+        this._annotationUndoStack.push(this._captureAnnotationState());
+        if (this._annotationUndoStack.length > this._maxAnnotationUndo) this._annotationUndoStack.shift();
+        this._annotationRedoStack = [];
+    }
+
+    clearAnnotationUndo() {
+        this._annotationUndoStack = [];
+        this._annotationRedoStack = [];
+    }
+
+    undoAnnotationEdit() {
+        const prev = this._annotationUndoStack.pop();
+        if (!prev) return false;
+        this._annotationRedoStack.push(this._captureAnnotationState());
+        return this._restoreAnnotationState(prev);
+    }
+
+    redoAnnotationEdit() {
+        const next = this._annotationRedoStack.pop();
+        if (!next) return false;
+        this._annotationUndoStack.push(this._captureAnnotationState());
+        return this._restoreAnnotationState(next);
+    }
+
+    canUndoAnnotationEdit() { return this._annotationUndoStack.length > 0; }
+    canRedoAnnotationEdit() { return this._annotationRedoStack.length > 0; }
+
     clearCellHighlight() {
         if (this._highlightedCellIdx !== -1) {
             this._highlightedCellIdx = -1;
@@ -2677,6 +2748,7 @@ export class TileViewer {
     }
 
     _createAnnotation(type, coordinates) {
+        this.pushAnnotationUndo();
         this._annotationCounter++;
         const COLORS = { polygon: [0, 255, 0], rectangle: [255, 0, 0], point: [0, 0, 255] };
         const NAMES = { polygon: 'ROI', rectangle: 'Rectangle', point: 'Point' };
@@ -2706,6 +2778,8 @@ export class TileViewer {
     }
 
     deleteAnnotation(id) {
+        if (!this.annotations.some(a => a.id === id)) return;
+        this.pushAnnotationUndo();
         this.annotations = this.annotations.filter(a => a.id !== id);
         if (this.selectedAnnotationId === id) {
             this.selectedAnnotationId = null;
@@ -2715,6 +2789,7 @@ export class TileViewer {
     }
 
     clearAnnotations() {
+        if (this.annotations.length) this.pushAnnotationUndo();
         this.annotations = [];
         this.selectedAnnotationId = null;
         this._annotationCounter = 0;
@@ -3080,6 +3155,7 @@ export class TileViewer {
         if (!target) return false;
         const ann = this.annotations.find(a => a.id === target.annId);
         if (!ann || ann.type !== 'polygon') return false;
+        this.pushAnnotationUndo();
         ann.coordinates.splice(target.insertIndex, 0, target.point);
         this.selectAnnotation(ann.id);
         this._setInsertVertexPreview(null);

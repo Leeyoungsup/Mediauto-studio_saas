@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-06';
+import { TileViewer } from './tile-viewer.js?v=20260518-07';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1239,6 +1239,7 @@ function renderClassManagementPanel() {
             _activeAnnotationClassId = cls.id;
             const selected = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
             if (selected) {
+                viewer.pushAnnotationUndo?.();
                 _applyClassToAnnotation(selected, cls.id);
                 if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(selected);
                 viewer.requestRender();
@@ -1338,7 +1339,6 @@ async function _openProjectClassManager(project) {
     const path = project?.path || project?.name || '';
     if (!path) return;
     if (_blockClassManageAction()) return;
-    if (_blockViewerAction('Viewer 권한은 class를 수정할 수 없습니다.')) return;
 
     _projectClassModal?.remove();
     const projectTitle = _projectLabel(project) || path;
@@ -1571,7 +1571,9 @@ function renderAnnotationPanel() {
             input.focus();
             input.select();
             const finish = () => {
-                ann.name = input.value.trim() || ann.name;
+                const nextName = input.value.trim() || ann.name;
+                if (nextName !== ann.name) viewer.pushAnnotationUndo?.();
+                ann.name = nextName;
                 if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
                 renderAnnotationPanel();
             };
@@ -1581,6 +1583,7 @@ function renderAnnotationPanel() {
         // 색상 변경
         el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
             const hex = e.target.value;
+            viewer.pushAnnotationUndo?.();
             ann.color = hexToRgb(hex);
             ann.class_id = '';
             ann.class_name = '';
@@ -1591,6 +1594,7 @@ function renderAnnotationPanel() {
         });
         el.querySelector('.ann-class-select').addEventListener('change', (e) => {
             e.stopPropagation();
+            viewer.pushAnnotationUndo?.();
             _applyClassToAnnotation(ann, e.target.value);
             if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
             viewer.requestRender();
@@ -1649,6 +1653,7 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     if (_blockViewerAction('Viewer 권한은 annotation class를 변경할 수 없습니다.')) return true;
     const cls = _annotationClasses[idx];
     _activeAnnotationClassId = cls.id;
+    viewer.pushAnnotationUndo?.();
     _applyClassToAnnotation(ann, cls.id);
     if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
     viewer.requestRender();
@@ -2541,9 +2546,28 @@ window.addEventListener('keydown', (e) => {
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    if (key === 'z' && !e.shiftKey && viewer.canUndoAnnotationEdit?.()) {
+        _closeCellEditPopup();
+        viewer.undoAnnotationEdit();
+        renderAnnotationPanel();
+        setStatus(`Undo - ${viewer.annotations.length} annotations`);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+    }
+    if (((key === 'z' && e.shiftKey) || key === 'y') && viewer.canRedoAnnotationEdit?.()) {
+        _closeCellEditPopup();
+        viewer.redoAnnotationEdit();
+        renderAnnotationPanel();
+        setStatus(`Redo - ${viewer.annotations.length} annotations`);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+    }
+
     if (!viewer || !viewer.detectionCells || viewer.detectionCells.length === 0 && !viewer.canUndoCellEdit?.()) return;
 
-    const key = e.key.toLowerCase();
     if (key === 'z' && !e.shiftKey) {
         if (viewer.canUndoCellEdit && viewer.canUndoCellEdit()) {
             _closeCellEditPopup();
@@ -2640,6 +2664,7 @@ function _applyLoadedAnnotations(list, label = 'saved annotations') {
     viewer.annotations = loaded;
     viewer._annotationCounter = loaded.length;
     viewer.selectedAnnotationId = null;
+    viewer.clearAnnotationUndo?.();
     viewer.requestRender();
     renderAnnotationPanel();
     setStatus(loaded.length ? `Loaded ${loaded.length} ${label}` : 'No saved annotations');
