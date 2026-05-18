@@ -299,6 +299,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 "slide_id": slide_id,
                 "size_mb": round(f.stat().st_size / 1024 / 1024, 1),
                 "type": "slide",
+                "annotation_summary": _annotation_summary_for_filename(f.name),
             }
             # DB 문서가 있으면 ai_results + 업로드 메타 부착
             dict_db = dict_db_slides.get(f.name)
@@ -1712,6 +1713,38 @@ def _annotation_path_for_filename(filename: str) -> Path:
     return Path(settings.ANNOTATIONS_DIR) / _annotation_slide_dirname(filename) / "annotations.json"
 
 
+def _annotation_summary_for_filename(filename: str) -> dict:
+    ann_path = _annotation_path_for_filename(filename)
+    if not ann_path.exists():
+        ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
+    if not ann_path.exists():
+        return {"has_slide_memo": False, "has_annotation_memo": False, "has_memo": False}
+    try:
+        with open(ann_path, "r", encoding="utf-8") as f:
+            payload = json.loads(f.read())
+    except Exception:
+        return {"has_slide_memo": False, "has_annotation_memo": False, "has_memo": False}
+    if isinstance(payload, dict):
+        slide_memo = str(payload.get("slide_memo") or payload.get("memo") or "").strip()
+        annotations = payload.get("annotations") if isinstance(payload.get("annotations"), list) else []
+    elif isinstance(payload, list):
+        slide_memo = ""
+        annotations = payload
+    else:
+        slide_memo = ""
+        annotations = []
+    has_annotation_memo = any(
+        isinstance(item, dict)
+        and str(item.get("memo") or (item.get("properties") or {}).get("memo") or "").strip()
+        for item in annotations
+    )
+    return {
+        "has_slide_memo": bool(slide_memo),
+        "has_annotation_memo": bool(has_annotation_memo),
+        "has_memo": bool(slide_memo or has_annotation_memo),
+    }
+
+
 def _annotation_classes_path_for_project(project_path: str) -> Path:
     str_project = (project_path or "").replace("\\", "/").split("/")[0].strip()
     if not str_project:
@@ -1830,23 +1863,32 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
     if len(data.encode("utf-8")) > _INT_ANNOTATIONS_MAX_BYTES:
         raise HTTPException(413, f"annotation 데이터 상한 초과 ({_INT_ANNOTATIONS_MAX_BYTES // (1024*1024)} MB)")
 
-    # 2) JSON 유효성 + 3) 최상위가 list 인지
+    # 2) JSON 유효성 + 3) list 또는 {annotations, slide_memo} 인지
     try:
-        list_parsed = json.loads(data)
+        parsed = json.loads(data)
     except Exception as e:
         raise HTTPException(400, f"잘못된 JSON: {e}")
-    if not isinstance(list_parsed, list):
-        raise HTTPException(400, "annotation 은 list 형식이어야 합니다")
+    if isinstance(parsed, list):
+        list_parsed = parsed
+        payload_to_save = parsed
+    elif isinstance(parsed, dict) and isinstance(parsed.get("annotations"), list):
+        list_parsed = parsed.get("annotations") or []
+        payload_to_save = {
+            "slide_memo": str(parsed.get("slide_memo") or parsed.get("memo") or "")[:10000],
+            "annotations": list_parsed,
+        }
+    else:
+        raise HTTPException(400, "annotation data must be a list or an object with annotations")
 
     filename = Path(info.file_path).name
     ann_path = _annotation_path_for_filename(filename)
     ann_path.parent.mkdir(parents=True, exist_ok=True)
     with open(ann_path, "w", encoding="utf-8") as f:
-        f.write(data)
+        json.dump(payload_to_save, f, ensure_ascii=False, indent=2)
     return {"status": "saved", "count": len(list_parsed), "path": str(ann_path)}
 
 
-@router.get("/{slide_id}/annotations/load", dependencies=[Depends(require_not_viewer)])
+@router.get("/{slide_id}/annotations/load")
 async def load_annotations(slide_id: str):
     """슬라이드별 annotation JSON 불러오기"""
     info = slide_manager.get(slide_id)

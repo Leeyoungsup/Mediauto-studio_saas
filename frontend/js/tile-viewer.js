@@ -205,6 +205,7 @@ export class TileViewer {
         this.onAnnotationSelected = null;  // (annotation|null) => {}
         this.onAnnotationDeleted = null;   // (annotation) => {}
         this.onAnnotationChanged = null;   // (annotation) => {}
+        this.onAnnotationContextMenu = null; // (annotation, event) => {}
         this.onDrawModeChange = null;      // (mode) => {}
 
         // 렌더 루프 제어
@@ -836,6 +837,16 @@ export class TileViewer {
             e.preventDefault();
             if (this.drawMode) {
                 this.setDrawMode(null);
+                return;
+            }
+            const rect = this.canvas.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            const cy = e.clientY - rect.top;
+            const [sx, sy] = this.canvasToScene(cx, cy);
+            const ann = this._hitAnnotation(sx, sy);
+            if (ann) {
+                this.selectAnnotation(ann.id);
+                if (this.onAnnotationContextMenu) this.onAnnotationContextMenu(ann, e);
             }
         });
 

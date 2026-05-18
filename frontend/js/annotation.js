@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-28';
+import { TileViewer } from './tile-viewer.js?v=20260518-29';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -94,6 +94,7 @@ const $btnCutPolygon = $('#btn-cut-polygon');
 const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 const $btnRuler = $('#btn-ruler');
+const $btnSlideMemo = $('#btn-slide-memo');
 
 // VS IHC
 const $btnVsMembrane = $('#btn-vs-membrane');
@@ -145,6 +146,7 @@ const $btnDeleteProject = $('#btn-delete-project');
 let currentSlideId = null;
 let currentSlideInfo = null;
 let currentSlideFilename = '';
+let currentSlideMemo = '';
 let currentAnnotationStatus = '';
 let _annotationStatusSaving = false;
 let _annotationRunningStep = '';
@@ -556,6 +558,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
     currentSlideFilename = filename || slideInfo?.filename || '';
+    currentSlideMemo = '';
     currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
     _annotationRunningStep = _annotationWorkflowRunningStep(currentAnnotationStatus);
     _annotationWorkflowFinished = _annotationWorkflowRawStatus(currentAnnotationStatus) === 'termination';
@@ -579,6 +582,10 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if ($btnIhcErPr) $btnIhcErPr.disabled = false;
     if ($btnIhcKi67) $btnIhcKi67.disabled = false;
     $btnInfo.disabled = false;
+    if ($btnSlideMemo) {
+        $btnSlideMemo.disabled = _isViewerRole();
+        $btnSlideMemo.classList.remove('has-memo');
+    }
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
     // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
     document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
@@ -861,6 +868,7 @@ function _applyViewerRoleRestrictions() {
 
     // Annotation 패널의 저장/불러오기/초기화 버튼
     ['btn-ann-clear', 'btn-ann-save',
+     'btn-slide-memo',
      'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -1678,33 +1686,115 @@ function _applyActiveClassToSelectedAnnotation() {
 
 $btnClassApply?.addEventListener('click', _applyActiveClassToSelectedAnnotation);
 
+function _annotationMemo(ann) {
+    return String(ann?.memo ?? ann?.properties?.memo ?? '').trim();
+}
+
+function _setAnnotationMemo(ann, memo) {
+    if (!ann) return;
+    const text = String(memo || '').trim();
+    ann.memo = text;
+    ann.properties = { ...(ann.properties || {}), memo: text };
+}
+
+function _currentSlideHasMemo() {
+    return Boolean(String(currentSlideMemo || '').trim() || viewer.annotations.some(ann => _annotationMemo(ann)));
+}
+
+function _setSlideListMemoIndicator(filename = currentSlideFilename, hasMemo = _currentSlideHasMemo()) {
+    if (!filename || !$slideList) return;
+    const item = [...$slideList.querySelectorAll('.slide-list-item:not(.folder-item)')]
+        .find(el => el.dataset.filename === filename);
+    if (!item) return;
+    item.classList.toggle('has-memo', Boolean(hasMemo));
+    item.dataset.hasMemo = hasMemo ? '1' : '';
+    let badge = item.querySelector('.slide-memo-badge');
+    if (hasMemo && !badge) {
+        badge = document.createElement('span');
+        badge.className = 'slide-memo-badge';
+        badge.title = 'Memo exists';
+        badge.textContent = 'M';
+        item.appendChild(badge);
+    } else if (!hasMemo && badge) {
+        badge.remove();
+    }
+}
+
+async function _saveAnnotationsAfterMemoChange(message) {
+    renderAnnotationPanel();
+    _setSlideListMemoIndicator();
+    if ($btnSlideMemo) $btnSlideMemo.classList.toggle('has-memo', Boolean(String(currentSlideMemo || '').trim()));
+    try {
+        await _saveAnnotationsToServer();
+        if (message) setStatus(message);
+    } catch (err) {
+        alert(`Failed to save memo: ${err.message}`);
+    }
+}
+
+function _editAnnotationMemo(ann) {
+    if (!ann || _blockViewerAction('Viewer role can view annotations only.')) return;
+    const before = _annotationMemo(ann);
+    const next = prompt(`Memo for ${ann.name}:`, before);
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (trimmed === before) return;
+    viewer.pushAnnotationUndo?.();
+    _setAnnotationMemo(ann, trimmed);
+    if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+    viewer.requestRender();
+    _saveAnnotationsAfterMemoChange(trimmed ? `Memo saved: ${ann.name}` : `Memo cleared: ${ann.name}`);
+}
+
+function _editSlideMemo() {
+    if (!currentSlideId) {
+        setStatus('Open a slide before adding a memo');
+        return;
+    }
+    if (_blockViewerAction('Viewer role can view annotations only.')) return;
+    const next = prompt(`Slide memo: ${currentSlideFilename || currentSlideId}`, currentSlideMemo || '');
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (trimmed === String(currentSlideMemo || '').trim()) return;
+    currentSlideMemo = trimmed;
+    _saveAnnotationsAfterMemoChange(trimmed ? 'Slide memo saved' : 'Slide memo cleared');
+}
+
+$btnSlideMemo?.addEventListener('click', _editSlideMemo);
+
 function renderAnnotationPanel() {
     if (!$annList) return;
     $annList.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'ann-list-header';
+    ['Name', 'Class', 'Type', 'Memo', 'Visual', 'Del'].forEach(label => {
+        const cell = document.createElement('span');
+        cell.textContent = label;
+        header.appendChild(cell);
+    });
+    $annList.appendChild(header);
     for (const ann of viewer.annotations) {
         const annClass = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
         const [r, g, b] = _normalizeColor(ann.color);
+        const memo = _annotationMemo(ann);
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
         // ann.name 은 사용자 더블클릭 rename 으로 임의 문자열 가능 — 반드시 escape
         el.innerHTML = `
-            <input type="color" class="ann-color-swatch" value="${rgbToHex(r, g, b)}"
-                   title="Change color" style="background:rgb(${r},${g},${b})">
             <span class="ann-name" title="Double-click to center, Shift+double-click to rename">${_esc(ann.name)}</span>
             <select class="ann-class-select" title="Annotation class">
                 ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
             </select>
             <span class="ann-type">${_esc(ann.type)}</span>
-            <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? '👁' : '👁‍🗨'}</button>
-            <button class="ann-btn-del" title="Delete">✕</button>
+            <button class="ann-btn-memo${memo ? ' has-memo' : ''}" title="${memo ? _esc(memo) : 'No memo'}">${memo ? 'M' : '-'}</button>
+            <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? 'Show' : 'Hide'}</button>
+            <button class="ann-btn-del" title="Delete">Del</button>
         `;
         // 클릭 → 선택
         const annDeleteButton = el.querySelector('.ann-btn-del');
         if (_isViewerRole()) {
             const readOnlyTitle = 'Viewer role can view annotations only';
-            el.querySelector('.ann-color-swatch').disabled = true;
-            el.querySelector('.ann-color-swatch').title = readOnlyTitle;
             el.querySelector('.ann-class-select').disabled = true;
             el.querySelector('.ann-class-select').title = readOnlyTitle;
             if (annDeleteButton) {
@@ -1713,13 +1803,18 @@ function renderAnnotationPanel() {
             }
         }
         el.addEventListener('click', (e) => {
-            if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
+            if (e.target.closest('.ann-btn-memo') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
                 e.target.closest('.ann-class-select')) return;
             viewer.selectAnnotation(ann.id);
         });
+        el.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            viewer.selectAnnotation(ann.id);
+            _editAnnotationMemo(ann);
+        });
         el.addEventListener('dblclick', (e) => {
-            if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
+            if (e.target.closest('.ann-btn-memo') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input') ||
                 e.target.closest('.ann-class-select')) return;
             e.preventDefault();
@@ -1758,18 +1853,10 @@ function renderAnnotationPanel() {
             input.addEventListener('blur', finish);
             input.addEventListener('keydown', (ke) => { if (ke.key === 'Enter') input.blur(); });
         });
-        // 색상 변경
-        el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
-            if (_blockViewerAction('Viewer role can view annotations only.')) return;
-            const hex = e.target.value;
-            viewer.pushAnnotationUndo?.();
-            ann.color = hexToRgb(hex);
-            ann.class_id = '';
-            ann.class_name = '';
-            ann.properties = { ...(ann.properties || {}), class_id: '', class_name: '' };
-            e.target.style.background = `rgb(${ann.color[0]},${ann.color[1]},${ann.color[2]})`;
-            if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
-            viewer.requestRender();
+        el.querySelector('.ann-btn-memo').addEventListener('click', (e) => {
+            e.stopPropagation();
+            viewer.selectAnnotation(ann.id);
+            _editAnnotationMemo(ann);
         });
         el.querySelector('.ann-class-select').addEventListener('change', (e) => {
             e.stopPropagation();
@@ -1891,9 +1978,13 @@ viewer.onAnnotationSelected = (ann) => {
 };
 viewer.onAnnotationDeleted = (ann) => {
     renderAnnotationPanel();
+    _setSlideListMemoIndicator();
 };
 viewer.onAnnotationChanged = (ann) => {
     // 이미 렌더링 요청됨 — 패널만 갱신 필요 시
+};
+viewer.onAnnotationContextMenu = (ann) => {
+    _editAnnotationMemo(ann);
 };
 
 // deleteAnnotation에서 콜백 호출되도록 오버라이드
@@ -2759,6 +2850,7 @@ window.addEventListener('keydown', (e) => {
         _closeCellEditPopup();
         viewer.undoAnnotationEdit();
         renderAnnotationPanel();
+        _setSlideListMemoIndicator();
         setStatus(`Undo - ${viewer.annotations.length} annotations`);
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2768,6 +2860,7 @@ window.addEventListener('keydown', (e) => {
         _closeCellEditPopup();
         viewer.redoAnnotationEdit();
         renderAnnotationPanel();
+        _setSlideListMemoIndicator();
         setStatus(`Redo - ${viewer.annotations.length} annotations`);
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2798,6 +2891,7 @@ $btnAnnClear?.addEventListener('click', () => {
     if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
     viewer.clearAnnotations();
     renderAnnotationPanel();
+    _setSlideListMemoIndicator();
     setStatus('Annotations cleared');
 });
 
@@ -2828,6 +2922,7 @@ function _serializeAnnotations() {
         color: _normalizeColor(ann.color),
         class_id: ann.class_id || ann.properties?.class_id || '',
         class_name: ann.class_name || ann.properties?.class_name || '',
+        memo: _annotationMemo(ann),
         group: ann.group || 'default',
         visible: ann.visible !== false,
         source: ann.source || ann.properties?.source || '',
@@ -2858,11 +2953,13 @@ function _normalizeLoadedAnnotations(list) {
             group: item.group || 'default',
             visible: item.visible !== false,
             selected: false,
+            memo: item.memo || item.properties?.memo || '',
             source: item.source || item.properties?.source || '',
             properties: {
                 ...(item.properties || {}),
                 class_id: cls?.id || classId,
                 class_name: cls?.name || item.class_name || item.className || item.properties?.class_name || '',
+                memo: item.memo || item.properties?.memo || '',
                 source: item.source || item.properties?.source || '',
             },
         });
@@ -2878,6 +2975,8 @@ function _applyLoadedAnnotations(list, label = 'saved annotations') {
     viewer.clearAnnotationUndo?.();
     viewer.requestRender();
     renderAnnotationPanel();
+    _setSlideListMemoIndicator();
+    if ($btnSlideMemo) $btnSlideMemo.classList.toggle('has-memo', Boolean(String(currentSlideMemo || '').trim()));
     setStatus(loaded.length ? `Loaded ${loaded.length} ${label}` : 'No saved annotations');
 }
 
@@ -2886,15 +2985,25 @@ async function _saveAnnotationsToServer() {
         setStatus('Open a slide before saving annotations');
         return;
     }
-    const payload = _serializeAnnotations();
+    const annotations = _serializeAnnotations();
+    const payload = {
+        slide_memo: currentSlideMemo || '',
+        annotations,
+    };
     await api.saveAnnotations(currentSlideId, payload);
-    setStatus(`Annotations saved internally (${payload.length} items)`);
+    _setSlideListMemoIndicator();
+    setStatus(`Annotations saved internally (${annotations.length} items)`);
 }
 
 window.addEventListener('keydown', (e) => {
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        _editSlideMemo();
+        return;
+    }
     if (e.key.toLowerCase() !== 's') return;
     e.preventDefault();
     if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
@@ -2902,14 +3011,15 @@ window.addEventListener('keydown', (e) => {
 }, true);
 
 async function _loadSavedAnnotationsForSlide(slideId) {
-    if (_isViewerRole()) return;
     const strSlideId = slideId || currentSlideId;
     if (!strSlideId) return;
     viewer.clearAnnotations();
     renderAnnotationPanel();
     try {
-        const list = await api.loadAnnotations(strSlideId);
+        const payload = await api.loadAnnotations(strSlideId);
         if (currentSlideId !== strSlideId) return;
+        const list = Array.isArray(payload) ? payload : (payload?.annotations || []);
+        currentSlideMemo = Array.isArray(payload) ? '' : String(payload?.slide_memo || payload?.memo || '');
         _applyLoadedAnnotations(list, 'saved annotations');
     } catch (err) {
         if (currentSlideId !== strSlideId) return;
@@ -2924,12 +3034,16 @@ async function _downloadAnnotations() {
         return;
     }
     const payload = {
+        slide_memo: currentSlideMemo || '',
         annotations: viewer.annotations.map(ann => ({
             id: ann.id,
             name: ann.name,
             type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
             coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
             color: _normalizeColor(ann.color),
+            class_id: ann.class_id || ann.properties?.class_id || '',
+            class_name: ann.class_name || ann.properties?.class_name || '',
+            memo: _annotationMemo(ann),
             group: ann.group || 'default',
             visible: ann.visible !== false,
             properties: ann.properties || {},
@@ -2997,32 +3111,14 @@ function _uploadAnnotations() {
                     setStatus('Invalid file format.');
                     return;
                 }
-                const loaded = [];
-                let counter = 0;
-                for (const item of list) {
-                    if (!item) continue;
-                    const coords = item.coordinates || item.points;
-                    if (!Array.isArray(coords)) continue;
-                    counter++;
-                    const typeRaw = (item.type || 'polygon').toString().toLowerCase();
-                    const type = _LABEL_TO_TYPE[typeRaw] || 'polygon';
-                    loaded.push({
-                        id: item.id || crypto.randomUUID?.() || `${Date.now()}_${counter}`,
-                        name: item.name || `ROI_${counter}`,
-                        type,
-                        coordinates: coords.map(p => [Number(p[0]), Number(p[1])]),
-                        color: _normalizeColor(item.color),
-                        group: item.group || 'default',
-                        visible: item.visible !== false,
-                        selected: false,
-                        properties: item.properties || {},
-                    });
-                }
+                currentSlideMemo = Array.isArray(parsed) ? '' : String(parsed.slide_memo || parsed.memo || '');
+                const loaded = _normalizeLoadedAnnotations(list);
                 viewer.annotations = loaded;
                 viewer._annotationCounter = loaded.length;
                 viewer.selectedAnnotationId = null;
                 viewer.requestRender();
                 renderAnnotationPanel();
+                _setSlideListMemoIndicator();
                 setStatus(`ROI loaded: ${file.name} (${loaded.length} items)`);
             } catch (err) {
                 setStatus(`Failed to load ROI: ${err.message}`);
@@ -4533,6 +4629,8 @@ async function loadSlideList() {
             item.dataset.slideId = s.slide_id;
             item.dataset.status = strRawSlideStatus;
             item.dataset.workflowStatus = strSlideStatus;
+            item.dataset.hasMemo = s.annotation_summary?.has_memo ? '1' : '';
+            item.classList.toggle('has-memo', Boolean(s.annotation_summary?.has_memo));
             item.draggable = true;
 
             const thumb = document.createElement('img');
@@ -4554,6 +4652,13 @@ async function loadSlideList() {
             name.title = `${s.filename} (${s.size_mb} MB)`;
 
             item.append(thumb, name);
+            if (s.annotation_summary?.has_memo) {
+                const memoBadge = document.createElement('span');
+                memoBadge.className = 'slide-memo-badge';
+                memoBadge.title = 'Memo exists';
+                memoBadge.textContent = 'M';
+                item.appendChild(memoBadge);
+            }
 
             // Annotation workflow columns
             _renderAnnotationWorkflowCells(item, strRawSlideStatus);
