@@ -497,10 +497,19 @@ export class TileViewer {
 
             // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
             // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
-            if (e.altKey && e.button === 0 && this.drawMode) {
+            if (e.ctrlKey && e.button === 0 && this.drawMode) {
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
+                    e.preventDefault();
+                    return;
+                }
+            }
+
+            if (e.button === 0 && e.altKey && !this.drawMode) {
+                const insertHit = this._findPolygonEdgeInsertTarget(sx, sy);
+                if (insertHit) {
+                    this._insertVertexAtEdge(insertHit);
                     e.preventDefault();
                     return;
                 }
@@ -550,15 +559,6 @@ export class TileViewer {
             if (this.drawMode && e.button === 0 && !e.ctrlKey) {
                 this._onDrawMouseDown(sx, sy, cx, cy, e);
                 return;
-            }
-
-            if (e.button === 0 && e.ctrlKey && !this.drawMode) {
-                const insertHit = this._findPolygonEdgeInsertTarget(sx, sy);
-                if (insertHit) {
-                    this._insertVertexAtEdge(insertHit);
-                    e.preventDefault();
-                    return;
-                }
             }
 
             // 컨트롤포인트 드래그 감지 (선택된 annotation의 꼭짓점)
@@ -628,7 +628,7 @@ export class TileViewer {
                 return;
             }
             if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
-                this._setInsertVertexPreview(e.ctrlKey ? this._findPolygonEdgeInsertTarget(sx, sy) : null);
+                this._setInsertVertexPreview(e.altKey ? this._findPolygonEdgeInsertTarget(sx, sy) : null);
                 if (this._insertVertexPreview) {
                     this.canvas.style.cursor = 'copy';
                     return;
@@ -817,7 +817,7 @@ export class TileViewer {
             if ((e.key === 'Control' || e.key === 'Alt') &&
                     !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                     !this._vsSplitDragging) {
-                this.canvas.style.cursor = e.key === 'Control' ? 'copy' : 'pointer';
+                this.canvas.style.cursor = e.key === 'Alt' ? 'copy' : 'pointer';
             }
             if (e.key === 'Escape') {
                 if (this._altPending) {
@@ -841,7 +841,7 @@ export class TileViewer {
             }
         });
         window.addEventListener('keyup', (e) => {
-            if (e.key === 'Control') {
+            if (e.key === 'Alt') {
                 this._setInsertVertexPreview(null);
             }
             if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
