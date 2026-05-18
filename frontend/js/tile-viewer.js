@@ -502,6 +502,13 @@ export class TileViewer {
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
                     e.preventDefault();
+                }
+            }
+            if (e.ctrlKey && e.button === 0 && !this.drawMode) {
+                const hitAnn = this._hitAnnotation(sx, sy);
+                if (hitAnn) {
+                    this.selectAnnotation(hitAnn.id);
+                    e.preventDefault();
                     return;
                 }
             }

@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-12';
+import { TileViewer } from './tile-viewer.js?v=20260518-14';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -396,7 +396,7 @@ function openUploadPopup(files, targetPath = currentBrowsePath) {
     );
 }
 
-$btnOpen.addEventListener('click', () => $fileInput.click());
+$btnOpen?.addEventListener('click', () => $fileInput.click());
 $fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) openUploadPopup(e.target.files);
     e.target.value = '';
