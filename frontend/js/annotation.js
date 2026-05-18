@@ -3649,11 +3649,11 @@ const $rightPanel = $('#right-panel');
 const $rightResizer = $('#right-panel-resizer');
 const LEFT_PANEL_MIN_W = 260;
 const LEFT_PANEL_MAX_W = 500;
-const LEFT_PANEL_COLLAPSE_W = 220;
+const LEFT_PANEL_COLLAPSE_W = Math.floor(LEFT_PANEL_MIN_W / 2);
 const LEFT_PANEL_DEFAULT_W = 260;
 const RIGHT_PANEL_MIN_W = 360;
 const RIGHT_PANEL_MAX_W = 600;
-const RIGHT_PANEL_COLLAPSE_W = 300;
+const RIGHT_PANEL_COLLAPSE_W = Math.floor(RIGHT_PANEL_MIN_W / 2);
 const RIGHT_PANEL_DEFAULT_W = 380;
 
 function _resizeViewerCanvasSoon() {
