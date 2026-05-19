@@ -192,13 +192,6 @@
     }
 
     // ── AI badge mapping ──
-    const AI_BADGE_MAP = {
-        'Quanti HE':      { cls: 'badge-hefit',   label: 'Quanti HE' },
-        'Quanti PD-L1':     { cls: 'badge-pdscore', label: 'Quanti PD-L1' },
-        'Quanti IHC':  { cls: 'badge-ihc',     label: 'IHC' },
-        'VS IHC':       { cls: 'badge-vs',      label: 'VS' },
-    };
-
     // ── Status badge ──
     function statusBadge(status) {
         if (!status) return '';
@@ -244,13 +237,6 @@
 
         const thumbUrl = _buildThumbUrl(slide.filename, slide.rel_path, mediaToken);
 
-        const aiBadges = (slide.ai_done || [])
-            .map(k => {
-                const b = AI_BADGE_MAP[k];
-                return b ? `<span class="recent-card-badge ${b.cls}">${_esc(b.label)}</span>` : '';
-            })
-            .join('');
-
         // 사용자가 업로드한 파일명/폴더명은 신뢰 불가 — 항상 _esc 통과시킨다.
         card.innerHTML = `
             <div class="recent-card-thumb">
@@ -263,7 +249,6 @@
             <div class="recent-card-meta">
                 <span class="recent-page-badge ${pageMeta.cls}">${_esc(pageMeta.label)}</span>
                 ${statusBadge(slide.status)}
-                ${aiBadges}
                 <span style="margin-left:auto">${formatTimeAgo(slide.last_opened_at)}</span>
             </div>
         `;

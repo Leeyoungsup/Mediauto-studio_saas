@@ -689,10 +689,6 @@ body.project-page .project-dashboard-charts { display: none; }
     font-size: 11px; color: var(--home-text-dim);
     flex-wrap: wrap;
 }
-.recent-card-badge {
-    display: inline-block; padding: 1px 7px; border-radius: 4px;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
-}
 .recent-page-badge {
     display: inline-block;
     padding: 2px 7px;
@@ -713,10 +709,6 @@ body.project-page .project-dashboard-charts { display: none; }
     background: #eef8ed;
     color: #247a36;
 }
-.badge-hefit { background: #ede9fe; color: #6c5ce7; }
-.badge-pdscore { background: #e8f8ef; color: #00b894; }
-.badge-ihc { background: #e8f0fe; color: #0984e3; }
-.badge-vs { background: #fde8e4; color: #e17055; }
 .badge-status {
     display: inline-block; padding: 1px 7px; border-radius: 4px;
     font-size: 10px; font-weight: 600;
