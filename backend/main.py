@@ -191,6 +191,7 @@ async def version_check():
 
 _DICT_PAGE_ROUTES = {
     "home": "home.html",
+    "project": "project.html",
     "ai": "app.html",
     "annotation": "annotation.html",
     "tissue-annotation": "annotation.html",

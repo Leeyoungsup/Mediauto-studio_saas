@@ -25,6 +25,7 @@
     const $quickAdmin = document.getElementById('quick-admin');
 
     const $recentGrid = document.getElementById('recent-grid');
+    const $projectDashboardCharts = document.getElementById('project-dashboard-charts');
     const $projectTableBody = document.getElementById('project-table-body');
     const $projectPager = document.getElementById('project-pager');
     const $projectPagePrev = document.getElementById('project-page-prev');
@@ -54,7 +55,7 @@
     const $projectOpenClose = document.getElementById('project-open-close');
     const $projectOpenTitle = document.getElementById('project-open-title');
     const $projectOpenAi = document.getElementById('project-open-ai');
-    const $projectOpenAnnotation = document.getElementById('project-open-annotation');
+    const $projectOpenOptions = document.querySelectorAll('[data-open-page]');
 
     let _projects = [];
     let _projectPage = 1;
@@ -80,9 +81,16 @@
         { value: 1.0, label: '1.0 um/px (x10)' },
         { value: 0.5, label: '0.5 um/px (x20)' },
     ];
+    const PROJECT_CHART_COLORS = [
+        '#67b7dc', '#6794dc', '#6771dc', '#8067dc', '#a367dc',
+        '#c767dc', '#dc67ce', '#dc67ab', '#dc6788', '#dc6967',
+        '#dc8c67', '#dcb167',
+    ];
+
+    const IS_PROJECT_PAGE = location.pathname.replace(/\/+$/, '') === '/project';
 
     window.MediautoHeader?.render({
-        active: 'home',
+        active: IS_PROJECT_PAGE ? 'project' : 'home',
         user: currentUser,
         showAdmin: currentUser?.str_role === 'admin',
     });
@@ -353,9 +361,197 @@
 
     function summarizeProjectAi(info) {
         if (!info?.project_ai_enabled) return '-';
-        const count = (info.project_ai_tasks || []).length;
-        if (!count) return '<span class="project-ai-badge muted">Enabled, empty</span>';
-        return `<span class="project-ai-badge">${count} task${count === 1 ? '' : 's'}</span>`;
+        const tasks = Array.isArray(info.project_ai_tasks) ? info.project_ai_tasks : [];
+        if (!tasks.length) return '<span class="project-ai-badge muted">Enabled, empty</span>';
+        const labels = tasks.map(task => {
+            const opt = PROJECT_AI_TASK_OPTIONS.find(item => item.model === task?.model && item.variant === task?.variant);
+            const modelClass = projectAiModelClass(task?.model);
+            if (task?.model === 'VS IHC' && task.target_mpp != null) {
+                const mpp = PROJECT_VS_MPP_CHOICES.find(item => Number(item.value) === Number(task.target_mpp));
+                return {
+                    label: `${opt?.label || 'VS IHC'}${mpp ? ` ${mpp.label}` : ''}`,
+                    cls: modelClass,
+                };
+            }
+            return {
+                label: opt?.label || [task?.model, task?.variant].filter(Boolean).join(' - '),
+                cls: modelClass,
+            };
+        }).filter(item => item.label);
+        return `<div class="project-ai-list">${labels.map(item => `<span class="project-ai-chip ${item.cls}">${_esc(item.label)}</span>`).join('')}</div>`;
+    }
+
+    function projectAiModelClass(model) {
+        if (model === 'Quanti HE') return 'model-he';
+        if (model === 'Quanti PD-L1') return 'model-pdl1';
+        if (model === 'Quanti IHC') return 'model-ihc';
+        if (model === 'VS IHC') return 'model-vs';
+        return 'model-default';
+    }
+
+    function projectDisplayName(project) {
+        const info = project?.info || {};
+        return info.title || project?.name || project?.path || 'Untitled';
+    }
+
+    function normalizeChartEntries(items, maxItems = 10) {
+        const total = items.reduce((sum, item) => sum + item.value, 0);
+        const sorted = items
+            .filter(item => item.value > 0)
+            .sort((a, b) => b.value - a.value);
+        if (sorted.length <= maxItems) return { entries: sorted, total };
+        const head = sorted.slice(0, maxItems - 1);
+        const otherValue = sorted.slice(maxItems - 1).reduce((sum, item) => sum + item.value, 0);
+        return { entries: [...head, { name: 'Others', value: otherValue }], total };
+    }
+
+    function renderDonutSegments(entries, total) {
+        if (!total || !entries.length) return '';
+        let cursor = 0;
+        return entries.map((entry, index) => {
+            const start = cursor;
+            const share = (entry.value / total) * 100;
+            const end = cursor + share;
+            cursor = end;
+            const color = PROJECT_CHART_COLORS[index % PROJECT_CHART_COLORS.length];
+            const tooltip = `${entry.name} ${entry.value.toLocaleString()} slides (${share.toFixed(1)}%)`;
+            return `
+                <circle
+                    class="project-donut-segment"
+                    cx="120"
+                    cy="120"
+                    r="84"
+                    pathLength="100"
+                    fill="none"
+                    stroke="${color}"
+                    stroke-width="46"
+                    stroke-dasharray="${share.toFixed(3)} ${Math.max(0, 100 - share).toFixed(3)}"
+                    stroke-dashoffset="${(-start).toFixed(3)}"
+                    data-color="${_esc(color)}"
+                    data-tooltip="${_esc(tooltip)}"
+                    aria-label="${_esc(tooltip)}"
+                    tabindex="0"
+                ></circle>
+            `;
+        }).join('');
+    }
+
+    function readableTextColor(hexColor) {
+        const hex = String(hexColor || '').replace('#', '');
+        if (!/^[0-9a-f]{6}$/i.test(hex)) return '#07142d';
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+        return luminance > 150 ? '#07142d' : '#ffffff';
+    }
+
+    function renderDistributionChart(title, items) {
+        const { entries, total } = normalizeChartEntries(items);
+        if (!total) {
+            return `
+                <article class="project-chart-card">
+                    <h3 class="project-chart-title">${_esc(title)}</h3>
+                    <div class="project-chart-empty">No slide data yet</div>
+                </article>
+            `;
+        }
+        return `
+            <article class="project-chart-card">
+                <h3 class="project-chart-title">${_esc(title)}</h3>
+                <div class="project-donut">
+                    <svg class="project-donut-svg" viewBox="0 0 240 240" role="img" aria-label="${_esc(title)} distribution">
+                        <circle class="project-donut-track" cx="120" cy="120" r="84" pathLength="100"></circle>
+                        <g transform="rotate(-90 120 120)">
+                            ${renderDonutSegments(entries, total)}
+                        </g>
+                    </svg>
+                    <div class="project-donut-center">
+                        <span class="project-donut-label">total</span>
+                        <span class="project-donut-value">${total.toLocaleString()}</span>
+                    </div>
+                </div>
+                <div class="project-chart-tooltip" role="status"></div>
+                <div class="project-chart-legend">
+                    ${entries.map((entry, index) => {
+                        const pct = total ? (entry.value / total) * 100 : 0;
+                        const color = PROJECT_CHART_COLORS[index % PROJECT_CHART_COLORS.length];
+                        return `
+                            <div class="project-chart-legend-item" title="${_esc(entry.name)}: ${entry.value} slides (${pct.toFixed(1)}%)">
+                                <span class="project-chart-swatch" style="background:${color}"></span>
+                                <span class="project-chart-name">${_esc(entry.name)}</span>
+                                <span class="project-chart-value">${entry.value.toLocaleString()} (${pct.toFixed(1)}%)</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </article>
+        `;
+    }
+
+    function bindProjectChartTooltips() {
+        if (!$projectDashboardCharts) return;
+        $projectDashboardCharts.querySelectorAll('.project-chart-card').forEach(card => {
+            const tooltip = card.querySelector('.project-chart-tooltip');
+            if (!tooltip) return;
+
+            const showTooltip = (target, event) => {
+                const text = target.dataset.tooltip;
+                if (!text) return;
+                tooltip.textContent = text;
+                const color = target.dataset.color || '#7fa8ed';
+                tooltip.style.setProperty('--tooltip-bg', color);
+                tooltip.style.setProperty('--tooltip-fg', readableTextColor(color));
+                tooltip.classList.add('visible');
+                const rect = card.getBoundingClientRect();
+                const pointer = Number.isFinite(event?.clientX)
+                    ? event
+                    : { clientX: rect.left + 130, clientY: rect.top + 130 };
+                moveTooltip(pointer);
+            };
+            const moveTooltip = (event) => {
+                const rect = card.getBoundingClientRect();
+                const x = Math.min(Math.max(event.clientX - rect.left + 14, 12), rect.width - tooltip.offsetWidth - 12);
+                const y = Math.min(Math.max(event.clientY - rect.top - 42, 12), rect.height - tooltip.offsetHeight - 12);
+                tooltip.style.left = `${x}px`;
+                tooltip.style.top = `${y}px`;
+            };
+            const hideTooltip = () => {
+                tooltip.classList.remove('visible');
+            };
+
+            card.querySelectorAll('.project-donut-segment').forEach(segment => {
+                segment.addEventListener('mouseenter', event => showTooltip(segment, event));
+                segment.addEventListener('mousemove', moveTooltip);
+                segment.addEventListener('mouseleave', hideTooltip);
+                segment.addEventListener('focus', event => showTooltip(segment, event));
+                segment.addEventListener('blur', hideTooltip);
+            });
+        });
+    }
+
+    function renderProjectDashboardCharts(projects = []) {
+        if (!$projectDashboardCharts) return;
+        const projectItems = projects.map(project => ({
+            name: projectDisplayName(project),
+            value: Number(project.slide_count || 0),
+        }));
+        const hospitalMap = new Map();
+        for (const project of projects) {
+            const info = project.info || {};
+            const hospital = String(info.institution || 'Unspecified').trim() || 'Unspecified';
+            hospitalMap.set(hospital, (hospitalMap.get(hospital) || 0) + Number(project.slide_count || 0));
+        }
+        const hospitalItems = [...hospitalMap.entries()].map(([name, value]) => ({ name, value }));
+        if (!projectItems.some(item => item.value > 0) && !hospitalItems.some(item => item.value > 0)) {
+            $projectDashboardCharts.innerHTML = '<div class="project-chart-empty">No project slide data yet</div>';
+            return;
+        }
+        $projectDashboardCharts.innerHTML = [
+            renderDistributionChart('Slides By Project', projectItems),
+            renderDistributionChart('Slides By Hospital', hospitalItems),
+        ].join('');
+        bindProjectChartTooltips();
     }
 
     function projectInfoPayload() {
@@ -537,10 +733,11 @@
 
     // ── Load folder tree (root level) ──
     function renderProjects(projects) {
+        renderProjectDashboardCharts(projects);
         if (!$projectTableBody) return;
         $projectTableBody.innerHTML = '';
         if (!projects.length) {
-            $projectTableBody.innerHTML = '<tr><td colspan="8" class="project-empty">No projects yet</td></tr>';
+            $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">No projects yet</td></tr>';
             if ($projectPager) $projectPager.hidden = true;
             return;
         }
@@ -569,7 +766,6 @@
                 <td><span class="project-status">${_esc(info.status || 'active')}</span></td>
                 <td>${project.slide_count || 0}</td>
                 <td>${summarizeProjectAi(info)}</td>
-                <td>${_esc(info.due_date || '-')}</td>
                 <td><div class="project-actions-cell"></div></td>
             `;
             tr.querySelector('.project-open-link')?.addEventListener('click', (e) => {
@@ -636,7 +832,7 @@
 
         } catch {
             if ($projectTableBody) {
-                $projectTableBody.innerHTML = '<tr><td colspan="8" class="project-empty">Failed to load projects</td></tr>';
+                $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">Failed to load projects</td></tr>';
             }
             if ($tree) $tree.innerHTML = '<div class="folder-tree-empty">Failed to load projects</div>';
         }
@@ -680,7 +876,9 @@
     });
     $projectOpenClose?.addEventListener('click', closeProjectOpenDialog);
     $projectOpenAi?.addEventListener('click', () => openSelectedProjectRoute('ai'));
-    $projectOpenAnnotation?.addEventListener('click', () => openSelectedProjectRoute('annotation'));
+    $projectOpenOptions.forEach(button => {
+        button.addEventListener('click', () => openSelectedProjectRoute(button.dataset.openPage));
+    });
 
     loadFolderTree();
     loadDashboard();
