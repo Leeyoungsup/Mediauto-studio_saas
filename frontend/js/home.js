@@ -587,11 +587,7 @@
                 editBtn.className = 'project-mini-btn';
                 editBtn.textContent = 'Info';
                 editBtn.addEventListener('click', () => openProjectDialog('edit', project));
-                const moveBtn = document.createElement('button');
-                moveBtn.className = 'project-mini-btn';
-                moveBtn.textContent = 'Move';
-                moveBtn.addEventListener('click', () => openMoveFolderDialog(project).catch(err => alert(err.message)));
-                actions.append(editBtn, moveBtn);
+                actions.appendChild(editBtn);
             }
             if (canDeleteProjects()) {
                 const deleteBtn = document.createElement('button');
