@@ -81,6 +81,11 @@ html.project-gate-boot #menubar { display: none; }
 #shared-header-root { display: none; }
 body.project-gate-open #shared-header-root { display: block; }
 html.project-gate-boot #shared-header-root { display: block; }
+body.project-gate-open #shared-header-root,
+html.project-gate-boot #shared-header-root {
+    position: relative;
+    z-index: 2100;
+}
 #project-mode-header { display: none !important; }
 .project-mode-header {
     display: none;
@@ -115,13 +120,23 @@ body.project-gate-open .project-mode-header { display: block; }
     gap: 4px;
     margin-left: 24px;
 }
+.project-mode-nav-menu {
+    position: relative;
+}
 .project-mode-nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
     padding: 6px 16px;
     border-radius: 6px;
+    background: transparent;
     color: rgba(255,255,255,0.72);
     text-decoration: none;
+    font-family: inherit;
     font-size: 13px;
     font-weight: 600;
+    cursor: pointer;
     transition: color 0.15s, background 0.15s;
 }
 .project-mode-nav-item:hover {
@@ -131,6 +146,51 @@ body.project-gate-open .project-mode-header { display: block; }
 .project-mode-nav-item.active {
     color: #fff;
     background: rgba(255,255,255,0.18);
+}
+.project-mode-nav-parent::after {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    margin-top: -3px;
+    opacity: 0.72;
+}
+.project-mode-nav-submenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 90;
+    min-width: 150px;
+    padding: 6px;
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(24, 26, 46, 0.24);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+.project-mode-nav-menu:hover .project-mode-nav-submenu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+.project-mode-nav-subitem {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 800;
+}
+.project-mode-nav-subitem:hover,
+.project-mode-nav-subitem.active {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
 }
 .project-mode-user-info {
     display: flex;
@@ -2975,6 +3035,9 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     .project-mode-nav-item {
         padding: 5px 9px;
         font-size: 12px;
+    }
+    .project-mode-nav-submenu {
+        min-width: 118px;
     }
     .project-mode-user-info {
         gap: 6px;

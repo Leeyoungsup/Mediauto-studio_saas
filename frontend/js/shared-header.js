@@ -62,6 +62,7 @@
         const role = user.str_role || options.role || '';
         const name = user.str_name || user.str_login_id || '';
         const showAdmin = options.showAdmin ?? role === 'admin';
+        const annotationActive = active === 'annotation' || active === 'tissue-annotation' || active === 'cell-annotation';
 
         root.innerHTML = `
             <header class="shared-header">
@@ -73,7 +74,13 @@
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
                         <a href="/ai" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
-                        <a href="/annotation" class="shared-nav-item ${active === 'annotation' ? 'active' : ''}">Annotation</a>
+                        <div class="shared-nav-menu">
+                            <button type="button" class="shared-nav-item shared-nav-parent ${annotationActive ? 'active' : ''}" aria-haspopup="true" aria-expanded="false">Annotation</button>
+                            <div class="shared-nav-submenu" role="menu">
+                                <a href="/tissue-annotation" class="shared-nav-subitem ${active === 'tissue-annotation' || active === 'annotation' ? 'active' : ''}" role="menuitem">Tissue</a>
+                                <a href="/cell-annotation" class="shared-nav-subitem ${active === 'cell-annotation' ? 'active' : ''}" role="menuitem">Cell</a>
+                            </div>
+                        </div>
                         ${showAdmin ? `<a href="/admin" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
                     </nav>
                     <div class="shared-user-info">

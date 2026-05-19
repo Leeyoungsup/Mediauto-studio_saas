@@ -4,7 +4,7 @@
     box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: 2100;
 }
 
 .shared-header-inner {
@@ -53,13 +53,24 @@
     gap: 4px;
 }
 
+.shared-nav-menu {
+    position: relative;
+}
+
 .shared-nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
     padding: 6px 16px;
     border-radius: 6px;
+    background: transparent;
     color: rgba(255,255,255,0.72);
     text-decoration: none;
+    font-family: inherit;
     font-size: 13px;
     font-weight: 600;
+    cursor: pointer;
     transition: color 0.15s, background 0.15s;
 }
 
@@ -71,6 +82,56 @@
 .shared-nav-item.active {
     color: #fff;
     background: rgba(255,255,255,0.18);
+}
+
+.shared-nav-parent::after {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    margin-top: -3px;
+    opacity: 0.72;
+}
+
+.shared-nav-submenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 2200;
+    min-width: 150px;
+    padding: 6px;
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 14px 30px rgba(24, 26, 46, 0.24);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+
+.shared-nav-menu:hover .shared-nav-submenu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.shared-nav-subitem {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: #3c3f55;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.shared-nav-subitem:hover,
+.shared-nav-subitem.active {
+    background: #f4f1fe;
+    color: #5a4bd1;
 }
 
 .shared-user-info {
@@ -137,6 +198,7 @@
     .shared-version { display: none; }
     .shared-nav { justify-content: flex-start; gap: 2px; }
     .shared-nav-item { padding: 5px 9px; font-size: 12px; }
+    .shared-nav-submenu { min-width: 118px; }
     .shared-user-info { gap: 6px; }
     .shared-user-name,
     .shared-role { display: none; }

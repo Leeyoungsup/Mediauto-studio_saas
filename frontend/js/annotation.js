@@ -33,6 +33,10 @@ function _isAnnotationPage() {
     return true;
 }
 
+const ANNOTATION_PAGE_KIND = location.pathname.includes('cell') ? 'cell' : 'tissue';
+const ANNOTATION_PAGE_ROUTE = ANNOTATION_PAGE_KIND === 'cell' ? '/cell-annotation' : '/tissue-annotation';
+const ANNOTATION_HEADER_ACTIVE = ANNOTATION_PAGE_KIND === 'cell' ? 'cell-annotation' : 'tissue-annotation';
+
 const $canvas = $('#wsi-canvas');
 const $overlay = $('#overlay-canvas');
 const $slideName = $('#slide-name');
@@ -4915,7 +4919,7 @@ function _enterProjectFromGate(path) {
     if (!path) return;
     _hideProjectGate();
     currentBrowsePath = path;
-    history.replaceState(null, '', `/annotation?path=${encodeURIComponent(path)}`);
+    history.replaceState(null, '', `${ANNOTATION_PAGE_ROUTE}?path=${encodeURIComponent(path)}`);
     loadSlideList();
 }
 
@@ -6264,7 +6268,7 @@ $btnVsSplit?.addEventListener('click', () => {
             if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
         window.MediautoHeader?.render({
-            active: 'annotation',
+            active: ANNOTATION_HEADER_ACTIVE,
             user: dict_me,
             showAdmin: dict_me.str_role === 'admin',
             logout: () => {
@@ -6302,6 +6306,6 @@ $btnVsSplit?.addEventListener('click', () => {
         // 슬라이드 목록 로드 후 자동 열기
         openSavedSlide(_paramSlide, null);
         // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
-        history.replaceState(null, '', '/annotation');
+        history.replaceState(null, '', ANNOTATION_PAGE_ROUTE);
     }
 })();

@@ -193,6 +193,8 @@ _DICT_PAGE_ROUTES = {
     "home": "home.html",
     "ai": "app.html",
     "annotation": "annotation.html",
+    "tissue-annotation": "annotation.html",
+    "cell-annotation": "cell-annotation.html",
     "admin": "admin.html",
     "login": "login.html",
     "profile": "profile.html",
