@@ -9,7 +9,7 @@
         (() => {
             const params = new URLSearchParams(location.search);
             if (!params.has('slide') && !params.has('path')) {
-                document.documentElement.classList.add('annotation-project-gate-boot');
+                document.documentElement.classList.add('project-gate-boot');
             }
         })();
     </script>
@@ -197,7 +197,7 @@
     <div id="app-body">
         <section id="project-gate" class="project-gate" hidden>
             <script>
-                if (document.documentElement.classList.contains('annotation-project-gate-boot')) {
+                if (document.documentElement.classList.contains('project-gate-boot')) {
                     document.currentScript.parentElement.hidden = false;
                 }
             </script>
