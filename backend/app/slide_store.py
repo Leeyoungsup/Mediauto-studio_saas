@@ -68,6 +68,15 @@ def _norm_rel_path(str_rel_path: str) -> str:
     return str_rel_path.replace("\\", "/").strip("/")
 
 
+def _norm_open_page(str_open_page: str) -> str:
+    str_page = (str_open_page or "").strip()
+    if str_page in {"ai", "tissue-annotation", "cell-annotation"}:
+        return str_page
+    if str_page == "annotation":
+        return "tissue-annotation"
+    return "ai"
+
+
 async def upsert_slide(
     *,
     str_slide_id: str,
@@ -77,6 +86,7 @@ async def upsert_slide(
     dict_info: dict,
     int_size_bytes: int,
     str_uploaded_by: str = "",
+    str_last_opened_page: str = "ai",
 ) -> Optional[dict]:
     """슬라이드 업로드/열기 시 DB 업서트.
 
@@ -111,6 +121,7 @@ async def upsert_slide(
         "str_vendor": str(dict_info.get("vendor") or ""),
         "float_objective_power": float(dict_info.get("objective_power") or 0.0),
         "dt_last_opened_at": dt_now,
+        "str_last_opened_page": _norm_open_page(str_last_opened_page),
         "dt_updated_at": dt_now,
     }
 
@@ -124,7 +135,7 @@ async def upsert_slide(
     )
 
 
-async def touch_last_opened(str_rel_path: str, str_filename: str) -> None:
+async def touch_last_opened(str_rel_path: str, str_filename: str, str_open_page: str = "ai") -> None:
     """슬라이드 열기 시 dt_last_opened_at 갱신."""
     if not is_db_connected():
         return
@@ -132,7 +143,10 @@ async def touch_last_opened(str_rel_path: str, str_filename: str) -> None:
     str_rel_path = _norm_rel_path(str_rel_path)
     await db.slides.update_one(
         {"str_rel_path": str_rel_path, "str_filename": str_filename},
-        {"$set": {"dt_last_opened_at": datetime.now(timezone.utc)}},
+        {"$set": {
+            "dt_last_opened_at": datetime.now(timezone.utc),
+            "str_last_opened_page": _norm_open_page(str_open_page),
+        }},
     )
 
 

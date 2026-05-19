@@ -276,10 +276,16 @@ export const api = {
         return res.json();
     },
 
-    async openSlide(filename, path = '') {
+    async openSlide(filename, path = '', openPage = '') {
         const form = new FormData();
         form.append('filename', filename);
         form.append('path', path);
+        const page = openPage || (
+            location.pathname.includes('cell-annotation') ? 'cell-annotation'
+            : location.pathname.includes('annotation') ? 'tissue-annotation'
+            : 'ai'
+        );
+        form.append('open_page', page);
         const res = await _authFetch(`${API_BASE}/slides/open`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

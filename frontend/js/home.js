@@ -222,10 +222,25 @@
         return `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(relPath || '')}&size=200&mt=${token}`;
     }
 
+    function recentSlideOpenPage(slide) {
+        const page = slide?.last_opened_page;
+        if (page === 'ai' || page === 'tissue-annotation' || page === 'cell-annotation') return page;
+        if (page === 'annotation') return 'tissue-annotation';
+        return 'tissue-annotation';
+    }
+
+    function recentSlidePageMeta(page) {
+        if (page === 'ai') return { label: 'AI', cls: 'page-ai' };
+        if (page === 'cell-annotation') return { label: 'Cell Annotation', cls: 'page-cell' };
+        return { label: 'Tissue Annotation', cls: 'page-tissue' };
+    }
+
     function renderRecentCard(slide, mediaToken) {
         const card = document.createElement('a');
         card.className = 'recent-card';
-        card.href = `/ai?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
+        const openPage = recentSlideOpenPage(slide);
+        const pageMeta = recentSlidePageMeta(openPage);
+        card.href = `/${openPage}?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
 
         const thumbUrl = _buildThumbUrl(slide.filename, slide.rel_path, mediaToken);
 
@@ -246,6 +261,7 @@
                 <div class="recent-card-path">${_esc(slide.rel_path || 'Root')} · ${formatSize(slide.size_bytes)}</div>
             </div>
             <div class="recent-card-meta">
+                <span class="recent-page-badge ${pageMeta.cls}">${_esc(pageMeta.label)}</span>
                 ${statusBadge(slide.status)}
                 ${aiBadges}
                 <span style="margin-left:auto">${formatTimeAgo(slide.last_opened_at)}</span>

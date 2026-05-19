@@ -76,6 +76,7 @@ async def _open_and_generate(
     dict_user: Optional[dict] = None,
     bool_wait_for_tiles: bool = False,
     str_sha256: str = "",
+    str_last_opened_page: str = "ai",
 ):
     """슬라이드 열기 + 타일 생성 → DB 업서트 후 응답 반환.
 
@@ -88,7 +89,7 @@ async def _open_and_generate(
     if existing:
         await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
         resp = _slide_response(slide_id, existing, filename)
-        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user, str_sha256)
+        await _upsert_and_attach(resp, slide_id, file_path, filename, existing, dict_user, str_sha256, str_last_opened_page)
         return resp
 
     try:
@@ -98,7 +99,7 @@ async def _open_and_generate(
 
     await _run_tile_gen(filename, file_path, bool_wait_for_tiles)
     resp = _slide_response(slide_id, info, filename)
-    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user, str_sha256)
+    await _upsert_and_attach(resp, slide_id, file_path, filename, info, dict_user, str_sha256, str_last_opened_page)
     return resp
 
 
@@ -131,6 +132,7 @@ async def _upsert_and_attach(
     info,
     dict_user: Optional[dict],
     str_sha256: str = "",
+    str_last_opened_page: str = "ai",
 ):
     """slides 컬렉션에 upsert + 응답에 ai_results 플래그 부착 (DB 없으면 no-op)."""
     try:
@@ -150,6 +152,7 @@ async def _upsert_and_attach(
         dict_info=resp,
         int_size_bytes=int_size_bytes,
         str_uploaded_by=str_uploaded_by,
+        str_last_opened_page=str_last_opened_page,
     )
     if dict_doc:
         resp["ai_results"] = slide_store.serialize_slide_doc(dict_doc).get("dict_ai_results")
@@ -258,6 +261,7 @@ async def dashboard(include_storage: bool = Query(False)):
             "size_bytes": dict_doc.get("int_size_bytes", 0),
             "mpp": dict_doc.get("float_mpp"),
             "status": dict_doc.get("str_status", ""),
+            "last_opened_page": dict_doc.get("str_last_opened_page") or "",
             "last_opened_at": dt_opened.replace(tzinfo=timezone.utc).isoformat() if dt_opened and not dt_opened.tzinfo else (dt_opened.isoformat() if dt_opened else None),
             "ai_done": list_ai_done,
             "tiles_ready": bool(dict_doc.get("bool_tiles_ready")),
@@ -1095,6 +1099,7 @@ async def open_slide(
     request: Request,
     filename: str = Form(...),
     path: str = Form(""),
+    open_page: str = Form("ai"),
     dict_user: dict = Depends(get_current_user),
 ):
     """파일명으로 서버 디스크에 있는지 확인 → 있으면 바로 열기"""
@@ -1104,7 +1109,7 @@ async def open_slide(
         return {"exists": False}
 
     slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
-    resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user)
+    resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user, str_last_opened_page=open_page)
     resp["exists"] = True
 
     # 슬라이드 조회 감사 로그 — 활동 분석용
