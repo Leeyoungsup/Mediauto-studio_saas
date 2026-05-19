@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>MeDIAuto Studio - Annotation</title>
     <link rel="icon" href="assets/app_icon.ico">
+    <script>
+        (() => {
+            const params = new URLSearchParams(location.search);
+            if (!params.has('slide') && !params.has('path')) {
+                document.documentElement.classList.add('annotation-project-gate-boot');
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="css/shared-header.css">
     <link rel="stylesheet" href="css/style.css?v=20260519-02">
 </head>
@@ -188,6 +196,11 @@
     <!-- ═══ 메인 레이아웃 (뷰어 + 우측 패널) ═══ -->
     <div id="app-body">
         <section id="project-gate" class="project-gate" hidden>
+            <script>
+                if (document.documentElement.classList.contains('annotation-project-gate-boot')) {
+                    document.currentScript.parentElement.hidden = false;
+                }
+            </script>
             <div class="project-gate-inner">
                 <div class="project-gate-header">
                     <div>

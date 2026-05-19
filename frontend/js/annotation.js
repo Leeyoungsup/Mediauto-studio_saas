@@ -4907,6 +4907,7 @@ function _showProjectGate(list_projects = _projectListCache) {
 
 function _hideProjectGate() {
     if ($projectGate) $projectGate.hidden = true;
+    document.documentElement.classList.remove('annotation-project-gate-boot');
     document.body.classList.remove('project-gate-open');
 }
 

@@ -77,8 +77,10 @@ input[type="color"], input[type="file"], select {
     position: relative; z-index: 21;
 }
 body.project-gate-open #menubar { display: none; }
+html.annotation-project-gate-boot #menubar { display: none; }
 #shared-header-root { display: none; }
 body.project-gate-open #shared-header-root { display: block; }
+html.annotation-project-gate-boot #shared-header-root { display: block; }
 #project-mode-header { display: none !important; }
 .project-mode-header {
     display: none;
@@ -263,6 +265,9 @@ body.project-gate-open .project-mode-header { display: block; }
 body.project-gate-open #toolbar {
     display: none;
 }
+html.annotation-project-gate-boot #toolbar {
+    display: none;
+}
 #toolbar::after {
     content: ''; position: absolute; left: var(--left-panel-w); right: 0; bottom: 0;
     height: 1px; background: var(--border-light);
@@ -343,6 +348,10 @@ body.project-gate-open #toolbar {
     position: relative;
 }
 body.project-gate-open #app-body {
+    height: calc(100vh - 80px);
+    background: #f7f8fc;
+}
+html.annotation-project-gate-boot #app-body {
     height: calc(100vh - 80px);
     background: #f7f8fc;
 }
