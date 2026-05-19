@@ -43,6 +43,8 @@
     const $projectStatusInput = document.getElementById('project-status-input');
     const $projectDueInput = document.getElementById('project-due-input');
     const $projectDescriptionInput = document.getElementById('project-description-input');
+    const $projectAiEnabledInput = document.getElementById('project-ai-enabled-input');
+    const $projectAiTaskList = document.getElementById('project-ai-task-list');
     const $projectMoveDialog = document.getElementById('project-move-dialog');
     const $projectMoveClose = document.getElementById('project-move-close');
     const $projectMoveCancel = document.getElementById('project-move-cancel');
@@ -60,6 +62,24 @@
     let _projectDialogMode = 'create';
     let _editingProjectPath = '';
     let _openingProjectPath = '';
+
+    const PROJECT_AI_TASK_OPTIONS = [
+        { model: 'Quanti HE', variant: 'Stomach', label: 'Quanti HE - Stomach' },
+        { model: 'Quanti HE', variant: 'Breast', label: 'Quanti HE - Breast' },
+        { model: 'Quanti HE', variant: 'Other', label: 'Quanti HE - Other' },
+        { model: 'Quanti PD-L1', variant: 'Stomach', label: 'Quanti PD-L1 - Stomach (CPS)' },
+        { model: 'Quanti PD-L1', variant: 'Lung', label: 'Quanti PD-L1 - Lung (TPS)' },
+        { model: 'Quanti IHC', variant: 'HER2', label: 'Quanti IHC - HER2' },
+        { model: 'Quanti IHC', variant: 'ER_PR', label: 'Quanti IHC - ER/PR (Allred)' },
+        { model: 'Quanti IHC', variant: 'KI_67', label: 'Quanti IHC - KI-67' },
+        { model: 'VS IHC', variant: 'ihc_membrane', label: 'VS IHC (Virtual Stain)', mpp: true },
+    ];
+    const PROJECT_VS_MPP_CHOICES = [
+        { value: 4.0, label: '4.0 um/px (x2.5)' },
+        { value: 2.0, label: '2.0 um/px (x5)' },
+        { value: 1.0, label: '1.0 um/px (x10)' },
+        { value: 0.5, label: '0.5 um/px (x20)' },
+    ];
 
     window.MediautoHeader?.render({
         active: 'home',
@@ -241,6 +261,103 @@
         return card;
     }
 
+    function setProjectAiListEnabled(enabled) {
+        if (!$projectAiTaskList) return;
+        $projectAiTaskList.classList.toggle('disabled', !enabled);
+        $projectAiTaskList.querySelectorAll('input').forEach(input => {
+            input.disabled = !enabled;
+        });
+    }
+
+    function renderProjectAiTasks(tasks = []) {
+        if (!$projectAiTaskList) return;
+        const selected = new Set();
+        const vsMpps = {};
+        for (const task of tasks || []) {
+            if (task?.model === 'VS IHC') {
+                if (!vsMpps[task.variant]) vsMpps[task.variant] = new Set();
+                vsMpps[task.variant].add(Number(task.target_mpp ?? 2.0));
+            } else if (task?.model && task?.variant) {
+                selected.add(`${task.model}::${task.variant}`);
+            }
+        }
+        $projectAiTaskList.innerHTML = '';
+        for (const opt of PROJECT_AI_TASK_OPTIONS) {
+            const wrap = document.createElement('div');
+            wrap.className = 'project-ai-item';
+            wrap.dataset.model = opt.model;
+            wrap.dataset.variant = opt.variant;
+            if (opt.mpp) {
+                const current = vsMpps[opt.variant] || new Set();
+                const isChecked = current.size > 0;
+                wrap.innerHTML = `
+                    <label class="project-ai-row">
+                        <input type="checkbox" class="project-ai-parent"${isChecked ? ' checked' : ''}>
+                        <span>${_esc(opt.label)}</span>
+                    </label>
+                    <div class="project-ai-sub"${isChecked ? '' : ' hidden'}>
+                        ${PROJECT_VS_MPP_CHOICES.map(m => `
+                            <label class="project-ai-sub-row">
+                                <input type="checkbox" class="project-ai-mpp" data-mpp="${m.value}"${current.has(m.value) ? ' checked' : ''}>
+                                <span>${_esc(m.label)}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                `;
+                const parent = wrap.querySelector('.project-ai-parent');
+                const sub = wrap.querySelector('.project-ai-sub');
+                parent?.addEventListener('change', () => {
+                    if (parent.checked) {
+                        sub.hidden = false;
+                        if (!wrap.querySelector('.project-ai-mpp:checked')) {
+                            const def = wrap.querySelector('.project-ai-mpp[data-mpp="2"]');
+                            if (def) def.checked = true;
+                        }
+                    } else {
+                        sub.hidden = true;
+                        wrap.querySelectorAll('.project-ai-mpp').forEach(cb => { cb.checked = false; });
+                    }
+                });
+            } else {
+                const key = `${opt.model}::${opt.variant}`;
+                wrap.innerHTML = `
+                    <label class="project-ai-row">
+                        <input type="checkbox" class="project-ai-task" ${selected.has(key) ? ' checked' : ''}>
+                        <span>${_esc(opt.label)}</span>
+                    </label>
+                `;
+            }
+            $projectAiTaskList.appendChild(wrap);
+        }
+        setProjectAiListEnabled(Boolean($projectAiEnabledInput?.checked));
+    }
+
+    function collectProjectAiTasks() {
+        if (!$projectAiTaskList) return [];
+        const tasks = [];
+        $projectAiTaskList.querySelectorAll('.project-ai-item').forEach(wrap => {
+            const model = wrap.dataset.model;
+            const variant = wrap.dataset.variant;
+            if (model === 'VS IHC') {
+                const parent = wrap.querySelector('.project-ai-parent');
+                if (!parent?.checked) return;
+                wrap.querySelectorAll('.project-ai-mpp:checked').forEach(cb => {
+                    tasks.push({ model, variant, target_mpp: parseFloat(cb.dataset.mpp) });
+                });
+            } else if (wrap.querySelector('.project-ai-task')?.checked) {
+                tasks.push({ model, variant });
+            }
+        });
+        return tasks;
+    }
+
+    function summarizeProjectAi(info) {
+        if (!info?.project_ai_enabled) return '-';
+        const count = (info.project_ai_tasks || []).length;
+        if (!count) return '<span class="project-ai-badge muted">Enabled, empty</span>';
+        return `<span class="project-ai-badge">${count} task${count === 1 ? '' : 's'}</span>`;
+    }
+
     function projectInfoPayload() {
         return {
             title: $projectTitleInput.value.trim(),
@@ -250,6 +367,8 @@
             status: $projectStatusInput.value,
             due_date: $projectDueInput.value,
             description: $projectDescriptionInput.value.trim(),
+            project_ai_enabled: Boolean($projectAiEnabledInput?.checked),
+            project_ai_tasks_json: JSON.stringify(collectProjectAiTasks()),
         };
     }
 
@@ -286,6 +405,10 @@
         $projectStatusInput.value = info.status || 'active';
         $projectDueInput.value = info.due_date || '';
         $projectDescriptionInput.value = info.description || '';
+        if ($projectAiEnabledInput) {
+            $projectAiEnabledInput.checked = Boolean(info.project_ai_enabled);
+        }
+        renderProjectAiTasks(info.project_ai_tasks || []);
         $projectDialog.showModal();
     }
 
@@ -417,7 +540,7 @@
         if (!$projectTableBody) return;
         $projectTableBody.innerHTML = '';
         if (!projects.length) {
-            $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">No projects yet</td></tr>';
+            $projectTableBody.innerHTML = '<tr><td colspan="8" class="project-empty">No projects yet</td></tr>';
             if ($projectPager) $projectPager.hidden = true;
             return;
         }
@@ -445,6 +568,7 @@
                 <td>${_esc(info.owner || '-')}</td>
                 <td><span class="project-status">${_esc(info.status || 'active')}</span></td>
                 <td>${project.slide_count || 0}</td>
+                <td>${summarizeProjectAi(info)}</td>
                 <td>${_esc(info.due_date || '-')}</td>
                 <td><div class="project-actions-cell"></div></td>
             `;
@@ -516,7 +640,7 @@
 
         } catch {
             if ($projectTableBody) {
-                $projectTableBody.innerHTML = '<tr><td colspan="7" class="project-empty">Failed to load projects</td></tr>';
+                $projectTableBody.innerHTML = '<tr><td colspan="8" class="project-empty">Failed to load projects</td></tr>';
             }
             if ($tree) $tree.innerHTML = '<div class="folder-tree-empty">Failed to load projects</div>';
         }
@@ -531,6 +655,9 @@
     });
 
     $btnRefreshProjects?.addEventListener('click', () => loadFolderTree());
+    $projectAiEnabledInput?.addEventListener('change', () => {
+        setProjectAiListEnabled($projectAiEnabledInput.checked);
+    });
     $projectPagePrev?.addEventListener('click', () => {
         if (_projectPage <= 1) return;
         _projectPage -= 1;

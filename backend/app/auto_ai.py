@@ -12,6 +12,7 @@ Claude.md 규칙 준수 (str_/int_/bool_/list_/dict_/dt_ 접두어).
 
 import asyncio
 import hashlib
+import re
 import threading
 import time
 import uuid
@@ -219,8 +220,36 @@ async def _scan_and_infer_once() -> None:
 
     db = get_db()
     list_configs = []
-    async for dict_cfg in db.folder_ai_configs.find({"bool_enabled": True}):
-        list_configs.append(dict_cfg)
+    set_explicit_paths = set()
+    async for dict_cfg in db.folder_ai_configs.find({}):
+        str_cfg_path = (dict_cfg.get("str_rel_path") or "").replace("\\", "/").strip("/")
+        set_explicit_paths.add(str_cfg_path)
+        if dict_cfg.get("bool_enabled"):
+            list_configs.append(dict_cfg)
+
+    async for dict_project in db.project_infos.find({"bool_project_ai_enabled": True}):
+        str_project_path = (dict_project.get("str_project_path") or "").replace("\\", "/").strip("/")
+        list_tasks = dict_project.get("list_project_ai_tasks") or []
+        if not str_project_path or not list_tasks:
+            continue
+
+        set_inherited_paths = set()
+        str_project_regex = f"^{re.escape(str_project_path)}(/|$)"
+        async for dict_slide in db.slides.find(
+            {"str_rel_path": {"$regex": str_project_regex}},
+            {"str_rel_path": 1},
+        ):
+            str_slide_path = (dict_slide.get("str_rel_path") or "").replace("\\", "/").strip("/")
+            if str_slide_path and str_slide_path not in set_explicit_paths:
+                set_inherited_paths.add(str_slide_path)
+
+        for str_rel_path in sorted(set_inherited_paths):
+            list_configs.append({
+                "str_rel_path": str_rel_path,
+                "bool_enabled": True,
+                "list_tasks": list_tasks,
+                "str_inherited_from_project": str_project_path,
+            })
 
     int_scanned = 0    # 이번 사이클에 검사한 슬라이드 수 (캐시 hit + 추론 + 스킵 포함)
     int_inferred = 0   # 실제로 추론을 돌린 슬라이드 수

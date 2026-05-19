@@ -354,6 +354,12 @@ def _list_project_dirs() -> list[Path]:
 
 def _project_public_info(dict_doc: Optional[dict]) -> dict:
     dict_doc = dict_doc or {}
+    list_tasks = []
+    for t in (dict_doc.get("list_project_ai_tasks") or []):
+        dict_task = {"model": t.get("model", ""), "variant": t.get("variant", "")}
+        if t.get("target_mpp") is not None:
+            dict_task["target_mpp"] = float(t.get("target_mpp"))
+        list_tasks.append(dict_task)
     return {
         "title": dict_doc.get("str_title", ""),
         "institution": dict_doc.get("str_institution", ""),
@@ -362,7 +368,47 @@ def _project_public_info(dict_doc: Optional[dict]) -> dict:
         "status": dict_doc.get("str_status", "active"),
         "due_date": dict_doc.get("str_due_date", ""),
         "description": dict_doc.get("str_description", ""),
+        "project_ai_enabled": bool(dict_doc.get("bool_project_ai_enabled", False)),
+        "project_ai_tasks": list_tasks,
     }
+
+
+def _clean_ai_tasks(list_raw: list) -> list[dict]:
+    dict_legacy_models = {
+        "HE-Fit": "Quanti HE",
+        "PD-Score": "Quanti PD-L1",
+        "Precise-IHC": "Quanti IHC",
+        "VS-IHC": "VS IHC",
+    }
+    set_allowed_models = {"Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"}
+    list_clean = []
+    for dict_t in list_raw if isinstance(list_raw, list) else []:
+        if not isinstance(dict_t, dict):
+            continue
+        str_model = str(dict_t.get("model", "")).strip()
+        str_variant = str(dict_t.get("variant", "")).strip()
+        str_model = dict_legacy_models.get(str_model, str_model)
+        if str_model not in set_allowed_models or not str_variant:
+            continue
+        dict_entry = {"model": str_model, "variant": str_variant}
+        if str_model == "VS IHC":
+            try:
+                float_mpp = float(dict_t.get("target_mpp", 2.0))
+            except (TypeError, ValueError):
+                float_mpp = 2.0
+            dict_entry["target_mpp"] = float_mpp
+        list_clean.append(dict_entry)
+    return list_clean
+
+
+def _parse_ai_tasks_json(tasks_json: str) -> list[dict]:
+    try:
+        list_raw = json.loads(tasks_json or "[]")
+        if not isinstance(list_raw, list):
+            raise ValueError("tasks_json must be a JSON array")
+    except Exception as e:
+        raise HTTPException(400, f"잘못된 tasks_json: {e}")
+    return _clean_ai_tasks(list_raw)
 
 
 async def _upsert_project_info(
@@ -375,6 +421,8 @@ async def _upsert_project_info(
     str_status: str = "active",
     str_due_date: str = "",
     str_description: str = "",
+    bool_project_ai_enabled: bool = False,
+    list_project_ai_tasks: Optional[list[dict]] = None,
 ) -> None:
     if not is_db_connected():
         return
@@ -392,6 +440,8 @@ async def _upsert_project_info(
                 "str_status": (str_status or "active").strip(),
                 "str_due_date": str_due_date.strip(),
                 "str_description": str_description.strip(),
+                "bool_project_ai_enabled": bool(bool_project_ai_enabled),
+                "list_project_ai_tasks": _clean_ai_tasks(list_project_ai_tasks or []),
                 "dt_updated_at": dt_now,
             },
             "$setOnInsert": {"dt_created_at": dt_now},
@@ -489,6 +539,8 @@ async def create_project(
     status: str = Form("active"),
     due_date: str = Form(""),
     description: str = Form(""),
+    project_ai_enabled: bool = Form(False),
+    project_ai_tasks_json: str = Form("[]"),
     dict_user: dict = Depends(get_current_user),
 ):
     """프로젝트 생성. 프로젝트는 uploads/ 아래 최상위 폴더로 관리한다."""
@@ -497,6 +549,7 @@ async def create_project(
     if target.exists():
         raise HTTPException(400, "이미 존재하는 프로젝트입니다")
     target.mkdir(parents=True, exist_ok=True)
+    list_project_ai_tasks = _parse_ai_tasks_json(project_ai_tasks_json)
     await _upsert_project_info(
         str_project_path=name,
         str_title=title or name,
@@ -506,6 +559,8 @@ async def create_project(
         str_status=status,
         str_due_date=due_date,
         str_description=description,
+        bool_project_ai_enabled=project_ai_enabled,
+        list_project_ai_tasks=list_project_ai_tasks,
     )
     await _log_management_event(
         request,
@@ -522,6 +577,8 @@ async def create_project(
             "status": status,
             "due_date": due_date,
             "description": description,
+            "project_ai_enabled": bool(project_ai_enabled),
+            "project_ai_tasks": list_project_ai_tasks,
         },
     )
     return {"status": "created", "name": name, "path": name}
@@ -538,6 +595,8 @@ async def update_project(
     status: str = Form("active"),
     due_date: str = Form(""),
     description: str = Form(""),
+    project_ai_enabled: bool = Form(False),
+    project_ai_tasks_json: str = Form("[]"),
     dict_user: dict = Depends(get_current_user),
 ):
     name = _safe_filename(name)
@@ -548,6 +607,7 @@ async def update_project(
         dict_before = _project_public_info(await db.project_infos.find_one({"str_project_path": name}))
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "?꾨줈?앺듃瑜?李얠쓣 ???놁뒿?덈떎")
+    list_project_ai_tasks = _parse_ai_tasks_json(project_ai_tasks_json)
     await _upsert_project_info(
         str_project_path=name,
         str_title=title or name,
@@ -557,6 +617,8 @@ async def update_project(
         str_status=status,
         str_due_date=due_date,
         str_description=description,
+        bool_project_ai_enabled=project_ai_enabled,
+        list_project_ai_tasks=list_project_ai_tasks,
     )
     await _log_management_event(
         request,
@@ -574,6 +636,8 @@ async def update_project(
             "status": status,
             "due_date": due_date,
             "description": description,
+            "project_ai_enabled": bool(project_ai_enabled),
+            "project_ai_tasks": list_project_ai_tasks,
         },
     )
     return {"status": "saved", "name": name, "path": name}
@@ -1504,6 +1568,13 @@ def _norm_folder_path(str_path: str) -> str:
     return str_path.replace("\\", "/").strip("/")
 
 
+def _project_path_from_folder(str_norm: str) -> str:
+    str_norm = (str_norm or "").replace("\\", "/").strip("/")
+    if not str_norm:
+        return ""
+    return str_norm.split("/", 1)[0]
+
+
 async def _clone_legacy_folder_config(db, str_norm: str) -> Optional[dict]:
     """Restore a pre-project folder config for a project-prefixed folder path."""
     if not str_norm or "/" not in str_norm:
@@ -1548,7 +1619,20 @@ async def get_folder_config(path: str = Query("")):
     if not dict_doc:
         dict_doc = await _clone_legacy_folder_config(db, str_norm)
     if not dict_doc:
-        return {"path": path, "enabled": False, "tasks": []}
+        str_project = _project_path_from_folder(str_norm)
+        if str_project:
+            dict_project = await db.project_infos.find_one({"str_project_path": str_project})
+            list_project_tasks = _clean_ai_tasks((dict_project or {}).get("list_project_ai_tasks") or [])
+            if dict_project and dict_project.get("bool_project_ai_enabled") and list_project_tasks:
+                return {
+                    "path": str_norm,
+                    "enabled": True,
+                    "tasks": list_project_tasks,
+                    "source": "project",
+                    "inherited": True,
+                    "project": str_project,
+                }
+        return {"path": str_norm, "enabled": False, "tasks": [], "source": "none", "inherited": False}
     list_out = []
     for t in (dict_doc.get("list_tasks") or []):
         dict_task = {"model": t.get("model", ""), "variant": t.get("variant", "")}
@@ -1559,6 +1643,8 @@ async def get_folder_config(path: str = Query("")):
         "path": str_norm,
         "enabled": bool(dict_doc.get("bool_enabled", False)),
         "tasks": list_out,
+        "source": "folder",
+        "inherited": False,
     }
 
 

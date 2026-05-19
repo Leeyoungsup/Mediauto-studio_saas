@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio — Home</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css">
-    <link rel="stylesheet" href="css/home.css">
+    <link rel="stylesheet" href="css/home.css?v=20260519-01">
 </head>
 <body>
     <div id="shared-header-root"></div>
@@ -91,6 +91,14 @@
                     </label>
                     <label>Due Date<input id="project-due-input" name="due_date" type="date"></label>
                     <label class="dialog-wide">Description<textarea id="project-description-input" name="description" rows="4"></textarea></label>
+                    <div class="dialog-wide project-ai-section">
+                        <label class="project-ai-enable">
+                            <input id="project-ai-enabled-input" type="checkbox">
+                            <span>Project default AI run list</span>
+                        </label>
+                        <p class="project-ai-hint">Folders without individual AI settings inherit this list.</p>
+                        <div id="project-ai-task-list" class="project-ai-task-list"></div>
+                    </div>
                 </div>
                 <div class="dialog-footer">
                     <button id="project-dialog-cancel" type="button" class="home-action-btn secondary">Cancel</button>
@@ -159,12 +167,13 @@
                             <th>Owner</th>
                             <th>Status</th>
                             <th>Slides</th>
+                            <th>Default AI</th>
                             <th>Due</th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody id="project-table-body">
-                        <tr><td colspan="7" class="project-empty">Loading projects...</td></tr>
+                        <tr><td colspan="8" class="project-empty">Loading projects...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -245,6 +254,6 @@
     </footer>
 
     <script src="js/shared-header.js"></script>
-    <script src="js/home.js?v=20260518-01"></script>
+    <script src="js/home.js?v=20260519-01"></script>
 </body>
 </html>
