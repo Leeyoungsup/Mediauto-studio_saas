@@ -76,8 +76,9 @@ for _dp in _dll_paths:
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -186,6 +187,34 @@ async def health_check():
 @app.get("/api/version")
 async def version_check():
     return get_version_info()
+
+
+_DICT_PAGE_ROUTES = {
+    "home": "home.html",
+    "ai": "app.html",
+    "annotation": "annotation.html",
+    "admin": "admin.html",
+    "login": "login.html",
+    "profile": "profile.html",
+    "upload": "upload.html",
+}
+
+
+def _frontend_page_response(str_page: str) -> FileResponse:
+    return FileResponse(FRONTEND_DIR / _DICT_PAGE_ROUTES[str_page])
+
+
+for _clean_path, _html_file in _DICT_PAGE_ROUTES.items():
+    async def _serve_frontend_page(str_page: str = _clean_path):
+        return _frontend_page_response(str_page)
+
+    async def _redirect_legacy_page(request: Request, str_page: str = _clean_path):
+        str_query = request.url.query
+        str_url = f"/{str_page}" + (f"?{str_query}" if str_query else "")
+        return RedirectResponse(url=str_url, status_code=308)
+
+    app.get(f"/{_clean_path}", include_in_schema=False)(_serve_frontend_page)
+    app.get(f"/{_html_file}", include_in_schema=False)(_redirect_legacy_page)
 
 
 if FRONTEND_DIR.exists():

@@ -30,7 +30,7 @@
             // Logout should always clear local state even if the server call fails.
         }
         localStorage.clear();
-        location.href = '/login.html';
+        location.href = '/login';
     }
 
     async function loadVersion(root) {
@@ -66,18 +66,18 @@
         root.innerHTML = `
             <header class="shared-header">
                 <div class="shared-header-inner">
-                    <a href="/home.html" class="shared-brand">
+                    <a href="/home" class="shared-brand">
                         <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
                         <span class="shared-version" hidden></span>
                     </a>
                     <nav class="shared-nav" aria-label="Primary">
-                        <a href="/home.html" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
-                        <a href="/app.html" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
-                        <a href="/annotation.html" class="shared-nav-item ${active === 'annotation' ? 'active' : ''}">Annotation</a>
-                        ${showAdmin ? `<a href="/admin.html" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
+                        <a href="/home" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
+                        <a href="/ai" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
+                        <a href="/annotation" class="shared-nav-item ${active === 'annotation' ? 'active' : ''}">Annotation</a>
+                        ${showAdmin ? `<a href="/admin" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
                     </nav>
                     <div class="shared-user-info">
-                        <a href="/profile.html" class="shared-user-name" title="Edit profile">${esc(name)}</a>
+                        <a href="/profile" class="shared-user-name" title="Edit profile">${esc(name)}</a>
                         <span class="shared-role">${esc(labelForRole(role))}</span>
                         <button class="shared-logout" type="button">Logout</button>
                     </div>

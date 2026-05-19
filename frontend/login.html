@@ -171,7 +171,7 @@
 
         // 이미 로그인 되어있으면 메인으로
         if (localStorage.getItem('access_token')) {
-            window.location.href = '/home.html';
+            window.location.href = '/home';
         }
 
         function showAlert(message, type = 'error') {
@@ -295,7 +295,7 @@
             localStorage.setItem('token_expires', Date.now() + data.int_expires_in * 1000);
             mfaPending = false;
 
-            window.location.href = '/home.html';
+            window.location.href = '/home';
         }
 
         async function doRegister() {

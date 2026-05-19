@@ -10,7 +10,7 @@
 
     // 미로그인 → 로그인 페이지
     if (!accessToken) {
-        location.href = '/login.html';
+        location.href = '/login';
         return;
     }
 
@@ -124,7 +124,7 @@
         const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
         if (res.status === 401) {
             localStorage.clear();
-            location.href = '/login.html';
+            location.href = '/login';
             return null;
         }
         return res;
@@ -149,7 +149,7 @@
             await authFetch('/auth/logout', { method: 'POST' });
         } catch { /* ignore */ }
         localStorage.clear();
-        location.href = '/login.html';
+        location.href = '/login';
     });
 
     // ── Time formatting ──
@@ -217,7 +217,7 @@
     function renderRecentCard(slide, mediaToken) {
         const card = document.createElement('a');
         card.className = 'recent-card';
-        card.href = `/app.html?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
+        card.href = `/ai?slide=${encodeURIComponent(slide.filename)}&path=${encodeURIComponent(slide.rel_path || '')}`;
 
         const thumbUrl = _buildThumbUrl(slide.filename, slide.rel_path, mediaToken);
 
@@ -429,13 +429,13 @@
             $projectOpenTitle.textContent = info.title || project.name || projectPath;
         }
         if ($projectOpenDialog?.showModal) $projectOpenDialog.showModal();
-        else location.href = `/app.html?path=${encodeURIComponent(projectPath)}`;
+        else location.href = `/ai?path=${encodeURIComponent(projectPath)}`;
     }
 
     function openSelectedProjectRoute(page) {
         if (!_openingProjectPath) return;
         closeProjectOpenDialog();
-        location.href = `/${page}.html?path=${encodeURIComponent(_openingProjectPath)}`;
+        location.href = `/${page}?path=${encodeURIComponent(_openingProjectPath)}`;
     }
 
     async function saveProjectDialog() {
@@ -561,7 +561,7 @@
                 : '';
             tr.innerHTML = `
                 <td><div class="project-title">
-                    <a href="/app.html?path=${encodeURIComponent(projectPath)}" class="project-open-link">${_esc(info.title || project.name)}</a>
+                    <a href="/ai?path=${encodeURIComponent(projectPath)}" class="project-open-link">${_esc(info.title || project.name)}</a>
                     ${subtitle}
                 </div></td>
                 <td>${_esc(info.institution || '-')}</td>
@@ -621,7 +621,7 @@
             for (const folder of folders) {
                 const el = document.createElement('a');
                 el.className = 'folder-tree-item';
-                el.href = `/app.html?path=${encodeURIComponent(folder.path || folder.name)}`;
+                el.href = `/ai?path=${encodeURIComponent(folder.path || folder.name)}`;
                 el.innerHTML = `
                     <div class="folder-tree-icon">
                         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -679,7 +679,7 @@
         saveMoveFolderDialog().catch(err => alert(err.message));
     });
     $projectOpenClose?.addEventListener('click', closeProjectOpenDialog);
-    $projectOpenAi?.addEventListener('click', () => openSelectedProjectRoute('app'));
+    $projectOpenAi?.addEventListener('click', () => openSelectedProjectRoute('ai'));
     $projectOpenAnnotation?.addEventListener('click', () => openSelectedProjectRoute('annotation'));
 
     loadFolderTree();

@@ -6,7 +6,7 @@
     const userRaw = localStorage.getItem('user');
 
     if (!accessToken) {
-        location.href = '/login.html';
+        location.href = '/login';
         return;
     }
 
@@ -48,7 +48,7 @@
         const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
         if (res.status === 401) {
             localStorage.clear();
-            location.href = '/login.html';
+            location.href = '/login';
             return null;
         }
         return res;
@@ -137,7 +137,7 @@
             showAlert('Password changed. Please log in again.');
             setTimeout(() => {
                 localStorage.clear();
-                location.href = '/login.html';
+                location.href = '/login';
             }, 900);
         } catch (err) {
             showAlert(err.message, 'error');

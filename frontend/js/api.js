@@ -69,8 +69,8 @@ async function _refreshTokenIfNeeded(bool_force = false, bool_silent = false) {
             if (!bool_silent) {
                 _clearTokens();
                 _clearMediaTicket();
-                if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login.html')) {
-                    window.location.href = '/login.html';
+                if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login')) {
+                    window.location.href = '/login';
                 }
             }
             return false;
@@ -194,8 +194,8 @@ async function _authFetch(url, options = {}) {
         if (res.status === 401) {
             _clearTokens();
             _clearMediaTicket();
-            if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login.html')) {
-                window.location.href = '/login.html';
+            if (typeof window !== 'undefined' && !window.location.pathname.endsWith('login')) {
+                window.location.href = '/login';
             }
             throw new Error('Authentication required');
         }
@@ -677,7 +677,7 @@ export const api = {
         if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
         _clearMediaTicket();
         _clearTokens();
-        window.location.href = '/login.html';
+        window.location.href = '/login';
     },
 
     /** 현재 로그인 사용자 정보 조회 */

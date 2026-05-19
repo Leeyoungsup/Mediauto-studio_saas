@@ -9,9 +9,9 @@
         // 로그인 상태 확인 → 메인앱 또는 로그인 페이지로 리디렉트
         const token = localStorage.getItem('access_token');
         if (token) {
-            window.location.replace('/home.html');
+            window.location.replace('/home');
         } else {
-            window.location.replace('/login.html');
+            window.location.replace('/login');
         }
     </script>
 </head>

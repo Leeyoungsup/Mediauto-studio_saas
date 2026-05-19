@@ -9,7 +9,7 @@ const accessToken = localStorage.getItem('access_token');
 const userRaw = localStorage.getItem('user');
 
 if (!accessToken || !userRaw) {
-    location.href = '/login.html';
+    location.href = '/login';
 }
 
 let currentUser = null;
@@ -22,7 +22,7 @@ window.MediautoHeader?.render({
 
 if (!currentUser || currentUser.str_role !== 'admin') {
     alert('관리자 권한이 필요합니다.');
-    location.href = '/app.html';
+    location.href = '/ai';
 }
 
 document.getElementById('current-user-name').textContent = currentUser.str_name || currentUser.str_login_id;
@@ -40,13 +40,13 @@ async function authFetch(path, options = {}) {
     if (res.status === 401) {
         alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
         localStorage.clear();
-        location.href = '/login.html';
+        location.href = '/login';
         return null;
     }
     if (res.status === 403) {
         const d = await res.json().catch(() => ({}));
         alert(d.detail || '권한이 없습니다.');
-        location.href = '/app.html';
+        location.href = '/ai';
         return null;
     }
     return res;
@@ -104,7 +104,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
 document.getElementById('btn-logout').addEventListener('click', async () => {
     try { await authFetch('/auth/logout', { method: 'POST' }); } catch {}
     localStorage.clear();
-    location.href = '/login.html';
+    location.href = '/login';
 });
 
 // ─── 유틸 ───

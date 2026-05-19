@@ -8,14 +8,14 @@ import { TileViewer } from './tile-viewer.js?v=20260518-31';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
-// 토큰 없는 상태에서 /app.html 로 직접 들어오면 뷰어 UI 가 잠깐 그려진 뒤 api.me()
+// 토큰 없는 상태에서 /ai 로 직접 들어오면 뷰어 UI 가 잠깐 그려진 뒤 api.me()
 // 의 401 까지 보고서야 리다이렉트가 일어나 깜빡임이 생긴다. home.js 와 동일한
 // 패턴으로 첫 줄에서 차단. replace() 로 history 에 이 broken state 가 안 남게.
 if (!localStorage.getItem('access_token')) {
-    window.location.replace('/login.html');
+    window.location.replace('/login');
     // 모듈 본체는 곧 navigation 으로 unload 되지만, 이후 코드가 실행되면서 발생하는
     // null 참조를 막기 위해 명시적으로 throw — 콘솔 에러 한 줄로 끝난다.
-    throw new Error('Not authenticated — redirecting to /login.html');
+    throw new Error('Not authenticated — redirecting to /login');
 }
 
 // HTML escape — innerHTML 에 들어갈 신뢰 불가 문자열 (filename, annotation name,
@@ -395,7 +395,7 @@ function openUploadPopup(files, targetPath = currentBrowsePath) {
     const w = 520, h = 600;
     const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
     window.open(
-        `/upload.html?path=${encodeURIComponent(targetPath || projectName)}`,
+        `/upload?path=${encodeURIComponent(targetPath || projectName)}`,
         'upload_popup',
         `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
@@ -428,7 +428,7 @@ async function uploadFiles(fileList, _targetPath) {
 }
 
 // 하위 호환 — 기존 uploadOneFile 참조 방지 (사용처 없음)
-async function uploadOneFile() { /* deprecated — upload.html 팝업 사용 */ return null; }
+async function uploadOneFile() { /* deprecated — upload 팝업 사용 */ return null; }
 
 // ── Scanner/Vendor 배지 ──
 // openslide vendor string 은 소문자 키워드 형태. 인라인 SVG 로고로 매핑.
@@ -4915,7 +4915,7 @@ function _enterProjectFromGate(path) {
     if (!path) return;
     _hideProjectGate();
     currentBrowsePath = path;
-    history.replaceState(null, '', `/annotation.html?path=${encodeURIComponent(path)}`);
+    history.replaceState(null, '', `/annotation?path=${encodeURIComponent(path)}`);
     loadSlideList();
 }
 
@@ -6302,6 +6302,6 @@ $btnVsSplit?.addEventListener('click', () => {
         // 슬라이드 목록 로드 후 자동 열기
         openSavedSlide(_paramSlide, null);
         // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
-        history.replaceState(null, '', '/annotation.html');
+        history.replaceState(null, '', '/annotation');
     }
 })();
