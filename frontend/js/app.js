@@ -3,8 +3,8 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-13';
+import { api } from './api.js?v=20260520-02';
+import { TileViewer } from './tile-viewer.js?v=20260520-14';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -35,6 +35,20 @@ const $progressBar = $('#progress-bar');
 const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
+const $slideNameSearch = $('#slide-name-search');
+const LIST_SLIDE_CLINICAL_FIELDS = [
+    { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
+    { key: 'ER_intensity_score', label: 'ER_intensity_score (0 - 3) or na', type: 'input', required: true },
+    { key: 'PR_proportion_score', label: 'PR_proportion_score (0 - 5) or na', type: 'input', required: true },
+    { key: 'PR_intensity_score', label: 'PR_intensity_score (0 - 3) or na', type: 'input', required: true },
+    { key: 'Ki67_index', label: 'Ki67_index(%) or na', type: 'input', required: true },
+    { key: 'PD-L1_CPS_score', label: 'PD-L1_CPS_score or na', type: 'input', required: true },
+    { key: 'ISH_for_HER2_(FISH_SISH)', label: 'ISH_for_HER2_(FISH_SISH)', type: 'select', required: true, options: ['', 'ISH negative', 'ISH positive', 'ISH equivocal', 'na'] },
+    { key: 'IHC_for_C-erbB2', label: 'IHC_for_C-erbB2 (0 - 3)', type: 'input' },
+];
+let _slideClinicalInitialJson = '{}';
+let _slideClinicalDirty = false;
+let _slideInfoClosing = false;
 
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
@@ -118,6 +132,7 @@ const $projectStatAi = $('#project-stat-ai');
 const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
+let _lastBrowseData = { folders: [], slides: [] };
 
 let currentSlideId = null;
 let currentSlideInfo = null;
@@ -659,6 +674,7 @@ $viewerContainer.addEventListener('drop', (e) => {
 });
 
 async function loadMinimap(slideId) {
+    await api.ensureMediaReady();
     const img = new Image();
     img.onload = () => {
         minimapImage = img;
@@ -672,7 +688,8 @@ async function loadMinimap(slideId) {
         if (body) body.style.width = `${img.width}px`;
         updateMinimap();
     };
-    img.src = api.thumbnailUrl(slideId, 200);
+    const str_url = api.thumbnailUrl(slideId, 200);
+    if (str_url) img.src = str_url;
 }
 
 function updateMinimap() {
@@ -2007,10 +2024,125 @@ $btnAnnLoad?.addEventListener('click', () => {
     _uploadAnnotations();
 });
 
+function _normalizeSlideClinicalInfo(raw) {
+    const source = raw || {};
+    const normalized = {};
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        normalized[field.key] = String(source[field.key] ?? '');
+    });
+    return normalized;
+}
+
+function _collectSlideClinicalInfo() {
+    const values = {};
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        const el = $slideInfoContent.querySelector(`[data-clinical-key="${CSS.escape(field.key)}"]`);
+        values[field.key] = String(el?.value ?? '').trim();
+    });
+    return values;
+}
+
+function _hasAnyClinicalValue(values) {
+    return Object.values(values || {}).some((value) => String(value || '').trim() !== '');
+}
+
+function _buildSlideClinicalEditor(clinicalInfo) {
+    const normalized = _normalizeSlideClinicalInfo(clinicalInfo);
+    _slideClinicalInitialJson = JSON.stringify(normalized);
+    _slideClinicalDirty = false;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'slide-clinical-editor';
+
+    const title = document.createElement('div');
+    title.className = 'slide-clinical-title';
+    title.textContent = 'Clinical Scores';
+    wrap.appendChild(title);
+
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        const row = document.createElement('label');
+        row.className = 'slide-clinical-field';
+
+        const label = document.createElement('span');
+        label.textContent = field.label;
+        if (field.required) {
+            const required = document.createElement('b');
+            required.textContent = ' *';
+            label.appendChild(required);
+        }
+        row.appendChild(label);
+
+        let control;
+        if (field.type === 'select') {
+            control = document.createElement('select');
+            field.options.forEach((optionValue) => {
+                const option = document.createElement('option');
+                option.value = optionValue;
+                option.textContent = optionValue || 'Select';
+                control.appendChild(option);
+            });
+        } else {
+            control = document.createElement('input');
+            control.type = 'text';
+            control.placeholder = 'Enter value or na';
+        }
+        control.dataset.clinicalKey = field.key;
+        control.value = normalized[field.key] || '';
+        control.addEventListener('input', () => { _slideClinicalDirty = true; });
+        control.addEventListener('change', () => { _slideClinicalDirty = true; });
+        row.appendChild(control);
+        wrap.appendChild(row);
+    });
+
+    return wrap;
+}
+
+async function _loadSlideClinicalInfo() {
+    if (!currentSlideId) return currentSlideInfo?.dict_clinical_info || {};
+    try {
+        const res = await api.getSlideClinicalInfo(currentSlideId);
+        const clinicalInfo = res.dict_clinical_info || {};
+        currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: clinicalInfo };
+        return clinicalInfo;
+    } catch (err) {
+        console.warn('[slide-info] clinical info load failed:', err);
+        return currentSlideInfo?.dict_clinical_info || {};
+    }
+}
+
+async function _saveSlideClinicalInfoIfNeeded() {
+    if (!currentSlideId) return;
+    const values = _collectSlideClinicalInfo();
+    const nextJson = JSON.stringify(_normalizeSlideClinicalInfo(values));
+    if (!_slideClinicalDirty && nextJson === _slideClinicalInitialJson) return;
+    if (!_hasAnyClinicalValue(values) && _slideClinicalInitialJson === JSON.stringify(_normalizeSlideClinicalInfo({}))) return;
+
+    const res = await api.updateSlideClinicalInfo(currentSlideId, values);
+    const saved = res.dict_clinical_info || values;
+    currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: saved };
+    _slideClinicalInitialJson = JSON.stringify(_normalizeSlideClinicalInfo(saved));
+    _slideClinicalDirty = false;
+    setStatus('Slide clinical information saved.');
+}
+
+async function _closeSlideInfoDialog() {
+    if (_slideInfoClosing) return;
+    _slideInfoClosing = true;
+    try {
+        await _saveSlideClinicalInfoIfNeeded();
+    } catch (err) {
+        setStatus(`Failed to save slide clinical information: ${err.message}`);
+    } finally {
+        _slideInfoClosing = false;
+        if ($slideInfoDialog.open) $slideInfoDialog.close();
+    }
+}
+
 // Slide information dialog.
-$btnInfo.addEventListener('click', () => {
+$btnInfo.addEventListener('click', async () => {
     if (!currentSlideInfo) return;
     const info = currentSlideInfo;
+    const clinicalInfo = await _loadSlideClinicalInfo();
     const mag = info.objective_power !== 'Unknown' ? `${info.objective_power}x` : '-';
     const physW = info.physical_width_mm?.toFixed(2) ?? '-';
     const physH = info.physical_height_mm?.toFixed(2) ?? '-';
@@ -2035,9 +2167,17 @@ $btnInfo.addEventListener('click', () => {
         table.appendChild(tr);
     }
     $slideInfoContent.appendChild(table);
+    $slideInfoContent.appendChild(_buildSlideClinicalEditor(clinicalInfo));
     $slideInfoDialog.showModal();
 });
-$('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close());
+$('#close-slide-info').addEventListener('click', (event) => {
+    event.preventDefault();
+    _closeSlideInfoDialog();
+});
+$slideInfoDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    _closeSlideInfoDialog();
+});
 
 //   value: { task_id, buttonEl }
 const _runningAiTasks = {};
@@ -3251,14 +3391,54 @@ if ($projectGateAdditional) {
 async function loadSlideList() {
     try {
         const data = await api.browse(currentBrowsePath);
+        _lastBrowseData = data || { folders: [], slides: [] };
+        renderSlideList(_lastBrowseData);
+    } catch (err) {
+        console.error('Slide list load failed:', err);
+    }
+}
+
+function _hasSlideAiResult(slide) {
+    const aiResults = slide?.ai_results || {};
+    return Object.values(aiResults).some((result) => !!result?.has_result);
+}
+
+function _hasSlideClinicalInfo(slide) {
+    if (slide?.has_clinical_info) return true;
+    const info = slide?.clinical_info || {};
+    return Object.values(info).some((value) => String(value || '').trim() !== '');
+}
+
+function _makeSlideStateCell(kind, state, title) {
+    const cell = document.createElement('span');
+    cell.className = `slide-state-cell ${kind} ${state}`;
+    cell.title = title || '';
+    if (state === 'ready') {
+        cell.textContent = '✓';
+    } else if (state === 'running') {
+        cell.textContent = '';
+    } else {
+        cell.textContent = '-';
+    }
+    return cell;
+}
+
+function _getFilteredSlides(slides) {
+    const query = String($slideNameSearch?.value || '').trim().toLowerCase();
+    if (!query) return slides || [];
+    return (slides || []).filter((slide) => String(slide.filename || '').toLowerCase().includes(query));
+}
+
+function renderSlideList(data = _lastBrowseData) {
         $slideList.innerHTML = '';
         _syncProjectSelect();
+        const filteredSlides = _getFilteredSlides(data.slides || []);
 
-        if (data.folders.length === 0 && data.slides.length === 0) {
+        if ((data.folders || []).length === 0 && filteredSlides.length === 0) {
             $slideList.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:11px;text-align:center;">Empty</div>';
         }
 
-        for (const f of data.folders) {
+        for (const f of data.folders || []) {
             const folderPath = currentBrowsePath ? `${currentBrowsePath}/${f.name}` : f.name;
             const item = document.createElement('div');
             item.className = 'slide-list-item folder-item';
@@ -3298,7 +3478,7 @@ async function loadSlideList() {
             $slideList.appendChild(item);
         }
 
-        for (const s of data.slides) {
+        for (const s of filteredSlides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
             const strSlideStatus = s.ai_status || '';
@@ -3324,7 +3504,22 @@ async function loadSlideList() {
             name.textContent = s.filename;
             name.title = `${s.filename} (${s.size_mb} MB)`;
 
-            item.append(thumb, name);
+            const nameWrap = document.createElement('div');
+            nameWrap.className = 'slide-name-cell';
+            nameWrap.append(thumb, name);
+
+            const clinicalCell = _makeSlideStateCell(
+                'clinical',
+                _hasSlideClinicalInfo(s) ? 'ready' : 'empty',
+                _hasSlideClinicalInfo(s) ? 'Clinical info saved' : 'No clinical info'
+            );
+            const aiCell = _makeSlideStateCell(
+                'ai',
+                _hasSlideAiResult(s) ? 'ready' : 'empty',
+                _hasSlideAiResult(s) ? 'AI result exists' : 'No AI result'
+            );
+
+            item.append(nameWrap, clinicalCell, aiCell);
 
             if (strSlideStatus) {
                 const statusMeta = {
@@ -3399,10 +3594,9 @@ async function loadSlideList() {
         updateBreadcrumb();
         _refreshAiActiveBadges();
         _startAiActivePolling();
-    } catch (err) {
-        console.error('Slide list load failed:', err);
-    }
 }
+
+$slideNameSearch?.addEventListener('input', () => renderSlideList(_lastBrowseData));
 
 let _aiActivePollTimer = null;
 function _startAiActivePolling() {
@@ -3436,22 +3630,40 @@ async function _refreshAiActiveBadges() {
         const fn = item.dataset.filename;
         const list_running = dict_active[fn];
         const existing = item.querySelector('.slide-ai-active');
+        const aiCell = item.querySelector('.slide-state-cell.ai');
         if (list_running && list_running.length > 0) {
             const str_title = list_running
                 .map(t => `${t.model}${t.variant ? '/' + t.variant : ''} · ${t.status}`)
                 .join(', ');
+            if (aiCell) {
+                aiCell.classList.remove('empty', 'ready');
+                aiCell.classList.add('running');
+                aiCell.textContent = '';
+                aiCell.title = str_title || 'AI in progress';
+            }
             if (existing) {
                 existing.title = str_title;
-            } else {
+            } else if (!aiCell) {
                 const badge = document.createElement('span');
                 badge.className = 'slide-ai-active';
                 badge.title = str_title;
                 item.appendChild(badge);
             }
-        } else if (existing) {
-            existing.remove();
+        } else {
+            if (existing) existing.remove();
+            if (aiCell) {
+                const hasAi = _hasSlideAiResult(_findSlideByFilename(fn));
+                aiCell.classList.remove('running', hasAi ? 'empty' : 'ready');
+                aiCell.classList.add(hasAi ? 'ready' : 'empty');
+                aiCell.textContent = hasAi ? '✓' : '-';
+                aiCell.title = hasAi ? 'AI result exists' : 'No AI result';
+            }
         }
     });
+}
+
+function _findSlideByFilename(filename) {
+    return (_lastBrowseData.slides || []).find((slide) => slide.filename === filename) || null;
 }
 
 function navigateToFolder(path) {

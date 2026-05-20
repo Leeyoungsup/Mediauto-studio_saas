@@ -26,6 +26,8 @@ _TUPLE_AUTH_401_SILENT_PATHS = (
     "/api/ai/active-tasks",
     "/api/slides/thumbnail",        # /thumbnail-by-name + /{slide_id}/thumbnail 모두 매칭
     "/api/slides/preview",
+    "/thumbnail",
+    "/preview",
     "/api/tiles/",                  # 타일·NDP 변형 타일 전체
     "/api/ai/virtual-stain/",       # VS 결과 PNG·피라미드 타일
 )

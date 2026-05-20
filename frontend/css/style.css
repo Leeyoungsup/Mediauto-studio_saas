@@ -916,6 +916,40 @@ html.project-gate-boot #app-body {
 }
 .breadcrumb-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
 .breadcrumb-sep { color: rgba(255,255,255,0.25); margin: 0 1px; }
+.slide-filter-bar {
+    padding: 8px 8px 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.slide-name-search {
+    width: 100%;
+    height: 30px;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-size: 11px;
+    padding: 0 9px;
+    outline: none;
+}
+.slide-name-search::placeholder { color: rgba(255,255,255,0.45); }
+.slide-name-search:focus {
+    border-color: rgba(126, 104, 255, 0.9);
+    box-shadow: 0 0 0 3px rgba(126, 104, 255, 0.18);
+}
+.slide-list-table-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 58px 34px;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 12px 4px;
+    color: rgba(255,255,255,0.58);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.45px;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.slide-list-table-header span:nth-child(n+2) { text-align: center; }
 
 /* 폴더 아이템 */
 .slide-list-item.folder-item {
@@ -1134,8 +1168,21 @@ html.project-gate-boot #app-body {
 
 /* ── 리스트 모드 (기본) — 가로: 작은 썸네일 + 이름 옆 ── */
 .slide-list:not(.grid-view) .slide-list-item {
-    display: flex; flex-direction: row; align-items: center;
-    gap: 8px; padding: 5px 8px; margin-bottom: 2px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 58px 34px;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    margin-bottom: 2px;
+}
+.slide-list:not(.grid-view) .slide-list-item.folder-item {
+    grid-template-columns: 32px minmax(0, 1fr);
+}
+.slide-list:not(.grid-view) .slide-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 .slide-list:not(.grid-view) .slide-thumb {
     width: var(--slide-thumb-list); height: var(--slide-thumb-list);
@@ -1143,6 +1190,35 @@ html.project-gate-boot #app-body {
 .slide-list:not(.grid-view) .slide-list-name {
     -webkit-line-clamp: 2; font-size: 11px;
 }
+.slide-state-cell {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    box-sizing: border-box;
+}
+.slide-state-cell.ready {
+    background: #20b86b;
+    color: #fff;
+    box-shadow: 0 0 0 3px rgba(32, 184, 107, 0.14);
+}
+.slide-state-cell.empty {
+    background: #f2c94c;
+    color: #3d3105;
+}
+.slide-state-cell.running {
+    background: transparent;
+    border: 3px solid rgba(52, 152, 219, 0.26);
+    border-top-color: #3498db;
+    animation: slide-ai-active-spin 0.9s linear infinite;
+}
+.slide-list:not(.grid-view) .slide-status-dot { display: none; }
 
 /* ── 그리드 모드 — 동적 열 수, 큰 썸네일 + 이름 아래 ── */
 body.annotation-page .slide-list:not(.grid-view) {
@@ -1264,11 +1340,17 @@ body.annotation-page .slide-list.grid-view .slide-workflow-cell {
     display: flex; flex-direction: column; gap: 4px;
     padding: 6px; text-align: center;
 }
+.slide-list.grid-view .slide-name-cell {
+    display: contents;
+}
 .slide-list.grid-view .slide-thumb {
     width: 100%; height: var(--slide-thumb-grid);
 }
 .slide-list.grid-view .slide-list-name {
     font-size: 10px; -webkit-line-clamp: 2;
+}
+.slide-list.grid-view .slide-state-cell {
+    display: none;
 }
 .slide-list.grid-view .folder-item .folder-icon {
     font-size: 32px; width: 100%; height: var(--slide-thumb-grid);
@@ -2980,7 +3062,7 @@ body.annotation-page .annotation-list {
 dialog {
     border: none; border-radius: 16px;
     background: var(--bg-white); color: var(--text); padding: 0;
-    min-width: 380px; max-width: 500px;
+    min-width: 380px; max-width: 720px;
     box-shadow: 0 20px 60px rgba(45, 45, 95, 0.25);
 }
 dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px); }
@@ -3008,6 +3090,49 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
 .dialog-body table { width: 100%; border-collapse: collapse; }
 .dialog-body td { padding: 4px 10px; border-bottom: 1px solid var(--border-light); }
 .dialog-body td:first-child { color: var(--text-dim); white-space: nowrap; font-weight: 500; }
+.slide-clinical-editor {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
+}
+.slide-clinical-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.slide-clinical-field {
+    display: grid;
+    gap: 5px;
+}
+.slide-clinical-field span {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+.slide-clinical-field b {
+    color: var(--danger);
+}
+.slide-clinical-field input,
+.slide-clinical-field select {
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-white);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+}
+.slide-clinical-field input:focus,
+.slide-clinical-field select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(111, 83, 226, 0.12);
+}
 
 /* ═══ 시각화 다이얼로그 ═══ */
 #viz-dialog {

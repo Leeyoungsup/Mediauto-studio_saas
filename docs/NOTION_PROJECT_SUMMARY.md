@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.31 |
+| 현재 버전 | 1.1.34 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -40,6 +40,21 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.34
+
+- Prevented thumbnail and preview requests from being created with empty media-ticket query values.
+- Delayed viewer fallback thumbnail/preview loading until media-ticket readiness.
+
+### v1.1.33
+
+- Added AI slide list search by slide name.
+- Added AI page slide list columns for Name, Clinical Info, and AI status.
+
+### v1.1.32
+
+- Added shared slide-level clinical score metadata fields to AI and Annotation Slide Information.
+- Added automatic clinical metadata save on Slide Information close/ESC.
 
 ### v1.1.31
 

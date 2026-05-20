@@ -421,20 +421,43 @@ export const api = {
 
     /** 썸네일 URL (slide_id 기반 — 슬라이드 열린 후).
      *  ndpMatch=true 면 NDP 색 매칭 2차 보정본을 받는다 (Hamamatsu 토글용). */
+    /** Slide-level clinical score metadata shared by AI and annotation viewers. */
+    async getSlideClinicalInfo(slideId) {
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/clinical-info`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async updateSlideClinicalInfo(slideId, clinicalInfo) {
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/clinical-info`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dict_clinical_info: clinicalInfo || {} }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     thumbnailUrl(slideId, size = 300, ndpMatch = false) {
+        const str_ticket = _getMediaTicketSync();
+        if (!str_ticket) return '';
         const str_ndp = ndpMatch ? '&ndp=true' : '';
-        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}${str_ndp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+        return `${API_BASE}/slides/${slideId}/thumbnail?size=${size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 고해상도 프리뷰 URL (PDF 리포트용).  ndpMatch 동일. */
     previewUrl(slideId, size = 2048, ndpMatch = false) {
+        const str_ticket = _getMediaTicketSync();
+        if (!str_ticket) return '';
         const str_ndp = ndpMatch ? '&ndp=true' : '';
-        return `${API_BASE}/slides/${slideId}/preview?size=${size}${str_ndp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+        return `${API_BASE}/slides/${slideId}/preview?size=${size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
     thumbnailUrlByName(filename, path = '', size = 300) {
-        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
+        const str_ticket = _getMediaTicketSync();
+        if (!str_ticket) return '';
+        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${size}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 미디어 티켓이 준비되지 않았다면 기다린다. 슬라이드 뷰어 초기 렌더에서 호출. */

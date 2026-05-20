@@ -2,8 +2,8 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-12';
+import { api } from './api.js?v=20260520-02';
+import { TileViewer } from './tile-viewer.js?v=20260520-14';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -42,6 +42,19 @@ const $progressBar = $('#progress-bar');
 const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
+const LIST_SLIDE_CLINICAL_FIELDS = [
+    { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
+    { key: 'ER_intensity_score', label: 'ER_intensity_score (0 - 3) or na', type: 'input', required: true },
+    { key: 'PR_proportion_score', label: 'PR_proportion_score (0 - 5) or na', type: 'input', required: true },
+    { key: 'PR_intensity_score', label: 'PR_intensity_score (0 - 3) or na', type: 'input', required: true },
+    { key: 'Ki67_index', label: 'Ki67_index(%) or na', type: 'input', required: true },
+    { key: 'PD-L1_CPS_score', label: 'PD-L1_CPS_score or na', type: 'input', required: true },
+    { key: 'ISH_for_HER2_(FISH_SISH)', label: 'ISH_for_HER2_(FISH_SISH)', type: 'select', required: true, options: ['', 'ISH negative', 'ISH positive', 'ISH equivocal', 'na'] },
+    { key: 'IHC_for_C-erbB2', label: 'IHC_for_C-erbB2 (0 - 3)', type: 'input' },
+];
+let _slideClinicalInitialJson = '{}';
+let _slideClinicalDirty = false;
+let _slideInfoClosing = false;
 
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
@@ -888,6 +901,7 @@ $viewerContainer.addEventListener('drop', (e) => {
 
 // Minimap
 async function loadMinimap(slideId) {
+    await api.ensureMediaReady();
     const img = new Image();
     img.onload = () => {
         minimapImage = img;
@@ -901,7 +915,8 @@ async function loadMinimap(slideId) {
         if (body) body.style.width = `${img.width}px`;
         updateMinimap();
     };
-    img.src = api.thumbnailUrl(slideId, 200);
+    const str_url = api.thumbnailUrl(slideId, 200);
+    if (str_url) img.src = str_url;
 }
 
 function updateMinimap() {
@@ -3457,10 +3472,125 @@ if (false) $btnAnnLoad?.addEventListener('click', () => {
     _uploadAnnotations();
 });
 
+function _normalizeSlideClinicalInfo(raw) {
+    const source = raw || {};
+    const normalized = {};
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        normalized[field.key] = String(source[field.key] ?? '');
+    });
+    return normalized;
+}
+
+function _collectSlideClinicalInfo() {
+    const values = {};
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        const el = $slideInfoContent.querySelector(`[data-clinical-key="${CSS.escape(field.key)}"]`);
+        values[field.key] = String(el?.value ?? '').trim();
+    });
+    return values;
+}
+
+function _hasAnyClinicalValue(values) {
+    return Object.values(values || {}).some((value) => String(value || '').trim() !== '');
+}
+
+function _buildSlideClinicalEditor(clinicalInfo) {
+    const normalized = _normalizeSlideClinicalInfo(clinicalInfo);
+    _slideClinicalInitialJson = JSON.stringify(normalized);
+    _slideClinicalDirty = false;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'slide-clinical-editor';
+
+    const title = document.createElement('div');
+    title.className = 'slide-clinical-title';
+    title.textContent = 'Clinical Scores';
+    wrap.appendChild(title);
+
+    LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
+        const row = document.createElement('label');
+        row.className = 'slide-clinical-field';
+
+        const label = document.createElement('span');
+        label.textContent = field.label;
+        if (field.required) {
+            const required = document.createElement('b');
+            required.textContent = ' *';
+            label.appendChild(required);
+        }
+        row.appendChild(label);
+
+        let control;
+        if (field.type === 'select') {
+            control = document.createElement('select');
+            field.options.forEach((optionValue) => {
+                const option = document.createElement('option');
+                option.value = optionValue;
+                option.textContent = optionValue || 'Select';
+                control.appendChild(option);
+            });
+        } else {
+            control = document.createElement('input');
+            control.type = 'text';
+            control.placeholder = 'Enter value or na';
+        }
+        control.dataset.clinicalKey = field.key;
+        control.value = normalized[field.key] || '';
+        control.addEventListener('input', () => { _slideClinicalDirty = true; });
+        control.addEventListener('change', () => { _slideClinicalDirty = true; });
+        row.appendChild(control);
+        wrap.appendChild(row);
+    });
+
+    return wrap;
+}
+
+async function _loadSlideClinicalInfo() {
+    if (!currentSlideId) return currentSlideInfo?.dict_clinical_info || {};
+    try {
+        const res = await api.getSlideClinicalInfo(currentSlideId);
+        const clinicalInfo = res.dict_clinical_info || {};
+        currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: clinicalInfo };
+        return clinicalInfo;
+    } catch (err) {
+        console.warn('[slide-info] clinical info load failed:', err);
+        return currentSlideInfo?.dict_clinical_info || {};
+    }
+}
+
+async function _saveSlideClinicalInfoIfNeeded() {
+    if (!currentSlideId) return;
+    const values = _collectSlideClinicalInfo();
+    const nextJson = JSON.stringify(_normalizeSlideClinicalInfo(values));
+    if (!_slideClinicalDirty && nextJson === _slideClinicalInitialJson) return;
+    if (!_hasAnyClinicalValue(values) && _slideClinicalInitialJson === JSON.stringify(_normalizeSlideClinicalInfo({}))) return;
+
+    const res = await api.updateSlideClinicalInfo(currentSlideId, values);
+    const saved = res.dict_clinical_info || values;
+    currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: saved };
+    _slideClinicalInitialJson = JSON.stringify(_normalizeSlideClinicalInfo(saved));
+    _slideClinicalDirty = false;
+    setStatus('Slide clinical information saved.');
+}
+
+async function _closeSlideInfoDialog() {
+    if (_slideInfoClosing) return;
+    _slideInfoClosing = true;
+    try {
+        await _saveSlideClinicalInfoIfNeeded();
+    } catch (err) {
+        setStatus(`Failed to save slide clinical information: ${err.message}`);
+    } finally {
+        _slideInfoClosing = false;
+        if ($slideInfoDialog.open) $slideInfoDialog.close();
+    }
+}
+
 // Slide information dialog
-$btnInfo.addEventListener('click', () => {
+$btnInfo.addEventListener('click', async () => {
     if (!currentSlideInfo) return;
     const info = currentSlideInfo;
+    const clinicalInfo = await _loadSlideClinicalInfo();
     const mag = info.objective_power !== 'Unknown' ? `${info.objective_power}x` : '-';
     const physW = info.physical_width_mm?.toFixed(2) ?? '-';
     const physH = info.physical_height_mm?.toFixed(2) ?? '-';
@@ -3485,9 +3615,17 @@ $btnInfo.addEventListener('click', () => {
         table.appendChild(tr);
     }
     $slideInfoContent.appendChild(table);
+    $slideInfoContent.appendChild(_buildSlideClinicalEditor(clinicalInfo));
     $slideInfoDialog.showModal();
 });
-$('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close());
+$('#close-slide-info').addEventListener('click', (event) => {
+    event.preventDefault();
+    _closeSlideInfoDialog();
+});
+$slideInfoDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    _closeSlideInfoDialog();
+});
 
 // AI run helpers
 

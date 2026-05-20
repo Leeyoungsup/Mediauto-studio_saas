@@ -13,7 +13,7 @@ from datetime import timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.audit import get_client_ip, log_audit_event
@@ -322,11 +322,16 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["status"] = dict_db.get("str_status") or ""
                 dict_item["ai_status"] = dict_db.get("str_ai_status") or ""
                 dict_item["annotation_status"] = dict_db.get("str_annotation_status") or dict_db.get("str_status") or ""
+                dict_clinical = dict_db.get("dict_clinical_info") or {}
+                dict_item["clinical_info"] = dict_clinical
+                dict_item["has_clinical_info"] = any(str(v or "").strip() for v in dict_clinical.values())
             else:
                 dict_item["ai_results"] = None
                 dict_item["status"] = ""
                 dict_item["ai_status"] = ""
                 dict_item["annotation_status"] = ""
+                dict_item["clinical_info"] = {}
+                dict_item["has_clinical_info"] = False
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
@@ -1390,6 +1395,97 @@ async def get_slide_info(slide_id: str):
         "physical_width_mm": info.physical_width_mm,
         "physical_height_mm": info.physical_height_mm,
         "tiles_ready": tile_generator.tiles_ready(Path(info.file_path).name),
+    }
+
+
+@router.get("/{slide_id}/clinical-info")
+async def get_slide_clinical_info(slide_id: str):
+    """Return per-slide clinical score metadata shared by AI and annotation viewers."""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "Slide not found")
+    if not is_db_connected():
+        return {"slide_id": slide_id, "dict_clinical_info": {}}
+
+    db = get_db()
+    str_rel_path = _rel_path_for(info.file_path)
+    str_filename = Path(info.file_path).name
+    dict_doc = await db.slides.find_one({"str_slide_id": slide_id})
+    if not dict_doc:
+        dict_doc = await db.slides.find_one({
+            "str_rel_path": str_rel_path,
+            "str_filename": str_filename,
+        })
+    return {
+        "slide_id": slide_id,
+        "dict_clinical_info": (dict_doc or {}).get("dict_clinical_info") or {},
+    }
+
+
+@router.patch("/{slide_id}/clinical-info")
+async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
+    """Store per-slide clinical score metadata shared by AI and annotation viewers."""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "Slide not found")
+    if not is_db_connected():
+        raise HTTPException(503, "Database is not connected")
+
+    set_allowed_keys = {
+        "ER_proportion_score",
+        "ER_intensity_score",
+        "PR_proportion_score",
+        "PR_intensity_score",
+        "Ki67_index",
+        "PD-L1_CPS_score",
+        "ISH_for_HER2_(FISH_SISH)",
+        "IHC_for_C-erbB2",
+    }
+    dict_raw = payload.get("dict_clinical_info", payload)
+    if not isinstance(dict_raw, dict):
+        raise HTTPException(400, "Invalid clinical info payload")
+
+    dict_clinical_info = {}
+    for str_key in set_allowed_keys:
+        obj_val = dict_raw.get(str_key, "")
+        if obj_val is None:
+            obj_val = ""
+        dict_clinical_info[str_key] = str(obj_val).strip()[:120]
+
+    db = get_db()
+    str_rel_path = _rel_path_for(info.file_path)
+    str_filename = Path(info.file_path).name
+    dt_now = datetime.now(timezone.utc)
+    result = await db.slides.update_one(
+        {"str_slide_id": slide_id},
+        {"$set": {
+            "dict_clinical_info": dict_clinical_info,
+            "dt_updated_at": dt_now,
+        }},
+    )
+    if result.matched_count == 0:
+        await db.slides.update_one(
+            {"str_rel_path": str_rel_path, "str_filename": str_filename},
+            {
+                "$set": {
+                    "str_slide_id": slide_id,
+                    "str_full_path": info.file_path,
+                    "dict_clinical_info": dict_clinical_info,
+                    "dt_updated_at": dt_now,
+                },
+                "$setOnInsert": {
+                    "str_rel_path": str_rel_path,
+                    "str_filename": str_filename,
+                    "dt_created_at": dt_now,
+                    "dict_ai_results": slide_store._empty_ai_results(),
+                },
+            },
+            upsert=True,
+        )
+
+    return {
+        "slide_id": slide_id,
+        "dict_clinical_info": dict_clinical_info,
     }
 
 

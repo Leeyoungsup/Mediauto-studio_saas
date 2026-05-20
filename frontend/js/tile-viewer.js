@@ -259,9 +259,11 @@ export class TileViewer {
         this._loadThumbnailFallback();
     }
 
-    _loadThumbnailFallback() {
+    async _loadThumbnailFallback() {
         if (!this.slideId) return;
         const str_slide_id = this.slideId;
+        await api.ensureMediaReady();
+        if (this.slideId !== str_slide_id) return;
 
         // ndpMatch 상태를 URL 에 반영 — 서버가 ndpmatch 변형을 리턴
         const bool_ndp = !!this._colorCorrectionEnabled;
@@ -285,7 +287,8 @@ export class TileViewer {
             }
         };
         img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
-        img_small.src = api.thumbnailUrl(str_slide_id, 300, bool_ndp);
+        const str_small_url = api.thumbnailUrl(str_slide_id, 300, bool_ndp);
+        if (str_small_url) img_small.src = str_small_url;
 
         // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
         const img_hi = new Image();
@@ -295,7 +298,8 @@ export class TileViewer {
             this.requestRender();
         };
         img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
-        img_hi.src = api.previewUrl(str_slide_id, 2048, bool_ndp);
+        const str_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
+        if (str_hi_url) img_hi.src = str_hi_url;
     }
 
     _preloadAllStageLevels() {

@@ -2,6 +2,27 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.34] - 2026-05-20
+
+### Fixed
+
+- Prevented thumbnail and preview image URLs from being requested with an empty media ticket.
+- Delayed viewer fallback thumbnail/preview loading until a media ticket is ready.
+
+## [1.1.33] - 2026-05-20
+
+### Added
+
+- Added AI slide list name search.
+- Added Name, Clinical Info, and AI status columns to the AI slide list.
+
+## [1.1.32] - 2026-05-20
+
+### Added
+
+- Added shared slide clinical score metadata fields to the AI and annotation Slide Information dialog.
+- Added slide-level clinical metadata API endpoints and automatic save on dialog close/ESC.
+
 ## [1.1.31] - 2026-05-20
 
 ### Fixed
