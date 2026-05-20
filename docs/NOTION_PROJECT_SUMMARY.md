@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.13 |
+| 현재 버전 | 1.1.14 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -40,6 +40,11 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.14
+
+- AI viewer shortcut help를 annotation 페이지와 같은 Shortcuts modal UX로 정리
+- AI Analysis help 내용을 영어로 통일
 
 ### v1.1.13
 

@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.14] - 2026-05-20
+
+### Changed
+
+- Reworked the AI viewer shortcut help to use the annotation-style Shortcuts modal with mouse icons and preview support.
+- Updated AI Analysis help text to English across AI and annotation viewers.
+
 ## [1.1.13] - 2026-05-20
 
 ### Fixed

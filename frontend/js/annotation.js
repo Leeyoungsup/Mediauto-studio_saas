@@ -1,32 +1,32 @@
 /**
- * MeDIAuto Studio SaaS — 메인 앱
- * 기존 PyQt5 viewer.py의 UI 로직을 JS로 포팅
+ * MeDIAuto Studio SaaS ??메인 ??
+ * 기존 PyQt5 viewer.py??UI 로직??JS�??�팅
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-10';
+import { TileViewer } from './tile-viewer.js?v=20260520-11';
 import { showVisualization } from './visualization.js';
 
-// ── 미로그인 가드 ──
-// 토큰 없는 상태에서 /ai 로 직접 들어오면 뷰어 UI 가 잠깐 그려진 뒤 api.me()
-// 의 401 까지 보고서야 리다이렉트가 일어나 깜빡임이 생긴다. home.js 와 동일한
-// 패턴으로 첫 줄에서 차단. replace() 로 history 에 이 broken state 가 안 남게.
+// ???? 미로그인 �???????
+// ?�큰 ?�는 ?�태?�서 /ai �?직접 ?�어?�면 뷰어 UI �? ?�깐 그려�???api.me()
+// ??401 까�? 보고?�야 리다?�렉?��? ?�어??깜빡?�이 ?�긴?? home.js ?? ?�일??
+// ?�턴?�로 �?줄에??차단. replace() �?history ????broken state �? ???�게.
 if (!localStorage.getItem('access_token')) {
     window.location.replace('/login');
-    // 모듈 본체는 곧 navigation 으로 unload 되지만, 이후 코드가 실행되면서 발생하는
-    // null 참조를 막기 위해 명시적으로 throw — 콘솔 에러 한 줄로 끝난다.
-    throw new Error('Not authenticated — redirecting to /login');
+    // 모듈 본체??�?navigation ?�로 unload ?��?�? ?�후 코드�? ?�행?�면??발생?�는
+    // null 참조�?막기 ?�해 명시?�으�?throw ??콘솔 ?�러 ??줄로 ?�난??
+    throw new Error('Not authenticated ??redirecting to /login');
 }
 
-// HTML escape — innerHTML 에 들어갈 신뢰 불가 문자열 (filename, annotation name,
-// vendor 등) 에 반드시 통과시켜 stored XSS 차단.
+// HTML escape ??innerHTML ???�어�??�뢰 불�? 문자??(filename, annotation name,
+// vendor ?? ??반드???�과?�켜 stored XSS 차단.
 function _esc(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ── DOM 요소 ──
+// ???? DOM ?�소 ????
 const $ = (sel) => document.querySelector(sel);
 
 function _isAnnotationPage() {
@@ -53,7 +53,7 @@ const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
 
-// 사용자 메뉴
+// ?�용??메뉴
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
 const $projectUserName = $('#project-user-name');
@@ -61,7 +61,7 @@ const $projectUserRole = $('#project-user-role');
 const $projectBtnLogout = $('#project-btn-logout');
 const $projectLinkAdmin = $('#project-link-admin');
 
-// 툴바 버튼
+// ?�바 버튼
 const $btnOpen = $('#btn-open');
 const $btnInfo = $('#btn-info');
 const $btnFit = $('#btn-fit');
@@ -74,16 +74,16 @@ const $btnSaveResults = $('#btn-save-results');
 const $btnLoadResults = $('#btn-load-results');
 let _lastDetectionResult = null;
 let _lastDetectionTissue = null;
-// 현재 뷰어에 올라간 결과의 AI 모드 ("Quanti HE" | "Quanti PD-L1" | "Quanti IHC")
+// ?�재 뷰어???�라�?결과??AI 모드 ("Quanti HE" | "Quanti PD-L1" | "Quanti IHC")
 let _lastDetectionModel = null;
-// 로드된 결과를 onXxxComplete 로 재투입할 때 필요한 ROI (없으면 null)
+// 로드??결과�?onXxxComplete �??�투?�할 ???�요??ROI (?�으�?null)
 let _lastDetectionRoi = null;
 
 function _isViewerRole() {
     return window.__currentUserRole === 'viewer';
 }
 
-function _blockViewerAction(message = 'Viewer 권한은 AI/annotation 기능을 사용할 수 없습니다.') {
+function _blockViewerAction(message = 'Viewer 권한?? AI/annotation 기능???�용?????�습?�다.') {
     if (!_isViewerRole()) return false;
     _applyViewerRoleRestrictions();
     setStatus(message);
@@ -146,7 +146,7 @@ const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
 
-// ── 상태 ──
+// ???? ?�태 ????
 let currentSlideId = null;
 let currentSlideInfo = null;
 let currentSlideFilename = '';
@@ -249,7 +249,7 @@ function _nextAnnotationWorkflowStatus(status) {
     return ANNOTATION_WORKFLOW_ORDER[Math.min(int_current + 1, ANNOTATION_WORKFLOW_ORDER.length - 1)];
 }
 
-// ── 뷰어 초기화 ──
+// ???? 뷰어 초기??????
 const viewer = new TileViewer($canvas, $overlay);
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
@@ -257,14 +257,14 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
 };
 viewer.onViewChange = () => updateMinimap();
 
-// ── 슬라이드 초기 3-stage 프리로드 로딩창 ──
-// 프로그래스 바가 가리키는 것은 **클라이언트 측 stage 2 타일 다운로드 진행률** 이다.
-// 서버의 tile_generator 진행률은 따로 있지만 (지금은 미사용), 사용자가 실제로
-// "기다리는" 시간은 서버 생성 + 클라이언트 HTTP 다운로드 둘 다. 그래서 바 자체가
-// 클라이언트 preload 에만 매핑되도록 해두면:
-//   - 이미 타일이 디스크에 있는 슬라이드: 다운로드가 빠르게 → 바 빠르게 찬다
-//   - 아직 생성 중인 슬라이드: 서버 생성 대기로 HTTP 가 느리게 → 바 느리게 찬다
-// "바 100% = 화면 준비 완료" 라는 직관과 일치.
+// ???? ?�라?�드 초기 3-stage ?�리로드 로딩�?????
+// ?�로그래??바�? �?리키??것�? **?�라?�언??�?stage 2 ?????�운로드 진행�?* ?�다.
+// ?�버??tile_generator 진행률�? ?�로 ?��?�?(�?금�? 미사??, ?�용?��? ?�제�?
+// "기다리는" ?�간?? ?�버 ?�성 + ?�라?�언??HTTP ?�운로드 ???? 그래??�??�체�?
+// ?�라?�언??preload ?�만 매핑?�도�??�두�?
+//   - ?��? ???�이 ?�스?�에 ?�는 ?�라?�드: ?�운로드�? 빠르�???�?빠르�?찬다
+//   - ?�직 ?�성 중인 ?�라?�드: ?�버 ?�성 ??기로 HTTP �? ?�리�???�??�리�?찬다
+// "�?100% = ?�면 �?�??�료" ?�는 직�?�??�치.
 const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
 const $slideLoadingBarFill = document.getElementById('slide-loading-bar-fill');
 const $slideLoadingPct = document.getElementById('slide-loading-pct');
@@ -291,7 +291,7 @@ viewer.onPreloadComplete = () => {
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
 };
 
-// ── 마우스 좌표 오버레이 (씬 좌표 기준 px) ──
+// ???? 마우??좌표 ?�버?�이 (??좌표 기�? px) ????
 const $mousePosOverlay = $('#mouse-pos-overlay');
 if ($mousePosOverlay) {
     $canvas.addEventListener('mousemove', (e) => {
@@ -301,13 +301,13 @@ if ($mousePosOverlay) {
         $mousePosOverlay.textContent = `x: ${Math.round(sx)}px, y: ${Math.round(sy)}px`;
     });
     $canvas.addEventListener('mouseleave', () => {
-        // 값은 유지하되 살짝 흐리게
+        // 값�? ?��??�되 ?�짝 ?�리�?
     });
 }
 
-// ═══════════════════════════
-// 탭 전환
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ???�환
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 function _activateAiTab(str_tab_id) {
     const btn = document.querySelector(`.tab-btn[data-tab="${str_tab_id}"]`);
     const content = document.getElementById(str_tab_id);
@@ -328,26 +328,25 @@ if (_isAnnotationPage()) {
     _activateAiTab('vs-tab');
 }
 
-// ── AI Analysis 도움말 (현재 탭의 모델 설명) ──
+// ???? AI Analysis ?��?�?(?�재 ??�� 모델 ?�명) ????
 const AI_MODEL_HELP = {
     'hne-tab': {
-        title: 'Quanti HE — H&E Cell Detection',
-        body: 'H&E 염색 슬라이드에서 개별 세포를 검출하고 8가지 클래스로 분류합니다 (Neutrophil, Epithelial, Lymphocyte, Plasma, Eosinophil, Stromal cell, Tumor Epithelial, Benign Epithelial). Tumor Proportion (Tumor/(Tumor+Benign)) 을 자동 계산합니다. 조직 타입 (Breast/Stomach/Other) 에 따라 전용 가중치를 사용합니다.',
+        title: 'Quanti HE - H&E Cell Detection',
+        body: 'Detects individual cells on H&E slides and classifies them into supported cell categories. Breast, Stomach, and Other presets tune the downstream scoring context. Other/background classes are kept out of scoring unless they are explicitly promoted into a visible result class.',
     },
     'vs-tab': {
-        title: 'VS IHC — Virtual Staining',
-        body: 'IHC 슬라이드를 입력으로 가상의 H&E 이미지를 생성합니다 (Membrane/Nucleus 모델). Target Resolution (µm/px) 가 낮을수록 고배율 상세 이미지이지만 연산 비용이 큽니다 (기본 2.0 µm/px ≈ x5). 결과는 뷰어 오버레이 및 Split view 로 원본과 비교할 수 있습니다.',
+        title: 'VS IHC - Virtual Staining',
+        body: 'Generates a virtual H&E image from an IHC slide. Target Resolution controls the output scale: lower microns per pixel gives finer detail with higher compute cost. Results can be reviewed as an overlay or with split view against the original slide.',
     },
     'pd-tab': {
-        title: 'Quanti PD-L1 — PD-L1 Scoring',
-        body: 'PD-L1 IHC 슬라이드에서 세포를 검출해 PD-L1 점수를 계산합니다. Stomach: CPS = (Positive Tumor + Positive Immune) / Viable Tumor × 100. Lung: TPS = Positive Tumor / (Pos + Neg Tumor) × 100. 검증된 고정 confidence threshold 0.1 이상의 셀만 점수에 반영됩니다 (SaMD 재현성 보장).',
+        title: 'Quanti PD-L1 - PD-L1 Scoring',
+        body: 'Detects PD-L1 IHC result cells and calculates the selected score. Stomach uses CPS = (positive tumor + positive immune) / viable tumor x 100. Lung uses TPS = positive tumor / total tumor x 100. Hidden Other cells are excluded from visualization and score calculations unless reclassified.',
     },
     'ihc-tab': {
-        title: 'Quanti IHC — HER2 / ER / PR / KI-67',
-        body: 'Quanti IHC 모델은 IHC 슬라이드 상에서 염색 강도 (0+/1+/2+/3+) 로 세포를 분류합니다. HER2 는 Dominant intensity 와 weighted mean (∑(i·nᵢ)/∑nᵢ) 으로, ER/PR 은 Allred Score (Proportion 0–5 + Intensity 0–3 = Total 0–8) 로, KI-67 은 Labeling Index (Positive / Total × 100%) 로 판독합니다.',
+        title: 'Quanti IHC - HER2 / ER / PR / KI-67',
+        body: 'Classifies IHC-positive and IHC-negative result cells for marker-specific scoring. HER2 is summarized from intensity classes, ER/PR use Allred-style proportion and intensity scoring, and KI-67 reports a labeling index based on positive over total counted cells.',
     },
-};
-const $aiHelpIcon = document.querySelector('#ai-help-icon');
+};const $aiHelpIcon = document.querySelector('#ai-help-icon');
 let _aiHelpTooltip = null;
 function _showAiHelpTooltip() {
     if (!$aiHelpIcon) return;
@@ -378,9 +377,9 @@ if ($aiHelpIcon) {
     $aiHelpIcon.addEventListener('blur', _hideAiHelpTooltip);
 }
 
-// ═══════════════════════════
-// 사용자 인증 UI
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�용???�증 UI
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 if ($btnLogout) {
     $btnLogout.addEventListener('click', () => {
         _stopAiActivePolling();
@@ -394,10 +393,10 @@ if ($projectBtnLogout) {
     });
 }
 
-// ═══════════════════════════
-// 파일 열기 + 업로드
-// ═══════════════════════════
-// ── 업로드 팝업 ──
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�일 ?�기 + ?�로??
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ???? ?�로???�업 ????
 function openUploadPopup(files, targetPath = currentBrowsePath) {
     const projectName = (targetPath || '').split('/').filter(Boolean)[0] || '';
     if (!projectName) {
@@ -421,31 +420,31 @@ $fileInput.addEventListener('change', (e) => {
     e.target.value = '';
 });
 
-// 팝업에서 업로드 완료 알림 수신
+// ?�업?�서 ?�로???�료 ?�림 ?�신
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'upload-complete') {
         loadSlideList();
-        setStatus(`${e.data.count}개 파일 업로드 완료`);
+        setStatus(`${e.data.count}�??�일 ?�로???�료`);
     }
 });
 
 const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 
-// uploadFiles — 드래그 앤 드롭 등에서 호출 시 팝업으로 전달
+// uploadFiles ???�래�????�롭 ?�에???�출 ???�업?�로 ?�달
 async function uploadFiles(fileList, _targetPath) {
     const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
     if (!files.length) {
-        setStatus('지원하는 슬라이드 파일이 없습니다');
+        setStatus('�??�하???�라?�드 ?�일???�습?�다');
         return;
     }
     openUploadPopup(fileList, _targetPath || currentBrowsePath);
 }
 
-// 하위 호환 — 기존 uploadOneFile 참조 방지 (사용처 없음)
-async function uploadOneFile() { /* deprecated — upload 팝업 사용 */ return null; }
+// ?�위 ?�환 ??기존 uploadOneFile 참조 방�? (?�용�??�음)
+async function uploadOneFile() { /* deprecated ??upload ?�업 ?�용 */ return null; }
 
-// ── Scanner/Vendor 배지 ──
-// openslide vendor string 은 소문자 키워드 형태. 인라인 SVG 로고로 매핑.
+// ???? Scanner/Vendor 배�? ????
+// openslide vendor string ?? ?�문???�워???�태. ?�라??SVG 로고�?매핑.
 const SCANNER_META = {
     'hamamatsu': {
         label: 'Hamamatsu',
@@ -503,7 +502,7 @@ function _updateScannerBadge(slideInfo) {
         return;
     }
 
-    // 키워드 매칭 (openslide 의 vendor 값은 'hamamatsu', 'aperio', 'mirax', ... 등)
+    // ?�워??매칭 (openslide ??vendor 값�? 'hamamatsu', 'aperio', 'mirax', ... ??
     let meta = null;
     for (const [key, m] of Object.entries(SCANNER_META)) {
         if (str_vendor.includes(key)) { meta = m; break; }
@@ -515,8 +514,8 @@ function _updateScannerBadge(slideInfo) {
     const list_details = [int_mag, str_mpp].filter(Boolean);
     const str_info = list_details.join(' · ');
 
-    // meta.label / meta.svg 는 코드 내 정의된 안전한 상수.
-    // slideInfo.vendor 는 슬라이드 파일 메타 — 신뢰 불가 → escape.
+    // meta.label / meta.svg ??코드 ???�의???�전???�수.
+    // slideInfo.vendor ???�라?�드 ?�일 메�? ???�뢰 불�? ??escape.
     if (meta) {
         $slideScanner.innerHTML = `
             <span class="scanner-logo" title="${_esc(meta.label)}">${meta.svg}</span>
@@ -524,7 +523,7 @@ function _updateScannerBadge(slideInfo) {
         `;
         $slideScanner.style.borderLeftColor = meta.color;
     } else {
-        // 알려지지 않은 vendor: escape 한 뒤 표시
+        // ?�려�?�? ?��? vendor: escape ?????�시
         $slideScanner.innerHTML = `
             <span class="scanner-logo scanner-logo-text">${_esc(slideInfo.vendor)}</span>
             ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
@@ -534,10 +533,10 @@ function _updateScannerBadge(slideInfo) {
     $slideScanner.hidden = false;
 }
 
-// ── NDP 색보정 toggle (Hamamatsu 전용) ──
-// 피팅값: γ=1.094, white=247.91, affine 3x4 — color_match_analysis.ipynb 에서
-// MeDIAuto Studio 타일 픽셀 ↔ NDP.view2 픽셀 5쌍 정합 후 최소제곱으로 유도.
-// RMSE 4.21. color-correction.js 의 NDP_FIT 에서 관리.
+// ???? NDP ?�보??toggle (Hamamatsu ?�용) ????
+// ?�팅�? γ=1.094, white=247.91, affine 3x4 ??color_match_analysis.ipynb ?�서
+// MeDIAuto Studio ?????��? ??NDP.view2 ?��? 5???�합 ??최소?�곱?�로 ?�도.
+// RMSE 4.21. color-correction.js ??NDP_FIT ?�서 �?�?
 const $btnNdpColor = document.getElementById('btn-ndp-color');
 const $ndpColorState = $btnNdpColor ? $btnNdpColor.querySelector('.ndp-color-state') : null;
 
@@ -547,13 +546,13 @@ function _updateNdpColorToggleVisibility(slideInfo) {
     const bool_is_hamamatsu = str_vendor === 'hamamatsu';
     $btnNdpColor.hidden = !bool_is_hamamatsu;
     if (bool_is_hamamatsu) {
-        // Hamamatsu 슬라이드: 기본 ON — NDP.view2 색감이 표준이고
-        // 보정 없이 보면 푸르스름하게 보여 사용자 첫 인상이 나쁘다.
+        // Hamamatsu ?�라?�드: 기본 ON ??NDP.view2 ?�감???��??�고
+        // 보정 ?�이 보면 ?�르?�름?�게 보여 ?�용??�??�상???�쁘??
         viewer.setColorCorrectionEnabled(true);
         $btnNdpColor.classList.add('active');
         if ($ndpColorState) $ndpColorState.textContent = 'ON';
     } else {
-        // 비-Hamamatsu 슬라이드: 항상 OFF 로 되돌림 (피팅이 의미 없음)
+        // �?Hamamatsu ?�라?�드: ??�� OFF �??�돌�?(?�팅???��? ?�음)
         viewer.setColorCorrectionEnabled(false);
         $btnNdpColor.classList.remove('active');
         if ($ndpColorState) $ndpColorState.textContent = 'OFF';
@@ -580,8 +579,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     _annotationWorkflowFinished = _annotationWorkflowRawStatus(currentAnnotationStatus) === 'termination';
     _syncAnnotationStatusControl(currentAnnotationStatus);
 
-    // 슬라이드 전환 — 이전 슬라이드의 sticky 클래스는 의미 없음 (class id/이름 매핑이
-    // 새 detection 결과에 따라 다를 수 있음). HUD 도 같이 숨김.
+    // ?�라?�드 ?�환 ???�전 ?�라?�드??sticky ?�래?�는 ?��? ?�음 (class id/?�름 매핑??
+    // ??detection 결과???�라 ?��? ???�음). HUD ??같이 ?��?.
     _stickyAddClassId = null;
     _hideStickyHud();
 
@@ -590,7 +589,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     _updateNdpColorToggleVisibility(slideInfo);
     setStatus(`Loaded: ${slideInfo.dimensions[0]}x${slideInfo.dimensions[1]} (${slideInfo.level_count} levels)`);
 
-    // 버튼 활성화
+    // 버튼 ?�성??
     $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
@@ -603,33 +602,33 @@ function onSlideLoaded(slideId, slideInfo, filename) {
         $btnSlideMemo.classList.remove('has-memo', 'has-history');
     }
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
-    // tissue-type 라디오도 기본 활성 — 이후 폴더 제한이 있으면 덮어씀
+    // tissue-type ?�디?�도 기본 ?�성 ???�후 ?�더 ?�한???�으�???��??
     document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
         el.disabled = false;
     });
 
-    // 폴더별 AI 자동 분석 설정이 있으면 해당 task 만 활성화, 나머지는 disabled.
+    // ?�더�?AI ?�동 분석 ?�정???�으�??�당 task �??�성?? ?�머�???disabled.
     if (!_isViewerRole() && !_isAnnotationPage()) {
         _applyFolderAiRestrictions(currentBrowsePath);
     }
 
-    // Viewer 역할은 AI / annotation 기능 전면 비활성. 폴더 제한보다 우선.
+    // Viewer ??��?? AI / annotation 기능 ?�면 비활?? ?�더 ?�한보다 ?�선.
     if (_isViewerRole()) {
         _applyViewerRoleRestrictions();
     }
 
-    // 뷰어 로드 (타일은 요청 시 즉석 생성 + 백그라운드 프리제네레이션)
+    // 뷰어 로드 (???��? ?�청 ??즉석 ?�성 + 백그?�운???�리?�네?�이??
     viewer.loadSlide(slideId, slideInfo);
 
     if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
-    // 미니맵
+    // 미니�?
     loadMinimap(slideId);
 
-    // 결과 초기화
+    // 결과 초기??
     clearResults();
 
-    // VS IHC 오버레이 초기화
+    // VS IHC ?�버?�이 초기??
     viewer.clearVirtualStainOverlay();
     _setVsToggleState(false, true);
     _setVsSplitState(false, true);
@@ -701,7 +700,7 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
         const boolRunning = _annotationRunningStep === strTarget;
         const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
-        const strAction = boolComplete ? '완료' : (boolRunning ? '진행중' : (boolActive ? '▶' : '-'));
+        const strAction = boolComplete ? '?�료' : (boolRunning ? '진행�? : (boolActive ? '?? : '-'));
         btn.textContent = `${strLabel} ${strAction}`;
         btn.classList.toggle('is-active', boolActive);
         btn.classList.toggle('is-complete', boolComplete);
@@ -713,8 +712,8 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) connectorA.textContent = intCurrent > 0 ? '✓' : '-';
-    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? '✓' : '-';
+    if (connectorA) connectorA.textContent = intCurrent > 0 ? '?? : '-';
+    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? '?? : '-';
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {
@@ -736,13 +735,13 @@ function _setSlideListItemAnnotationStatus(filename, status) {
     }
 }
 
-// ═══════════════════════════
-// 폴더별 AI 자동 분석 제한
-// ──
-// 폴더에 자동 분석 설정이 저장돼 있으면 (bool_enabled=true AND tasks 존재),
-// 해당 task(model+variant) 에 속하지 않는 AI 버튼/라디오를 모두 disabled 로 만든다.
-// 설정이 없거나 enabled=false 면 아무것도 제한하지 않는다 (기본 모두 활성).
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�더�?AI ?�동 분석 ?�한
+// ????
+// ?�더???�동 분석 ?�정?????�돼 ?�으�?(bool_enabled=true AND tasks 존재),
+// ?�당 task(model+variant) ???�하�? ?�는 AI 버튼/?�디?��? 모두 disabled �?만든??
+// ?�정???�거??enabled=false �??�무것도 ?�한?��? ?�는??(기본 모두 ?�성).
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 
 async function _applyFolderAiRestrictions(strFolderPath) {
     if (_isViewerRole()) return;
@@ -751,7 +750,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     try {
         cfg = await api.getFolderAiConfig(strFolderPath || '');
     } catch (err) {
-        console.warn('[folder-ai-restrict] load 실패:', err);
+        console.warn('[folder-ai-restrict] load ?�패:', err);
         return;
     }
     if (_isViewerRole()) return;
@@ -775,7 +774,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
             if (bool_ok && bool_first_ok === null) bool_first_ok = el;
             if (bool_ok && el.checked) bool_current_ok = true;
         });
-        // 현재 선택된 것이 허용되지 않으면 첫 허용 옵션으로 자동 전환
+        // ?�재 ?�택??것이 ?�용?��? ?�으�?�??�용 ?�션?�로 ?�동 ?�환
         if (!bool_current_ok && bool_first_ok) {
             bool_first_ok.checked = true;
             bool_first_ok.dispatchEvent(new Event('change', { bubbles: true }));
@@ -791,16 +790,16 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     const bool_pd_any = _restrictRadios('pd-tissue-type', 'Quanti PD-L1');
     if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
 
-    // Quanti IHC — 마커별 버튼 단위
+    // Quanti IHC ??마커�?버튼 ?�위
     if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Quanti IHC::HER2');
     if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Quanti IHC::ER_PR');
     if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Quanti IHC::KI_67');
 
-    // VS IHC — ihc_membrane 모델이 모든 케이스 처리. target_mpp 는 제한 안 함.
+    // VS IHC ??ihc_membrane 모델??모든 �??�스 처리. target_mpp ???�한 ????
     const bool_vs_any = set_allowed.has('VS IHC::ihc_membrane');
     $btnVsMembrane.disabled = !bool_vs_any;
 
-    // ── 활성 모델이 없는 탭 전체 숨김 ──
+    // ???? ?�성 모델???�는 ???�체 ?��? ????
     const dict_tab_visible = {
         'hne-tab': bool_hnf_any,
         'vs-tab': bool_vs_any,
@@ -827,7 +826,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         if (bool_show && !str_first_visible) str_first_visible = str_tab_id;
     }
 
-    // 첫 번째 보이는 탭을 활성화
+    // �?번째 보이????�� ?�성??
     if (str_first_visible) {
         const el_new_btn = document.querySelector(`.tab-btn[data-tab="${str_first_visible}"]`);
         const el_new_content = document.getElementById(str_first_visible);
@@ -839,14 +838,14 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     }
 }
 
-// ═══════════════════════════
-// Viewer 역할 제한 — AI 기능 / annotation 전면 비활성
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// Viewer ??�� ?�한 ??AI 기능 / annotation ?�면 비활??
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 function _applyViewerRoleRestrictions() {
     document.body.classList.add('role-viewer');
     _stopAiActivePolling();
 
-    // Annotation 그리기 도구 (상단 툴바)
+    // Annotation 그리�??�구 (?�단 ?�바)
     const list_draw_btns = ['btn-draw-polygon', 'btn-draw-brush', 'btn-draw-rect', 'btn-draw-point', 'btn-cut-polygon',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
@@ -854,13 +853,13 @@ function _applyViewerRoleRestrictions() {
         if (el) {
             el.disabled = true;
             el.classList.remove('active');
-            el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다';
+            el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다';
         }
     });
-    // 그리기 모드가 켜져있었다면 해제
+    // 그리�?모드�? 켜져?�었?�면 ?�제
     if (viewer && viewer.drawMode) viewer.setDrawMode(null);
 
-    // AI 분석 버튼 전체 비활성
+    // AI 분석 버튼 ?�체 비활??
     const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
         'btn-ihc-ki67', 'btn-vs-membrane', 'btn-vs-toggle', 'btn-vs-split',
@@ -870,45 +869,45 @@ function _applyViewerRoleRestrictions() {
         const el = document.getElementById(id);
         if (el) {
             el.disabled = true;
-            el.title = 'Viewer 권한은 AI 분석 기능을 사용할 수 없습니다.';
+            el.title = 'Viewer 권한?? AI 분석 기능???�용?????�습?�다.';
         }
     });
 
-    // AI 입력 (tissue-type radio 등) 비활성
+    // AI ?�력 (tissue-type radio ?? 비활??
     document.querySelectorAll(
         '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button'
     ).forEach(el => {
         el.disabled = true;
-        if (!el.title) el.title = 'Viewer 권한은 AI 분석 기능을 사용할 수 없습니다.';
+        if (!el.title) el.title = 'Viewer 권한?? AI 분석 기능???�용?????�습?�다.';
     });
 
-    // Annotation 패널의 저장/불러오기/초기화 버튼
+    // Annotation ?�널??????불러?�기/초기??버튼
     ['btn-ann-clear', 'btn-ann-save',
      'btn-slide-memo',
      'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.disabled = true;
-            el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다.';
+            el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다.';
         }
     });
 
     document.querySelectorAll('.annotation-group button, .annotation-group input, .annotation-group select').forEach(el => {
         el.disabled = true;
-        if (!el.title) el.title = 'Viewer 권한은 annotation 기능을 사용할 수 없습니다.';
+        if (!el.title) el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다.';
     });
 }
 
-// ═══════════════════════════
-// 드래그 앤 드롭
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�래�????�롭
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 const $viewerContainer = $('#viewer-container');
 
-// OS 파일 드래그만 감지 (뷰어 내부 요소/텍스트 드래그는 무시)
+// OS ?�일 ?�래그만 감�? (뷰어 ?��? ?�소/?�스???�래그는 무시)
 function _isFileDrag(e) {
     const t = e.dataTransfer && e.dataTransfer.types;
     if (!t) return false;
-    // DOMStringList / Array 모두 지원
+    // DOMStringList / Array 모두 �???
     if (typeof t.contains === 'function') return t.contains('Files');
     return Array.from(t).includes('Files');
 }
@@ -931,9 +930,9 @@ $viewerContainer.addEventListener('drop', (e) => {
     if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files, currentBrowsePath);
 });
 
-// ═══════════════════════════
-// 미니맵
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// 미니�?
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 async function loadMinimap(slideId) {
     const img = new Image();
     img.onload = () => {
@@ -956,7 +955,7 @@ function updateMinimap() {
     const vr = viewer.getViewRect();
     if (!vr) return;
     const [imgW, imgH] = currentSlideInfo.dimensions;
-    // CSS width 기준 (리사이즈 대응)
+    // CSS width 기�? (리사?�즈 ????
     const displayW = $minimapCanvas.clientWidth || $minimapCanvas.width;
     const displayH = $minimapCanvas.clientHeight || $minimapCanvas.height;
     const sx = displayW / imgW;
@@ -977,18 +976,18 @@ $minimapCanvas.addEventListener('click', (e) => {
     );
 });
 
-// 미니맵 최소화 토글
+// 미니�?최소???��?
 const $minimapToggle = $('#minimap-toggle');
 const $minimapIcon = $('#minimap-toggle-icon');
 $minimapToggle?.addEventListener('click', (e) => {
     e.stopPropagation();
     const minimized = $minimapContainer.classList.toggle('minimized');
-    // minimize: — icon, expand: + icon
+    // minimize: ??icon, expand: + icon
     $minimapIcon.setAttribute('d', minimized ? 'M3 7h8M7 3v8' : 'M3 7h8');
     $minimapToggle.title = minimized ? 'Expand' : 'Minimize';
 });
 
-// 미니맵 리사이즈 (오른쪽 위 모서리 드래그 → 크기 조절)
+// 미니�?리사?�즈 (?�른�???모서�??�래�????�기 조절)
 const $minimapResize = $('#minimap-resize');
 const $minimapBody = $('#minimap-body');
 let _minimapResizing = false;
@@ -1012,16 +1011,16 @@ $minimapResize?.addEventListener('pointermove', (e) => {
 $minimapResize?.addEventListener('pointerup', () => { _minimapResizing = false; });
 $minimapResize?.addEventListener('pointercancel', () => { _minimapResizing = false; });
 
-// ═══════════════════════════
-// 줌 컨트롤
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// �?컨트�?
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 $btnZoomIn.addEventListener('click', () => viewer.zoomIn());
 $btnZoomOut.addEventListener('click', () => viewer.zoomOut());
 $btnFit.addEventListener('click', () => viewer.fitToWindow());
 
-// ═══════════════════════════
-// Annotation 그리기 도구
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// Annotation 그리�??�구
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 const drawButtons = {
     polygon: $btnDrawPolygon,
     brush: $btnDrawBrush,
@@ -1034,8 +1033,8 @@ const drawButtons = {
 };
 
 function setDrawMode(mode) {
-    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
-    // 같은 버튼 다시 클릭 → 해제
+    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
+    // 같�? 버튼 ?�시 ?�릭 ???�제
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
@@ -1056,7 +1055,7 @@ if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMo
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
 if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
-// ── UX 기능 설명 모달 ──
+// ???? UX 기능 ?�명 모달 ????
 const $btnUxHelp = $('#btn-ux-help');
 const $uxHelpModal = $('#shortcuts-modal');
 const $uxHelpClose = $('#shortcuts-close');
@@ -1162,7 +1161,7 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-// ── 모바일 패널 토글 (≤900px) ──
+// ???? 모바???�널 ?��? (??00px) ????
 const $btnToggleLeft = $('#btn-toggle-left');
 const $btnToggleRight = $('#btn-toggle-right');
 const $mobileBackdrop = $('#mobile-backdrop');
@@ -1186,18 +1185,18 @@ window.addEventListener('keydown', (e) => {
         _closeMobilePanels();
     }
 });
-// 브레이크포인트 넘어가면 drawer 상태 정리
+// 브레?�크?�인???�어�?�?drawer ?�태 ?�리
 window.matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
     if (!e.matches) _closeMobilePanels();
 });
 
-// ESC 등으로 drawMode가 변경될 때 버튼 동기화
+// ESC ?�으�?drawMode�? �?경될 ??버튼 ?�기??
 viewer.onDrawModeChange = (mode) => {
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
     if (mode && drawButtons[mode]) drawButtons[mode].classList.add('active');
 };
 
-// ── Annotation Panel ──
+// ???? Annotation Panel ????
 const $annList = $('#annotation-list');
 const $annStylePanel = $('#annotation-style-panel');
 const $annStyleControls = $annStylePanel?.querySelector('.annotation-style-controls');
@@ -1268,7 +1267,7 @@ function _makeClassId(name) {
     const base = String(name || 'Class')
         .trim()
         .toLowerCase()
-        .replace(/[^a-z0-9가-힣_-]+/g, '_')
+        .replace(/[^a-z0-9�?-??-]+/g, '_')
         .replace(/^_+|_+$/g, '') || 'class';
     let id = base;
     let i = 2;
@@ -1475,13 +1474,13 @@ function renderClassManagementPanel() {
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
             <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '◌' : '●'}</button>
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '?? : '??}</button>
             <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
         ` : `
             <button type="button" class="class-active-btn" title="Select class"></button>
             <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
             <span class="class-name-label" title="${_esc(cls.name)}">${_esc(cls.name)}</span>
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '◌' : '●'}</button>
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '?? : '??}</button>
             <span class="class-shortcut-label">${_annotationClasses.indexOf(cls) < 9 ? _annotationClasses.indexOf(cls) + 1 : _annotationClasses.indexOf(cls) === 9 ? 0 : ''}</span>
         `;
         const activeBtn = row.querySelector('.class-active-btn');
@@ -1597,7 +1596,7 @@ function _normalizeProjectClassList(list) {
         const base = String(cls?.id || name)
             .trim()
             .toLowerCase()
-            .replace(/[^a-z0-9가-힣_-]+/g, '_')
+            .replace(/[^a-z0-9�?-??-]+/g, '_')
             .replace(/^_+|_+$/g, '') || 'class';
         let id = base;
         let n = 2;
@@ -1651,7 +1650,7 @@ async function _openProjectClassManager(project) {
         const base = String(name || 'Class')
             .trim()
             .toLowerCase()
-            .replace(/[^a-z0-9가-힣_-]+/g, '_')
+            .replace(/[^a-z0-9�?-??-]+/g, '_')
             .replace(/^_+|_+$/g, '') || 'class';
         let id = base;
         let i = 2;
@@ -2134,7 +2133,7 @@ function renderAnnotationPanel() {
         const cell = document.createElement('span');
         cell.className = 'ann-sort-header' + (_annotationListSort.key === key ? ' active' : '');
         cell.dataset.sortKey = key;
-        cell.textContent = `${label}${_annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}`;
+        cell.textContent = `${label}${_annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' ?? : ' ??) : ''}`;
         cell.title = `Sort by ${label}`;
         cell.addEventListener('click', () => {
             if (_annotationListSort.key === key) {
@@ -2159,7 +2158,7 @@ function renderAnnotationPanel() {
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
-        // ann.name 은 사용자 더블클릭 rename 으로 임의 문자열 가능 — 반드시 escape
+        // ann.name ?? ?�용???�블?�릭 rename ?�로 ?�의 문자??�?????반드??escape
         el.innerHTML = `
             <span class="ann-id" title="Double-click to center">${_esc(displayId)}</span>
             <span class="ann-class-wrap" style="--ann-class-color: rgb(${_normalizeColor(annClass.color).join(',')})">
@@ -2171,7 +2170,7 @@ function renderAnnotationPanel() {
             <button class="ann-btn-vis" title="${ann.visible ? 'Hide annotation' : 'Show annotation'}">${_visibilityIcon(ann.visible !== false)}</button>
             <button class="ann-btn-del" title="Delete">Del</button>
         `;
-        // 클릭 → 선택
+        // ?�릭 ???�택
         const annDeleteButton = el.querySelector('.ann-btn-del');
         if (_isViewerRole()) {
             const readOnlyTitle = 'Viewer role can view annotations only';
@@ -2204,7 +2203,7 @@ function renderAnnotationPanel() {
                 setStatus(`Centered on annotation ${displayId}`);
             }
         });
-        // 더블클릭 이름 → 리네임
+        // ?�블?�릭 ?�름 ??리네??
         el.querySelector('.ann-btn-memo').addEventListener('click', (e) => {
             e.stopPropagation();
             viewer.selectAnnotation(ann.id);
@@ -2219,14 +2218,14 @@ function renderAnnotationPanel() {
             viewer.requestRender();
             renderAnnotationPanel();
         });
-        // 가시성 토글
+        // �??�성 ?��?
         el.querySelector('.ann-btn-vis').addEventListener('click', (e) => {
             e.stopPropagation();
             ann.visible = !ann.visible;
             viewer.requestRender();
             renderAnnotationPanel();
         });
-        // 삭제
+        // ??��
         el.querySelector('.ann-btn-del').addEventListener('click', (e) => {
             e.stopPropagation();
             if (_blockViewerAction('Viewer role can view annotations only.')) return;
@@ -2266,7 +2265,7 @@ function hexToRgb(hex) {
     return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [0, 255, 0];
 }
 
-// 캔버스 ↔ 패널 동기화
+// 캔버?????�널 ?�기??
 function _classShortcutIndexFromKey(e) {
     if (/^Digit[0-9]$/.test(e.code)) {
         const n = Number(e.code.slice(5));
@@ -2292,7 +2291,7 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     if (idx < 0 || idx >= _annotationClasses.length) return false;
     const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
     if (!ann) return false;
-    if (_blockViewerAction('Viewer 권한은 annotation class를 변경할 수 없습니다.')) return true;
+    if (_blockViewerAction('Viewer 권한?? annotation class�?�?경할 ???�습?�다.')) return true;
     const cls = _annotationClasses[idx];
     _activeAnnotationClassId = cls.id;
     _syncActiveAnnotationClassToViewer();
@@ -2333,13 +2332,13 @@ viewer.onAnnotationDeleted = (ann) => {
     _setSlideListMemoIndicator();
 };
 viewer.onAnnotationChanged = (ann) => {
-    // 이미 렌더링 요청됨 — 패널만 갱신 필요 시
+    // ?��? ?�더�??�청?????�널�?갱신 ?�요 ??
 };
 viewer.onAnnotationContextMenu = (ann) => {
     _editAnnotationMemo(ann);
 };
 
-// deleteAnnotation에서 콜백 호출되도록 오버라이드
+// deleteAnnotation?�서 콜백 ?�출?�도�??�버?�이??
 const _origDelete = viewer.deleteAnnotation.bind(viewer);
 viewer.deleteAnnotation = (id) => {
     const ann = viewer.annotations.find(a => a.id === id);
@@ -2347,9 +2346,9 @@ viewer.deleteAnnotation = (id) => {
     if (ann && viewer.onAnnotationDeleted) viewer.onAnnotationDeleted(ann);
 };
 
-// ═══════════════════════════
-// Cell Edit 팝업 (Alt+Click)
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// Cell Edit ?�업 (Alt+Click)
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 let _cellEditPopupEl = null;
 
 function _closeCellEditPopup() {
@@ -2380,15 +2379,15 @@ function _cellEditKeydown(e) {
         e.preventDefault();
         return;
     }
-    // Delete/D 는 셀이 있는 edit/multi 모드에서만 — add/sticky-pick 엔 삭제 대상 없음.
+    // Delete/D ???????�는 edit/multi 모드?�서�???add/sticky-pick ????�� ?????�음.
     if ((e.key === 'Delete' || e.key.toLowerCase() === 'd') &&
             _cellEditCtx.mode !== 'add' && _cellEditCtx.mode !== 'sticky-pick') {
         _doDeleteCell();
         e.preventDefault();
         return;
     }
-    // 숫자키 1~9, 0 → 클래스 선택. 모드별 분기:
-    //   edit/multi → 클래스 변경, add → 클릭 위치에 셀 추가, sticky-pick → sticky 만 갱신.
+    // ?�자??1~9, 0 ???�래???�택. 모드�?분기:
+    //   edit/multi ???�래??�?�? add ???�릭 ?�치???? 추�?, sticky-pick ??sticky �?갱신.
     if (/^[0-9]$/.test(e.key)) {
         const num = parseInt(e.key, 10);
         const slot = num === 0 ? 9 : num - 1;
@@ -2431,7 +2430,7 @@ function _doChangeClass(newClsId) {
     _closeCellEditPopup();
 }
 
-// 색을 CSS 문자열로 정규화 (hex "#RRGGBB" 또는 [r,g,b] 모두 지원)
+// ?�을 CSS 문자?�로 ?�규??(hex "#RRGGBB" ?�는 [r,g,b] 모두 �???
 function _toCssColor(c) {
     if (typeof c === 'string') return c;
     if (Array.isArray(c) && c.length >= 3) return `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -2471,14 +2470,14 @@ function _makeCellEditPopupDraggable(popup, handle) {
 }
 
 /**
- * Popup 클래스 버튼에 연필(✎) 편집 아이콘을 끼워넣는다. 클릭 시 그 row 가 inline
- * 텍스트 입력 + 저장/취소 모드로 바뀌며, 저장하면 _renameClassLabel 로 전파되고
- * 입력값이 popup 의 표시 텍스트에도 반영. popup 자체는 닫지 않는다 (사용자가
- * 라벨 정리 후 동일 popup 에서 add/change 이어가는 흐름).
+ * Popup ?�래??버튼???�필(?? ?�집 ?�이콘을 ?�워?�는?? ?�릭 ??�?row �? inline
+ * ?�스???�력 + ????취소 모드�?바�?�며, ???�하�?_renameClassLabel �??�파?�고
+ * ?�력값이 popup ???�시 ?�스?�에??반영. popup ?�체???��? ?�는??(?�용?��?
+ * ?�벨 ?�리 ???�일 popup ?�서 add/change ?�어�????�름).
  */
 function _attachClassRenamePencil(btnEl, classId, textSpan) {
     const pencil = document.createElement('span');
-    pencil.title = '라벨 이름 편집';
+    pencil.title = '?�벨 ?�름 ?�집';
     pencil.setAttribute('aria-label', 'rename label');
     pencil.style.cssText = `
         flex:0 0 22px; height:22px; margin-right:6px;
@@ -2486,14 +2485,14 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
         border-radius:3px; cursor:pointer; opacity:0.55;
         font-size:13px; line-height:1;
     `;
-    pencil.textContent = '✎';
+    pencil.textContent = '??;
     pencil.onmouseover = () => { pencil.style.opacity = '1'; pencil.style.background = 'rgba(0,0,0,0.08)'; };
     pencil.onmouseout = () => { pencil.style.opacity = '0.55'; pencil.style.background = 'transparent'; };
     pencil.addEventListener('click', (ev) => {
-        ev.stopPropagation();   // row 의 select 동작 방지
-        // textSpan 자리에 input + 저장/취소 버튼 임시 배치.
+        ev.stopPropagation();   // row ??select ?�작 방�?
+        // textSpan ?�리??input + ????취소 버튼 ?�시 배치.
         const original = textSpan.textContent || '';
-        // 표시값에서 [N] 단축키 prefix 가 있으면 그건 빼고 실제 라벨만 편집.
+        // ?�시값에??[N] ?�축??prefix �? ?�으�?그건 빼고 ?�제 ?�벨�??�집.
         const m = original.match(/^\[\d\]\s+(.*)$/);
         const initialName = (m ? m[1] : original).trim();
 
@@ -2508,8 +2507,8 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
             font-size:12px; font-family:inherit;
         `;
         const ok = document.createElement('button');
-        ok.textContent = '✓';
-        ok.title = '저장 (Enter)';
+        ok.textContent = '??;
+        ok.title = '????(Enter)';
         ok.style.cssText = `
             flex:0 0 22px; height:22px; padding:0;
             background:#27ae60; color:#fff; border:none;
@@ -2525,28 +2524,28 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
         `;
         wrap.append(input, ok, cancel);
 
-        // textSpan 을 임시 wrap 으로 대체.
+        // textSpan ???�시 wrap ?�로 ??�?
         const parent = textSpan.parentElement;
         parent.removeChild(textSpan);
-        // pencil 직전 위치에 wrap 삽입.
+        // pencil 직전 ?�치??wrap ?�입.
         parent.insertBefore(wrap, pencil);
         pencil.style.display = 'none';
 
-        // popup 전체의 키보드 단축키(_cellEditKeydown) 가 입력을 가로채지 못하도록
-        // input 이벤트는 stopPropagation. (Ctrl+Z / 숫자키 등 충돌 방지)
+        // popup ?�체???�보???�축??_cellEditKeydown) �? ?�력??�?로채�? 못하?�록
+        // input ?�벤?�는 stopPropagation. (Ctrl+Z / ?�자????충돌 방�?)
         input.addEventListener('keydown', (kev) => {
             kev.stopPropagation();
             if (kev.key === 'Enter') { commit(); }
             else if (kev.key === 'Escape') { abort(); }
         });
-        // 외부 클릭으로 popup 닫히는 핸들러도 일시 차단 — input 자체 클릭에서.
+        // ?��? ?�릭?�로 popup ?�히???�들?�도 ?�시 차단 ??input ?�체 ?�릭?�서.
         input.addEventListener('mousedown', (mev) => mev.stopPropagation());
         ok.addEventListener('click', (mev) => { mev.stopPropagation(); commit(); });
         cancel.addEventListener('click', (mev) => { mev.stopPropagation(); abort(); });
 
         const restoreText = () => {
             wrap.remove();
-            // 원래 위치(pencil 직전)에 textSpan 다시 삽입.
+            // ?�래 ?�치(pencil 직전)??textSpan ?�시 ?�입.
             parent.insertBefore(textSpan, pencil);
             pencil.style.display = '';
         };
@@ -2556,23 +2555,23 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
             if (!str_new || str_new === initialName) { restoreText(); return; }
             const ok2 = _renameClassLabel(classId, str_new);
             if (ok2) {
-                // popup 의 표시 텍스트도 동기화 — [N] prefix 유지.
+                // popup ???�시 ?�스?�도 ?�기????[N] prefix ?��?.
                 textSpan.textContent = m ? `[${m[0].match(/\d/)[0]}] ${str_new}` : str_new;
             }
             restoreText();
         };
 
-        // 자동 포커스 + 텍스트 전체 선택.
+        // ?�동 ?�커??+ ?�스???�체 ?�택.
         setTimeout(() => { input.focus(); input.select(); }, 0);
     });
-    // 색 스와치 다음, 텍스트 앞에 연필 배치 — 시각적으로 텍스트 옆이 자연스럽다.
+    // ???��?�??�음, ?�스???�에 ?�필 배치 ???�각?�으�??�스???�이 ?�연?�럽??
     btnEl.insertBefore(pencil, textSpan);
 }
 
 /**
- * 클래스 라벨 이름 변경 — `_lastDetectionResult.class_names[classId]` 갱신 +
- * 해당 class_id 의 모든 셀의 `class_name` 동기화 + Result 리스트 / Score 카드
- * 즉시 재렌더. 메모리에만 반영 (저장은 ROI Save 버튼이 담당).
+ * ?�래???�벨 ?�름 �?�???`_lastDetectionResult.class_names[classId]` 갱신 +
+ * ?�당 class_id ??모든 ????`class_name` ?�기??+ Result 리스??/ Score 카드
+ * 즉시 ?�렌?? 메모리에�?반영 (???��? ROI Save 버튼???�당).
  */
 function _renameClassLabel(classId, newName) {
     if (!_lastDetectionResult) return false;
@@ -2585,7 +2584,7 @@ function _renameClassLabel(classId, newName) {
             if (cell.class_id === classId) cell.class_name = str_new;
         }
     }
-    // 패널 / 카드 / status 즉시 반영.
+    // ?�널 / 카드 / status 즉시 반영.
     buildResultList(_lastDetectionResult);
     _updateResultCounts();
     setStatus(`Class ${classId} renamed to "${str_new}"`);
@@ -2615,7 +2614,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
         user-select: none;
     `;
 
-    // 헤더
+    // ?�더
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const swatch = document.createElement('span');
@@ -2636,7 +2635,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     labelChange.style.cssText = 'margin-bottom:4px;';
     popup.appendChild(labelChange);
 
-    // 클래스 버튼들 (현재 클래스 제외, 숫자키 매핑)
+    // ?�래??버튼??(?�재 ?�래???�외, ?�자??매핑)
     const classButtonOrder = [];
     const sortedClsIds = Object.keys(classNames)
         .map(k => parseInt(k, 10))
@@ -2662,12 +2661,12 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
         btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
         btn.onmouseout = () => { btn.style.background = '#f0f0f0'; btn.style.color = '#222'; };
 
-        // 두꺼운 색 띠 (왼쪽 전체 높이)
+        // ?�꺼??????(?�쪽 ?�체 ?�이)
         const stripe = document.createElement('span');
         stripe.style.cssText = `flex:0 0 12px;align-self:stretch;
             background:${colorCss};display:block;`;
 
-        // 색 스와치
+        // ???��?�?
         const sw = document.createElement('span');
         sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;
             background:${colorCss};border:1px solid #333;
@@ -2679,7 +2678,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));
-        // 라벨 이름 편집 — text 옆에 연필(✎) 끼워 inline rename UI 활성화.
+        // ?�벨 ?�름 ?�집 ??text ?�에 ?�필(?? ?�워 inline rename UI ?�성??
         _attachClassRenamePencil(btn, cid, text);
         popup.appendChild(btn);
 
@@ -2691,7 +2690,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
     popup.appendChild(sep2);
 
-    // 삭제 버튼
+    // ??�� 버튼
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete Cell  (Del / D)';
     delBtn.style.cssText = `
@@ -2707,7 +2706,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
     document.body.appendChild(popup);
 
-    // 화면 밖으로 나가지 않게 위치 보정
+    // ?�면 밖으�??��?�? ?�게 ?�치 보정
     const pw = popup.offsetWidth;
     const ph = popup.offsetHeight;
     let px = screenX;
@@ -2720,7 +2719,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     _cellEditPopupEl = popup;
     _cellEditCtx = { idx, classNames, classColors, classButtonOrder };
 
-    // 외부 클릭/ESC/Del/숫자키
+    // ?��? ?�릭/ESC/Del/?�자??
     setTimeout(() => {
         document.addEventListener('mousedown', _outsideCellEditClick, true);
         document.addEventListener('keydown', _cellEditKeydown, true);
@@ -2729,14 +2728,14 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
 viewer.onCellEditRequested = _showCellEditPopup;
 
-// ── Alt+right-click 셀 추가 ──
-// Sticky class: 첫 추가 시 사용자가 popup 으로 선택한 클래스를 기억해 두고
-// 다음 Alt+right-click 부턴 popup 없이 바로 그 클래스로 추가.
-// 우측 패널의 클래스 라인 클릭으로 sticky 변경 가능.
+// ???? Alt+right-click ?? 추�? ????
+// Sticky class: �?추�? ???�용?��? popup ?�로 ?�택???�래?��? 기억???�고
+// ?�음 Alt+right-click �???popup ?�이 바로 �??�래?�로 추�?.
+// ?�측 ?�널???�래???�인 ?�릭?�로 sticky �?�?�???
 let _stickyAddClassId = null;
 
-// Alt HUD — Alt 누른 동안 마우스 우상단에 현재 sticky 클래스 표시.
-// 사용자가 어떤 클래스로 추가될지 시각적으로 즉시 확인 가능.
+// Alt HUD ??Alt ?�른 ?�안 마우???�상?�에 ?�재 sticky ?�래???�시.
+// ?�용?��? ?�떤 ?�래?�로 추�??��? ?�각?�으�?즉시 ?�인 �???
 let _stickyHudEl = null;
 let _stickyHudShiftHeld = false;
 let _stickyHudLastMouse = { x: 0, y: 0 };
@@ -2782,10 +2781,10 @@ function _updateStickyHudContent() {
 
 function _positionStickyHud() {
     if (!_stickyHudEl) return;
-    // 마우스 우상단 — cursor 와 안 겹치게 +14 우측, -28 위.
+    // 마우???�상????cursor ?? ??겹치�?+14 ?�측, -28 ??
     let x = _stickyHudLastMouse.x + 14;
     let y = _stickyHudLastMouse.y - 28;
-    // 화면 밖 방지 — 가로 overflow 면 좌측, 위로 overflow 면 아래로 뒤집어 배치.
+    // ?�면 �?방�? ??�?�?overflow �?좌측, ?�로 overflow �??�래�??�집??배치.
     const w = _stickyHudEl.offsetWidth;
     if (x + w > window.innerWidth - 4) x = _stickyHudLastMouse.x - w - 14;
     if (y < 4) y = _stickyHudLastMouse.y + 18;
@@ -2794,7 +2793,7 @@ function _positionStickyHud() {
 }
 
 function _showStickyHud() {
-    // 표시 조건: Alt 누름 + sticky 살아있음 + detection 결과 + drawMode 아님.
+    // ?�시 조건: Alt ?�름 + sticky ?�아?�음 + detection 결과 + drawMode ?�님.
     if (!_stickyHudShiftHeld) return;
     if (_stickyAddClassId == null) return;
     if (!_lastDetectionResult) return;
@@ -2843,11 +2842,11 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // Sticky 가 살아 있으면 popup 없이 즉시 추가 — 클래스 변경은 Alt+A 단축키.
+    // Sticky �? ?�아 ?�으�?popup ?�이 즉시 추�? ???�래??�?경�? Alt+A ?�축??
     if (_stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
         const str_name = classNames[String(_stickyAddClassId)];
         viewer.addCell(sx, sy, _stickyAddClassId, str_name);
-        setStatus(`Cell added: ${str_name} — Alt+right-click to add, Alt+A to change`);
+        setStatus(`Cell added: ${str_name} ??Alt+right-click to add, Alt+A to change`);
         return;
     }
 
@@ -2936,7 +2935,7 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     popup.style.top = `${Math.max(4, py)}px`;
 
     _cellEditPopupEl = popup;
-    // _cellEditCtx 에 mode='add' 로 표시 — 숫자 단축키도 작동.
+    // _cellEditCtx ??mode='add' �??�시 ???�자 ?�축?�도 ?�동.
     _cellEditCtx = { mode: 'add', sx, sy, classNames, classColors, classButtonOrder };
 
     setTimeout(() => {
@@ -2949,22 +2948,22 @@ function _doAddCell(classId) {
     if (!_cellEditCtx) return;
     const name = _cellEditCtx.classNames[String(classId)] || `Class ${classId}`;
     if (_cellEditCtx.mode === 'add') {
-        // 위치를 받은 모드 — 셀 추가 + sticky 갱신.
+        // ?�치�?받�? 모드 ???? 추�? + sticky 갱신.
         viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} — Alt+right-click to add, Alt+A to change`);
+        setStatus(`Sticky class: ${name} ??Alt+right-click to add, Alt+A to change`);
     } else if (_cellEditCtx.mode === 'sticky-pick') {
-        // 클래스만 변경 (셀 추가 X) — Alt+A 진입한 popup.
+        // ?�래?�만 �?�?(?? 추�? X) ??Alt+A 진입??popup.
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} — Alt+right-click to add`);
+        setStatus(`Sticky class: ${name} ??Alt+right-click to add`);
     }
     _closeCellEditPopup();
 }
 
 /**
- * Alt+A 단축키로 호출 — sticky 클래스만 변경 (셀 추가 X).
- * popup 은 _showCellAddPopup 와 동일한 클래스 리스트 UI 를 재사용하되,
- * mode='sticky-pick' 컨텍스트로 클릭 시 sticky 만 갱신.
+ * Alt+A ?�축?�로 ?�출 ??sticky ?�래?�만 �?�?(?? 추�? X).
+ * popup ?? _showCellAddPopup ?? ?�일???�래??리스??UI �??�사?�하??
+ * mode='sticky-pick' 컨텍?�트�??�릭 ??sticky �?갱신.
  */
 function _showStickyClassPickerPopup(screenX, screenY) {
     _closeCellEditPopup();
@@ -2988,7 +2987,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const headerLabel = document.createElement('span');
-    headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(추가할 클래스 선택)</span>`;
+    headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(추�????�래???�택)</span>`;
     header.appendChild(headerLabel);
     popup.appendChild(header);
     _makeCellEditPopupDraggable(popup, header);
@@ -3032,7 +3031,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
             background:${colorCss};border:1px solid #333;
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
-        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  ✓' : '');
+        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  ?? : '');
         text.style.cssText = 'flex:1;padding:6px 10px;';
 
         btn.append(stripe, sw, text);
@@ -3064,7 +3063,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     }, 0);
 }
 
-// Alt+A — sticky 클래스 변경 popup. 입력 위젯 포커스 중이면 무시.
+// Alt+A ??sticky ?�래??�?�?popup. ?�력 ?�젯 ?�커??중이�?무시.
 window.addEventListener('keydown', (e) => {
     if (e.key !== 'a' && e.key !== 'A') return;
     if (!e.altKey) return;
@@ -3075,7 +3074,7 @@ window.addEventListener('keydown', (e) => {
     if (viewer && viewer.drawMode) return;
     e.preventDefault();
     e.stopPropagation();
-    // 마우스 마지막 위치 옆에 popup 띄움 — viewer 위에서 누르면 그 위치 근처에 뜸.
+    // 마우??마�?�??�치 ?�에 popup ?��? ??viewer ?�에???�르�?�??�치 근처????
     _showStickyClassPickerPopup(_stickyHudLastMouse.x, _stickyHudLastMouse.y);
 }, true);
 
@@ -3089,7 +3088,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // 선택된 셀들의 클래스별 개수 집계
+    // ?�택?????�의 ?�래?�별 개수 집계
     const dict_counts = {};
     for (const c of listCells) {
         const k = String(c.class_id);
@@ -3111,7 +3110,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
         user-select: none;
     `;
 
-    // 헤더
+    // ?�더
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const headerLabel = document.createElement('span');
@@ -3120,7 +3119,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     popup.appendChild(header);
     _makeCellEditPopupDraggable(popup, header);
 
-    // 클래스별 집계 표시
+    // ?�래?�별 집계 ?�시
     const breakdown = document.createElement('div');
     breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;white-space:normal;word-break:break-word;line-height:1.35;';
     const list_breakdownLines = [];
@@ -3140,7 +3139,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     labelChange.style.cssText = 'margin-bottom:4px;';
     popup.appendChild(labelChange);
 
-    // 모든 클래스 버튼
+    // 모든 ?�래??버튼
     const list_classButtonOrder = [];
     const list_sortedClsIds = Object.keys(classNames)
         .map(k => parseInt(k, 10))
@@ -3235,21 +3234,21 @@ viewer.onHiddenCellsMultiEditRequested = (listIndices, listCells, screenX, scree
     _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, { hiddenOther: true });
 
 viewer.onCellEdited = () => {
-    // 결과 리스트 카운트 + 스코어 갱신
+    // 결과 리스??카운??+ ?�코??갱신
     if (_lastDetectionResult) {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
         _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         buildResultList(_lastDetectionResult);
-        // 스코어 카드 재계산 (Allred / HER2 / Quanti PD-L1)
+        // ?�코??카드 ?�계??(Allred / HER2 / Quanti PD-L1)
         _updateResultCounts();
     }
-    setStatus(`Cell edited — ${viewer.detectionCells.length} cells`);
+    setStatus(`Cell edited ??${viewer.detectionCells.length} cells`);
 };
 
-// ── Cell edit Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ──
+// ???? Cell edit Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ????
 window.addEventListener('keydown', (e) => {
-    // 입력 위젯 포커스 중이면 무시
+    // ?�력 ?�젯 ?�커??중이�?무시
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -3281,14 +3280,14 @@ window.addEventListener('keydown', (e) => {
         if (viewer.canUndoCellEdit && viewer.canUndoCellEdit()) {
             _closeCellEditPopup();
             viewer.undoCellEdit();
-            setStatus(`Undo — ${viewer.detectionCells.length} cells`);
+            setStatus(`Undo ??${viewer.detectionCells.length} cells`);
             e.preventDefault();
         }
     } else if ((key === 'z' && e.shiftKey) || key === 'y') {
         if (viewer.canRedoCellEdit && viewer.canRedoCellEdit()) {
             _closeCellEditPopup();
             viewer.redoCellEdit();
-            setStatus(`Redo — ${viewer.detectionCells.length} cells`);
+            setStatus(`Redo ??${viewer.detectionCells.length} cells`);
             e.preventDefault();
         }
     }
@@ -3296,14 +3295,14 @@ window.addEventListener('keydown', (e) => {
 
 // Clear All
 $btnAnnClear?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
     viewer.clearAnnotations();
     renderAnnotationPanel();
     _setSlideListMemoIndicator();
     setStatus('Annotations cleared');
 });
 
-// ── Annotation Save/Load (download/upload) ──
+// ???? Annotation Save/Load (download/upload) ????
 // JSON schema:
 // { "annotations": [ { id, name, type: "Polygon"|"Rectangle"|"Point",
 //                      coordinates: [[x,y],...], color: [r,g,b],
@@ -3443,7 +3442,7 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.key.toLowerCase() !== 's') return;
     e.preventDefault();
-    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
     _saveAnnotationsToServer().catch(err => alert(`Failed to save annotations: ${err.message}`));
 }, true);
 
@@ -3496,7 +3495,7 @@ async function _downloadAnnotations() {
     }
     const suggestedName = `${baseName}.json`;
 
-    // File System Access API: 사용자가 저장 위치(폴더 + 파일명) 직접 선택
+    // File System Access API: ?�용?��? ?????�치(?�더 + ?�일�? 직접 ?�택
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
@@ -3516,12 +3515,12 @@ async function _downloadAnnotations() {
                 setStatus('Save cancelled');
                 return;
             }
-            // 권한 거부 등 → 다운로드 fallback
+            // 권한 거�? ?????�운로드 fallback
             console.warn('showSaveFilePicker failed, falling back to download', err);
         }
     }
 
-    // Fallback: 일반 브라우저 다운로드
+    // Fallback: ?�반 브라?��? ?�운로드
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -3571,7 +3570,7 @@ function _uploadAnnotations() {
 }
 
 $btnAnnSave?.addEventListener('click', async () => {
-    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
     try {
         await _saveAnnotationsToServer();
     } catch (err) {
@@ -3579,13 +3578,13 @@ $btnAnnSave?.addEventListener('click', async () => {
     }
 });
 if (false) $btnAnnLoad?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한은 annotation 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
     _uploadAnnotations();
 });
 
-// ═══════════════════════════
-// 슬라이드 정보 다이얼로그
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�라?�드 ?�보 ?�이?�로�?
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 $btnInfo.addEventListener('click', () => {
     if (!currentSlideInfo) return;
     const info = currentSlideInfo;
@@ -3617,13 +3616,13 @@ $btnInfo.addEventListener('click', () => {
 });
 $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close());
 
-// ═══════════════════════════
-// AI 검출
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// AI �?�?
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 
-// 실행 중인 AI task 추적 — key: 버튼 고유 키 ('detect', 'VS IHC_membrane', 'Quanti PD-L1', 'ihc-HER2' 등)
+// ?�행 중인 AI task 추적 ??key: 버튼 고유 ??('detect', 'VS IHC_membrane', 'Quanti PD-L1', 'ihc-HER2' ??
 //   value: { task_id, buttonEl }
-// 같은 버튼 재클릭 시 cancelTask 호출.
+// 같�? 버튼 ?�클�???cancelTask ?�출.
 const _runningAiTasks = {};
 
 function _setButtonRunning(btnEl, bool_running) {
@@ -3631,7 +3630,7 @@ function _setButtonRunning(btnEl, bool_running) {
     if (bool_running) {
         btnEl.classList.add('ai-btn-running');
         btnEl.dataset.origLabel = btnEl.dataset.origLabel || btnEl.textContent;
-        btnEl.textContent = '■ Stop';
+        btnEl.textContent = '??Stop';
     } else {
         btnEl.classList.remove('ai-btn-running');
         if (btnEl.dataset.origLabel) {
@@ -3644,21 +3643,21 @@ function _setButtonRunning(btnEl, bool_running) {
 async function _maybeCancelRunning(str_key) {
     const entry = _runningAiTasks[str_key];
     if (!entry) return false;
-    // task_id 가 아직 서버에서 돌아오지 않았는데 재클릭한 경우:
-    // pending_cancel 플래그만 세팅 → start 핸들러가 task_id 를 받는 즉시 cancelTask 호출.
-    // (null 을 URL 에 박아 쏘면 /task/null/cancel 로 405/404 나므로 금지)
+    // task_id �? ?�직 ?�버?�서 ?�아?��? ?�았?�데 ?�클�?�� 경우:
+    // pending_cancel ?�래그만 ?�팅 ??start ?�들?��? task_id �?받는 즉시 cancelTask ?�출.
+    // (null ??URL ??박아 ?�면 /task/null/cancel �?405/404 ?��?�?금�?)
     if (!entry.task_id) {
         entry.pending_cancel = true;
-        setStatus('중지 예약 — task 시작 직후 취소합니다...');
+        setStatus('중�? ?�약 ??task ?�작 직후 취소?�니??..');
         return true;
     }
     try {
         await api.cancelTask(entry.task_id);
-        setStatus('중지 요청 전송 — 잠시 후 정리됩니다...');
+        setStatus('중�? ?�청 ?�송 ???�시 ???�리?�니??..');
     } catch (e) {
         console.warn('[cancel] failed', e);
     }
-    return true;  // 호출자는 start 로직 건너뛰기
+    return true;  // ?�출?�는 start 로직 건너?�기
 }
 
 $btnDetect.addEventListener('click', startDetection);
@@ -3672,15 +3671,15 @@ async function startDetection() {
     _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
-    setStatus('검출 시작...');
+    setStatus('�?�??�작...');
 
-    // AI 시작 → 그리기 모드 해제
+    // AI ?�작 ??그리�?모드 ?�제
     viewer.setDrawMode(null);
 
     try {
         const tissueType = document.querySelector('input[name="tissue-type"]:checked')?.value || 'Stomach';
 
-        // point 제외한 polygon/rectangle annotation → ROI로 전달
+        // point ?�외??polygon/rectangle annotation ??ROI�??�달
         const roiAnnotations = viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
@@ -3692,17 +3691,17 @@ async function startDetection() {
             }
         }
 
-        // 폴링
+        // ?�링
         while (true) {
             await sleep(1000);
-            // 다른 코드가 _runningAiTasks 를 지웠으면 (예: 슬라이드 변경) 루프 탈출
+            // ?�른 코드�? _runningAiTasks �?�??�으�?(?? ?�라?�드 �?�? 루프 ?�출
             if (!_runningAiTasks['detect']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
 
-            // 진행 단계에 따라 라벨 업데이트
+            // 진행 ?�계???�라 ?�벨 ?�데?�트
             if (st.progress <= 50) {
                 $progressLabel.textContent = 'Cell Detection';
             } else if (st.progress < 92) {
@@ -3717,14 +3716,14 @@ async function startDetection() {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Cell Detection 중지됨 — 부분 결과 정리 완료');
+                setStatus('Cell Detection 중�?????�?�?결과 ?�리 ?�료');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`검출 실패: ${err.message}`);
+        setStatus(`�?�??�패: ${err.message}`);
     } finally {
         delete _runningAiTasks['detect'];
         _setButtonRunning($btnDetect, false);
@@ -3737,24 +3736,24 @@ async function startDetection() {
 function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $progressLabel.textContent = 'Detection Complete';
 
-    // AI 완료 → 기존 annotation 제거 (ROI 저장 후)
+    // AI ?�료 ??기존 annotation ?�거 (ROI ??????
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
-    // 내부 저장용으로 최신 결과 보존
+    // ?��? ???�용?�로 최신 결과 보존
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
     _lastDetectionModel = 'Quanti HE';
     _lastDetectionRoi = roiPolygons;
 
-    // segmentation 데이터 저장 (Spatial Heatmap 시각화용)
+    // segmentation ?�이??????(Spatial Heatmap ?�각?�용)
     lastSegData = result.seg_data || null;
 
-    // Quanti HE 은 기본 CLASS_COLORS 사용 (override 해제)
+    // Quanti HE ?? 기본 CLASS_COLORS ?�용 (override ?�제)
     viewer.classColorOverride = null;
-    viewer.defaultConfidence = 0.1;  // 고정 (SaMD 재현성)
+    viewer.defaultConfidence = 0.1;  // 고정 (SaMD ?�현??
 
-    // ROI 폴리곤 내부 셀만 필터링하여 표시
+    // ROI ?�리�??��? ??�??�터링하???�시
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
 
@@ -3770,15 +3769,15 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
-// ═══════════════════════════
-// 결과 리스트 (기존 resultList 재현)
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// 결과 리스??(기존 resultList ?�현)
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 const CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
 
-// ── 스코어 바 차트 유틸 ──
+// ???? ?�코??�?차트 ?�틸 ????
 function _renderScoreBar(barEl, segments) {
     if (!barEl) return;
     barEl.innerHTML = '';
@@ -3809,7 +3808,7 @@ function _renderScoreLegend(detailEl, items) {
     detailEl.appendChild(wrap);
 }
 
-// 현재 confidence 임계값을 반영한 클래스별 카운트 계산
+// ?�재 confidence ?�계값을 반영???�래?�별 카운??계산
 function _computeFilteredCounts(cells) {
     const counts = {};
     let total = 0;
@@ -3822,15 +3821,15 @@ function _computeFilteredCounts(cells) {
     return { counts, total };
 }
 
-// "1,234 (45.6%)" — 클래스별 개수 + 전체 대비 비율. total 은 confidence 필터 통과한
-// 모든 클래스 합. total=0 이면 비율 0%.
+// "1,234 (45.6%)" ???�래?�별 개수 + ?�체 ??�?비율. total ?? confidence ?�터 ?�과??
+// 모든 ?�래???? total=0 ?�면 비율 0%.
 function _formatCountWithRatio(int_count, int_total) {
     const str_count = int_count.toLocaleString();
     if (!int_total) return `${str_count} (0%)`;
     return `${str_count} (${(int_count / int_total * 100).toFixed(1)}%)`;
 }
 
-// 결과 리스트의 카운트 라벨만 갱신 (confidence 슬라이더 변경 시 호출)
+// 결과 리스?�의 카운???�벨�?갱신 (confidence ?�라?�더 �?�????�출)
 let _resultCountRefs = null; // {total: el, perClass: {id: el}}
 function _updateResultCounts() {
     if (!_resultCountRefs || !_lastDetectionResult) return;
@@ -3846,7 +3845,7 @@ function _updateResultCounts() {
     _updateKi67ScoreDisplay(counts);
 }
 
-// Confidence 필터가 반영된 카운트로 CPS/TPS 재계산하여 스코어 카드 갱신
+// Confidence ?�터�? 반영??카운?�로 CPS/TPS ?�계?�하???�코??카드 갱신
 function _updatePdScoreDisplay(counts) {
     if (!$pdScoreResult || $pdScoreResult.hidden) return;
     if (!_lastDetectionResult || !_lastDetectionResult.pd_score) return;
@@ -4000,15 +3999,15 @@ function _updateKi67ScoreDisplay(counts) {
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
-    // viewer.detectionCells 는 ROI 폴리곤 내부 셀만 남아 있지만 (setDetectionResults),
-    // confidence 임계값 미만 셀도 그대로 보관한다 (슬라이더 조절을 허용하기 위해).
-    // 렌더링/시각화/스코어 카드는 모두 _computeFilteredCounts (ROI + confidence) 를
-    // 거치므로 패널 숫자도 같은 기준으로 맞춰야 일관성이 유지된다.
+    // viewer.detectionCells ??ROI ?�리�??��? ??�??�아 ?��?�?(setDetectionResults),
+    // confidence ?�계�?미만 ????그�?�?보�??�다 (?�라?�더 조절???�용?�기 ?�해).
+    // ?�더�??�각???�코??카드??모두 _computeFilteredCounts (ROI + confidence) �?
+    // 거치�?�??�널 ?�자??같�? 기�??�로 맞춰???��??�이 ?��??�다.
     let counts, total;
     if (viewer.detectionCells && viewer.detectionCells.length) {
         ({ counts, total } = _computeFilteredCounts(viewer.detectionCells));
     } else {
-        // fallback — viewer 가 아직 초기화 전인 엣지 케이스 (저장본 직접 로드 등)
+        // fallback ??viewer �? ?�직 초기???�인 ?��? �??�스 (???�본 직접 로드 ??
         counts = {};
         total = 0;
         for (const cell of (result.cells || [])) {
@@ -4017,11 +4016,11 @@ function buildResultList(result) {
         }
     }
 
-    // 클래스별 체크박스 참조 저장
+    // ?�래?�별 체크박스 참조 ????
     const classCbs = {};
     const perClassCountEls = {};
 
-    // 총 셀 수 (전체 토글 체크박스)
+    // �??? ??(?�체 ?��? 체크박스)
     const totalItem = document.createElement('div');
     totalItem.className = 'result-item';
 
@@ -4044,7 +4043,7 @@ function buildResultList(result) {
 
     const totalCount = document.createElement('span');
     totalCount.className = 'class-count';
-    // ROI 필터링 결과(total)와 일관성 — result.total_cells 는 전체 슬라이드 합이라 ROI 추론 시 어긋난다.
+    // ROI ?�터�?결과(total)?? ?��?????result.total_cells ???�체 ?�라?�드 ?�이??ROI 추론 ???�긋?�다.
     totalCount.textContent = total.toLocaleString();
 
     totalItem.style.cursor = 'pointer';
@@ -4056,7 +4055,7 @@ function buildResultList(result) {
     totalItem.append(totalCb, totalName, totalCount);
     $resultList.appendChild(totalItem);
 
-    // 클래스별 항목 (체크박스 + 색상 + 이름 + 카운트 + 개별 confidence 슬라이더)
+    // ?�래?�별 ??�� (체크박스 + ?�상 + ?�름 + 카운??+ 개별 confidence ?�라?�더)
     for (const [idStr, name] of Object.entries(result.class_names)) {
         const id = parseInt(idStr);
         const count = counts[id] || 0;
@@ -4074,7 +4073,7 @@ function buildResultList(result) {
         classCbs[id] = cb;
         cb.addEventListener('change', () => {
             viewer.classVisibility[id] = cb.checked;
-            // 전체 체크박스 동기화
+            // ?�체 체크박스 ?�기??
             const allChecked = Object.values(classCbs).every(c => c.checked);
             const noneChecked = Object.values(classCbs).every(c => !c.checked);
             totalCb.checked = allChecked;
@@ -4103,7 +4102,7 @@ function buildResultList(result) {
 
         item.append(cb, dot, nameSpan, countSpan);
         $resultList.appendChild(item);
-        // confidence 임계값은 SaMD 재현성을 위해 고정 — UI 조절 슬라이더 제거됨
+        // confidence ?�계값�? SaMD ?�현?�을 ?�해 고정 ??UI 조절 ?�라?�더 ?�거??
     }
 
     _resultCountRefs = { total: totalCount, perClass: perClassCountEls };
@@ -4120,7 +4119,7 @@ function clearResults() {
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
-    // detection 결과가 사라지면 sticky 도 무효 — class_names 가 없어졌으니 의미 X.
+    // detection 결과�? ?�라�?�?sticky ??무효 ??class_names �? ?�어졌으???��? X.
     _stickyAddClassId = null;
     _hideStickyHud();
     _lastDetectionModel = null;
@@ -4135,7 +4134,7 @@ $btnClearResults.addEventListener('click', () => {
 $btnVisualize.addEventListener('click', () => {
     if (_blockViewerAction()) return;
     if (viewer.detectionCells.length === 0) return;
-    // 현재 클래스별 confidence 임계값을 통과한 셀만 시각화
+    // ?�재 ?�래?�별 confidence ?�계값을 ?�과????�??�각??
     const filtered = viewer.detectionCells.filter(c => {
         const thr = viewer.classConfidence[c.class_id] ?? 0.01;
         return (c.confidence ?? 1.0) >= thr;
@@ -4149,7 +4148,7 @@ $btnVisualize.addEventListener('click', () => {
     const tissue = _lastDetectionTissue || 'Stomach';
     const slideDims = currentSlideInfo?.dimensions || null;  // [w, h] level-0
 
-    // 모델 타입 / 클래스 메타
+    // 모델 ????/ ?�래??메�?
     const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
@@ -4169,10 +4168,10 @@ $btnVisualize.addEventListener('click', () => {
     });
 });
 
-// Detection Result 저장 — 현재 로그인한 사용자 전용 편집본으로 DB 저장
-// (원본 모델 추론 캐시는 건드리지 않음)
+// Detection Result ???????�재 로그?�한 ?�용???�용 ?�집본으�?DB ????
+// (?�본 모델 추론 캐시??건드리�? ?�음)
 $btnSaveResults?.addEventListener('click', async () => {
-    if (_blockViewerAction('Viewer 권한은 AI 결과 저장 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? AI 결과 ????기능???�용?????�습?�다.')) return;
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
@@ -4181,21 +4180,21 @@ $btnSaveResults?.addEventListener('click', async () => {
     const aiMode = _lastDetectionModel || 'Quanti HE';
     try {
         $btnSaveResults.disabled = true;
-        // 뷰어에서 편집된 셀을 결과 객체에 반영 (class_id 변경 등)
+        // 뷰어?�서 ?�집??????결과 객체??반영 (class_id �?�???
         if (viewer?.detectionCells) {
             _lastDetectionResult.cells = viewer.detectionCells;
             _lastDetectionResult.total_cells = viewer.detectionCells.length;
             _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         }
-        // confidence 임계값은 SaMD 재현성을 위해 고정값만 사용.
-        // 과거 저장본과의 호환을 위해 레거시 필드는 저장하지 않음(있어도 로드 시 무시).
+        // confidence ?�계값�? SaMD ?�현?�을 ?�해 고정값만 ?�용.
+        // 과거 ???�본과의 ?�환???�해 ?�거???�드?????�하�? ?�음(?�어??로드 ??무시).
         delete _lastDetectionResult.class_confidence;
         delete _lastDetectionResult.default_confidence;
         const r = await api.saveDetectionResult(
             currentSlideId, tissue, _lastDetectionResult, aiMode,
         );
         console.log('[save-result]', r);
-        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells → ${r.user_name || 'me'}`);
+        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells ??${r.user_name || 'me'}`);
     } catch (err) {
         console.error('[save-result] failed', err);
         setStatus(`Save failed: ${err.message}`);
@@ -4205,9 +4204,9 @@ $btnSaveResults?.addEventListener('click', async () => {
     }
 });
 
-// ═══════════════════════════
-// Detection Result 로드 — 다른 사용자(또는 본인)의 저장본 선택
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// Detection Result 로드 ???�른 ?�용???�는 본인)?????�본 ?�택
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 const $loadUserEditDialog = $('#load-user-edit-dialog');
 const $loadUserEditList = $('#load-user-edit-list');
 const $loadUserEditMeta = $('#load-user-edit-meta');
@@ -4222,19 +4221,19 @@ function _fmtDateIso(str) {
 }
 
 async function _openLoadUserEditDialog() {
-    if (_blockViewerAction('Viewer 권한은 AI 결과 로드 기능을 사용할 수 없습니다.')) return;
+    if (_blockViewerAction('Viewer 권한?? AI 결과 로드 기능???�용?????�습?�다.')) return;
     if (!currentSlideId) {
-        setStatus('슬라이드를 먼저 열어주세요');
+        setStatus('?�라?�드�?먼�? ?�어주세??);
         return;
     }
     if (!_lastDetectionModel || !_lastDetectionTissue) {
-        setStatus('먼저 AI 모델을 실행해주세요 (어떤 모드를 로드할지 지정해야 합니다)');
+        setStatus('먼�? AI 모델???�행?�주?�요 (?�떤 모드�?로드?��? �??�해???�니??');
         return;
     }
     const aiMode = _lastDetectionModel;
     const variant = _lastDetectionTissue;
     $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
-    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading…</div>';
+    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading??/div>';
     $loadUserEditDialog.showModal();
 
     let users = [];
@@ -4252,14 +4251,14 @@ async function _openLoadUserEditDialog() {
 
     $loadUserEditList.innerHTML = '';
 
-    // 편의 항목: "원본 모델 추론 결과" (기존 AI 버튼 재실행과 동일)
+    // ?�의 ??��: "?�본 모델 추론 결과" (기존 AI 버튼 ?�실?�과 ?�일)
     const originalRow = document.createElement('div');
     originalRow.className = 'result-row';
     originalRow.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
     originalRow.innerHTML = `
         <div style="font-weight:600;">Original model inference</div>
         <div style="font-size:11px; color:#888; margin-top:2px;">
-            원본 모델 추론 재실행 (${aiMode} / ${variant})
+            ?�본 모델 추론 ?�실??(${aiMode} / ${variant})
         </div>`;
     originalRow.addEventListener('click', async () => {
         $loadUserEditDialog.close();
@@ -4270,7 +4269,7 @@ async function _openLoadUserEditDialog() {
     if (users.length === 0) {
         const empty = document.createElement('div');
         empty.style.cssText = 'padding:12px; color:#888; font-size:12px;';
-        empty.textContent = '저장된 사용자 편집본이 없습니다.';
+        empty.textContent = '???�된 ?�용???�집본이 ?�습?�다.';
         $loadUserEditList.appendChild(empty);
         return;
     }
@@ -4295,7 +4294,7 @@ async function _openLoadUserEditDialog() {
         info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
             try {
-                setStatus(`Loading ${displayName}'s analysis…`);
+                setStatus(`Loading ${displayName}'s analysis??);
                 const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
                 _applyLoadedResult(aiMode, variant, r.result);
                 setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
@@ -4310,7 +4309,7 @@ async function _openLoadUserEditDialog() {
             del.className = 'small-btn';
             del.title = 'Delete my saved analysis';
             del.style.cssText = 'background:transparent; border:1px solid #555; padding:4px 8px; cursor:pointer;';
-            del.textContent = '🗑';
+            del.textContent = '?��';
             del.addEventListener('click', async (ev) => {
                 ev.stopPropagation();
                 if (!confirm(`Delete your saved ${aiMode} / ${variant} analysis for this slide?`)) return;
@@ -4318,7 +4317,7 @@ async function _openLoadUserEditDialog() {
                     del.disabled = true;
                     await api.deleteMyUserAiEdit(currentSlideId, aiMode, variant);
                     setStatus('Deleted your saved analysis');
-                    // 모달 다시 불러오기
+                    // 모달 ?�시 불러?�기
                     _openLoadUserEditDialog();
                 } catch (err) {
                     setStatus(`Delete failed: ${err.message}`);
@@ -4348,14 +4347,14 @@ function _applyLoadedResult(aiMode, variant, result) {
     } else if (aiMode === 'Quanti IHC') {
         onPreciseIhcComplete(result, roi, variant);
     }
-    // 레거시 저장본에 class_confidence / default_confidence 필드가 있어도 무시.
-    // 모든 결과는 현재 모델의 고정 임계값으로 표시된다 (SaMD 재현성).
+    // ?�거?????�본??class_confidence / default_confidence ?�드�? ?�어??무시.
+    // 모든 결과???�재 모델??고정 ?�계값으�??�시?�다 (SaMD ?�현??.
 }
 
 function _rerunOriginalInference(aiMode, variant) {
-    // 기존 AI 버튼과 동일한 경로로 재실행 — 서버 디스크 캐시가 있으면 즉시 반환됨
+    // 기존 AI 버튼�??�일??경로�??�실?????�버 ?�스??캐시�? ?�으�?즉시 반환??
     if (aiMode === 'Quanti HE') {
-        // startDetection 은 버튼 핸들러 내부에 있으므로 버튼 클릭 트리거
+        // startDetection ?? 버튼 ?�들???��????�으�?�?버튼 ?�릭 ?�리�?
         $('#btn-detect')?.click();
     } else if (aiMode === 'Quanti PD-L1') {
         $('#btn-pd-score')?.click();
@@ -4368,9 +4367,9 @@ function _rerunOriginalInference(aiMode, variant) {
 
 $btnLoadResults?.addEventListener('click', _openLoadUserEditDialog);
 
-// ═══════════════════════════
-// 유틸리티
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// ?�틸리티
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 function setProgress(pct, statusMsg = '') {
     $progressBar.querySelector('.progress-fill').style.width = `${pct}%`;
     const $text = $('#progress-text');
@@ -4391,9 +4390,9 @@ function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
 
-// ═══════════════════════════
-// 좌측 패널 리사이즈
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// 좌측 ?�널 리사?�즈
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
 const $rightPanel = $('#right-panel');
@@ -4444,7 +4443,7 @@ function _restorePanelSizes() {
 }
 _restorePanelSizes();
 
-// Ctrl + 휠로 슬라이드 리스트 썸네일 크기 조정 (리스트/그리드 각각)
+// Ctrl + ?�로 ?�라?�드 리스???�네???�기 조정 (리스??그리??각각)
 const THUMB_RANGE_LIST = { min: 28, max: 96, step: 6, key: '--slide-thumb-list', storage: 'thumbSizeList' };
 const THUMB_RANGE_GRID = { min: 60, max: 200, step: 10, key: '--slide-thumb-grid', storage: 'thumbSizeGrid' };
 function _restoreThumbSizes() {
@@ -4554,10 +4553,10 @@ if ($rightResizer && $rightPanel) {
     });
 }
 
-// ═══════════════════════════
-// 좌측 슬라이드 리스트 + 폴더 탐색
-// ═══════════════════════════
-let currentBrowsePath = '';  // uploads/ 기준 상대경로
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// 좌측 ?�라?�드 리스??+ ?�더 ?�색
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+let currentBrowsePath = '';  // uploads/ 기�? ?��?경로
 let _projectListCache = [];
 let _projectGatePage = 1;
 let _projectGateSort = { key: 'name', dir: 'asc' };
@@ -5014,7 +5013,7 @@ async function loadSlideList() {
         _appendAnnotationSlideListHeader();
         _syncProjectSelect();
 
-        // 빈 폴더
+        // �??�더
         if (data.folders.length === 0 && data.slides.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'slide-list-empty';
@@ -5022,7 +5021,7 @@ async function loadSlideList() {
             $slideList.appendChild(empty);
         }
 
-        // 폴더 항목
+        // ?�더 ??��
         for (const f of data.folders) {
             const folderPath = currentBrowsePath ? `${currentBrowsePath}/${f.name}` : f.name;
             const item = document.createElement('div');
@@ -5031,7 +5030,7 @@ async function loadSlideList() {
 
             const icon = document.createElement('span');
             icon.className = 'folder-icon';
-            icon.textContent = '📁';
+            icon.textContent = '?��';
 
             const name = document.createElement('div');
             name.className = 'slide-list-name';
@@ -5039,14 +5038,14 @@ async function loadSlideList() {
 
             item.append(icon, name);
 
-            // 더블클릭 → 폴더 진입
+            // ?�블?�릭 ???�더 진입
             item.addEventListener('click', () => navigateToFolder(folderPath));
-            // 우클릭 → 컨텍스트 메뉴
+            // ?�클�???컨텍?�트 메뉴
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 showFolderContextMenu(e, folderPath, f.name);
             });
-            // 드래그 대상 (파일을 폴더에 드롭) — OS 파일 + 내부 이동 모두 지원
+            // ?�래�?????(?�일???�더???�롭) ??OS ?�일 + ?��? ?�동 모두 �???
             item.addEventListener('dragover', (e) => { e.preventDefault(); item.classList.add('drag-over'); });
             item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
             item.addEventListener('drop', async (e) => {
@@ -5063,7 +5062,7 @@ async function loadSlideList() {
             $slideList.appendChild(item);
         }
 
-        // 슬라이드 항목
+        // ?�라?�드 ??��
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
@@ -5082,11 +5081,11 @@ async function loadSlideList() {
             thumb.className = 'slide-thumb';
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
-            // closure 캡처 — currentBrowsePath 가 나중에 바뀌어도 이 썸네일은 처음 경로 유지.
+            // closure 캡처 ??currentBrowsePath �? ?�중??바�?�어?????�네?��? 처음 경로 ?��?.
             const str_thumb_filename = s.filename;
             const str_thumb_path = currentBrowsePath;
             thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96);
-            // 401 (만료된 mt) 시 새 티켓으로 1회 재시도 후 그래도 실패하면 숨김.
+            // 401 (만료??mt) ?????�켓?�로 1???�시????그래???�패?�면 ?��?.
             api.attachMediaImageRetry(thumb,
                 () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96),
                 () => { thumb.style.display = 'none'; });
@@ -5108,11 +5107,11 @@ async function loadSlideList() {
             // Annotation workflow columns
             _renderAnnotationWorkflowCells(item, strRawSlideStatus);
 
-            // 우클릭: 컨텍스트 메뉴 (상태 설정 / 삭제)
+            // ?�클�? 컨텍?�트 메뉴 (?�태 ?�정 / ??��)
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // 현재 아이템이 선택되어 있지 않다면 단독 선택으로 전환
+                // ?�재 ?�이?�이 ?�택?�어 ?��? ?�다�??�독 ?�택?�로 ?�환
                 if (!item.classList.contains('selected')) {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
@@ -5120,12 +5119,12 @@ async function loadSlideList() {
                 showSlideContextMenu(e);
             });
 
-            // 클릭: Ctrl/Shift 다중 선택, 일반 클릭은 단일 선택+열기
+            // ?�릭: Ctrl/Shift ?�중 ?�택, ?�반 ?�릭?? ?�일 ?�택+?�기
             item.addEventListener('click', (e) => {
                 if (e.ctrlKey || e.metaKey) {
                     item.classList.toggle('selected');
                 } else if (e.shiftKey) {
-                    // Shift: 범위 선택
+                    // Shift: 범위 ?�택
                     const allItems = [...$slideList.querySelectorAll('.slide-list-item:not(.folder-item)')];
                     const lastIdx = allItems.findIndex(el => el.classList.contains('selected'));
                     const curIdx = allItems.indexOf(item);
@@ -5136,16 +5135,16 @@ async function loadSlideList() {
                         item.classList.add('selected');
                     }
                 } else {
-                    // 단일 클릭 → 선택 초기화 + 열기
+                    // ?�일 ?�릭 ???�택 초기??+ ?�기
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
                     openSavedSlide(s.filename, item);
                 }
             });
 
-            // 드래그: 선택된 파일 전부 포함
+            // ?�래�? ?�택???�일 ?��? ?�함
             item.addEventListener('dragstart', (e) => {
-                // 드래그 시작한 아이템이 선택 안 되어 있으면 단독 선택
+                // ?�래�??�작???�이?�이 ?�택 ???�어 ?�으�??�독 ?�택
                 if (!item.classList.contains('selected')) {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
@@ -5154,7 +5153,7 @@ async function loadSlideList() {
                     .map(el => el.dataset.filename)
                     .filter(Boolean);
                 e.dataTransfer.setData('text/filenames', JSON.stringify(selectedFiles));
-                e.dataTransfer.setData('text/filename', selectedFiles[0]); // 호환
+                e.dataTransfer.setData('text/filename', selectedFiles[0]); // ?�환
                 e.dataTransfer.effectAllowed = 'move';
                 requestAnimationFrame(() => {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.add('dragging'));
@@ -5171,11 +5170,11 @@ async function loadSlideList() {
         _refreshAiActiveBadges();
         _startAiActivePolling();
     } catch (err) {
-        console.error('슬라이드 목록 로드 실패:', err);
+        console.error('?�라?�드 목록 로드 ?�패:', err);
     }
 }
 
-// ── AI 진행 중 배지 (auto/manual 공통) ──
+// ???? AI 진행 �?배�? (auto/manual 공통) ????
 let _aiActivePollTimer = null;
 function _startAiActivePolling() {
     if (_isAnnotationPage()) {
@@ -5248,7 +5247,7 @@ if ($projectSelect) {
 }
 
 async function _dropMoveFiles(e, targetPath) {
-    // 다중 파일 이동
+    // ?�중 ?�일 ?�동
     let filenames = [];
     try { filenames = JSON.parse(e.dataTransfer.getData('text/filenames') || '[]'); } catch {}
     if (!filenames.length) {
@@ -5261,8 +5260,8 @@ async function _dropMoveFiles(e, targetPath) {
             await api.moveFile(fn, currentBrowsePath, targetPath);
         }
         loadSlideList();
-        setStatus(`${filenames.length}개 파일 이동 완료`);
-    } catch (err) { setStatus(`이동 실패: ${err.message}`); }
+        setStatus(`${filenames.length}�??�일 ?�동 ?�료`);
+    } catch (err) { setStatus(`?�동 ?�패: ${err.message}`); }
 }
 
 function _makeBreadcrumbDroppable(el, targetPath) {
@@ -5280,7 +5279,7 @@ function _makeBreadcrumbDroppable(el, targetPath) {
     });
 }
 
-// 좌측 슬라이드 리스트 빈 영역에 OS 파일 드롭 → 현재 폴더로 업로드
+// 좌측 ?�라?�드 리스??�??�역??OS ?�일 ?�롭 ???�재 ?�더�??�로??
 (function _initSlideListOsDrop() {
     $slideList.addEventListener('dragover', (e) => {
         if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
@@ -5318,7 +5317,7 @@ function updateBreadcrumb() {
             accumulated = accumulated ? `${accumulated}/${part}` : `${projectName}/${part}`;
             const sep = document.createElement('span');
             sep.className = 'breadcrumb-sep';
-            sep.textContent = '›';
+            sep.textContent = '??;
             $breadcrumb.appendChild(sep);
 
             const crumb = document.createElement('span');
@@ -5333,7 +5332,7 @@ function updateBreadcrumb() {
 }
 
 async function openSavedSlide(filename, itemEl) {
-    setStatus('열는 중...');
+    setStatus('?�는 �?..');
     try {
         const info = await api.openSlide(filename, currentBrowsePath);
         if (info.exists) {
@@ -5342,28 +5341,28 @@ async function openSavedSlide(filename, itemEl) {
             onSlideLoaded(info.slide_id, info, filename);
         }
     } catch (err) {
-        setStatus(`열기 실패: ${err.message}`);
+        setStatus(`?�기 ?�패: ${err.message}`);
     }
 }
 
-// ── 폴더 생성 ──
+// ???? ?�더 ?�성 ????
 $('#btn-new-folder').addEventListener('click', async () => {
     if (!_getCurrentProjectName()) {
         alert('Select a project before creating folders.');
         _showProjectGate(_projectListCache);
         return;
     }
-    const name = prompt('새 폴더 이름:');
+    const name = prompt('???�더 ?�름:');
     if (!name || !name.trim()) return;
     try {
         await api.createFolder(currentBrowsePath, name.trim());
         loadSlideList();
     } catch (err) {
-        alert(`폴더 생성 실패: ${err.message}`);
+        alert(`?�더 ?�성 ?�패: ${err.message}`);
     }
 });
 
-// ── 폴더 우클릭 컨텍스트 메뉴 ──
+// ???? ?�더 ?�클�?컨텍?�트 메뉴 ????
 let _ctxMenu = null;
 
 function removeCtxMenu() {
@@ -5383,12 +5382,12 @@ function showFolderContextMenu(e, folderPath, folderName) {
     renameBtn.textContent = 'Rename';
     renameBtn.addEventListener('click', async () => {
         removeCtxMenu();
-        const newName = prompt('새 이름:', folderName);
+        const newName = prompt('???�름:', folderName);
         if (!newName || !newName.trim() || newName.trim() === folderName) return;
         try {
             await api.renameFolder(folderPath, newName.trim());
             loadSlideList();
-        } catch (err) { alert(`이름 변경 실패: ${err.message}`); }
+        } catch (err) { alert(`?�름 �?�??�패: ${err.message}`); }
     });
 
     const deleteBtn = document.createElement('div');
@@ -5396,11 +5395,11 @@ function showFolderContextMenu(e, folderPath, folderName) {
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', async () => {
         removeCtxMenu();
-        if (!confirm(`"${folderName}" 폴더를 삭제하시겠습니까?`)) return;
+        if (!confirm(`"${folderName}" ?�더�???��?�시겠습?�까?`)) return;
         try {
             await api.deleteFolder(folderPath);
             loadSlideList();
-        } catch (err) { alert(`삭제 실패: ${err.message}`); }
+        } catch (err) { alert(`??�� ?�패: ${err.message}`); }
     });
 
     menu.append(renameBtn, deleteBtn);
@@ -5408,7 +5407,7 @@ function showFolderContextMenu(e, folderPath, folderName) {
     _ctxMenu = menu;
 }
 
-// ── 슬라이드 우클릭 컨텍스트 메뉴 ──
+// ???? ?�라?�드 ?�클�?컨텍?�트 메뉴 ????
 function _getSelectedSlideFilenames() {
     return [...$slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)')]
         .map(el => el.dataset.filename)
@@ -5429,7 +5428,7 @@ function _annotationWorkflowLabel(status) {
 async function _moveAnnotationWorkflowStatusDirect(strRequestedStatus) {
     const strTargetStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
     const strLabel = _annotationWorkflowLabel(strTargetStatus);
-    if (!confirm(`Annotation Status를 "${strLabel}" 단계로 변경할까요?`)) {
+    if (!confirm(`Annotation Status�?"${strLabel}" ?�계�?�?경할까요?`)) {
         _syncAnnotationStatusControl(currentAnnotationStatus);
         return;
     }
@@ -5589,7 +5588,7 @@ function showSlideContextMenu(e) {
     menu.style.left = `${e.clientX}px`;
     menu.style.top = `${e.clientY}px`;
 
-    // 헤더 (선택 개수)
+    // ?�더 (?�택 개수)
     const header = document.createElement('div');
     header.className = 'ctx-menu-header';
     header.textContent = list_filenames.length === 1
@@ -5597,7 +5596,7 @@ function showSlideContextMenu(e) {
         : `${list_filenames.length} slides selected`;
     menu.appendChild(header);
 
-    // Set Status 하위 항목
+    // Set Status ?�위 ??��
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'ctx-menu-item danger';
     deleteBtn.textContent = list_filenames.length === 1 ? 'Delete' : `Delete ${list_filenames.length} slides`;
@@ -5611,20 +5610,20 @@ function showSlideContextMenu(e) {
     _ctxMenu = menu;
 }
 
-// ── 슬라이드 리스트 마키(러버밴드) 드래그 선택 ──
+// ???? ?�라?�드 리스??마키(?�버밴드) ?�래�??�택 ????
 (function _initMarqueeSelection() {
     let bool_active = false;
     let int_startX = 0;
     let int_startY = 0;
     let el_rect = null;
-    let list_baseline = []; // Ctrl/Shift 시 기존 선택 유지
+    let list_baseline = []; // Ctrl/Shift ??기존 ?�택 ?��?
 
     $slideList.addEventListener('mousedown', (e) => {
-        // 왼쪽 버튼만, 스크롤바/아이템 위 아님
+        // ?�쪽 버튼�? ?�크롤바/?�이?????�님
         if (e.button !== 0) return;
-        // 슬라이드 아이템/폴더 아이템 내부 클릭은 무시 (기존 동작 유지)
+        // ?�라?�드 ?�이???�더 ?�이???��? ?�릭?? 무시 (기존 ?�작 ?��?)
         if (e.target.closest('.slide-list-item')) return;
-        // 썸네일 drag 중에는 브라우저 기본 drag 가 걸릴 수 있어 여기서만 처리
+        // ?�네??drag 중에??브라?��? 기본 drag �? 걸릴 ???�어 ?�기?�만 처리
         const rect_panel = $slideList.getBoundingClientRect();
         if (e.clientX < rect_panel.left || e.clientX > rect_panel.right) return;
 
@@ -5660,7 +5659,7 @@ function showSlideContextMenu(e) {
         el_rect.style.width = `${w}px`;
         el_rect.style.height = `${h}px`;
 
-        // 교차 판정: 각 슬라이드 아이템 rect 와 교차하면 selected
+        // 교차 ?�정: �??�라?�드 ?�이??rect ?? 교차?�면 selected
         const rectBox = { left: x, top: y, right: x + w, bottom: y + h };
         const list_items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
         const set_base = new Set(list_baseline);
@@ -5683,10 +5682,10 @@ function showSlideContextMenu(e) {
     });
 })();
 
-// 슬라이드 리스트 빈 영역 우클릭은 컨텍스트 메뉴 숨김 (기본 방지는 불필요)
+// ?�라?�드 리스??�??�역 ?�클�?? 컨텍?�트 메뉴 ?��? (기본 방�???불필??
 $slideList.addEventListener('contextmenu', (e) => {
     if (!e.target.closest('.slide-list-item')) {
-        // 선택된 슬라이드가 있으면 메뉴 표시
+        // ?�택???�라?�드�? ?�으�?메뉴 ?�시
         const list_sel = $slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)');
         if (list_sel.length > 0) {
             e.preventDefault();
@@ -5695,7 +5694,7 @@ $slideList.addEventListener('contextmenu', (e) => {
     }
 });
 
-// ── 폴더 AI 자동 분석 설정 다이얼로그 ──
+// ???? ?�더 AI ?�동 분석 ?�정 ?�이?�로�?????
 const AUTO_AI_TASK_OPTIONS = [
     { model: 'Quanti HE',      variant: 'Stomach', label: 'Quanti HE · Stomach' },
     { model: 'Quanti HE',      variant: 'Breast',  label: 'Quanti HE · Breast' },
@@ -5715,13 +5714,13 @@ const VS_MPP_CHOICES = [
 ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {
-    // 기존 설정 로드
+    // 기존 ?�정 로드
     let cfg = { enabled: false, tasks: [] };
     try { cfg = await api.getFolderAiConfig(folderPath); }
-    catch (err) { console.warn('folder config 로드 실패:', err); }
+    catch (err) { console.warn('folder config 로드 ?�패:', err); }
 
-    // 일반 모델: model::variant key 로 선택 여부 판단
-    // VS IHC: variant 별 선택된 mpp set 을 따로 관리
+    // ?�반 모델: model::variant key �??�택 ?��? ?�단
+    // VS IHC: variant �??�택??mpp set ???�로 �?�?
     const set_selected = new Set();
     const dict_vs_mpps = {};  // { variant: Set<number> }
     for (const t of (cfg.tasks || [])) {
@@ -5733,29 +5732,29 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         }
     }
 
-    // 백드롭 + 카드
+    // 백드�?+ 카드
     const backdrop = document.createElement('div');
     backdrop.className = 'ai-cfg-backdrop';
     backdrop.innerHTML = `
         <div class="ai-cfg-card">
             <div class="ai-cfg-header">
-                <span>AI 자동 분석 설정 — ${folderName}</span>
+                <span>AI ?�동 분석 ?�정 ??${folderName}</span>
                 <button class="ai-cfg-close" type="button">&times;</button>
             </div>
             <div class="ai-cfg-body">
                 <label class="ai-cfg-enable">
                     <input type="checkbox" id="ai-cfg-enabled"${cfg.enabled ? ' checked' : ''}>
-                    <span>이 폴더에 자동 분석 활성화</span>
+                    <span>???�더???�동 분석 ?�성??/span>
                 </label>
                 <div class="ai-cfg-hint">
-                    10분간 AI 사용이 없고 업로드가 없을 때 1분마다 스캔해서
-                    아래 선택한 분석이 없는 슬라이드를 자동 추론합니다.
+                    10분간 AI ?�용???�고 ?�로?��? ?�을 ??1분마???�캔?�서
+                    ?�래 ?�택??분석???�는 ?�라?�드�??�동 추론?�니??
                 </div>
                 <div class="ai-cfg-list" id="ai-cfg-list"></div>
             </div>
             <div class="ai-cfg-footer">
                 <button type="button" class="ai-cfg-btn ai-cfg-cancel">취소</button>
-                <button type="button" class="ai-cfg-btn ai-cfg-save primary">저장</button>
+                <button type="button" class="ai-cfg-btn ai-cfg-save primary">????/button>
             </div>
         </div>
     `;
@@ -5770,7 +5769,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         wrap.dataset.variant = opt.variant;
 
         if (opt.mpp) {
-            // VS IHC: 상위 체크박스 = 선택된 mpp 가 하나라도 있으면 checked
+            // VS IHC: ?�위 체크박스 = ?�택??mpp �? ?�나?�도 ?�으�?checked
             const set_current = dict_vs_mpps[opt.variant] || new Set();
             const bool_parent_checked = set_current.size > 0;
             wrap.innerHTML = `
@@ -5779,7 +5778,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
                     <span>${opt.label}</span>
                 </label>
                 <div class="ai-cfg-sub"${bool_parent_checked ? '' : ' hidden'}>
-                    <div class="ai-cfg-sub-title">배율 선택:</div>
+                    <div class="ai-cfg-sub-title">배율 ?�택:</div>
                     ${VS_MPP_CHOICES.map(m => `
                         <label class="ai-cfg-sub-row">
                             <input type="checkbox" class="ai-cfg-mpp" data-mpp="${m.value}"${set_current.has(m.value) ? ' checked' : ''}>
@@ -5793,7 +5792,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
             $parent.addEventListener('change', () => {
                 if ($parent.checked) {
                     $sub.hidden = false;
-                    // 아무것도 체크 안 되어 있으면 기본 2.0 체크
+                    // ?�무것도 체크 ???�어 ?�으�?기본 2.0 체크
                     const checked = wrap.querySelectorAll('.ai-cfg-mpp:checked');
                     if (checked.length === 0) {
                         const $def = wrap.querySelector('.ai-cfg-mpp[data-mpp="2"]');
@@ -5844,15 +5843,15 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         });
         try {
             await api.saveFolderAiConfig(folderPath, enabled, tasks);
-            setStatus(`AI 자동 분석 설정 저장: ${tasks.length}개 작업`);
+            setStatus(`AI ?�동 분석 ?�정 ???? ${tasks.length}�??�업`);
             close();
         } catch (err) {
-            alert(`저장 실패: ${err.message}`);
+            alert(`?????�패: ${err.message}`);
         }
     });
 }
 
-// ── 뷰 토글 (리스트 / 그리드) ──
+// ???? �??��? (리스??/ 그리?? ????
 const $btnViewList = $('#btn-view-list');
 const $btnViewGrid = $('#btn-view-grid');
 
@@ -5867,9 +5866,9 @@ $btnViewGrid.addEventListener('click', () => {
     $btnViewList.classList.remove('active');
 });
 
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 // VS IHC (Virtual Staining)
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 async function startVirtualStain(stainType) {
     if (_blockViewerAction()) return;
     if (!currentSlideId) return;
@@ -5882,11 +5881,11 @@ async function startVirtualStain(stainType) {
     _setButtonRunning(btnEl, true);
     $progressLabel.textContent = 'Virtual Staining...';
     setProgress(0);
-    setStatus('Virtual staining 시작...');
+    setStatus('Virtual staining ?�작...');
 
     viewer.setDrawMode(null);
 
-    // ROI: polygon/rectangle annotation을 폴리곤으로 전달
+    // ROI: polygon/rectangle annotation???�리곤으�??�달
     const roiAnns = viewer.annotations.filter(a =>
         a.visible && a.type !== 'point' && a.coordinates.length >= 3);
     const roiPolygons = roiAnns.length > 0 ? roiAnns.map(a => a.coordinates) : null;
@@ -5901,7 +5900,7 @@ async function startVirtualStain(stainType) {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
             }
         }
-        // 결과 로딩 시 같은 mpp로 PNG 요청
+        // 결과 로딩 ??같�? mpp�?PNG ?�청
         _vsLastTargetMpp = targetMpp;
 
         while (true) {
@@ -5918,14 +5917,14 @@ async function startVirtualStain(stainType) {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Virtual staining 중지됨 — 부분 결과 정리 완료');
+                setStatus('Virtual staining 중�?????�?�?결과 ?�리 ?�료');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`Virtual staining 실패: ${err.message}`);
+        setStatus(`Virtual staining ?�패: ${err.message}`);
         $progressLabel.textContent = 'Virtual staining failed';
     } finally {
         delete _runningAiTasks[str_key];
@@ -5946,12 +5945,12 @@ function onVirtualStainComplete(result) {
         canvas_l0_h: result.canvas_l0_h,
         tile_size: result.tile_size || 512,
         levels: result.levels || [],
-        roi_polygons: result.roi_polygons || null,  // 표시 클립용 (level-0 좌표)
+        roi_polygons: result.roi_polygons || null,  // ?�시 ?�립??(level-0 좌표)
     });
     _setVsToggleState(true, false);
-    _setVsSplitState(false, false);  // 분할 모드는 사용자가 켜야 함
+    _setVsSplitState(false, false);  // 분할 모드???�용?��? 켜야 ??
 
-    // AI 완료: ROI annotation 제거 (desktop 동작과 일치)
+    // AI ?�료: ROI annotation ?�거 (desktop ?�작�??�치)
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
@@ -5961,14 +5960,14 @@ function onVirtualStainComplete(result) {
     $progressLabel.textContent = result.cached
         ? 'Virtual staining loaded (cached)'
         : 'Virtual staining complete';
-    setStatus(`Virtual staining complete — ${tc}/${tot} tissue patches`);
+    setStatus(`Virtual staining complete ??${tc}/${tot} tissue patches`);
 }
 
-// VS IHC target mpp slider — index → mpp value
+// VS IHC target mpp slider ??index ??mpp value
 const VS_MPP_VALUES = [4.0, 2.0, 1.0, 0.5];
 const VS_MPP_LABELS = [
     '4.0 µm/px (x2.5)',
-    '★ 2.0 µm/px (x5)',
+    '??2.0 µm/px (x5)',
     '1.0 µm/px (x10)',
     '0.5 µm/px (x20)',
 ];
@@ -5986,9 +5985,9 @@ $vsMppSlider?.addEventListener('input', () => {
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 
-// ═══════════════════════════
-// Quanti PD-L1 (PD-L1) — CPS / TPS
-// ═══════════════════════════
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
+// Quanti PD-L1 (PD-L1) ??CPS / TPS
+// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 $btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {
@@ -6001,7 +6000,7 @@ async function startPdScore() {
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
     setProgress(0);
-    setStatus('Quanti PD-L1 시작...');
+    setStatus('Quanti PD-L1 ?�작...');
 
     viewer.setDrawMode(null);
 
@@ -6033,14 +6032,14 @@ async function startPdScore() {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Quanti PD-L1 중지됨 — 부분 결과 정리 완료');
+                setStatus('Quanti PD-L1 중�?????�?�?결과 ?�리 ?�료');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`Quanti PD-L1 실패: ${err.message}`);
+        setStatus(`Quanti PD-L1 ?�패: ${err.message}`);
     } finally {
         delete _runningAiTasks['pd-score'];
         _setButtonRunning($btnPdScore, false);
@@ -6062,7 +6061,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
-    // Quanti PD-L1 전용 클래스 색상 override (Stomach CPS: 녹/적 계열)
+    // Quanti PD-L1 ?�용 ?�래???�상 override (Stomach CPS: ????계열)
     const colorMap = {};
     if (result.class_colors) {
         for (const [k, v] of Object.entries(result.class_colors)) {
@@ -6070,7 +6069,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD 재현성)
+    viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD ?�현??
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
@@ -6078,12 +6077,12 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
-    // Score 카드는 polygon-ROI + confidence 필터링된 viewer.detectionCells 로만 그린다.
-    // backend 의 result.pd_score 는 bbox-ROI 기반이라 영역 그렸을 때 어긋남 — 절대 사용 X.
-    // 카드 visibility 만 켜고 내용은 buildResultList → _updateResultCounts 로 채운다.
+    // Score 카드??polygon-ROI + confidence ?�터링된 viewer.detectionCells 로만 그린??
+    // backend ??result.pd_score ??bbox-ROI 기반?�라 ?�역 그렸?????�긋?????��? ?�용 X.
+    // 카드 visibility �?켜고 ?�용?? buildResultList ??_updateResultCounts �?채운??
     if ($pdScoreResult) $pdScoreResult.hidden = false;
 
-    // status bar 텍스트도 polygon-ROI 카운트로 계산
+    // status bar ?�스?�도 polygon-ROI 카운?�로 계산
     const { counts: dict_counts_status } = _computeFilteredCounts(viewer.detectionCells);
     const str_score_type = (result.pd_score && result.pd_score.score_type) || 'Score';
     let float_status_score = 0;
@@ -6099,13 +6098,13 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     }
     setStatus(`${str_score_type}: ${float_status_score.toFixed(1)}% | ${displayCount.toLocaleString()} cells`);
 
-    // onCellEdited 와 동일한 패턴 — _lastDetectionResult.cells 를 polygon-필터링된 셀로
-    // 정렬해 두면 buildResultList 가 어떤 경로로 result.cells 를 쓰더라도 안전.
+    // onCellEdited ?? ?�일???�턴 ??_lastDetectionResult.cells �?polygon-?�터링된 ??�?
+    // ?�렬???�면 buildResultList �? ?�떤 경로�?result.cells �??�더?�도 ?�전.
     _lastDetectionResult.cells = viewer.detectionCells;
     _lastDetectionResult.total_cells = viewer.detectionCells.length;
 
     buildResultList(_lastDetectionResult);
-    _updateResultCounts();   // _updatePdScoreDisplay 가 polygon-ROI 기반으로 카드 채움
+    _updateResultCounts();   // _updatePdScoreDisplay �? polygon-ROI 기반?�로 카드 채�?
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -6136,7 +6135,7 @@ async function startPreciseIhc(marker) {
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
     $progressLabel.textContent = `${markerLabel} Detection...`;
     setProgress(0);
-    setStatus(`${markerLabel} 시작...`);
+    setStatus(`${markerLabel} ?�작...`);
 
     viewer.setDrawMode(null);
 
@@ -6169,14 +6168,14 @@ async function startPreciseIhc(marker) {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus(`${markerLabel} 중지됨 — 부분 결과 정리 완료`);
+                setStatus(`${markerLabel} 중�?????�?�?결과 ?�리 ?�료`);
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`${markerLabel} 실패: ${err.message}`);
+        setStatus(`${markerLabel} ?�패: ${err.message}`);
     } finally {
         delete _runningAiTasks[str_key];
         _setButtonRunning(btnEl, false);
@@ -6206,7 +6205,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
+    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD ?�현??
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
@@ -6214,13 +6213,13 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
-    // Score 카드는 polygon-ROI + confidence 필터된 viewer.detectionCells 기반으로만 그린다.
-    // backend 의 result.{her2,allred,ki67}_score 는 bbox-ROI 기반이라 영역 그렸을 때
-    // 패널/시각화와 어긋남 — 절대 사용 X. visibility 만 켜고 _updateResultCounts() 가
-    // 폴리곤 카운트로 카드 내용 (점수/막대/범례) 을 채우도록 위임.
+    // Score 카드??polygon-ROI + confidence ?�터??viewer.detectionCells 기반?�로�?그린??
+    // backend ??result.{her2,allred,ki67}_score ??bbox-ROI 기반?�라 ?�역 그렸????
+    // ?�널/?�각?��? ?�긋?????��? ?�용 X. visibility �?켜고 _updateResultCounts() �?
+    // ?�리�?카운?�로 카드 ?�용 (?�수/막�?/범�?) ??채우?�록 ?�임.
     if ($ihcScoreResult) {
         $ihcScoreResult.hidden = false;
-        // 마커별 라벨 — _updateXxxScoreDisplay 가 다시 덮어쓰기는 하지만 첫 프레임 빈 라벨 방지.
+        // 마커�??�벨 ??_updateXxxScoreDisplay �? ?�시 ??��?�기???��?�?�??�레??�??�벨 방�?.
         if (result.her2_score) {
             $ihcScoreLabel.textContent = 'HER2';
         } else if (result.allred_score) {
@@ -6230,7 +6229,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
 
-    // status bar 텍스트도 polygon-ROI 카운트로 재계산 (backend 점수 X).
+    // status bar ?�스?�도 polygon-ROI 카운?�로 ?�계??(backend ?�수 X).
     const { counts: dict_counts_ihc } = _computeFilteredCounts(viewer.detectionCells);
     const n0 = dict_counts_ihc[0] || 0, n1 = dict_counts_ihc[1] || 0;
     const n2 = dict_counts_ihc[2] || 0, n3 = dict_counts_ihc[3] || 0;
@@ -6254,21 +6253,21 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         const int_is = avg < 0.5 ? 0 : avg < 1.5 ? 1 : avg < 2.5 ? 2 : 3;
         const ts = int_ps + int_is;
         const interp = ts >= 3 ? 'Positive' : 'Negative';
-        setStatus(`${markerLabel} Allred: ${ts} (PS ${int_ps} + IS ${int_is}) — ${interp} | ${displayCount.toLocaleString()} cells`);
+        setStatus(`${markerLabel} Allred: ${ts} (PS ${int_ps} + IS ${int_is}) ??${interp} | ${displayCount.toLocaleString()} cells`);
     } else if (result.ki67_score) {
         const pos = n1 + n2 + n3;
         const tot = n0 + pos;
         const ki67Index = tot === 0 ? 0 : pos / tot * 100;
         const interp = ki67Index >= 14 ? 'High' : 'Low';
-        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% — ${interp} | ${displayCount.toLocaleString()} cells`);
+        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% ??${interp} | ${displayCount.toLocaleString()} cells`);
     }
 
-    // onCellEdited 와 동일한 패턴으로 result.cells 를 polygon-필터링된 셀에 맞춤.
+    // onCellEdited ?? ?�일???�턴?�로 result.cells �?polygon-?�터링된 ????맞춤.
     _lastDetectionResult.cells = viewer.detectionCells;
     _lastDetectionResult.total_cells = viewer.detectionCells.length;
 
     buildResultList(_lastDetectionResult);
-    _updateResultCounts();   // _updateXxxScoreDisplay 가 polygon-ROI 기반으로 카드 채움
+    _updateResultCounts();   // _updateXxxScoreDisplay �? polygon-ROI 기반?�로 카드 채�?
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -6276,7 +6275,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
-// ─── VS toggle 헬퍼 ───
+// ?????? VS toggle ?�퍼 ??????
 function _setVsToggleState(visible, disabled) {
     if (!$btnVsToggle) return;
     $btnVsToggle.disabled = !!disabled;
@@ -6290,7 +6289,7 @@ function _setVsSplitState(enabled, disabled) {
     $btnVsSplit.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     const lab = $btnVsSplit.querySelector('.toggle-pill-label');
     if (lab) lab.textContent = enabled
-        ? 'Split View: ON  (← IHC | Virtual H&E →)'
+        ? 'Split View: ON  (??IHC | Virtual H&E ??'
         : 'Split View (IHC | Virtual H&E)';
 }
 
@@ -6300,7 +6299,7 @@ $btnVsToggle?.addEventListener('click', () => {
     const next = $btnVsToggle.getAttribute('aria-pressed') !== 'true';
     _setVsToggleState(next, false);
     viewer.setVirtualStainVisible(next);
-    // overlay를 끄면 split도 의미가 없으므로 끔
+    // overlay�??�면 split???��?�? ?�으�?�???
     if (!next) {
         _setVsSplitState(false, false);
         viewer.setVirtualStainSplitMode(false);
@@ -6312,7 +6311,7 @@ $btnVsSplit?.addEventListener('click', () => {
     if ($btnVsSplit.disabled) return;
     const next = $btnVsSplit.getAttribute('aria-pressed') !== 'true';
     _setVsSplitState(next, false);
-    // split을 켜면 overlay도 강제로 ON
+    // split??켜면 overlay??강제�?ON
     if (next) {
         _setVsToggleState(true, false);
         viewer.setVirtualStainVisible(true);
@@ -6320,7 +6319,7 @@ $btnVsSplit?.addEventListener('click', () => {
     viewer.setVirtualStainSplitMode(next);
 });
 
-// 페이지 로드 시 인증 확인 후 슬라이드 목록 가져오기
+// ?�이�? 로드 ???�증 ?�인 ???�라?�드 목록 �??�오�?
 (async () => {
     try {
         const dict_me = await api.me();
@@ -6355,10 +6354,10 @@ $btnVsSplit?.addEventListener('click', () => {
             _applyViewerRoleRestrictions();
         }
     } catch (_) {
-        // 인증 실패 — api.js 가 리다이렉트 처리. 슬라이드/폴링 시작 생략.
+        // ?�증 ?�패 ??api.js �? 리다?�렉??처리. ?�라?�드/?�링 ?�작 ?�략.
         return;
     }
-    // URL 파라미터로 슬라이드 자동 열기 (?slide=filename&path=rel_path)
+    // URL ?�라미터�??�라?�드 ?�동 ?�기 (?slide=filename&path=rel_path)
     const _urlParams = new URLSearchParams(location.search);
     const _paramSlide = _urlParams.get('slide');
     const _paramPath = _urlParams.get('path');
@@ -6374,9 +6373,9 @@ $btnVsSplit?.addEventListener('click', () => {
     await loadSlideList();
 
     if (_paramSlide) {
-        // 슬라이드 목록 로드 후 자동 열기
+        // ?�라?�드 목록 로드 ???�동 ?�기
         openSavedSlide(_paramSlide, null);
-        // URL 파라미터 제거 (뒤로가기 시 재로드 방지)
+        // URL ?�라미터 ?�거 (?�로�?�????�로??방�?)
         history.replaceState(null, '', ANNOTATION_PAGE_ROUTE);
     }
 })();

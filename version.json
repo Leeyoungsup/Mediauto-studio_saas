@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.13",
+  "version": "1.1.14",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release constraining multi-cell edit popup width."
+  "description": "Patch release aligning AI viewer shortcut help and AI analysis help copy."
 }

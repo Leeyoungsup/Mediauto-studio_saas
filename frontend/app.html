@@ -141,7 +141,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-group">
-            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
+            <button id="btn-ux-help" class="toolbar-btn" title="Shortcuts" aria-label="Shortcuts">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="10" cy="10" r="8"/>
                     <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
@@ -158,7 +158,7 @@
         <div class="toolbar-separator"></div>
         <!-- 헬프 -->
         <div class="toolbar-group">
-            <button id="btn-ux-help-legacy" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help" hidden>
+            <button id="btn-ux-help-legacy" class="toolbar-btn" title="Shortcuts" aria-label="Shortcuts" hidden>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="10" cy="10" r="8"/>
                     <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
@@ -361,7 +361,7 @@
             <div class="panel-group ai-analysis-group">
                 <div class="panel-header">
                     <span>AI Analysis</span>
-                    <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="모델 설명">?</span>
+                    <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="AI analysis help">?</span>
                 </div>
 
                 <!-- 탭 바 -->
@@ -602,7 +602,54 @@
         </div>
     </div>
 
+    <div id="shortcuts-modal" class="ux-help-modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="ux-help-card shortcuts-card">
+            <div class="ux-help-header">
+                <div id="shortcuts-title" class="ux-help-title">Shortcuts</div>
+                <button id="shortcuts-close" class="ux-help-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="shortcut-list" aria-label="AI viewer shortcuts">
+                <div class="shortcut-row" data-preview="undo-last-action"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></span><span>Undo the last annotation or AI result cell edit.</span></div>
+                <div class="shortcut-row" data-preview="redo-last-action"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></span><span>Redo the last annotation or AI result cell edit.</span></div>
+                <div class="shortcut-row" data-preview="redo-last-action-shift"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd></span><span>Redo the last annotation or AI result cell edit.</span></div>
+                <div class="shortcut-row" data-preview="cancel-or-close"><span class="shortcut-keys"><kbd>Esc</kbd></span><span>Cancel drawing mode or close the active popup.</span></div>
+                <div class="ux-help-section">Slide Navigation</div>
+                <div class="shortcut-row" data-preview="pan-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan the slide.</span></div>
+                <div class="shortcut-row" data-preview="zoom-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Zoom around the cursor.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Double click</kbd></span><span>Center the selected annotation in the viewer.</span></div>
+                <div class="ux-help-section">Annotation Tools</div>
+                <div class="shortcut-row" data-preview="draw-active-tool"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Draw with the active tool: Polygon, Brush, Rectangle, Point, Cut, fixed 1mm shape, or Ruler.</span></div>
+                <div class="shortcut-row" data-preview="pan-over-annotation"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan over annotations or while drawing mode is active.</span></div>
+                <div class="shortcut-row" data-preview="move-selected-annotation"><span class="shortcut-keys"><kbd>Shift</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Move the selected annotation.</span></div>
+                <div class="shortcut-row" data-preview="select-annotation"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"><span class="click-mark"></span></span></span><span>Select an annotation, including while drawing mode is active.</span></div>
+                <div class="shortcut-row" data-preview="change-brush-size"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Change Polygon Brush size.</span></div>
+                <div class="shortcut-row" data-preview="insert-polygon-point"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"><span class="click-mark"></span></span></span><span>Insert a point on a polygon edge.</span></div>
+                <div class="shortcut-row" data-preview="merge-overlapping-polygons"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"><span class="click-mark"></span></span></span><span>Merge overlapping same-class polygons.</span></div>
+                <div class="ux-help-section">AI Result Cells</div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="left click"><span class="click-mark"></span></span></span><span>Edit the nearest visible result cell.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="left drag"><span class="drag-arrow"></span></span></span><span>Lasso-select visible result cells for batch editing.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-right-click" aria-label="right click"><span class="click-mark"></span></span></span><span>Add a new result cell at the clicked position.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><span class="mouse-icon mouse-right-click" aria-label="right drag"><span class="click-mark"></span></span></span><span>Right-drag to lasso hidden Other cells and promote them to a visible class.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd></span><span>Hold Alt to show the crosshair cursor and the current sticky class badge.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Alt</kbd><span>+</span><kbd>A</kbd></span><span>Open the sticky class picker.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>1</kbd><span>-</span><kbd>9</kbd><span>/</span><kbd>0</kbd></span><span>Choose a class from an open cell edit popup.</span></div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>Del</kbd></span><span>Delete selected visible result cells from the edit popup.</span></div>
+                <div class="ux-help-section">AI Panel</div>
+                <div class="shortcut-row"><span class="shortcut-keys"><kbd>?</kbd></span><span>Hover the AI Analysis help icon to read the current model description.</span></div>
+            </div>
+            <div id="shortcut-preview-popover" class="shortcut-preview-popover" hidden>
+                <video id="shortcut-preview-video" muted loop playsinline preload="metadata"></video>
+            </div>
+            <div id="shortcut-video-modal" class="shortcut-video-modal" hidden>
+                <div class="shortcut-video-card" role="dialog" aria-modal="true" aria-label="Shortcut video preview">
+                    <button id="shortcut-video-close" class="shortcut-video-close" type="button" aria-label="Close">&times;</button>
+                    <video id="shortcut-video-large" muted loop playsinline controls></video>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="js/shared-header.js?v=20260519-03"></script>
-    <script type="module" src="js/app.js?v=20260520-10"></script>
+    <script type="module" src="js/app.js?v=20260520-11"></script>
 </body>
 </html>
