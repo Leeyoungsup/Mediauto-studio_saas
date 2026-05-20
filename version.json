@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release suppressing the browser context menu during Alt right-click viewer workflows."
+  "description": "Patch release hardening browser context-menu suppression after Alt right-drag viewer workflows."
 }

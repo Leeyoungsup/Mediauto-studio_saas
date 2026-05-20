@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.12] - 2026-05-20
+
+### Fixed
+
+- Hardened browser context-menu suppression for delayed contextmenu events after Alt+right-drag hidden Other selection.
+
 ## [1.1.11] - 2026-05-20
 
 ### Fixed

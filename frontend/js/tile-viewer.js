@@ -491,15 +491,18 @@ export class TileViewer {
             else this.zoomOut(cx, cy);
         }, { passive: false });
 
+        let suppressContextMenuUntil = 0;
         const suppressAltContextMenu = (e) => {
-            if (!e.altKey) return;
+            const recentlyUsedAltRight = Date.now() < suppressContextMenuUntil;
+            if (!e.altKey && !recentlyUsedAltRight) return;
             const viewerRoot = this.canvas.closest('#viewer-container');
             const target = e.target;
             const isViewerContext = target === this.canvas ||
                 target === this.overlayCanvas ||
                 (viewerRoot && viewerRoot.contains(target)) ||
                 this._altPending ||
-                this._lassoActive;
+                this._lassoActive ||
+                recentlyUsedAltRight;
             if (!isViewerContext) return;
             e.preventDefault();
             e.stopPropagation();
@@ -534,6 +537,7 @@ export class TileViewer {
             // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
             // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
             if (e.altKey && e.button === 2 && !this.drawMode) {
+                suppressContextMenuUntil = Date.now() + 2000;
                 this._altPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
@@ -875,6 +879,7 @@ export class TileViewer {
         // ── 우클릭: 컨텍스트 메뉴 방지 + 그리기 모드 해제 ──
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            suppressContextMenuUntil = Date.now() + 500;
             if (e.altKey) return;
             if (this.drawMode) {
                 this.setDrawMode(null);
