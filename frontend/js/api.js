@@ -214,13 +214,15 @@ export const api = {
         return res.json();
     },
 
-    async listCases({ project = '', hospital = '', sampleNo = '', page = 1, pageSize = 15 } = {}) {
+    async listCases({ project = '', hospital = '', sampleNo = '', page = 1, pageSize = 15, sortBy = 'case_name', sortDir = 'asc' } = {}) {
         const q = new URLSearchParams({
             project: project || '',
             hospital: hospital || '',
             sample_no: sampleNo || '',
             page: String(page || 1),
             page_size: String(pageSize || 15),
+            sort_by: sortBy || 'case_name',
+            sort_dir: sortDir || 'asc',
         });
         const res = await _authFetch(`${API_BASE}/slides/cases?${q}`);
         if (!res.ok) throw new Error(await res.text());

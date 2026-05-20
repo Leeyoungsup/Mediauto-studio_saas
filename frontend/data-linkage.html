@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio - Data Linkage</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-04">
-    <link rel="stylesheet" href="css/style.css?v=20260520-18">
+    <link rel="stylesheet" href="css/style.css?v=20260520-20">
 </head>
 <body class="data-linkage-page">
     <div id="shared-header-root">
@@ -32,8 +32,6 @@
     <main class="data-linkage-shell">
         <section class="data-linkage-topbar">
             <div class="data-linkage-title">
-                <span>Data Linkage</span>
-                <span aria-hidden="true">&gt;</span>
                 <strong>Data Linkage</strong>
             </div>
             <div class="data-linkage-filters">
@@ -51,10 +49,6 @@
                     <option value="50">50 per page</option>
                 </select>
             </div>
-            <label class="data-linkage-extra">
-                <input id="dl-extra-toggle" type="checkbox">
-                <span>Additional conditions</span>
-            </label>
         </section>
 
         <section class="data-linkage-workspace">
@@ -94,6 +88,7 @@
                     <div><span>Sample ID:</span> <strong id="dl-sample-id">-</strong></div>
                 </div>
                 <div id="dl-thumbnail-row" class="data-linkage-thumbnails"></div>
+                <div id="dl-selected-slide" class="data-linkage-selected-slide">Selected image: -</div>
                 <form id="dl-clinical-form" class="data-linkage-form">
                     <div class="data-linkage-form-empty">Clinical fields appear after selecting a sample.</div>
                 </form>
@@ -117,6 +112,6 @@
             });
         })();
     </script>
-    <script type="module" src="js/data-linkage.js?v=20260520-03"></script>
+    <script type="module" src="js/data-linkage.js?v=20260520-05"></script>
 </body>
 </html>

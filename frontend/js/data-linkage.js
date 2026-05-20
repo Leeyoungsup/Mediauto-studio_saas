@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260520-02';
+import { api } from './api.js?v=20260520-03';
 
 (function () {
     'use strict';
@@ -50,6 +50,7 @@ import { api } from './api.js?v=20260520-02';
     const $year = document.getElementById('dl-year');
     const $sampleId = document.getElementById('dl-sample-id');
     const $thumbnailRow = document.getElementById('dl-thumbnail-row');
+    const $selectedSlide = document.getElementById('dl-selected-slide');
     const $form = document.getElementById('dl-clinical-form');
     const $save = document.getElementById('dl-save-btn');
     const $saveStatus = document.getElementById('dl-save-status');
@@ -69,6 +70,8 @@ import { api } from './api.js?v=20260520-02';
         previewY: 0,
         previewDragging: false,
         previewDragStart: null,
+        sortBy: 'case_name',
+        sortDir: 'asc',
     };
 
     function esc(value) {
@@ -156,6 +159,9 @@ import { api } from './api.js?v=20260520-02';
 
     async function setPreview(slide) {
         state.selectedSlide = slide || null;
+        if ($selectedSlide) {
+            $selectedSlide.textContent = slide?.filename ? `Selected image: ${slide.filename}` : 'Selected image: -';
+        }
         resetPreviewView();
         $previewImg.removeAttribute('src');
         $previewImg.hidden = true;
@@ -169,6 +175,18 @@ import { api } from './api.js?v=20260520-02';
         $previewImg.hidden = false;
         applyPreviewTransform();
         $previewEmpty.hidden = true;
+    }
+
+    function renderSortHeaders() {
+        document.querySelectorAll('[data-sort]').forEach((button) => {
+            const key = button.dataset.sort;
+            const base = button.dataset.label || button.textContent.replace(/[▲▼↕]\s*$/u, '').trim();
+            button.dataset.label = base;
+            const isActive = state.sortBy === key;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-sort', isActive ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+            button.textContent = `${base} ${isActive ? (state.sortDir === 'asc' ? '▲' : '▼') : '↕'}`;
+        });
     }
 
     async function selectCase(caseName) {
@@ -198,14 +216,20 @@ import { api } from './api.js?v=20260520-02';
             btn.type = 'button';
             btn.className = `data-linkage-thumb${index === 0 ? ' active' : ''}`;
             btn.title = slide.filename;
+            btn.setAttribute('aria-label', `Select ${slide.filename || `image ${index + 1}`}`);
+            btn.setAttribute('aria-pressed', index === 0 ? 'true' : 'false');
             const img = document.createElement('img');
             const setSrc = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 2048);
             img.src = setSrc();
             api.attachMediaImageRetry?.(img, setSrc);
             btn.appendChild(img);
             btn.addEventListener('click', async () => {
-                $thumbnailRow.querySelectorAll('.data-linkage-thumb').forEach((el) => el.classList.remove('active'));
+                $thumbnailRow.querySelectorAll('.data-linkage-thumb').forEach((el) => {
+                    el.classList.remove('active');
+                    el.setAttribute('aria-pressed', 'false');
+                });
                 btn.classList.add('active');
+                btn.setAttribute('aria-pressed', 'true');
                 await setPreview(slide);
             });
             $thumbnailRow.appendChild(btn);
@@ -281,6 +305,8 @@ import { api } from './api.js?v=20260520-02';
             sampleNo: $sampleSearch.value,
             page: state.page,
             pageSize: state.pageSize,
+            sortBy: state.sortBy,
+            sortDir: state.sortDir,
         });
         state.cases = data.cases || [];
         state.projects = data.projects || state.projects || [];
@@ -288,6 +314,7 @@ import { api } from './api.js?v=20260520-02';
         state.total = Number(data.total || 0);
         fillSelect($project, state.projects, 'Project (all) *', (item) => item.path || item.name, (item) => item.name || item.path);
         fillSelect($hospital, state.hospitals, 'Hospital (all) *', (item) => item, (item) => item);
+        renderSortHeaders();
         renderCaseList();
         renderPager();
         const nextName = selectedName && state.cases.some((item) => item.case_name === selectedName)
@@ -336,6 +363,20 @@ import { api } from './api.js?v=20260520-02';
         }
     });
     $save?.addEventListener('click', saveClinicalInfo);
+    document.querySelectorAll('[data-sort]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const nextSort = button.dataset.sort;
+            if (state.sortBy === nextSort) {
+                state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.sortBy = nextSort;
+                state.sortDir = 'asc';
+            }
+            state.page = 1;
+            renderSortHeaders();
+            loadCases({ keepSelection: true });
+        });
+    });
     $zoomIn?.addEventListener('click', () => zoomPreview(1.25));
     $zoomOut?.addEventListener('click', () => zoomPreview(0.8));
     $resetView?.addEventListener('click', resetPreviewView);
@@ -384,6 +425,7 @@ import { api } from './api.js?v=20260520-02';
         event.returnValue = '';
     });
 
+    renderSortHeaders();
     loadCases().catch((err) => {
         console.error(err);
         $caseList.innerHTML = '<div class="data-linkage-empty-row">Failed to load cases.</div>';

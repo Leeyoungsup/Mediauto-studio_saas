@@ -2,6 +2,20 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.47] - 2026-05-20
+
+### Fixed
+
+- Removed the unused Additional conditions control from Data Linkage.
+- Enabled server-backed sorting for the Data Linkage case table.
+
+## [1.1.46] - 2026-05-20
+
+### Changed
+
+- Simplified the Data Linkage page title to a single label.
+- Reduced linked image thumbnail clipping risk and added clearer selected image indicators.
+
 ## [1.1.45] - 2026-05-20
 
 ### Fixed

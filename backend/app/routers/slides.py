@@ -462,6 +462,8 @@ async def list_cases(
     sample_no: str = Query("", description="Case/sample id search"),
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100),
+    sort_by: str = Query("case_name", description="case_name, has_clinical_info, or last_activity"),
+    sort_dir: str = Query("asc", description="asc or desc"),
 ):
     target = _safe_subpath(project) if project else Path(settings.UPLOAD_DIR)
     if not target.exists() or not target.is_dir():
@@ -558,7 +560,18 @@ async def list_cases(
         dict_case["year"] = (dict_case["last_activity"] or "")[:4]
         dict_case["slides"].sort(key=lambda d: d.get("filename", "").lower())
 
-    list_cases_out = sorted(dict_cases.values(), key=lambda d: (d.get("case_name") or "").lower())
+    str_sort_by = sort_by if sort_by in {"case_name", "has_clinical_info", "last_activity"} else "case_name"
+    bool_reverse = sort_dir.lower() == "desc"
+    if str_sort_by == "has_clinical_info":
+        def _sort_key(dict_item: dict):
+            return (0 if dict_item.get("has_clinical_info") else 1, (dict_item.get("case_name") or "").lower())
+    elif str_sort_by == "last_activity":
+        def _sort_key(dict_item: dict):
+            return (dict_item.get("last_activity_ts") or 0, (dict_item.get("case_name") or "").lower())
+    else:
+        def _sort_key(dict_item: dict):
+            return ((dict_item.get("case_name") or "").lower(),)
+    list_cases_out = sorted(dict_cases.values(), key=_sort_key, reverse=bool_reverse)
     int_total = len(list_cases_out)
     int_start = (page - 1) * page_size
     list_page = list_cases_out[int_start:int_start + page_size]
