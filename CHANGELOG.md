@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.28] - 2026-05-20
+
+### Added
+
+- Added a top-right minimizer to the annotation VS IHC panel so the panel controls can be collapsed without hiding the right sidebar.
+
+## [1.1.27] - 2026-05-20
+
+### Changed
+
+- Temporarily disabled the Cell Annotation navigation item for non-admin users while keeping it available for admins.
+
 ## [1.1.26] - 2026-05-20
 
 ### Fixed

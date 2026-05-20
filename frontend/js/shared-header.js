@@ -53,6 +53,25 @@
         }
     }
 
+    function syncStaticCellAnnotationLinks(canUseCellAnnotation) {
+        document.querySelectorAll('[data-cell-annotation-link]').forEach((link) => {
+            if (canUseCellAnnotation) {
+                link.href = '/cell-annotation';
+                link.classList.remove('disabled');
+                link.removeAttribute('aria-disabled');
+                link.removeAttribute('tabindex');
+                link.removeAttribute('title');
+            } else {
+                link.href = '#';
+                link.classList.add('disabled');
+                link.setAttribute('aria-disabled', 'true');
+                link.setAttribute('tabindex', '-1');
+                link.setAttribute('title', 'Admin only');
+                link.addEventListener('click', (event) => event.preventDefault());
+            }
+        });
+    }
+
     function render(options = {}) {
         const root = document.getElementById(options.rootId || 'shared-header-root');
         if (!root) return null;
@@ -62,7 +81,16 @@
         const role = user.str_role || options.role || '';
         const name = user.str_name || user.str_login_id || '';
         const showAdmin = options.showAdmin ?? role === 'admin';
+        const canUseCellAnnotation = role === 'admin';
         const annotationActive = active === 'annotation' || active === 'tissue-annotation' || active === 'cell-annotation';
+        const cellClass = [
+            'shared-nav-subitem',
+            active === 'cell-annotation' ? 'active' : '',
+            canUseCellAnnotation ? '' : 'disabled',
+        ].filter(Boolean).join(' ');
+        const cellAttrs = canUseCellAnnotation
+            ? 'href="/cell-annotation"'
+            : 'href="#" aria-disabled="true" tabindex="-1" title="Admin only"';
 
         root.innerHTML = `
             <header class="shared-header">
@@ -79,7 +107,7 @@
                             <button type="button" class="shared-nav-item shared-nav-parent ${annotationActive ? 'active' : ''}" aria-haspopup="true" aria-expanded="false">Annotation</button>
                             <div class="shared-nav-submenu" role="menu">
                                 <a href="/tissue-annotation" class="shared-nav-subitem ${active === 'tissue-annotation' || active === 'annotation' ? 'active' : ''}" role="menuitem">Tissue</a>
-                                <a href="/cell-annotation" class="shared-nav-subitem ${active === 'cell-annotation' ? 'active' : ''}" role="menuitem">Cell</a>
+                                <a ${cellAttrs} class="${cellClass}" role="menuitem">Cell</a>
                             </div>
                         </div>
                         ${showAdmin ? `<a href="/admin" class="shared-nav-item ${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
@@ -95,6 +123,10 @@
 
         const logout = root.querySelector('.shared-logout');
         logout?.addEventListener('click', options.logout || defaultLogout);
+        root.querySelectorAll('.shared-nav-subitem.disabled').forEach((item) => {
+            item.addEventListener('click', (event) => event.preventDefault());
+        });
+        syncStaticCellAnnotationLinks(canUseCellAnnotation);
         loadVersion(root);
         return root;
     }

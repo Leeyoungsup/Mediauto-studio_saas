@@ -105,6 +105,8 @@ const $ihcScoreDetail = $('#ihc-score-detail');
 const $ihcScoreBar = $('#ihc-score-bar');
 const $btnVsToggle = $('#btn-vs-toggle');
 const $btnVsSplit = $('#btn-vs-split');
+const $btnVsPanelMinimize = $('#btn-vs-panel-minimize');
+const $aiAnalysisGroup = document.querySelector('.ai-analysis-group');
 let _vsRunning = false;
 let _vsLastTargetMpp = 2.0;
 
@@ -835,7 +837,7 @@ function _applyViewerRoleRestrictions() {
     });
 
     document.querySelectorAll(
-        '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button'
+        '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button:not(#btn-vs-panel-minimize)'
     ).forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use AI analysis features.';
@@ -5757,6 +5759,24 @@ $vsMppSlider?.addEventListener('input', () => {
     const idx = parseInt($vsMppSlider.value, 10);
     if ($vsMppLabel) $vsMppLabel.textContent = VS_MPP_LABELS[idx] || '';
 });
+
+const VS_PANEL_COLLAPSED_KEY = `mediauto:${ANNOTATION_PAGE_KIND}:vs-panel-collapsed`;
+function _setVsPanelCollapsed(collapsed, persist = true) {
+    if (!$aiAnalysisGroup || !$btnVsPanelMinimize) return;
+    $aiAnalysisGroup.classList.toggle('vs-panel-collapsed', !!collapsed);
+    $btnVsPanelMinimize.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    $btnVsPanelMinimize.title = collapsed ? 'Expand VS IHC' : 'Minimize VS IHC';
+    $btnVsPanelMinimize.setAttribute('aria-label', collapsed ? 'Expand VS IHC' : 'Minimize VS IHC');
+    if (persist) localStorage.setItem(VS_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+}
+
+if ($btnVsPanelMinimize) {
+    _setVsPanelCollapsed(localStorage.getItem(VS_PANEL_COLLAPSED_KEY) === '1', false);
+    $btnVsPanelMinimize.addEventListener('click', () => {
+        const collapsed = !$aiAnalysisGroup?.classList.contains('vs-panel-collapsed');
+        _setVsPanelCollapsed(collapsed);
+    });
+}
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 

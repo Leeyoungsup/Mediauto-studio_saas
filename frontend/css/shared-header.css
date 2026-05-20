@@ -134,6 +134,17 @@
     color: #5a4bd1;
 }
 
+.shared-nav-subitem.disabled {
+    color: rgba(60, 63, 85, 0.38);
+    cursor: not-allowed;
+    pointer-events: auto;
+}
+
+.shared-nav-subitem.disabled:hover {
+    background: transparent;
+    color: rgba(60, 63, 85, 0.38);
+}
+
 .shared-user-info {
     display: flex;
     align-items: center;
