@@ -1383,6 +1383,12 @@ async def get_slide_info(slide_id: str):
         "stage_downsamples": info.stage_downsamples,
         "stage_dimensions": info.stage_dimensions,
         "mpp": info.mpp,
+        "mpp_x": info.mpp_x,
+        "mpp_y": info.mpp_y,
+        "vendor": info.vendor,
+        "objective_power": info.objective_power,
+        "physical_width_mm": info.physical_width_mm,
+        "physical_height_mm": info.physical_height_mm,
         "tiles_ready": tile_generator.tiles_ready(Path(info.file_path).name),
     }
 

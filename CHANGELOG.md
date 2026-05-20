@@ -2,6 +2,33 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.24] - 2026-05-20
+
+### Fixed
+
+- Replaced remaining corrupted viewer permission, upload, save/load, folder, VS IHC, and auto-AI UI strings in AI and annotation viewers with readable English labels.
+- Cleaned damaged annotation viewer comments that were being preserved from the old encoding pass.
+
+## [1.1.23] - 2026-05-20
+
+### Fixed
+
+- Render scanner/vendor and native MPP badges beside the slide title as well as in the toolbar so they remain visible when the toolbar right side is constrained.
+
+## [1.1.22] - 2026-05-20
+
+### Fixed
+
+- Replaced corrupted AI runtime labels for running, cancel, start, fail, and completion states in AI and annotation viewers.
+
+## [1.1.21] - 2026-05-20
+
+### Fixed
+
+- Restored scanner/vendor and native MPP badges in AI and annotation viewer toolbars by keeping the badge visible on narrow layouts.
+- Added vendor, objective power, MPP, and physical-size metadata to the slide info endpoint.
+- Broadened viewer metadata parsing to handle stored slide fields and OpenSlide property aliases.
+
 ## [1.1.20] - 2026-05-20
 
 ### Changed

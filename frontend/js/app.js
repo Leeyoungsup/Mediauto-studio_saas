@@ -9,7 +9,7 @@ import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
     window.location.replace('/login');
-    throw new Error('Not authenticated ??redirecting to /login');
+    throw new Error('Not authenticated - redirecting to /login');
 }
 
 function _esc(s) {
@@ -62,7 +62,7 @@ function _isViewerRole() {
     return window.__currentUserRole === 'viewer';
 }
 
-function _blockViewerAction(message = 'Viewer 권한?? AI/annotation 기능???�용?????�습?�다.') {
+function _blockViewerAction(message = 'Viewer role cannot use AI or annotation features.') {
     if (!_isViewerRole()) return false;
     _applyViewerRoleRestrictions();
     setStatus(message);
@@ -268,7 +268,7 @@ $fileInput.addEventListener('change', (e) => {
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'upload-complete') {
         loadSlideList();
-        setStatus(`${e.data.count}�??�일 ?�로???�료`);
+        setStatus(`${e.data.count} files uploaded`);
     }
 });
 
@@ -277,7 +277,7 @@ const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 async function uploadFiles(fileList, _targetPath) {
     const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
     if (!files.length) {
-        setStatus('�??�하???�라?�드 ?�일???�습?�다');
+        setStatus('No supported slide files selected.');
         return;
     }
     openUploadPopup(fileList, _targetPath || currentBrowsePath);
@@ -332,22 +332,42 @@ const SCANNER_META = {
         svg: `<svg viewBox="0 0 70 20" xmlns="http://www.w3.org/2000/svg"><text x="0" y="15" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#004098">OLYMPUS</text></svg>`,
     },
 };
-const $slideScanner = document.querySelector('#slide-scanner');
+const $$slideScanners = [...document.querySelectorAll('.slide-scanner')];
+const $slideScanner = $$slideScanners[0] || null;
 function _updateScannerBadge(slideInfo) {
-    if (!$slideScanner) return;
+    if (!$$slideScanners.length) return;
 
-    const rawVendor = slideInfo?.vendor || slideInfo?.str_vendor || slideInfo?.scanner || slideInfo?.str_scanner || '';
+    const rawVendor = slideInfo?.vendor
+        || slideInfo?.str_vendor
+        || slideInfo?.scanner
+        || slideInfo?.str_scanner
+        || slideInfo?.openslide_vendor
+        || slideInfo?.properties?.['openslide.vendor']
+        || '';
     const str_vendor = String(rawVendor || '').trim().toLowerCase();
-    const int_mag = slideInfo?.objective_power && slideInfo.objective_power !== 'Unknown'
-        ? `${slideInfo.objective_power}x` : '';
-    const float_mpp = Number(slideInfo?.mpp_x || slideInfo?.mpp || 0);
+    const rawObjective = slideInfo?.objective_power
+        || slideInfo?.objective
+        || slideInfo?.properties?.['openslide.objective-power']
+        || '';
+    const int_mag = rawObjective && rawObjective !== 'Unknown'
+        ? `${String(rawObjective).replace(/x$/i, '')}x` : '';
+    const float_mpp = Number(
+        slideInfo?.mpp_x
+        || slideInfo?.mpp
+        || slideInfo?.float_mpp
+        || slideInfo?.native_mpp
+        || slideInfo?.properties?.['openslide.mpp-x']
+        || 0
+    );
     const str_mpp = float_mpp > 0 ? `${float_mpp.toFixed(3)} µm/px` : '';
     const list_details = [int_mag, str_mpp].filter(Boolean);
     const str_info = list_details.join(' · ');
 
     if ((!str_vendor || str_vendor === 'unknown') && !str_info) {
-        $slideScanner.hidden = true;
-        $slideScanner.innerHTML = '';
+        $$slideScanners.forEach((el) => {
+            el.hidden = true;
+            el.innerHTML = '';
+        });
         return;
     }
 
@@ -356,20 +376,25 @@ function _updateScannerBadge(slideInfo) {
         if (str_vendor.includes(key)) { meta = m; break; }
     }
 
+    let html = '';
+    let borderColor = '#6c5ce7';
     if (meta) {
-        $slideScanner.innerHTML = `
+        html = `
             <span class="scanner-logo" title="${_esc(meta.label)}">${meta.svg}</span>
             ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
         `;
-        $slideScanner.style.borderLeftColor = meta.color;
+        borderColor = meta.color;
     } else {
-        $slideScanner.innerHTML = `
+        html = `
             ${str_vendor && str_vendor !== 'unknown' ? `<span class="scanner-logo scanner-logo-text">${_esc(rawVendor)}</span>` : ''}
             ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
         `;
-        $slideScanner.style.borderLeftColor = '#6c5ce7';
     }
-    $slideScanner.hidden = false;
+    $$slideScanners.forEach((el) => {
+        el.innerHTML = html;
+        el.style.borderLeftColor = borderColor;
+        el.hidden = false;
+    });
 }
 
 const $btnNdpColor = document.getElementById('btn-ndp-color');
@@ -377,7 +402,15 @@ const $ndpColorState = $btnNdpColor ? $btnNdpColor.querySelector('.ndp-color-sta
 
 function _updateNdpColorToggleVisibility(slideInfo) {
     if (!$btnNdpColor) return;
-    const str_vendor = String(slideInfo?.vendor || '').toLowerCase();
+    const str_vendor = String(
+        slideInfo?.vendor
+        || slideInfo?.str_vendor
+        || slideInfo?.scanner
+        || slideInfo?.str_scanner
+        || slideInfo?.openslide_vendor
+        || slideInfo?.properties?.['openslide.vendor']
+        || ''
+    ).toLowerCase();
     const bool_is_hamamatsu = str_vendor === 'hamamatsu';
     $btnNdpColor.hidden = !bool_is_hamamatsu;
     if (bool_is_hamamatsu) {
@@ -459,7 +492,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     try {
         cfg = await api.getFolderAiConfig(strFolderPath || '');
     } catch (err) {
-        console.warn('[folder-ai-restrict] load ?�패:', err);
+        console.warn('[folder-ai-restrict] load failed:', err);
         return;
     }
     if (_isViewerRole()) return;
@@ -554,7 +587,7 @@ function _applyViewerRoleRestrictions() {
         if (el) {
             el.disabled = true;
             el.classList.remove('active');
-            el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다';
+            el.title = 'Viewer role cannot use annotation features.';
         }
     });
     if (viewer && viewer.drawMode) viewer.setDrawMode(null);
@@ -569,7 +602,7 @@ function _applyViewerRoleRestrictions() {
         const el = document.getElementById(id);
         if (el) {
             el.disabled = true;
-            el.title = 'Viewer 권한?? AI 분석 기능???�용?????�습?�다.';
+            el.title = 'Viewer role cannot use AI analysis features.';
         }
     });
 
@@ -578,7 +611,7 @@ function _applyViewerRoleRestrictions() {
         '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button'
     ).forEach(el => {
         el.disabled = true;
-        if (!el.title) el.title = 'Viewer 권한?? AI 분석 기능???�용?????�습?�다.';
+        if (!el.title) el.title = 'Viewer role cannot use AI analysis features.';
     });
 
     ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load',
@@ -586,13 +619,13 @@ function _applyViewerRoleRestrictions() {
         const el = document.getElementById(id);
         if (el) {
             el.disabled = true;
-            el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다.';
+            el.title = 'Viewer role cannot use annotation features.';
         }
     });
 
     document.querySelectorAll('.annotation-group button, .annotation-group input').forEach(el => {
         el.disabled = true;
-        if (!el.title) el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다.';
+        if (!el.title) el.title = 'Viewer role cannot use annotation features.';
     });
 }
 
@@ -713,7 +746,7 @@ const drawButtons = {
 };
 
 function setDrawMode(mode) {
-    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
@@ -1418,7 +1451,7 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     if (_stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
         const str_name = classNames[String(_stickyAddClassId)];
         viewer.addCell(sx, sy, _stickyAddClassId, str_name);
-        setStatus(`Cell added: ${str_name} ??Alt+right-click to add, Alt+A to change`);
+        setStatus(`Cell added: ${str_name} - Alt+right-click to add, Alt+A to change`);
         return;
     }
 
@@ -1521,10 +1554,10 @@ function _doAddCell(classId) {
     if (_cellEditCtx.mode === 'add') {
         viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} ??Alt+right-click to add, Alt+A to change`);
+        setStatus(`Sticky class: ${name} - Alt+right-click to add, Alt+A to change`);
     } else if (_cellEditCtx.mode === 'sticky-pick') {
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} ??Alt+right-click to add`);
+        setStatus(`Sticky class: ${name} - Alt+right-click to add`);
     }
     _closeCellEditPopup();
 }
@@ -1553,7 +1586,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const headerLabel = document.createElement('span');
-    headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(추�????�래???�택)</span>`;
+    headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(select the class to add)</span>`;
     header.appendChild(headerLabel);
     popup.appendChild(header);
     _makeCellEditPopupDraggable(popup, header);
@@ -1801,7 +1834,7 @@ viewer.onCellEdited = () => {
         buildResultList(_lastDetectionResult);
         _updateResultCounts();
     }
-    setStatus(`Cell edited ??${viewer.detectionCells.length} cells`);
+    setStatus(`Cell edited - ${viewer.detectionCells.length} cells`);
 };
 
 window.addEventListener('keydown', (e) => {
@@ -1815,14 +1848,14 @@ window.addEventListener('keydown', (e) => {
         if (viewer.canUndoCellEdit && viewer.canUndoCellEdit()) {
             _closeCellEditPopup();
             viewer.undoCellEdit();
-            setStatus(`Undo ??${viewer.detectionCells.length} cells`);
+            setStatus(`Undo - ${viewer.detectionCells.length} cells`);
             e.preventDefault();
         }
     } else if ((key === 'z' && e.shiftKey) || key === 'y') {
         if (viewer.canRedoCellEdit && viewer.canRedoCellEdit()) {
             _closeCellEditPopup();
             viewer.redoCellEdit();
-            setStatus(`Redo ??${viewer.detectionCells.length} cells`);
+            setStatus(`Redo - ${viewer.detectionCells.length} cells`);
             e.preventDefault();
         }
     }
@@ -1830,7 +1863,7 @@ window.addEventListener('keydown', (e) => {
 
 // Clear All
 $btnAnnClear?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     viewer.clearAnnotations();
     renderAnnotationPanel();
     setStatus('Annotations cleared');
@@ -1966,11 +1999,11 @@ function _uploadAnnotations() {
 }
 
 $btnAnnSave?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     _downloadAnnotations();
 });
 $btnAnnLoad?.addEventListener('click', () => {
-    if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     _uploadAnnotations();
 });
 
@@ -2014,7 +2047,7 @@ function _setButtonRunning(btnEl, bool_running) {
     if (bool_running) {
         btnEl.classList.add('ai-btn-running');
         btnEl.dataset.origLabel = btnEl.dataset.origLabel || btnEl.textContent;
-        btnEl.textContent = '??Stop';
+        btnEl.textContent = 'Stop';
     } else {
         btnEl.classList.remove('ai-btn-running');
         if (btnEl.dataset.origLabel) {
@@ -2029,12 +2062,12 @@ async function _maybeCancelRunning(str_key) {
     if (!entry) return false;
     if (!entry.task_id) {
         entry.pending_cancel = true;
-        setStatus('중�? ?�약 ??task ?�작 직후 취소?�니??..');
+        setStatus('Cancel queued. The task will stop as soon as it starts.');
         return true;
     }
     try {
         await api.cancelTask(entry.task_id);
-        setStatus('중�? ?�청 ?�송 ???�시 ???�리?�니??..');
+        setStatus('Cancel request sent. Cleaning up shortly...');
     } catch (e) {
         console.warn('[cancel] failed', e);
     }
@@ -2052,7 +2085,7 @@ async function startDetection() {
     _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
-    setStatus('�?�??�작...');
+    setStatus('Cell Detection started...');
 
     viewer.setDrawMode(null);
 
@@ -2092,14 +2125,14 @@ async function startDetection() {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Cell Detection 중�?????�?�?결과 ?�리 ?�료');
+                setStatus('Cell Detection cancelled. Partial results were cleared.');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`�?�??�패: ${err.message}`);
+        setStatus(`Cell Detection failed: ${err.message}`);
     } finally {
         delete _runningAiTasks['detect'];
         _setButtonRunning($btnDetect, false);
@@ -2521,7 +2554,7 @@ $btnVisualize.addEventListener('click', () => {
 });
 
 $btnSaveResults?.addEventListener('click', async () => {
-    if (_blockViewerAction('Viewer 권한?? AI 결과 ????기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot save AI results.')) return;
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
@@ -2541,7 +2574,7 @@ $btnSaveResults?.addEventListener('click', async () => {
             currentSlideId, tissue, _lastDetectionResult, aiMode,
         );
         console.log('[save-result]', r);
-        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells ??${r.user_name || 'me'}`);
+        setStatus(`Saved (${aiMode}/${tissue}): ${r.total_cells} cells - ${r.user_name || 'me'}`);
     } catch (err) {
         console.error('[save-result] failed', err);
         setStatus(`Save failed: ${err.message}`);
@@ -2577,7 +2610,7 @@ async function _openLoadUserEditDialog() {
     const aiMode = _lastDetectionModel;
     const variant = _lastDetectionTissue;
     $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
-    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading??/div>';
+    $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading...</div>';
     $loadUserEditDialog.showModal();
 
     let users = [];
@@ -2601,7 +2634,7 @@ async function _openLoadUserEditDialog() {
     originalRow.innerHTML = `
         <div style="font-weight:600;">Original model inference</div>
         <div style="font-size:11px; color:#888; margin-top:2px;">
-            ?�본 모델 추론 ?�실??(${aiMode} / ${variant})
+            Original model inference (${aiMode} / ${variant})
         </div>`;
     originalRow.addEventListener('click', async () => {
         $loadUserEditDialog.close();
@@ -2612,7 +2645,7 @@ async function _openLoadUserEditDialog() {
     if (users.length === 0) {
         const empty = document.createElement('div');
         empty.style.cssText = 'padding:12px; color:#888; font-size:12px;';
-        empty.textContent = '???�된 ?�용???�집본이 ?�습?�다.';
+        empty.textContent = 'No saved user edits.';
         $loadUserEditList.appendChild(empty);
         return;
     }
@@ -2652,7 +2685,7 @@ async function _openLoadUserEditDialog() {
             del.className = 'small-btn';
             del.title = 'Delete my saved analysis';
             del.style.cssText = 'background:transparent; border:1px solid #555; padding:4px 8px; cursor:pointer;';
-            del.textContent = '?��';
+            del.textContent = 'Delete';
             del.addEventListener('click', async (ev) => {
                 ev.stopPropagation();
                 if (!confirm(`Delete your saved ${aiMode} / ${variant} analysis for this slide?`)) return;
@@ -3367,7 +3400,7 @@ async function loadSlideList() {
         _refreshAiActiveBadges();
         _startAiActivePolling();
     } catch (err) {
-        console.error('?�라?�드 목록 로드 ?�패:', err);
+        console.error('Slide list load failed:', err);
     }
 }
 
@@ -3446,8 +3479,8 @@ async function _dropMoveFiles(e, targetPath) {
             await api.moveFile(fn, currentBrowsePath, targetPath);
         }
         loadSlideList();
-        setStatus(`${filenames.length}�??�일 ?�동 ?�료`);
-    } catch (err) { setStatus(`?�동 ?�패: ${err.message}`); }
+        setStatus(`${filenames.length} files moved`);
+    } catch (err) { setStatus(`Move failed: ${err.message}`); }
 }
 
 function _makeBreadcrumbDroppable(el, targetPath) {
@@ -3518,7 +3551,7 @@ function updateBreadcrumb() {
 }
 
 async function openSavedSlide(filename, itemEl) {
-    setStatus('?�는 �?..');
+    setStatus('Opening...');
     try {
         const info = await api.openSlide(filename, currentBrowsePath);
         if (info.exists) {
@@ -3527,7 +3560,7 @@ async function openSavedSlide(filename, itemEl) {
             onSlideLoaded(info.slide_id, info, filename);
         }
     } catch (err) {
-        setStatus(`?�기 ?�패: ${err.message}`);
+        setStatus(`Move failed: ${err.message}`);
     }
 }
 
@@ -3537,13 +3570,13 @@ $('#btn-new-folder').addEventListener('click', async () => {
         _showProjectGate(_projectListCache);
         return;
     }
-    const name = prompt('???�더 ?�름:');
+    const name = prompt('Folder name:');
     if (!name || !name.trim()) return;
     try {
         await api.createFolder(currentBrowsePath, name.trim());
         loadSlideList();
     } catch (err) {
-        alert(`?�더 ?�성 ?�패: ${err.message}`);
+        alert(`Folder creation failed: ${err.message}`);
     }
 });
 
@@ -3566,12 +3599,14 @@ function showFolderContextMenu(e, folderPath, folderName) {
     renameBtn.textContent = 'Rename';
     renameBtn.addEventListener('click', async () => {
         removeCtxMenu();
-        const newName = prompt('???�름:', folderName);
+        const newName = prompt('New name:', folderName);
         if (!newName || !newName.trim() || newName.trim() === folderName) return;
         try {
             await api.renameFolder(folderPath, newName.trim());
             loadSlideList();
-        } catch (err) { alert(`?�름 �?�??�패: ${err.message}`); }
+        } catch (err) {
+            alert(`Rename failed: ${err.message}`);
+        }
     });
 
     const deleteBtn = document.createElement('div');
@@ -3579,16 +3614,18 @@ function showFolderContextMenu(e, folderPath, folderName) {
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', async () => {
         removeCtxMenu();
-        if (!confirm(`"${folderName}" ?�더�???��?�시겠습?�까?`)) return;
+        if (!confirm(`Delete folder "${folderName}"?`)) return;
         try {
             await api.deleteFolder(folderPath);
             loadSlideList();
-        } catch (err) { alert(`??�� ?�패: ${err.message}`); }
+        } catch (err) {
+            alert(`Delete failed: ${err.message}`);
+        }
     });
 
     const aiCfgBtn = document.createElement('div');
     aiCfgBtn.className = 'ctx-menu-item';
-    aiCfgBtn.textContent = 'AI ?�동 분석 ?�정...';
+    aiCfgBtn.textContent = 'Auto AI Settings...';
     aiCfgBtn.addEventListener('click', () => {
         removeCtxMenu();
         openFolderAiConfigDialog(folderPath, folderName);
@@ -3814,7 +3851,7 @@ const VS_MPP_CHOICES = [
 async function openFolderAiConfigDialog(folderPath, folderName) {
     let cfg = { enabled: false, tasks: [] };
     try { cfg = await api.getFolderAiConfig(folderPath); }
-    catch (err) { console.warn('folder config 로드 ?�패:', err); }
+    catch (err) { console.warn('Folder config load failed:', err); }
 
     // Selected base model keys.
     const set_selected = new Set();
@@ -3833,23 +3870,23 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     backdrop.innerHTML = `
         <div class="ai-cfg-card">
             <div class="ai-cfg-header">
-                <span>AI ?�동 분석 ?�정 ??${folderName}</span>
+                <span>Auto AI Settings - ${folderName}</span>
                 <button class="ai-cfg-close" type="button">&times;</button>
             </div>
             <div class="ai-cfg-body">
                 <label class="ai-cfg-enable">
                     <input type="checkbox" id="ai-cfg-enabled"${cfg.enabled ? ' checked' : ''}>
-                    <span>???�더???�동 분석 ?�성??/span>
+                    <span>Enable auto analysis for this folder</span>
                 </label>
                 <div class="ai-cfg-hint">
-                    10분간 AI ?�용???�고 ?�로?��? ?�을 ??1분마???�캔?�서
-                    ?�래 ?�택??분석???�는 ?�라?�드�??�동 추론?�니??
+                    When the system is idle for 10 minutes, this folder is scanned every minute
+                    and selected models are run automatically on unanalyzed slides.
                 </div>
                 <div class="ai-cfg-list" id="ai-cfg-list"></div>
             </div>
             <div class="ai-cfg-footer">
                 <button type="button" class="ai-cfg-btn ai-cfg-cancel">취소</button>
-                <button type="button" class="ai-cfg-btn ai-cfg-save primary">????/button>
+                <button type="button" class="ai-cfg-btn ai-cfg-save primary">Save</button>
             </div>
         </div>
     `;
@@ -3872,7 +3909,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
                     <span>${opt.label}</span>
                 </label>
                 <div class="ai-cfg-sub"${bool_parent_checked ? '' : ' hidden'}>
-                    <div class="ai-cfg-sub-title">배율 ?�택:</div>
+                    <div class="ai-cfg-sub-title">Target resolutions:</div>
                     ${VS_MPP_CHOICES.map(m => `
                         <label class="ai-cfg-sub-row">
                             <input type="checkbox" class="ai-cfg-mpp" data-mpp="${m.value}"${set_current.has(m.value) ? ' checked' : ''}>
@@ -3936,10 +3973,10 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         });
         try {
             await api.saveFolderAiConfig(folderPath, enabled, tasks);
-            setStatus(`AI ?�동 분석 ?�정 ???? ${tasks.length}�??�업`);
+            setStatus(`Auto AI settings saved: ${tasks.length} tasks`);
             close();
         } catch (err) {
-            alert(`?????�패: ${err.message}`);
+            alert(`Save failed: ${err.message}`);
         }
     });
 }
@@ -3970,7 +4007,7 @@ async function startVirtualStain(stainType) {
     _setButtonRunning(btnEl, true);
     $progressLabel.textContent = 'Virtual Staining...';
     setProgress(0);
-    setStatus('Virtual staining ?�작...');
+    setStatus('Virtual staining started...');
 
     viewer.setDrawMode(null);
 
@@ -4004,14 +4041,14 @@ async function startVirtualStain(stainType) {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Virtual staining 중�?????�?�?결과 ?�리 ?�료');
+                setStatus('Virtual staining cancelled. Partial results were cleared.');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`Virtual staining ?�패: ${err.message}`);
+        setStatus(`Virtual staining failed: ${err.message}`);
         $progressLabel.textContent = 'Virtual staining failed';
     } finally {
         delete _runningAiTasks[str_key];
@@ -4045,13 +4082,13 @@ function onVirtualStainComplete(result) {
     $progressLabel.textContent = result.cached
         ? 'Virtual staining loaded (cached)'
         : 'Virtual staining complete';
-    setStatus(`Virtual staining complete ??${tc}/${tot} tissue patches`);
+    setStatus(`Virtual staining complete - ${tc}/${tot} tissue patches`);
 }
 
 const VS_MPP_VALUES = [4.0, 2.0, 1.0, 0.5];
 const VS_MPP_LABELS = [
     '4.0 µm/px (x2.5)',
-    '??2.0 µm/px (x5)',
+    '2.0 µm/px (x5)',
     '1.0 µm/px (x10)',
     '0.5 µm/px (x20)',
 ];
@@ -4082,7 +4119,7 @@ async function startPdScore() {
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
     setProgress(0);
-    setStatus('Quanti PD-L1 ?�작...');
+    setStatus('Quanti PD-L1 started...');
 
     viewer.setDrawMode(null);
 
@@ -4114,14 +4151,14 @@ async function startPdScore() {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus('Quanti PD-L1 중�?????�?�?결과 ?�리 ?�료');
+                setStatus('Quanti PD-L1 cancelled. Partial results were cleared.');
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`Quanti PD-L1 ?�패: ${err.message}`);
+        setStatus(`Quanti PD-L1 failed: ${err.message}`);
     } finally {
         delete _runningAiTasks['pd-score'];
         _setButtonRunning($btnPdScore, false);
@@ -4210,7 +4247,7 @@ async function startPreciseIhc(marker) {
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
     $progressLabel.textContent = `${markerLabel} Detection...`;
     setProgress(0);
-    setStatus(`${markerLabel} ?�작...`);
+    setStatus(`${markerLabel} started...`);
 
     viewer.setDrawMode(null);
 
@@ -4243,14 +4280,14 @@ async function startPreciseIhc(marker) {
             } else if (st.status === 'error') {
                 throw new Error(st.error);
             } else if (st.status === 'cancelled') {
-                setStatus(`${markerLabel} 중�?????�?�?결과 ?�리 ?�료`);
+                setStatus(`${markerLabel} cancelled. Partial results were cleared.`);
                 $progressLabel.textContent = 'Cancelled';
                 setProgress(0);
                 return;
             }
         }
     } catch (err) {
-        setStatus(`${markerLabel} ?�패: ${err.message}`);
+        setStatus(`${markerLabel} failed: ${err.message}`);
     } finally {
         delete _runningAiTasks[str_key];
         _setButtonRunning(btnEl, false);
@@ -4322,13 +4359,13 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         const int_is = avg < 0.5 ? 0 : avg < 1.5 ? 1 : avg < 2.5 ? 2 : 3;
         const ts = int_ps + int_is;
         const interp = ts >= 3 ? 'Positive' : 'Negative';
-        setStatus(`${markerLabel} Allred: ${ts} (PS ${int_ps} + IS ${int_is}) ??${interp} | ${displayCount.toLocaleString()} cells`);
+        setStatus(`${markerLabel} Allred: ${ts} (PS ${int_ps} + IS ${int_is}) - ${interp} | ${displayCount.toLocaleString()} cells`);
     } else if (result.ki67_score) {
         const pos = n1 + n2 + n3;
         const tot = n0 + pos;
         const ki67Index = tot === 0 ? 0 : pos / tot * 100;
         const interp = ki67Index >= 14 ? 'High' : 'Low';
-        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% ??${interp} | ${displayCount.toLocaleString()} cells`);
+        setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% - ${interp} | ${displayCount.toLocaleString()} cells`);
     }
 
     _lastDetectionResult.cells = viewer.detectionCells;
@@ -4356,7 +4393,7 @@ function _setVsSplitState(enabled, disabled) {
     $btnVsSplit.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     const lab = $btnVsSplit.querySelector('.toggle-pill-label');
     if (lab) lab.textContent = enabled
-        ? 'Split View: ON  (??IHC | Virtual H&E ??'
+        ? 'Split View: ON  (IHC | Virtual H&E)'
         : 'Split View (IHC | Virtual H&E)';
 }
 

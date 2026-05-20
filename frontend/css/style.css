@@ -234,6 +234,11 @@ body.project-gate-open .project-mode-header { display: block; }
     font-size: 11px; color: var(--text-dim);
     white-space: nowrap;
 }
+.slide-scanner-header {
+    flex: 0 0 auto;
+    margin-right: 0;
+    max-width: 320px;
+}
 .slide-scanner[hidden] { display: none; }
 .scanner-logo {
     display: inline-flex; align-items: center;
@@ -3096,7 +3101,18 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     #toolbar::before { display: none; }
     #toolbar::after { display: none; }
     .toolbar-spacer { flex: 0 0 4px; }
-    .slide-scanner { display: none !important; }
+    .slide-scanner {
+        display: inline-flex;
+        max-width: 220px;
+        padding: 3px 8px;
+        gap: 6px;
+    }
+    .slide-scanner[hidden] { display: none; }
+    .scanner-logo svg { height: 14px; }
+    .scanner-info {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
     .zoom-info-text { font-size: 10px; padding: 2px 8px; }
     .toolbar-separator { margin: 0 4px; }
 
