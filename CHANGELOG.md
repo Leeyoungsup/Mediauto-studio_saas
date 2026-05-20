@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.49] - 2026-05-20
+
+### Changed
+
+- Replaced Data Linkage sort text labels with compact CSS sort icons.
+
 ## [1.1.48] - 2026-05-20
 
 ### Fixed

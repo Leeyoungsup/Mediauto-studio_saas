@@ -185,13 +185,14 @@ import { api } from './api.js?v=20260520-03';
         };
         document.querySelectorAll('[data-sort]').forEach((button) => {
             const key = button.dataset.sort;
-            const base = button.dataset.label || button.textContent.replace(/\s+(Asc|Desc|Sort)$/u, '').trim();
+            const base = button.dataset.label || button.textContent.trim();
             button.dataset.label = base;
             const isActive = state.sortBy === key;
             button.classList.toggle('active', isActive);
             button.setAttribute('aria-sort', isActive ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
             button.title = help[key] || 'Sort';
-            button.textContent = `${base} ${isActive ? (state.sortDir === 'asc' ? 'Asc' : 'Desc') : 'Sort'}`;
+            const iconClass = isActive ? `is-${state.sortDir}` : 'is-neutral';
+            button.innerHTML = `${esc(base)} <span class="data-linkage-sort-icon ${iconClass}" aria-hidden="true"></span>`;
         });
     }
 

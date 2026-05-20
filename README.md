@@ -1,6 +1,6 @@
 # MeDIAuto Studio SaaS
 
-Current version: **1.1.48**. See [CHANGELOG.md](CHANGELOG.md) and [docs/VERSIONING.md](docs/VERSIONING.md).
+Current version: **1.1.49**. See [CHANGELOG.md](CHANGELOG.md) and [docs/VERSIONING.md](docs/VERSIONING.md).
 
 병원 온프레미스(On-Premise) 배포용 디지털 병리 WSI(Whole Slide Image) 뷰어 + AI 분석 플랫폼.
 
