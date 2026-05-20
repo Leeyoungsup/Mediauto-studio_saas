@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.35] - 2026-05-20
+
+### Fixed
+
+- Hardened Slide Information clinical score autosave by comparing actual field values on close.
+- Updated AI slide list Clinical Info status immediately after a successful save.
+
 ## [1.1.34] - 2026-05-20
 
 ### Fixed
