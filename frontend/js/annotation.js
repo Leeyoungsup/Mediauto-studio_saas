@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-11';
+import { TileViewer } from './tile-viewer.js?v=20260520-12';
 import { showVisualization } from './visualization.js';
 
 // ???? 미로그인 �???????
@@ -495,27 +495,27 @@ const SCANNER_META = {
 const $slideScanner = document.querySelector('#slide-scanner');
 function _updateScannerBadge(slideInfo) {
     if (!$slideScanner) return;
-    const str_vendor = String(slideInfo?.vendor || '').toLowerCase();
-    if (!str_vendor || str_vendor === 'unknown') {
+
+    const rawVendor = slideInfo?.vendor || slideInfo?.str_vendor || slideInfo?.scanner || slideInfo?.str_scanner || '';
+    const str_vendor = String(rawVendor || '').trim().toLowerCase();
+    const int_mag = slideInfo?.objective_power && slideInfo.objective_power !== 'Unknown'
+        ? `${slideInfo.objective_power}x` : '';
+    const float_mpp = Number(slideInfo?.mpp_x || slideInfo?.mpp || 0);
+    const str_mpp = float_mpp > 0 ? `${float_mpp.toFixed(3)} µm/px` : '';
+    const list_details = [int_mag, str_mpp].filter(Boolean);
+    const str_info = list_details.join(' · ');
+
+    if ((!str_vendor || str_vendor === 'unknown') && !str_info) {
         $slideScanner.hidden = true;
         $slideScanner.innerHTML = '';
         return;
     }
 
-    // ?�워??매칭 (openslide ??vendor 값�? 'hamamatsu', 'aperio', 'mirax', ... ??
     let meta = null;
     for (const [key, m] of Object.entries(SCANNER_META)) {
         if (str_vendor.includes(key)) { meta = m; break; }
     }
 
-    const int_mag = slideInfo.objective_power && slideInfo.objective_power !== 'Unknown'
-        ? `${slideInfo.objective_power}x` : '';
-    const str_mpp = slideInfo.mpp_x ? `${slideInfo.mpp_x.toFixed(3)} µm/px` : '';
-    const list_details = [int_mag, str_mpp].filter(Boolean);
-    const str_info = list_details.join(' · ');
-
-    // meta.label / meta.svg ??코드 ???�의???�전???�수.
-    // slideInfo.vendor ???�라?�드 ?�일 메�? ???�뢰 불�? ??escape.
     if (meta) {
         $slideScanner.innerHTML = `
             <span class="scanner-logo" title="${_esc(meta.label)}">${meta.svg}</span>
@@ -523,9 +523,8 @@ function _updateScannerBadge(slideInfo) {
         `;
         $slideScanner.style.borderLeftColor = meta.color;
     } else {
-        // ?�려�?�? ?��? vendor: escape ?????�시
         $slideScanner.innerHTML = `
-            <span class="scanner-logo scanner-logo-text">${_esc(slideInfo.vendor)}</span>
+            ${str_vendor && str_vendor !== 'unknown' ? `<span class="scanner-logo scanner-logo-text">${_esc(rawVendor)}</span>` : ''}
             ${str_info ? `<span class="scanner-info">${_esc(str_info)}</span>` : ''}
         `;
         $slideScanner.style.borderLeftColor = '#6c5ce7';
@@ -533,10 +532,6 @@ function _updateScannerBadge(slideInfo) {
     $slideScanner.hidden = false;
 }
 
-// ???? NDP ?�보??toggle (Hamamatsu ?�용) ????
-// ?�팅�? γ=1.094, white=247.91, affine 3x4 ??color_match_analysis.ipynb ?�서
-// MeDIAuto Studio ?????��? ??NDP.view2 ?��? 5???�합 ??최소?�곱?�로 ?�도.
-// RMSE 4.21. color-correction.js ??NDP_FIT ?�서 �?�?
 const $btnNdpColor = document.getElementById('btn-ndp-color');
 const $ndpColorState = $btnNdpColor ? $btnNdpColor.querySelector('.ndp-color-state') : null;
 

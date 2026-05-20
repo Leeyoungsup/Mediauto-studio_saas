@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.15] - 2026-05-20
+
+### Fixed
+
+- Restored the scanner/vendor and native MPP badge by reading scanner metadata from fallback slide fields and showing MPP details even when vendor is unknown.
+
 ## [1.1.14] - 2026-05-20
 
 ### Changed
