@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.11] - 2026-05-20
+
+### Fixed
+
+- Suppressed the browser context menu during Alt+right-click and Alt+right-drag viewer workflows.
+
 ## [1.1.10] - 2026-05-20
 
 ### Fixed

@@ -491,6 +491,28 @@ export class TileViewer {
             else this.zoomOut(cx, cy);
         }, { passive: false });
 
+        const suppressAltContextMenu = (e) => {
+            if (!e.altKey) return;
+            const viewerRoot = this.canvas.closest('#viewer-container');
+            const target = e.target;
+            const isViewerContext = target === this.canvas ||
+                target === this.overlayCanvas ||
+                (viewerRoot && viewerRoot.contains(target)) ||
+                this._altPending ||
+                this._lassoActive;
+            if (!isViewerContext) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') {
+                e.stopImmediatePropagation();
+            }
+        };
+        window.addEventListener('contextmenu', suppressAltContextMenu, true);
+        this.canvas.addEventListener('contextmenu', suppressAltContextMenu, true);
+        if (this.overlayCanvas) {
+            this.overlayCanvas.addEventListener('contextmenu', suppressAltContextMenu, true);
+        }
+
         // ── 마우스 ──
         this.canvas.addEventListener('mousedown', (e) => {
             const rect = this.canvas.getBoundingClientRect();
@@ -521,6 +543,7 @@ export class TileViewer {
                 this._lassoActive = false;
                 this._lassoPoints = [];
                 e.preventDefault();
+                e.stopPropagation();
                 return;
             }
 
