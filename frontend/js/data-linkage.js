@@ -39,8 +39,14 @@ import { api } from './api.js?v=20260520-02';
     const $next = document.getElementById('dl-next-page');
     const $pageIndicator = document.getElementById('dl-page-indicator');
     const $totalLabel = document.getElementById('dl-total-label');
+    const $previewStage = document.querySelector('.data-linkage-preview-stage');
     const $previewImg = document.getElementById('dl-preview-img');
     const $previewEmpty = document.getElementById('dl-preview-empty');
+    const $zoomIn = document.getElementById('dl-zoom-in');
+    const $zoomOut = document.getElementById('dl-zoom-out');
+    const $resetView = document.getElementById('dl-reset-view');
+    const $fitView = document.getElementById('dl-fit-view');
+    const $zoomLabel = document.getElementById('dl-zoom-label');
     const $year = document.getElementById('dl-year');
     const $sampleId = document.getElementById('dl-sample-id');
     const $thumbnailRow = document.getElementById('dl-thumbnail-row');
@@ -58,6 +64,11 @@ import { api } from './api.js?v=20260520-02';
         selectedCase: null,
         selectedSlide: null,
         dirty: false,
+        previewScale: 1,
+        previewX: 0,
+        previewY: 0,
+        previewDragging: false,
+        previewDragStart: null,
     };
 
     function esc(value) {
@@ -71,6 +82,32 @@ import { api } from './api.js?v=20260520-02';
 
     function hasClinicalInfo(info) {
         return Object.values(info || {}).some((value) => String(value || '').trim());
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function applyPreviewTransform() {
+        $previewImg.style.transform = `translate(${state.previewX}px, ${state.previewY}px) scale(${state.previewScale})`;
+        if ($zoomLabel) $zoomLabel.textContent = `${Math.round(state.previewScale * 100)}%`;
+    }
+
+    function resetPreviewView() {
+        state.previewScale = 1;
+        state.previewX = 0;
+        state.previewY = 0;
+        applyPreviewTransform();
+    }
+
+    function zoomPreview(delta, originX = 0, originY = 0) {
+        const oldScale = state.previewScale;
+        const nextScale = clamp(oldScale * delta, 0.25, 8);
+        if (nextScale === oldScale) return;
+        state.previewX = originX - ((originX - state.previewX) * nextScale / oldScale);
+        state.previewY = originY - ((originY - state.previewY) * nextScale / oldScale);
+        state.previewScale = nextScale;
+        applyPreviewTransform();
     }
 
     function fillSelect(select, items, placeholder, getValue, getLabel) {
@@ -95,7 +132,7 @@ import { api } from './api.js?v=20260520-02';
         $caseList.innerHTML = state.cases.map((item) => {
             const active = state.selectedCase?.case_name === item.case_name ? ' active' : '';
             const clinicalClass = item.has_clinical_info ? 'ok' : 'empty';
-            const clinicalText = item.has_clinical_info ? '✓' : '-';
+            const clinicalText = item.has_clinical_info ? 'OK' : '-';
             return `
                 <button type="button" class="data-linkage-row${active}" data-case="${esc(item.case_name)}">
                     <span>${item.no || ''}</span>
@@ -119,6 +156,7 @@ import { api } from './api.js?v=20260520-02';
 
     async function setPreview(slide) {
         state.selectedSlide = slide || null;
+        resetPreviewView();
         $previewImg.removeAttribute('src');
         $previewImg.hidden = true;
         $previewEmpty.hidden = false;
@@ -129,6 +167,7 @@ import { api } from './api.js?v=20260520-02';
         $previewImg.src = url;
         api.attachMediaImageRetry?.($previewImg, () => api.thumbnailUrlByName(slide.filename, slide.path || '', 2048));
         $previewImg.hidden = false;
+        applyPreviewTransform();
         $previewEmpty.hidden = true;
     }
 
@@ -297,6 +336,47 @@ import { api } from './api.js?v=20260520-02';
         }
     });
     $save?.addEventListener('click', saveClinicalInfo);
+    $zoomIn?.addEventListener('click', () => zoomPreview(1.25));
+    $zoomOut?.addEventListener('click', () => zoomPreview(0.8));
+    $resetView?.addEventListener('click', resetPreviewView);
+    $fitView?.addEventListener('click', resetPreviewView);
+
+    $previewStage?.addEventListener('wheel', (event) => {
+        if ($previewImg.hidden) return;
+        event.preventDefault();
+        const rect = $previewStage.getBoundingClientRect();
+        const originX = event.clientX - rect.left - rect.width / 2;
+        const originY = event.clientY - rect.top - rect.height / 2;
+        zoomPreview(event.deltaY < 0 ? 1.18 : 0.85, originX, originY);
+    }, { passive: false });
+
+    $previewStage?.addEventListener('pointerdown', (event) => {
+        if ($previewImg.hidden || event.button !== 0) return;
+        state.previewDragging = true;
+        state.previewDragStart = {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            x: state.previewX,
+            y: state.previewY,
+        };
+        $previewStage.setPointerCapture(event.pointerId);
+        $previewStage.classList.add('dragging');
+    });
+    $previewStage?.addEventListener('pointermove', (event) => {
+        if (!state.previewDragging || !state.previewDragStart) return;
+        state.previewX = state.previewDragStart.x + event.clientX - state.previewDragStart.clientX;
+        state.previewY = state.previewDragStart.y + event.clientY - state.previewDragStart.clientY;
+        applyPreviewTransform();
+    });
+    function endPreviewDrag(event) {
+        if (!state.previewDragging) return;
+        state.previewDragging = false;
+        state.previewDragStart = null;
+        try { $previewStage.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+        $previewStage.classList.remove('dragging');
+    }
+    $previewStage?.addEventListener('pointerup', endPreviewDrag);
+    $previewStage?.addEventListener('pointercancel', endPreviewDrag);
 
     window.addEventListener('beforeunload', (event) => {
         if (!state.dirty) return;

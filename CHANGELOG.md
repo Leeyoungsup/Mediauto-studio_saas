@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.41] - 2026-05-20
+
+### Fixed
+
+- Added a static Data Linkage top navigation fallback so the main tabs remain visible even before shared header hydration.
+- Added mouse wheel zoom, toolbar zoom controls, reset, and drag panning to the Data Linkage preview.
+
 ## [1.1.40] - 2026-05-20
 
 ### Fixed

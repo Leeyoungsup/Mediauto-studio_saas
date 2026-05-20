@@ -5,11 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeDIAuto Studio - Data Linkage</title>
     <link rel="icon" href="assets/app_icon.ico">
-    <link rel="stylesheet" href="css/shared-header.css?v=20260520-03">
-    <link rel="stylesheet" href="css/style.css?v=20260520-14">
+    <link rel="stylesheet" href="css/shared-header.css?v=20260520-04">
+    <link rel="stylesheet" href="css/style.css?v=20260520-15">
 </head>
 <body class="data-linkage-page">
-    <div id="shared-header-root"></div>
+    <div id="shared-header-root">
+        <header class="shared-header">
+            <div class="shared-header-inner">
+                <a href="/home" class="shared-brand">
+                    <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
+                </a>
+                <nav class="shared-nav" aria-label="Primary">
+                    <a href="/home" class="shared-nav-item">Home</a>
+                    <a href="/project" class="shared-nav-item">Project</a>
+                    <a href="/data-linkage" class="shared-nav-item active">Data Linkage</a>
+                    <a href="/ai" class="shared-nav-item">AI</a>
+                    <a href="/tissue-annotation" class="shared-nav-item">Annotation</a>
+                </nav>
+                <div class="shared-user-info">
+                    <button class="shared-logout" type="button" onclick="localStorage.clear(); location.href='/login';">Logout</button>
+                </div>
+            </div>
+        </header>
+    </div>
 
     <main class="data-linkage-shell">
         <section class="data-linkage-topbar">
@@ -58,11 +76,11 @@
 
             <section class="data-linkage-preview-panel">
                 <div class="data-linkage-viewer-tools" aria-label="Preview tools">
-                    <button type="button" title="Zoom in">+</button>
-                    <button type="button" title="Zoom out">-</button>
-                    <button type="button" title="Reset">H</button>
-                    <button type="button" title="Fit">[]</button>
-                    <button type="button" title="More">...</button>
+                    <button id="dl-zoom-in" type="button" title="Zoom in">+</button>
+                    <button id="dl-zoom-out" type="button" title="Zoom out">-</button>
+                    <button id="dl-reset-view" type="button" title="Reset">H</button>
+                    <button id="dl-fit-view" type="button" title="Fit">[]</button>
+                    <span id="dl-zoom-label" class="data-linkage-zoom-label">100%</span>
                 </div>
                 <div class="data-linkage-preview-stage">
                     <img id="dl-preview-img" alt="Selected slide preview" hidden>
@@ -87,7 +105,7 @@
         </section>
     </main>
 
-    <script src="js/shared-header.js?v=20260520-03"></script>
+    <script src="js/shared-header.js?v=20260520-04"></script>
     <script>
         (function () {
             var user = {};
@@ -99,6 +117,6 @@
             });
         })();
     </script>
-    <script type="module" src="js/data-linkage.js?v=20260520-02"></script>
+    <script type="module" src="js/data-linkage.js?v=20260520-03"></script>
 </body>
 </html>
