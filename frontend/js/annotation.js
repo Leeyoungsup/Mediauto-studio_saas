@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260518-31';
+import { TileViewer } from './tile-viewer.js?v=20260520-07';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -308,15 +308,25 @@ if ($mousePosOverlay) {
 // ═══════════════════════════
 // 탭 전환
 // ═══════════════════════════
+function _activateAiTab(str_tab_id) {
+    const btn = document.querySelector(`.tab-btn[data-tab="${str_tab_id}"]`);
+    const content = document.getElementById(str_tab_id);
+    if (!btn || !content || btn.disabled) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    content.classList.add('active');
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        if (btn.disabled) return;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        btn.classList.add('active');
-        $(`#${btn.dataset.tab}`).classList.add('active');
+        _activateAiTab(btn.dataset.tab);
     });
 });
+
+if (_isAnnotationPage()) {
+    _activateAiTab('vs-tab');
+}
 
 // ── AI Analysis 도움말 (현재 탭의 모델 설명) ──
 const AI_MODEL_HELP = {
@@ -2349,6 +2359,7 @@ function _closeCellEditPopup() {
     }
     viewer.clearCellHighlight();
     viewer.clearMultiCellHighlight();
+    viewer.clearHiddenCellHighlight?.();
     _cellEditCtx = null;
     document.removeEventListener('mousedown', _outsideCellEditClick, true);
     document.removeEventListener('keydown', _cellEditKeydown, true);
@@ -2395,6 +2406,10 @@ function _cellEditKeydown(e) {
 
 function _doDeleteCell() {
     if (!_cellEditCtx) return;
+    if (_cellEditCtx.hiddenOther) {
+        _closeCellEditPopup();
+        return;
+    }
     if (_cellEditCtx.multi) {
         viewer.deleteCells(_cellEditCtx.indices);
     } else {
@@ -2406,7 +2421,9 @@ function _doDeleteCell() {
 function _doChangeClass(newClsId) {
     if (!_cellEditCtx) return;
     const name = _cellEditCtx.classNames[String(newClsId)] || `Class ${newClsId}`;
-    if (_cellEditCtx.multi) {
+    if (_cellEditCtx.hiddenOther) {
+        viewer.promoteHiddenCells?.(_cellEditCtx.indices, newClsId, name);
+    } else if (_cellEditCtx.multi) {
         viewer.changeCellsClass(_cellEditCtx.indices, newClsId, name);
     } else {
         viewer.changeCellClass(_cellEditCtx.idx, newClsId, name);
@@ -2419,6 +2436,38 @@ function _toCssColor(c) {
     if (typeof c === 'string') return c;
     if (Array.isArray(c) && c.length >= 3) return `rgb(${c[0]},${c[1]},${c[2]})`;
     return 'rgb(200,200,200)';
+}
+
+function _makeCellEditPopupDraggable(popup, handle) {
+    if (!popup || !handle) return;
+    handle.style.cursor = 'move';
+    handle.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const tag = (e.target && e.target.tagName || '').toLowerCase();
+        if (tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea') return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rect = popup.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+
+        const move = (ev) => {
+            const maxX = Math.max(4, window.innerWidth - popup.offsetWidth - 4);
+            const maxY = Math.max(4, window.innerHeight - popup.offsetHeight - 4);
+            const x = Math.max(4, Math.min(maxX, ev.clientX - offsetX));
+            const y = Math.max(4, Math.min(maxY, ev.clientY - offsetY));
+            popup.style.left = `${x}px`;
+            popup.style.top = `${y}px`;
+        };
+        const up = () => {
+            document.removeEventListener('mousemove', move, true);
+            document.removeEventListener('mouseup', up, true);
+        };
+
+        document.addEventListener('mousemove', move, true);
+        document.addEventListener('mouseup', up, true);
+    });
 }
 
 /**
@@ -2576,6 +2625,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     headerLabel.innerHTML = `<b>${curName}</b>  (conf: ${curConf.toFixed(2)})`;
     header.append(swatch, headerLabel);
     popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
 
     const sep1 = document.createElement('div');
     sep1.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
@@ -2679,13 +2729,13 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
 viewer.onCellEditRequested = _showCellEditPopup;
 
-// ── Shift+click 셀 추가 ──
+// ── Alt+right-click 셀 추가 ──
 // Sticky class: 첫 추가 시 사용자가 popup 으로 선택한 클래스를 기억해 두고
-// 다음 Shift+click 부턴 popup 없이 바로 그 클래스로 추가. Ctrl+Shift+click 또는
+// 다음 Alt+right-click 부턴 popup 없이 바로 그 클래스로 추가.
 // 우측 패널의 클래스 라인 클릭으로 sticky 변경 가능.
 let _stickyAddClassId = null;
 
-// Shift HUD — Shift 누른 동안 마우스 우상단에 현재 sticky 클래스 표시.
+// Alt HUD — Alt 누른 동안 마우스 우상단에 현재 sticky 클래스 표시.
 // 사용자가 어떤 클래스로 추가될지 시각적으로 즉시 확인 가능.
 let _stickyHudEl = null;
 let _stickyHudShiftHeld = false;
@@ -2744,7 +2794,7 @@ function _positionStickyHud() {
 }
 
 function _showStickyHud() {
-    // 표시 조건: Shift 누름 + sticky 살아있음 + detection 결과 + drawMode 아님.
+    // 표시 조건: Alt 누름 + sticky 살아있음 + detection 결과 + drawMode 아님.
     if (!_stickyHudShiftHeld) return;
     if (_stickyAddClassId == null) return;
     if (!_lastDetectionResult) return;
@@ -2760,18 +2810,21 @@ function _hideStickyHud() {
 }
 
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Shift' && !_stickyHudShiftHeld) {
+    if (e.key === 'Alt' && !_stickyHudShiftHeld) {
+        document.body.classList.add('viewer-alt-held');
         _stickyHudShiftHeld = true;
         _showStickyHud();
     }
 }, true);
 window.addEventListener('keyup', (e) => {
-    if (e.key === 'Shift') {
+    if (e.key === 'Alt') {
+        document.body.classList.remove('viewer-alt-held');
         _stickyHudShiftHeld = false;
         _hideStickyHud();
     }
 }, true);
 window.addEventListener('blur', () => {
+    document.body.classList.remove('viewer-alt-held');
     _stickyHudShiftHeld = false;
     _hideStickyHud();
 });
@@ -2790,11 +2843,11 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // Sticky 가 살아 있으면 popup 없이 즉시 추가 — 클래스 변경은 Shift+A 단축키.
+    // Sticky 가 살아 있으면 popup 없이 즉시 추가 — 클래스 변경은 Alt+A 단축키.
     if (_stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
         const str_name = classNames[String(_stickyAddClassId)];
         viewer.addCell(sx, sy, _stickyAddClassId, str_name);
-        setStatus(`Cell added: ${str_name} — press Shift+A to change class`);
+        setStatus(`Cell added: ${str_name} — Alt+right-click to add, Alt+A to change`);
         return;
     }
 
@@ -2816,6 +2869,7 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     headerLabel.innerHTML = `<b>Add Cell</b>  (${Math.round(sx).toLocaleString()}, ${Math.round(sy).toLocaleString()})`;
     header.appendChild(headerLabel);
     popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
 
     const sep = document.createElement('div');
     sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
@@ -2898,17 +2952,17 @@ function _doAddCell(classId) {
         // 위치를 받은 모드 — 셀 추가 + sticky 갱신.
         viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} — Shift+click to add, Shift+A to change`);
+        setStatus(`Sticky class: ${name} — Alt+right-click to add, Alt+A to change`);
     } else if (_cellEditCtx.mode === 'sticky-pick') {
-        // 클래스만 변경 (셀 추가 X) — Shift+A 진입한 popup.
+        // 클래스만 변경 (셀 추가 X) — Alt+A 진입한 popup.
         _stickyAddClassId = classId;
-        setStatus(`Sticky class: ${name} — Shift+click 으로 추가`);
+        setStatus(`Sticky class: ${name} — Alt+right-click to add`);
     }
     _closeCellEditPopup();
 }
 
 /**
- * Shift+A 단축키로 호출 — sticky 클래스만 변경 (셀 추가 X).
+ * Alt+A 단축키로 호출 — sticky 클래스만 변경 (셀 추가 X).
  * popup 은 _showCellAddPopup 와 동일한 클래스 리스트 UI 를 재사용하되,
  * mode='sticky-pick' 컨텍스트로 클릭 시 sticky 만 갱신.
  */
@@ -2937,6 +2991,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     headerLabel.innerHTML = `<b>Pick Sticky Class</b>  <span style="opacity:0.6">(추가할 클래스 선택)</span>`;
     header.appendChild(headerLabel);
     popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
 
     const sep = document.createElement('div');
     sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
@@ -3009,11 +3064,11 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     }, 0);
 }
 
-// Shift+A — sticky 클래스 변경 popup. 입력 위젯 포커스 중이면 무시.
+// Alt+A — sticky 클래스 변경 popup. 입력 위젯 포커스 중이면 무시.
 window.addEventListener('keydown', (e) => {
     if (e.key !== 'a' && e.key !== 'A') return;
-    if (!e.shiftKey) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!_lastDetectionResult) return;
@@ -3026,10 +3081,11 @@ window.addEventListener('keydown', (e) => {
 
 viewer.onCellAddRequested = _showCellAddPopup;
 
-function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
+function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, options = {}) {
     _closeCellEditPopup();
     if (!_lastDetectionResult || !listIndices || listIndices.length === 0) return;
 
+    const isHiddenOther = !!options.hiddenOther;
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
@@ -3056,9 +3112,10 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const headerLabel = document.createElement('span');
-    headerLabel.innerHTML = `<b>${listIndices.length} cells selected</b>`;
+    headerLabel.innerHTML = `<b>${listIndices.length} ${isHiddenOther ? 'Other cells selected' : 'cells selected'}</b>`;
     header.appendChild(headerLabel);
     popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
 
     // 클래스별 집계 표시
     const breakdown = document.createElement('div');
@@ -3124,22 +3181,24 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
         int_keyIdx++;
     }
 
-    const sep2 = document.createElement('div');
-    sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
-    popup.appendChild(sep2);
+    if (!isHiddenOther) {
+        const sep2 = document.createElement('div');
+        sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+        popup.appendChild(sep2);
 
-    const delBtn = document.createElement('button');
-    delBtn.textContent = `Delete ${listIndices.length} Cells  (Del / D)`;
-    delBtn.style.cssText = `
-        display:block;width:100%;padding:7px 10px;
-        background:#fdecea;color:#c0392b;
-        border:1px solid #e74c3c;border-radius:4px;
-        font-size:12px;cursor:pointer;font-weight:600;
-    `;
-    delBtn.onmouseover = () => { delBtn.style.background = '#e74c3c'; delBtn.style.color = '#fff'; };
-    delBtn.onmouseout = () => { delBtn.style.background = '#fdecea'; delBtn.style.color = '#c0392b'; };
-    delBtn.addEventListener('click', _doDeleteCell);
-    popup.appendChild(delBtn);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = `Delete ${listIndices.length} Cells  (Del / D)`;
+        delBtn.style.cssText = `
+            display:block;width:100%;padding:7px 10px;
+            background:#fdecea;color:#c0392b;
+            border:1px solid #e74c3c;border-radius:4px;
+            font-size:12px;cursor:pointer;font-weight:600;
+        `;
+        delBtn.onmouseover = () => { delBtn.style.background = '#e74c3c'; delBtn.style.color = '#fff'; };
+        delBtn.onmouseout = () => { delBtn.style.background = '#fdecea'; delBtn.style.color = '#c0392b'; };
+        delBtn.addEventListener('click', _doDeleteCell);
+        popup.appendChild(delBtn);
+    }
 
     document.body.appendChild(popup);
 
@@ -3155,6 +3214,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
     _cellEditPopupEl = popup;
     _cellEditCtx = {
         multi: true,
+        hiddenOther: isHiddenOther,
         indices: [...listIndices],
         classNames,
         classColors,
@@ -3168,12 +3228,15 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY) {
 }
 
 viewer.onCellsMultiEditRequested = _showMultiCellEditPopup;
+viewer.onHiddenCellsMultiEditRequested = (listIndices, listCells, screenX, screenY) =>
+    _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, { hiddenOther: true });
 
 viewer.onCellEdited = () => {
     // 결과 리스트 카운트 + 스코어 갱신
     if (_lastDetectionResult) {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
+        _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         buildResultList(_lastDetectionResult);
         // 스코어 카드 재계산 (Allred / HER2 / Quanti PD-L1)
         _updateResultCounts();
@@ -3690,6 +3753,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
 
     // ROI 폴리곤 내부 셀만 필터링하여 표시
     viewer.setDetectionResults(result.cells, roiPolygons);
+    viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
@@ -4049,6 +4113,7 @@ function clearResults() {
     $btnSaveResults.disabled = true;
     if ($btnLoadResults) $btnLoadResults.disabled = true;
     viewer.setDetectionResults([]);
+    viewer.setHiddenDetectionResults?.([]);
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
@@ -4117,6 +4182,7 @@ $btnSaveResults?.addEventListener('click', async () => {
         if (viewer?.detectionCells) {
             _lastDetectionResult.cells = viewer.detectionCells;
             _lastDetectionResult.total_cells = viewer.detectionCells.length;
+            _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         }
         // confidence 임계값은 SaMD 재현성을 위해 고정값만 사용.
         // 과거 저장본과의 호환을 위해 레거시 필드는 저장하지 않음(있어도 로드 시 무시).
@@ -6004,6 +6070,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
+    viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
@@ -6139,6 +6206,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD 재현성)
 
     viewer.setDetectionResults(result.cells, roiPolygons);
+    viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);

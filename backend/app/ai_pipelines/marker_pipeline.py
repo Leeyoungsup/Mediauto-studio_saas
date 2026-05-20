@@ -82,6 +82,9 @@ def run_marker_detection_pipeline(
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
 
+                if list_exclude and "excluded_cells" not in cached:
+                    raise ValueError("stale cache missing excluded_cells")
+
                 # 레거시 캐시(score_conf_threshold 필드 없음 또는 값이 다른 경우)는
                 # cells 로부터 현재 임계값으로 score 재계산.
                 float_cached_thr = cached.get("score_conf_threshold")
@@ -117,6 +120,8 @@ def run_marker_detection_pipeline(
                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                             result=cached)
                 return
+            except ValueError as e:
+                print(f"{log_label} cache skipped: {e}")
             except Exception as e:
                 import traceback
                 print(f"{log_label} cache load failed: {e}\n{traceback.format_exc()}")
@@ -210,6 +215,7 @@ def run_marker_detection_pipeline(
             empty_score = score_fn(np.empty(0, dtype=np.int32))
             empty_result = {
                 "total_cells": 0, "cells": [],
+                "excluded_cells": [],
                 "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
                 "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
                 "score_conf_threshold": float_score_conf_threshold,
@@ -362,8 +368,22 @@ def run_marker_detection_pipeline(
             all_cls = np.empty(0, dtype=np.int32)
 
         # ── 표시 제외 클래스 필터링 (e.g. 'Other' 클래스) ──
+        excluded_cells = []
         if list_exclude and len(all_cls) > 0:
-            keep_mask = ~np.isin(all_cls, list_exclude)
+            exclude_mask = np.isin(all_cls, list_exclude)
+            excluded_cells = [
+                {
+                    "x": float(all_x[i]),
+                    "y": float(all_y[i]),
+                    "confidence": float(all_conf[i]),
+                    "class_id": int(all_cls[i]),
+                    "class_name": dict_class_names.get(int(all_cls[i]), "Unknown"),
+                    "hidden": True,
+                    "exclude_from_score": True,
+                }
+                for i in np.where(exclude_mask)[0]
+            ]
+            keep_mask = ~exclude_mask
             all_x = all_x[keep_mask]
             all_y = all_y[keep_mask]
             all_cls = all_cls[keep_mask]
@@ -396,6 +416,7 @@ def run_marker_detection_pipeline(
         result = {
             "total_cells": n_cells,
             "cells": all_cells,
+            "excluded_cells": excluded_cells,
             "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
             "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
             "score_conf_threshold": float_score_conf_threshold,

@@ -388,6 +388,7 @@ html.project-gate-boot #toolbar {
     background: var(--accent);
     box-shadow: 0 0 6px var(--accent);
 }
+#toolbar .toolbar-spacer + .toolbar-group,
 #toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator,
 #toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator + .toolbar-group {
     display: none;
@@ -1287,6 +1288,9 @@ body.annotation-page .slide-list.grid-view .slide-workflow-cell {
     touch-action: none;
     -ms-touch-action: none;
 }
+body.viewer-alt-held #wsi-canvas {
+    cursor: crosshair !important;
+}
 #overlay-canvas { pointer-events: none; }
 
 /* 드래그앤드롭 */
@@ -1529,14 +1533,30 @@ body.role-viewer #right-panel .panel-group:first-child .tab-bar,
 body.role-viewer #right-panel .panel-group:first-child .tab-content {
     pointer-events: none;
 }
-body.annotation-page #right-panel > .panel-group:not(.annotation-group),
-body.annotation-page #right-panel > .panel-section {
+body.annotation-page #right-panel > .panel-group:not(.annotation-group):not(.ai-analysis-group) {
     display: none;
+}
+
+body.annotation-page #right-panel > .ai-analysis-group {
+    display: block;
+}
+
+body.annotation-page .ai-analysis-group .tab-btn:not([data-tab="vs-tab"]),
+body.annotation-page .ai-analysis-group .tab-content:not(#vs-tab) {
+    display: none !important;
+}
+
+body.annotation-page .ai-analysis-group .tab-bar {
+    grid-template-columns: 1fr;
+}
+
+body.annotation-page .ai-analysis-group .tab-btn[data-tab="vs-tab"] {
+    display: block !important;
 }
 
 body.annotation-page #right-panel {
     padding-top: 12px;
-    overflow: hidden;
+    overflow: auto;
 }
 
 body.annotation-page .project-gate-table-head,

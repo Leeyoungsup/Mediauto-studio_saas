@@ -8,6 +8,7 @@ Claude.md 규칙 준수 (str_/int_/bool_/dict_/list_/dt_ 접두어).
 """
 
 import asyncio
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -752,6 +753,22 @@ async def upsert_user_ai_edit(
     )
 
 
+def _get_visible_cell_count_from_saved_result(str_file_path: str, int_fallback: int) -> int:
+    if not str_file_path:
+        return int_fallback
+    try:
+        path_result = Path(str_file_path)
+        if not path_result.exists():
+            return int_fallback
+        with open(path_result, "r", encoding="utf-8") as file_result:
+            dict_result = json.load(file_result)
+        if isinstance(dict_result, dict) and isinstance(dict_result.get("cells"), list):
+            return len(dict_result["cells"])
+    except Exception as exc:
+        print(f"[user_ai_edits] visible cell count sync failed: {exc}")
+    return int_fallback
+
+
 async def list_user_ai_edits(
     str_slide_id: str,
     str_ai_mode: str,
@@ -772,11 +789,21 @@ async def list_user_ai_edits(
     async for dict_doc in db.user_ai_edits.find(
         dict_query,
     ).sort("dt_updated_at", -1):
+        int_stored_cells = int(dict_doc.get("int_total_cells", 0) or 0)
+        int_visible_cells = _get_visible_cell_count_from_saved_result(
+            dict_doc.get("str_file_path", ""),
+            int_stored_cells,
+        )
+        if int_visible_cells != int_stored_cells:
+            await db.user_ai_edits.update_one(
+                {"_id": dict_doc["_id"]},
+                {"$set": {"int_total_cells": int_visible_cells}},
+            )
         list_out.append({
             "str_user_id": dict_doc.get("str_user_id", ""),
             "str_user_name": dict_doc.get("str_user_name", ""),
             "str_login_id": dict_doc.get("str_login_id", ""),
-            "int_total_cells": int(dict_doc.get("int_total_cells", 0) or 0),
+            "int_total_cells": int_visible_cells,
             "dt_updated_at": (
                 dict_doc["dt_updated_at"].isoformat()
                 if dict_doc.get("dt_updated_at") else None

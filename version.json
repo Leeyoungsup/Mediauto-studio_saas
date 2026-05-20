@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.1",
+  "version": "1.1.10",
   "channel": "production",
-  "release_date": "2026-05-19",
-  "description": "Patch release refining project navigation, annotation routing, home charts, and recent-slide context."
+  "release_date": "2026-05-20",
+  "description": "Patch release correcting saved AI edit cell counts to exclude hidden Other cells."
 }

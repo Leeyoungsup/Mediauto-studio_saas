@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260519-03">
-    <link rel="stylesheet" href="css/style.css?v=20260519-03">
+    <link rel="stylesheet" href="css/style.css?v=20260520-04">
 </head>
 <body>
     <!-- ═══ 메뉴바 ═══ -->
@@ -139,6 +139,16 @@
                 </svg>
             </button>
         </div>
+        <div class="toolbar-separator"></div>
+        <div class="toolbar-group">
+            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="8"/>
+                    <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
+                    <circle cx="10" cy="15.3" r="0.6" fill="currentColor" stroke="none"/>
+                </svg>
+            </button>
+        </div>
         <div class="toolbar-spacer"></div>
         <!-- 상태 -->
         <div class="toolbar-group">
@@ -148,7 +158,7 @@
         <div class="toolbar-separator"></div>
         <!-- 헬프 -->
         <div class="toolbar-group">
-            <button id="btn-ux-help" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help">
+            <button id="btn-ux-help-legacy" class="toolbar-btn" title="UX 기능 설명" aria-label="UX help" hidden>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="10" cy="10" r="8"/>
                     <path d="M7.5 7.5a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1.2-1.5 2.5"/>
@@ -348,7 +358,7 @@
         <div id="right-panel-resizer" class="panel-resizer"></div>
         <aside id="right-panel">
             <!-- AI Analysis 그룹 -->
-            <div class="panel-group">
+            <div class="panel-group ai-analysis-group">
                 <div class="panel-header">
                     <span>AI Analysis</span>
                     <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="모델 설명">?</span>
@@ -558,16 +568,25 @@
                 <li><kbd>Delete</kbd>: 선택한 annotation 삭제</li>
             </ul>
 
-            <div class="ux-help-section">AI 결과 편집 (Quanti HE / Quanti PD-L1 / Quanti IHC)</div>
+            <div class="ux-help-section">AI Result Editing Shortcuts</div>
             <ul>
+                <li><kbd>Alt</kbd> + left click: nearest result cell edit popup</li>
+                <li><kbd>Alt</kbd> + left drag: lasso-select visible result cells for batch edit</li>
+                <li><kbd>Alt</kbd> + right click: add a new result cell at the clicked position</li>
+                <li><kbd>Alt</kbd> + right drag: lasso-select hidden Other cells, then promote them to a real class</li>
+                <li><kbd>Alt</kbd> held: crosshair cursor and current sticky class badge</li>
+                <li><kbd>Alt</kbd> + <kbd>A</kbd>: sticky class picker</li>
+            </ul>
+            <div class="ux-help-section" style="display:none">AI 결과 편집 (Quanti HE / Quanti PD-L1 / Quanti IHC)</div>
+            <ul style="display:none">
                 <li><kbd>Alt</kbd> + 클릭: 가장 가까운 셀 편집 팝업 (클래스 변경 / 삭제)</li>
                 <li><kbd>Alt</kbd> + 드래그: 라쏘 선택 → 여러 셀 일괄 편집</li>
                 <li><kbd>Shift</kbd> + 클릭: 클릭 위치에 새 셀 <b>추가</b>
                     <ul>
-                        <li>Shift 누른 동안 십자(crosshair) 커서로 정확한 위치 표시</li>
+                        <li>Alt 누른 동안 십자(crosshair) 커서로 정확한 위치 표시</li>
                         <li>처음 한 번은 클래스 선택 팝업 → 이후 같은 클래스로 즉시 추가 (Sticky)</li>
                         <li>Shift 누르고 있는 동안 마우스 우상단에 현재 sticky 클래스 배지 표시</li>
-                        <li><kbd>Shift</kbd> + <kbd>A</kbd>: sticky 클래스 변경 팝업</li>
+                        <li><kbd>Alt</kbd> + <kbd>A</kbd>: sticky 클래스 변경 팝업</li>
                     </ul>
                 </li>
                 <li>편집 팝업에서 <b>연필 아이콘 ✎</b> : 클래스 라벨 이름 편집 (전체 셀 라벨에 즉시 반영)</li>
@@ -584,6 +603,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260519-03"></script>
-    <script type="module" src="js/app.js?v=20260518-01"></script>
+    <script type="module" src="js/app.js?v=20260520-07"></script>
 </body>
 </html>

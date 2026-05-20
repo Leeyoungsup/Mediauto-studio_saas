@@ -82,6 +82,14 @@ async def save_detection_result(
 
     # 1) 디스크에 사용자별 JSON 저장 (스레드풀에서)
     file_path = _get_user_edit_path(info.file_path, ai_mode, tissue_type or "", str_user_id)
+    list_visible_cells = result_obj.get("cells") if isinstance(result_obj, dict) else None
+    int_total_cells = (
+        len(list_visible_cells)
+        if isinstance(list_visible_cells, list)
+        else int(result_obj.get("total_cells", 0) or 0)
+    )
+    if isinstance(result_obj, dict):
+        result_obj["total_cells"] = int_total_cells
 
     def _write_json_to_disk():
         with open(file_path, "w", encoding="utf-8") as f:
@@ -94,7 +102,6 @@ async def save_detection_result(
         raise HTTPException(500, f"Save failed (disk): {e}")
 
     # 2) DB 에는 메타만 기록 (유무/경로/셀 수/시간)
-    int_total_cells = int(result_obj.get("total_cells", 0) or 0)
     try:
         await slide_store.upsert_user_ai_edit(
             str_slide_id=slide_id,

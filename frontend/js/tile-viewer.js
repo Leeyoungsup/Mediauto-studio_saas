@@ -123,21 +123,23 @@ export class TileViewer {
 
         // 검출 결과
         this.detectionCells = [];
+        this.hiddenDetectionCells = [];
         this.classVisibility = {};   // {class_id: bool}
         this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
         this.classConfidence = {};   // {class_id: float} 클래스별 threshold (기본 defaultConfidence)
         this.defaultConfidence = 0.01;  // 현재 활성 모델의 초기 임계값 (PD-L1/HER2 는 0.1)
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
+        this._hiddenSpatialGrid = null;
         this._highlightedCellIdx = -1; // Alt+Click 편집 대상 셀
         this._highlightedCellIdxSet = null; // Alt+Drag 다중 선택 셀 Set
+        this._highlightedHiddenCellIdxSet = null;
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
         this.onCellsMultiEditRequested = null; // (indices, cells, screenX, screenY) callback
-        this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback — Shift+click
+        this.onHiddenCellsMultiEditRequested = null; // (indices, hidden cells, screenX, screenY) callback
+        this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback for Alt+right-click
         this.onCellEdited = null;        // 편집 후 콜백
         // Alt+Drag 라쏘 상태
         this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
-        // Shift+click 셀 추가 — mousedown 시 위치 기록, mouseup 에서 단일 클릭 확정 시 콜백.
-        this._shiftAddPending = null;  // { sx, sy, cx, cy, clientX, clientY }
         this._lassoActive = false;
         this._lassoPoints = [];    // [[sx, sy], ...] scene 좌표
         // Undo/Redo (셀 편집)
@@ -509,6 +511,19 @@ export class TileViewer {
 
             // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
             // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
+            if (e.altKey && e.button === 2 && !this.drawMode) {
+                this._altPending = {
+                    sx, sy, cx, cy,
+                    clientX: e.clientX, clientY: e.clientY,
+                    hiddenOther: true,
+                    rightButton: true,
+                };
+                this._lassoActive = false;
+                this._lassoPoints = [];
+                e.preventDefault();
+                return;
+            }
+
             if (e.ctrlKey && e.button === 0 && this._isMergeHoverHit(cx, cy)) {
                 this._mergeHoveredPolygons();
                 e.preventDefault();
@@ -569,16 +584,6 @@ export class TileViewer {
                 }
             }
 
-            if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey && !this.drawMode &&
-                    this.onCellAddRequested && this.detectionCells.length > 0) {
-                this._shiftAddPending = {
-                    sx, sy, cx, cy,
-                    clientX: e.clientX, clientY: e.clientY,
-                };
-                e.preventDefault();
-                return;
-            }
-
             // 그리기 모드
             if (this.drawMode && e.button === 0 && !e.ctrlKey) {
                 this._onDrawMouseDown(sx, sy, cx, cy, e);
@@ -623,6 +628,11 @@ export class TileViewer {
             const cx = e.clientX - rect.left;
             const cy = e.clientY - rect.top;
             const [sx, sy] = this.canvasToScene(cx, cy);
+
+            if (e.altKey && !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
+                    !this._vsSplitDragging) {
+                this.canvas.style.cursor = 'crosshair';
+            }
 
             // Alt+드래그 라쏘 진행
             if (this._altPending) {
@@ -761,20 +771,40 @@ export class TileViewer {
                     const pts = this._lassoPoints;
                     this._lassoPoints = [];
                     if (pts.length >= 3) {
-                        const list_indices = this._findCellsInPolygon(pts);
+                        const list_indices = pending.hiddenOther
+                            ? this._findHiddenCellsInPolygon(pts)
+                            : this._findCellsInPolygon(pts);
                         if (list_indices.length > 0) {
                             // 콜백 내부에서 기존 팝업 close가 highlight를 초기화하므로
                             // 팝업을 먼저 연 뒤 새 highlight Set을 설정한다
-                            if (this.onCellsMultiEditRequested) {
+                            if (pending.hiddenOther) {
+                                if (this.onHiddenCellsMultiEditRequested) {
+                                    const list_cells = list_indices.map(i => this.hiddenDetectionCells[i]);
+                                    this.onHiddenCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
+                                }
+                            } else if (this.onCellsMultiEditRequested) {
                                 const list_cells = list_indices.map(i => this.detectionCells[i]);
                                 this.onCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
                             }
                             this._highlightedCellIdx = -1;
-                            this._highlightedCellIdxSet = new Set(list_indices);
+                            if (pending.hiddenOther) {
+                                this._highlightedCellIdxSet = null;
+                                this._highlightedHiddenCellIdxSet = new Set(list_indices);
+                            } else {
+                                this._highlightedHiddenCellIdxSet = null;
+                                this._highlightedCellIdxSet = new Set(list_indices);
+                            }
                         }
                     }
                     this.requestRender();
                 } else {
+                    if (pending.rightButton) {
+                        if (this.onCellAddRequested) {
+                            this.onCellAddRequested(pending.sx, pending.sy, pending.clientX, pending.clientY);
+                        }
+                        this.requestRender();
+                        return;
+                    }
                     // 단일 Alt+클릭: 가장 가까운 셀 편집
                     const hit = this._findNearestCell(pending.sx, pending.sy, 30);
                     if (hit) {
@@ -790,20 +820,6 @@ export class TileViewer {
             }
 
             // Shift+click 종료 — 거의 안 움직였으면 셀 추가 콜백 (드래그면 무시).
-            if (this._shiftAddPending) {
-                const pending = this._shiftAddPending;
-                this._shiftAddPending = null;
-                const dx = e.clientX - pending.clientX;
-                const dy = e.clientY - pending.clientY;
-                if (Math.hypot(dx, dy) <= 4 && this.onCellAddRequested) {
-                    this.onCellAddRequested(
-                        pending.sx, pending.sy,
-                        pending.clientX, pending.clientY,
-                    );
-                }
-                return;
-            }
-
             if (this._vsSplitDragging) {
                 this._vsSplitDragging = false;
                 this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
@@ -836,6 +852,7 @@ export class TileViewer {
         // ── 우클릭: 컨텍스트 메뉴 방지 + 그리기 모드 해제 ──
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            if (e.altKey) return;
             if (this.drawMode) {
                 this.setDrawMode(null);
                 return;
@@ -866,7 +883,8 @@ export class TileViewer {
             if ((e.key === 'Control' || e.key === 'Alt') &&
                     !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                     !this._vsSplitDragging) {
-                this.canvas.style.cursor = e.key === 'Alt' ? 'copy' : 'pointer';
+                this.canvas.style.cursor = e.key === 'Alt' ? 'crosshair' : 'pointer';
+                if (e.key === 'Alt') document.body.classList.add('viewer-alt-held');
                 if (e.key === 'Control') this.requestRender();
             }
             if (e.key === 'Escape') {
@@ -885,13 +903,10 @@ export class TileViewer {
             }
             // Shift 누르면 셀 추가 가능 — 십자 커서로 바꿔 클릭 위치를 정확히 보이게.
             // (drawMode/패닝 등 다른 상태가 아닐 때만, 그리고 detectionCells 가 있을 때만.)
-            if (e.key === 'Shift' && this.onCellAddRequested && !this.drawMode &&
-                    !this._isPanning && this.detectionCells.length > 0) {
-                this.canvas.style.cursor = 'crosshair';
-            }
         });
         window.addEventListener('keyup', (e) => {
             if (e.key === 'Alt') {
+                document.body.classList.remove('viewer-alt-held');
                 this._setInsertVertexPreview(null);
             }
             if (e.key === 'Control') {
@@ -907,6 +922,7 @@ export class TileViewer {
         });
         // 창 포커스가 빠진 사이 Shift 가 떼져도 keyup 을 못 받을 수 있어 blur 시 복원.
         window.addEventListener('blur', () => {
+            document.body.classList.remove('viewer-alt-held');
             this._setInsertVertexPreview(null);
             if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                     !this._vsSplitDragging) {
@@ -1702,6 +1718,26 @@ export class TileViewer {
         this.requestRender();
     }
 
+    setHiddenDetectionResults(cells, roiPolygons = null) {
+        let filtered = cells || [];
+
+        if (roiPolygons && roiPolygons.length > 0) {
+            filtered = filtered.filter(c =>
+                roiPolygons.some(poly => this._pointInPolygon(c.x, c.y, poly))
+            );
+        }
+
+        this.hiddenDetectionCells = filtered.map(c => ({
+            ...c,
+            hidden: true,
+            exclude_from_score: true,
+        }));
+        this._highlightedHiddenCellIdxSet = null;
+        this._hiddenSpatialGrid = new SpatialGrid(2048);
+        this._hiddenSpatialGrid.build(this.hiddenDetectionCells);
+        this.requestRender();
+    }
+
     // ── Cell editing (Alt+Click) ──
 
     /**
@@ -1792,6 +1828,34 @@ export class TileViewer {
             if (this._pointInPolygon(cell.x, cell.y, poly)) {
                 list_result.push(index);
             }
+        }
+        return list_result;
+    }
+
+    _findHiddenCellsInPolygon(poly) {
+        if (!this.hiddenDetectionCells.length || poly.length < 3) return [];
+        let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+        for (const [x, y] of poly) {
+            if (x < xMin) xMin = x;
+            if (x > xMax) xMax = x;
+            if (y < yMin) yMin = y;
+            if (y > yMax) yMax = y;
+        }
+
+        let candidates;
+        if (this._hiddenSpatialGrid) {
+            const cellsInBox = this._hiddenSpatialGrid.query(xMin, yMin, xMax, yMax);
+            candidates = cellsInBox.map(c => ({ cell: c, index: this.hiddenDetectionCells.indexOf(c) }));
+        } else {
+            candidates = this.hiddenDetectionCells.map((c, i) => ({ cell: c, index: i }));
+        }
+
+        const list_result = [];
+        const thresh = this.defaultConfidence ?? 0.01;
+        for (const { cell, index } of candidates) {
+            if (index < 0) continue;
+            if ((cell.confidence ?? 1.0) < thresh) continue;
+            if (this._pointInPolygon(cell.x, cell.y, poly)) list_result.push(index);
         }
         return list_result;
     }
@@ -1902,6 +1966,49 @@ export class TileViewer {
         this._refreshAfterCellEdit();
     }
 
+    promoteHiddenCells(listIndices, newClassId, newClassName = null) {
+        if (!listIndices || listIndices.length === 0) return [];
+        const list_valid = [...new Set(listIndices)]
+            .filter(i => i >= 0 && i < this.hiddenDetectionCells.length)
+            .sort((a, b) => a - b);
+        if (list_valid.length === 0) return [];
+
+        const startIndex = this.detectionCells.length;
+        const hiddenItems = list_valid.map(i => ({
+            index: i,
+            cell: { ...this.hiddenDetectionCells[i] },
+        }));
+        const promoted = list_valid.map(i => {
+            const src = this.hiddenDetectionCells[i];
+            const cell = {
+                x: Number(src.x),
+                y: Number(src.y),
+                confidence: src.confidence ?? 1.0,
+                class_id: Number(newClassId),
+                class_name: newClassName || `Class ${newClassId}`,
+            };
+            return cell;
+        });
+
+        this._pushUndoOp({
+            type: 'promoteHidden',
+            items: promoted.map((cell, offset) => ({ index: startIndex + offset, cell })),
+            hiddenItems,
+        });
+
+        const removeSet = new Set(list_valid);
+        this.hiddenDetectionCells = this.hiddenDetectionCells.filter((_, i) => !removeSet.has(i));
+        this._hiddenSpatialGrid = new SpatialGrid(2048);
+        this._hiddenSpatialGrid.build(this.hiddenDetectionCells);
+
+        this.detectionCells.push(...promoted);
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
+        this._highlightedHiddenCellIdxSet = null;
+        this._refreshAfterCellEdit();
+        return promoted;
+    }
+
     /** 직전 셀 편집 되돌리기 */
     undoCellEdit() {
         const op = this._undoStack.pop();
@@ -1926,6 +2033,19 @@ export class TileViewer {
                 if (index < 0 || index >= this.detectionCells.length) continue;
                 this.detectionCells.splice(index, 1);
             }
+        } else if (op.type === 'promoteHidden') {
+            const visibleDesc = [...op.items].sort((a, b) => b.index - a.index);
+            for (const { index } of visibleDesc) {
+                if (index < 0 || index >= this.detectionCells.length) continue;
+                this.detectionCells.splice(index, 1);
+            }
+            const hiddenAsc = [...(op.hiddenItems || [])].sort((a, b) => a.index - b.index);
+            for (const { index, cell } of hiddenAsc) {
+                const clamped = Math.max(0, Math.min(index, this.hiddenDetectionCells.length));
+                this.hiddenDetectionCells.splice(clamped, 0, cell);
+            }
+            this._hiddenSpatialGrid = new SpatialGrid(2048);
+            this._hiddenSpatialGrid.build(this.hiddenDetectionCells);
         }
         this._redoStack.push(op);
         this._highlightedCellIdx = -1;
@@ -1957,6 +2077,16 @@ export class TileViewer {
                 const clamped = Math.max(0, Math.min(index, this.detectionCells.length));
                 this.detectionCells.splice(clamped, 0, cell);
             }
+        } else if (op.type === 'promoteHidden') {
+            const removeSet = new Set((op.hiddenItems || []).map(it => it.index));
+            this.hiddenDetectionCells = this.hiddenDetectionCells.filter((_, i) => !removeSet.has(i));
+            this._hiddenSpatialGrid = new SpatialGrid(2048);
+            this._hiddenSpatialGrid.build(this.hiddenDetectionCells);
+            const visibleAsc = [...op.items].sort((a, b) => a.index - b.index);
+            for (const { index, cell } of visibleAsc) {
+                const clamped = Math.max(0, Math.min(index, this.detectionCells.length));
+                this.detectionCells.splice(clamped, 0, cell);
+            }
         }
         this._undoStack.push(op);
         this._highlightedCellIdx = -1;
@@ -1971,6 +2101,13 @@ export class TileViewer {
     clearMultiCellHighlight() {
         if (this._highlightedCellIdxSet) {
             this._highlightedCellIdxSet = null;
+            this.requestRender();
+        }
+    }
+
+    clearHiddenCellHighlight() {
+        if (this._highlightedHiddenCellIdxSet) {
+            this._highlightedHiddenCellIdxSet = null;
             this.requestRender();
         }
     }
@@ -2319,20 +2456,23 @@ export class TileViewer {
 
     _renderDetectionOverlay() {
         const octx = this.overlayCtx;
-        if (!this.detectionCells.length) return;
+        if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet) return;
 
         // effectiveMpp 기준: 화면에 보이는 실제 해상도로 판단
         // mpp < 3.0 → 개별 셀, mpp >= 3.0 → 저배율 → 히트맵
         const effectiveMpp = this.getEffectiveMpp();
-        if (effectiveMpp >= 3.0) {
-            this._renderHeatmap(octx);
-        } else {
-            this._renderCells(octx);
+        if (this.detectionCells.length) {
+            if (effectiveMpp >= 3.0) {
+                this._renderHeatmap(octx);
+            } else {
+                this._renderCells(octx);
+            }
         }
 
         // 편집 대상 셀 하이라이트는 어떤 모드든 항상 표시
         this._renderCellHighlight(octx);
         this._renderMultiCellHighlight(octx);
+        this._renderHiddenCellHighlight(octx);
         this._renderLasso(octx);
     }
 
@@ -2366,6 +2506,35 @@ export class TileViewer {
             octx.fill();
 
             octx.strokeStyle = `rgb(${r},${g},${b})`;
+            octx.lineWidth = 2;
+            octx.beginPath();
+            octx.arc(hx, hy, baseR, 0, Math.PI * 2);
+            octx.stroke();
+        }
+        octx.restore();
+    }
+
+    _renderHiddenCellHighlight(octx) {
+        if (!this._highlightedHiddenCellIdxSet || this._highlightedHiddenCellIdxSet.size === 0) return;
+        const baseR = Math.max(10, 6 * this.zoom);
+        octx.save();
+        for (const idx of this._highlightedHiddenCellIdxSet) {
+            if (idx < 0 || idx >= this.hiddenDetectionCells.length) continue;
+            const c = this.hiddenDetectionCells[idx];
+            const [hx, hy] = this.sceneToCanvas(c.x, c.y);
+
+            octx.strokeStyle = 'rgba(17,24,39,0.85)';
+            octx.lineWidth = 4;
+            octx.beginPath();
+            octx.arc(hx, hy, baseR + 1, 0, Math.PI * 2);
+            octx.stroke();
+
+            octx.fillStyle = 'rgba(156,163,175,0.32)';
+            octx.beginPath();
+            octx.arc(hx, hy, baseR, 0, Math.PI * 2);
+            octx.fill();
+
+            octx.strokeStyle = '#9CA3AF';
             octx.lineWidth = 2;
             octx.beginPath();
             octx.arc(hx, hy, baseR, 0, Math.PI * 2);
