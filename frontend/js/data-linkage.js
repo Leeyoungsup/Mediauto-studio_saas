@@ -160,7 +160,7 @@ import { api } from './api.js?v=20260520-02';
             btn.className = `data-linkage-thumb${index === 0 ? ' active' : ''}`;
             btn.title = slide.filename;
             const img = document.createElement('img');
-            const setSrc = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 180);
+            const setSrc = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 2048);
             img.src = setSrc();
             api.attachMediaImageRetry?.(img, setSrc);
             btn.appendChild(img);

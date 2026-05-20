@@ -915,7 +915,7 @@ async function loadMinimap(slideId) {
         if (body) body.style.width = `${img.width}px`;
         updateMinimap();
     };
-    const str_url = api.thumbnailUrl(slideId, 200);
+    const str_url = api.thumbnailUrl(slideId, 2048);
     if (str_url) img.src = str_url;
 }
 
@@ -5057,9 +5057,9 @@ async function loadSlideList() {
             thumb.loading = 'lazy';
             const str_thumb_filename = s.filename;
             const str_thumb_path = currentBrowsePath;
-            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96);
+            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 2048);
             api.attachMediaImageRetry(thumb,
-                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96),
+                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 2048),
                 () => { thumb.style.display = 'none'; });
 
             const name = document.createElement('div');

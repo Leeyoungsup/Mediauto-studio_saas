@@ -287,7 +287,7 @@ export class TileViewer {
             }
         };
         img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
-        const str_small_url = api.thumbnailUrl(str_slide_id, 300, bool_ndp);
+        const str_small_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
         if (str_small_url) img_small.src = str_small_url;
 
         // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)

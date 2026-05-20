@@ -212,7 +212,7 @@
 
     // ── Render recent slide card ──
     function _buildThumbUrl(filename, relPath, token) {
-        return `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(relPath || '')}&size=200&mt=${token}`;
+        return `/api/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(relPath || '')}&size=2048&mt=${token}`;
     }
 
     function recentSlideOpenPage(slide) {

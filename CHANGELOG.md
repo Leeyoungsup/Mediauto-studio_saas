@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.38] - 2026-05-20
+
+### Fixed
+
+- Kept the shared top navigation visible on the Data Linkage page even if page data loading fails.
+- Raised thumbnail-by-name and viewer thumbnail generation to 2048px minimum so Data Linkage previews and existing slide thumbnails use consistent resolution.
+
 ## [1.1.37] - 2026-05-20
 
 ### Added
