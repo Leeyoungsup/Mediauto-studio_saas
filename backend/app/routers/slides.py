@@ -1363,7 +1363,14 @@ async def open_slide_by_name(
     """업로드 사전 검사용 — 파일 존재 여부만 반환. 슬라이드 열기/타일 생성/감사 로그 없음."""
     filename = _safe_filename(filename)
     final_path = _safe_subpath(path) / filename
-    return {"exists": final_path.exists()}
+    if not final_path.exists():
+        return {"exists": False}
+    return {
+        "exists": True,
+        "filename": filename,
+        "size_bytes": final_path.stat().st_size,
+        "size_mb": round(final_path.stat().st_size / 1024 / 1024, 1),
+    }
 
 
 @router.post("/open")
@@ -1570,7 +1577,7 @@ async def upload_complete(
                     final_path.unlink()
                 except Exception:
                     pass
-            raise
+            raise HTTPException(400, "Unsupported slide file or OpenSlide could not open it")
     finally:
         auto_ai.upload_exit()
 

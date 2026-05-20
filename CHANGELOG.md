@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.42] - 2026-05-20
+
+### Fixed
+
+- Changed upload duplicate handling to queue overwrite/skip decisions without blocking the remaining uploads.
+- Added overwrite flow that deletes the existing original file, tiles, AI result cache, and DB slide record before re-uploading.
+- Show unsupported/OpenSlide-invalid uploads as slide format errors and continue with the next file.
+
 ## [1.1.41] - 2026-05-20
 
 ### Fixed

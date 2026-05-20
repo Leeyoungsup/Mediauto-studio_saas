@@ -93,6 +93,64 @@
         }
         .file-item-fill.done { background: var(--success); }
         .file-item-fill.error { background: var(--danger); }
+        .file-item-fill.conflict { background: #f1c40f; }
+
+        .status-conflict { background: #fff6db; color: #9a6b00; }
+        .status-skipped { background: #eef1f6; color: var(--text-dim); }
+
+        .conflict-panel {
+            margin: 0 16px 10px;
+            border: 1px solid #f1d27a;
+            border-radius: 8px;
+            background: #fffaf0;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .conflict-panel[hidden] { display: none; }
+        .conflict-panel-head {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1d27a;
+            color: #5f4200;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .conflict-list {
+            display: flex;
+            flex-direction: column;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+        .conflict-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 8px;
+            align-items: center;
+            padding: 10px 12px;
+            border-top: 1px solid rgba(241, 210, 122, 0.6);
+            font-size: 12px;
+        }
+        .conflict-item:first-child { border-top: 0; }
+        .conflict-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 700;
+        }
+        .conflict-action {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .conflict-action.overwrite {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
 
         /* Footer */
         .upload-footer {
@@ -189,6 +247,10 @@
     </div>
 
     <div class="file-list" id="file-list"></div>
+    <div class="conflict-panel" id="conflict-panel" hidden>
+        <div class="conflict-panel-head">Existing files waiting for overwrite decision</div>
+        <div class="conflict-list" id="conflict-list"></div>
+    </div>
 
     <div class="upload-footer">
         <span class="upload-summary" id="upload-summary"></span>
@@ -390,11 +452,14 @@
         const $btnUpload = document.getElementById('btn-upload');
         const $btnClose = document.getElementById('btn-close');
         const $summary = document.getElementById('upload-summary');
+        const $conflictPanel = document.getElementById('conflict-panel');
+        const $conflictList = document.getElementById('conflict-list');
 
         let fileQueue = [];      // {file, el, status, fillEl, statusEl}
         let isUploading = false;
         let completedCount = 0;
         let errorCount = 0;
+        let skippedCount = 0;
 
         // ── Auth fetch ──
         async function authFetch(path, options = {}) {
@@ -489,7 +554,9 @@
             if (isUploading) {
                 $summary.textContent = `Uploading... ${completedCount}/${total} done` + (errorCount ? `, ${errorCount} failed` : '');
             } else if (completedCount > 0) {
-                $summary.textContent = `${completedCount}/${total} uploaded` + (errorCount ? `, ${errorCount} failed` : '');
+                $summary.textContent = `${completedCount}/${total} uploaded`
+                    + (errorCount ? `, ${errorCount} failed` : '')
+                    + (skippedCount ? `, ${skippedCount} skipped` : '');
             } else {
                 $summary.textContent = `${total} file${total > 1 ? 's' : ''} selected`;
             }
@@ -499,6 +566,98 @@
             item.status = status;
             item.statusEl.textContent = text;
             item.statusEl.className = 'file-item-status status-' + status;
+        }
+
+        function renderConflictPanel() {
+            const conflicts = fileQueue.filter(item => item.status === 'conflict');
+            $conflictPanel.hidden = conflicts.length === 0;
+            $conflictList.innerHTML = '';
+            for (const item of conflicts) {
+                const row = document.createElement('div');
+                row.className = 'conflict-item';
+                row.innerHTML = `
+                    <span class="conflict-name" title="${item.file.name}">${item.file.name}</span>
+                    <button type="button" class="conflict-action overwrite">Overwrite</button>
+                    <button type="button" class="conflict-action skip">Skip</button>
+                `;
+                row.querySelector('.overwrite').addEventListener('click', () => overwriteConflict(item));
+                row.querySelector('.skip').addEventListener('click', () => skipConflict(item));
+                $conflictList.appendChild(row);
+            }
+        }
+
+        function markConflict(item, detail = {}) {
+            item.conflictDetail = detail;
+            setItemStatus(item, 'conflict', 'Exists');
+            item.fillEl.classList.remove('error', 'done');
+            item.fillEl.classList.add('conflict');
+            item.fillEl.style.width = '100%';
+            renderConflictPanel();
+        }
+
+        function skipConflict(item) {
+            item.fillEl.classList.remove('conflict');
+            setItemStatus(item, 'skipped', 'Skipped');
+            skippedCount++;
+            renderConflictPanel();
+            updateSummary();
+        }
+
+        async function overwriteConflict(item) {
+            if (item.status !== 'conflict') return;
+            setItemStatus(item, 'uploading', 'Deleting old file...');
+            item.fillEl.classList.remove('conflict', 'error', 'done');
+            item.fillEl.style.width = '8%';
+            renderConflictPanel();
+            startUploadTokenKeepAlive();
+            try {
+                await deleteExistingFile(item.file.name);
+                await uploadOneFile(item, { overwrite: true });
+                setItemStatus(item, 'done', 'Overwritten');
+                item.fillEl.classList.add('done');
+                item.fillEl.style.width = '100%';
+                completedCount++;
+            } catch (err) {
+                setItemStatus(item, 'error', err.message || 'Overwrite failed');
+                item.fillEl.classList.add('error');
+                item.fillEl.style.width = '100%';
+                errorCount++;
+            } finally {
+                stopUploadTokenKeepAlive();
+            }
+            renderConflictPanel();
+            updateSummary();
+            try {
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({ type: 'upload-complete', count: completedCount }, '*');
+                }
+            } catch { /* cross-origin or closed */ }
+        }
+
+        async function deleteExistingFile(filename) {
+            const form = new FormData();
+            form.append('filenames_json', JSON.stringify([filename]));
+            form.append('path', getUploadPath());
+            const res = await authFetch('/slides/file/delete', { method: 'POST', body: form });
+            if (!res.ok) throw new Error('Could not delete existing file');
+            const data = await res.json();
+            if (Array.isArray(data.errors) && data.errors.length) {
+                throw new Error(data.errors[0]?.error || 'Could not delete existing file');
+            }
+            return data;
+        }
+
+        async function responseErrorMessage(res, fallback) {
+            try {
+                const data = await res.clone().json();
+                const detail = data.detail || data.message || '';
+                if (typeof detail === 'string' && detail.trim()) return detail;
+            } catch (_) { /* ignore */ }
+            try {
+                const text = await res.text();
+                if (text && text.trim()) return text;
+            } catch (_) { /* ignore */ }
+            return fallback;
         }
 
         // ── Upload ──
@@ -517,6 +676,7 @@
             $folderSelect.disabled = true;
             completedCount = 0;
             errorCount = 0;
+            skippedCount = 0;
 
             // 페이지 이탈 방지
             window.onbeforeunload = () => '';
@@ -524,15 +684,23 @@
 
             try {
                 for (const item of fileQueue) {
-                    if (item.status === 'done') continue;
+                    if (item.status === 'done' || item.status === 'conflict' || item.status === 'skipped') continue;
                     try {
                         setItemStatus(item, 'uploading', 'Uploading...');
                         await uploadOneFile(item);
+                        if (item.status === 'conflict') {
+                            updateSummary();
+                            continue;
+                        }
                         setItemStatus(item, 'done', 'Done');
                         item.fillEl.classList.add('done');
                         item.fillEl.style.width = '100%';
                         completedCount++;
                     } catch (err) {
+                        if (err && err.alreadyHandled) {
+                            updateSummary();
+                            continue;
+                        }
                         setItemStatus(item, 'error', err.message || 'Failed');
                         item.fillEl.classList.add('error');
                         item.fillEl.style.width = '100%';
@@ -558,22 +726,22 @@
             } catch { /* cross-origin or closed */ }
         }
 
-        async function uploadOneFile(item) {
+        async function uploadOneFile(item, options = {}) {
             const file = item.file;
+            const overwrite = Boolean(options.overwrite);
 
             // 1) 이미 존재하는지 확인
-            const checkForm = new FormData();
-            checkForm.append('filename', file.name);
-            checkForm.append('path', getUploadPath());
-            const checkRes = await authFetch(`/slides/open-by-name`, { method: 'POST', body: checkForm });
-            if (checkRes.ok) {
-                const checkData = await checkRes.json();
-                if (checkData.exists) {
-                    setItemStatus(item, 'done', 'Already exists');
-                    item.fillEl.classList.add('done');
-                    item.fillEl.style.width = '100%';
-                    completedCount++;
-                    throw { alreadyHandled: true };
+            if (!overwrite) {
+                const checkForm = new FormData();
+                checkForm.append('filename', file.name);
+                checkForm.append('path', getUploadPath());
+                const checkRes = await authFetch(`/slides/open-by-name`, { method: 'POST', body: checkForm });
+                if (checkRes.ok) {
+                    const checkData = await checkRes.json();
+                    if (checkData.exists) {
+                        markConflict(item, checkData);
+                        throw { alreadyHandled: true };
+                    }
                 }
             }
 
@@ -581,7 +749,7 @@
             const startForm = new FormData();
             startForm.append('filename', file.name);
             const startRes = await authFetch('/slides/upload/start', { method: 'POST', body: startForm });
-            if (!startRes.ok) throw new Error('Start failed');
+            if (!startRes.ok) throw new Error(await responseErrorMessage(startRes, 'File format is not supported'));
             const { upload_id } = await startRes.json();
 
             // 3) 청크 전송
@@ -594,7 +762,7 @@
                 chunkForm.append('chunk_index', i.toString());
                 chunkForm.append('chunk', blob);
                 const chunkRes = await authFetch('/slides/upload/chunk', { method: 'POST', body: chunkForm });
-                if (!chunkRes.ok) throw new Error(`Chunk ${i + 1} failed`);
+                if (!chunkRes.ok) throw new Error(await responseErrorMessage(chunkRes, `Chunk ${i + 1} failed`));
                 item.fillEl.style.width = Math.round(((i + 1) / totalChunks) * 90) + '%';
                 setItemStatus(item, 'uploading', `${Math.round(((i + 1) / totalChunks) * 90)}%`);
             }
@@ -608,7 +776,13 @@
             completeForm.append('total_chunks', totalChunks.toString());
             completeForm.append('path', getUploadPath());
             const completeRes = await authFetch('/slides/upload/complete', { method: 'POST', body: completeForm });
-            if (!completeRes.ok) throw new Error('Complete failed');
+            if (!completeRes.ok) {
+                const message = await responseErrorMessage(completeRes, 'Complete failed');
+                if (/OpenSlide|Unsupported slide|could not open|not open/i.test(message)) {
+                    throw new Error('Not a supported slide file');
+                }
+                throw new Error(message);
+            }
         }
 
         // ── Close ──
