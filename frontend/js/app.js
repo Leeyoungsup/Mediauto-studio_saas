@@ -2107,7 +2107,7 @@ async function _loadSlideClinicalInfo() {
     try {
         const res = await api.getSlideClinicalInfo(currentSlideId);
         const clinicalInfo = res.dict_clinical_info || {};
-        currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: clinicalInfo };
+        currentSlideInfo = { ...(currentSlideInfo || {}), case_name: res.case_name || currentSlideInfo?.case_name || '', dict_clinical_info: clinicalInfo };
         return clinicalInfo;
     } catch (err) {
         console.warn('[slide-info] clinical info load failed:', err);
@@ -2124,27 +2124,35 @@ async function _saveSlideClinicalInfoIfNeeded() {
 
     const res = await api.updateSlideClinicalInfo(currentSlideId, values);
     const saved = res.dict_clinical_info || values;
-    currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: saved };
-    _markBrowseSlideClinicalInfo(currentSlideId, saved);
+    currentSlideInfo = { ...(currentSlideInfo || {}), case_name: res.case_name || currentSlideInfo?.case_name || '', dict_clinical_info: saved };
+    _markBrowseSlideClinicalInfo(currentSlideId, saved, res.case_name || '');
     _slideClinicalInitialJson = JSON.stringify(_normalizeSlideClinicalInfo(saved));
     _slideClinicalDirty = false;
-    setStatus('Slide clinical information saved.');
+    setStatus('Case clinical information saved.');
 }
 
-function _markBrowseSlideClinicalInfo(slideId, clinicalInfo) {
+function _markBrowseSlideClinicalInfo(slideId, clinicalInfo, caseName = '') {
     const hasClinical = _hasAnyClinicalValue(clinicalInfo);
     const slide = (_lastBrowseData.slides || []).find((item) => item.slide_id === slideId);
-    if (slide) {
+    const targetCase = caseName || slide?.case_name || '';
+    const listTargets = (_lastBrowseData.slides || []).filter((item) => (
+        targetCase ? item.case_name === targetCase : item.slide_id === slideId
+    ));
+    listTargets.forEach((itemSlide) => {
+        itemSlide.clinical_info = clinicalInfo || {};
+        itemSlide.has_clinical_info = hasClinical;
+        const item = $slideList?.querySelector(`.slide-list-item[data-slide-id="${itemSlide.slide_id}"]`);
+        const cell = item?.querySelector('.slide-state-cell.clinical');
+        if (cell) {
+            cell.classList.toggle('ready', hasClinical);
+            cell.classList.toggle('empty', !hasClinical);
+            cell.textContent = hasClinical ? '✓' : '-';
+            cell.title = hasClinical ? 'Clinical info saved' : 'No clinical info';
+        }
+    });
+    if (!listTargets.length && slide) {
         slide.clinical_info = clinicalInfo || {};
         slide.has_clinical_info = hasClinical;
-    }
-    const item = $slideList?.querySelector(`.slide-list-item[data-slide-id="${slideId}"]`);
-    const cell = item?.querySelector('.slide-state-cell.clinical');
-    if (cell) {
-        cell.classList.toggle('ready', hasClinical);
-        cell.classList.toggle('empty', !hasClinical);
-        cell.textContent = hasClinical ? '✓' : '-';
-        cell.title = hasClinical ? 'Clinical info saved' : 'No clinical info';
     }
 }
 

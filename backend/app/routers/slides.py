@@ -8,6 +8,7 @@ import json
 import uuid
 import asyncio
 import hashlib
+import re
 import shutil
 from datetime import timezone
 from pathlib import Path
@@ -43,6 +44,21 @@ def _rel_path_for(file_path: str) -> str:
         return "" if s in (".", "") else s
     except Exception:
         return ""
+
+
+def _case_name_from_filename(str_filename: str) -> str:
+    """Extract case name from CODIPAI-BRCA-SS-00192-I-KI-01.svs -> BRCA-SS-00192."""
+    str_stem = Path(str_filename or "").stem
+    list_parts = [p for p in str_stem.split("-") if p]
+    if len(list_parts) >= 4 and list_parts[0].upper() == "CODIPAI":
+        return "-".join(list_parts[1:4])
+    if len(list_parts) >= 3:
+        return "-".join(list_parts[:3])
+    return str_stem
+
+
+def _case_filename_regex(str_case_name: str) -> str:
+    return rf"(^|-)({re.escape(str_case_name)})(-|$)"
 
 
 def _slide_response(slide_id: str, info, filename: str):
@@ -287,11 +303,28 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
 
     folders = []
     slides = []
+    list_entries = sorted(target.iterdir())
+    set_case_names = {
+        _case_name_from_filename(f.name)
+        for f in list_entries
+        if f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS
+    }
+    dict_case_clinical = {}
 
     # DB 에서 현재 폴더 슬라이드 문서 한 번에 조회
     dict_db_slides = await slide_store.list_slides_in_folder(path)
+    if is_db_connected() and set_case_names:
+        db = get_db()
+        async for dict_doc in db.slides.find({
+            "str_case_name": {"$in": sorted(set_case_names)},
+            "dict_clinical_info": {"$exists": True},
+        }):
+            str_case = dict_doc.get("str_case_name") or _case_name_from_filename(dict_doc.get("str_filename", ""))
+            dict_clinical = dict_doc.get("dict_clinical_info") or {}
+            if dict_clinical and any(str(v or "").strip() for v in dict_clinical.values()):
+                dict_case_clinical[str_case] = dict_clinical
 
-    for f in sorted(target.iterdir()):
+    for f in list_entries:
         if f.name.startswith("_chunks_") or f.name.startswith("."):
             continue
         if f.is_dir():
@@ -301,6 +334,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
             dict_item = {
                 "filename": f.name,
                 "slide_id": slide_id,
+                "case_name": _case_name_from_filename(f.name),
                 "size_mb": round(f.stat().st_size / 1024 / 1024, 1),
                 "type": "slide",
                 "annotation_summary": _annotation_summary_for_filename(f.name),
@@ -322,7 +356,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["status"] = dict_db.get("str_status") or ""
                 dict_item["ai_status"] = dict_db.get("str_ai_status") or ""
                 dict_item["annotation_status"] = dict_db.get("str_annotation_status") or dict_db.get("str_status") or ""
-                dict_clinical = dict_db.get("dict_clinical_info") or {}
+                dict_clinical = dict_db.get("dict_clinical_info") or dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
                 dict_item["has_clinical_info"] = any(str(v or "").strip() for v in dict_clinical.values())
             else:
@@ -330,8 +364,9 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["status"] = ""
                 dict_item["ai_status"] = ""
                 dict_item["annotation_status"] = ""
-                dict_item["clinical_info"] = {}
-                dict_item["has_clinical_info"] = False
+                dict_clinical = dict_case_clinical.get(dict_item["case_name"], {})
+                dict_item["clinical_info"] = dict_clinical
+                dict_item["has_clinical_info"] = any(str(v or "").strip() for v in dict_clinical.values())
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
@@ -1400,7 +1435,7 @@ async def get_slide_info(slide_id: str):
 
 @router.get("/{slide_id}/clinical-info")
 async def get_slide_clinical_info(slide_id: str):
-    """Return per-slide clinical score metadata shared by AI and annotation viewers."""
+    """Return per-case clinical score metadata shared by AI and annotation viewers."""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "Slide not found")
@@ -1410,21 +1445,30 @@ async def get_slide_clinical_info(slide_id: str):
     db = get_db()
     str_rel_path = _rel_path_for(info.file_path)
     str_filename = Path(info.file_path).name
+    str_case_name = _case_name_from_filename(str_filename)
     dict_doc = await db.slides.find_one({"str_slide_id": slide_id})
     if not dict_doc:
         dict_doc = await db.slides.find_one({
             "str_rel_path": str_rel_path,
             "str_filename": str_filename,
         })
+    dict_case_doc = await db.slides.find_one({
+        "$or": [
+            {"str_case_name": str_case_name},
+            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
+        ],
+        "dict_clinical_info": {"$exists": True},
+    })
     return {
         "slide_id": slide_id,
-        "dict_clinical_info": (dict_doc or {}).get("dict_clinical_info") or {},
+        "case_name": str_case_name,
+        "dict_clinical_info": (dict_case_doc or dict_doc or {}).get("dict_clinical_info") or {},
     }
 
 
 @router.patch("/{slide_id}/clinical-info")
 async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
-    """Store per-slide clinical score metadata shared by AI and annotation viewers."""
+    """Store per-case clinical score metadata shared by AI and annotation viewers."""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "Slide not found")
@@ -1455,10 +1499,15 @@ async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
     db = get_db()
     str_rel_path = _rel_path_for(info.file_path)
     str_filename = Path(info.file_path).name
+    str_case_name = _case_name_from_filename(str_filename)
     dt_now = datetime.now(timezone.utc)
-    result = await db.slides.update_one(
-        {"str_slide_id": slide_id},
+    result = await db.slides.update_many(
+        {"$or": [
+            {"str_case_name": str_case_name},
+            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
+        ]},
         {"$set": {
+            "str_case_name": str_case_name,
             "dict_clinical_info": dict_clinical_info,
             "dt_updated_at": dt_now,
         }},
@@ -1469,6 +1518,7 @@ async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
             {
                 "$set": {
                     "str_slide_id": slide_id,
+                    "str_case_name": str_case_name,
                     "str_full_path": info.file_path,
                     "dict_clinical_info": dict_clinical_info,
                     "dt_updated_at": dt_now,
@@ -1485,6 +1535,7 @@ async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
 
     return {
         "slide_id": slide_id,
+        "case_name": str_case_name,
         "dict_clinical_info": dict_clinical_info,
     }
 

@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.36] - 2026-05-20
+
+### Changed
+
+- Changed clinical info storage from slide-level to case-level using the case name parsed from CODIPAI filenames.
+- Shared clinical info across slides such as `CODIPAI-BRCA-SS-00192-I-KI-01.svs` and `CODIPAI-BRCA-SS-00192-I-ER-01.svs`.
+
 ## [1.1.35] - 2026-05-20
 
 ### Fixed
