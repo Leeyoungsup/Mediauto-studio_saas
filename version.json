@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.24",
+  "version": "1.1.26",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release cleaning corrupted AI and annotation viewer UI strings."
+  "description": "Patch release fixing AI result class popup rename control layout."
 }

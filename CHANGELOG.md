@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.26] - 2026-05-20
+
+### Fixed
+
+- Replaced the AI result class popup `Edit` text control with a fixed-width rename icon at the right edge so it no longer overlaps swatches or class labels.
+
+## [1.1.25] - 2026-05-20
+
+### Fixed
+
+- Restored scanner/vendor and zoom/Mpp status badges inside the viewer toolbar instead of the header.
+- Removed the duplicate legacy shortcut button group from the visible toolbar flow.
+
 ## [1.1.24] - 2026-05-20
 
 ### Fixed

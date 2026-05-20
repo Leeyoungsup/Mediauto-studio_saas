@@ -2396,17 +2396,18 @@ function _makeCellEditPopupDraggable(popup, handle) {
 function _attachClassRenamePencil(btnEl, classId, textSpan) {
     const pencil = document.createElement('span');
     pencil.title = 'Rename label';
-    pencil.setAttribute('aria-label', 'rename label');
+    pencil.setAttribute('aria-label', 'Rename label');
     pencil.style.cssText = `
-        flex:0 0 22px; height:22px; margin-right:6px;
+        flex:0 0 26px; width:26px; height:26px; margin:2px 5px 2px 0;
         display:flex; align-items:center; justify-content:center;
-        border-radius:3px; cursor:pointer; opacity:0.55;
-        font-size:13px; line-height:1;
+        border-radius:4px; cursor:pointer; opacity:0.65;
+        color:#555; box-sizing:border-box;
     `;
-    pencil.textContent = 'Edit';
+    pencil.innerHTML = `<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.8 3.4l4.8 4.8-8.7 8.7-4.9 1 1-4.9z"/><path d="M10.5 4.7l4.8 4.8"/></svg>`;
     pencil.onmouseover = () => { pencil.style.opacity = '1'; pencil.style.background = 'rgba(0,0,0,0.08)'; };
-    pencil.onmouseout = () => { pencil.style.opacity = '0.55'; pencil.style.background = 'transparent'; };
+    pencil.onmouseout = () => { pencil.style.opacity = '0.65'; pencil.style.background = 'transparent'; };
     pencil.addEventListener('click', (ev) => {
+        ev.stopPropagation();
         const original = textSpan.textContent || '';
         const m = original.match(/^\[\d\]\s+(.*)$/);
         const initialName = (m ? m[1] : original).trim();
@@ -2471,7 +2472,7 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
 
         setTimeout(() => { input.focus(); input.select(); }, 0);
     });
-    btnEl.insertBefore(pencil, textSpan);
+    btnEl.appendChild(pencil);
 }
 
 /**
@@ -2574,7 +2575,7 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
         const text = document.createElement('span');
         text.textContent = keyLabel ? `[${keyLabel}] ${name}` : name;
-        text.style.cssText = 'flex:1;padding:6px 10px;';
+        text.style.cssText = 'flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));
@@ -2799,7 +2800,7 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
         text.textContent = keyLabel ? `[${keyLabel}] ${name}` : name;
-        text.style.cssText = 'flex:1;padding:6px 10px;';
+        text.style.cssText = 'flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doAddCell(cid));
@@ -2913,7 +2914,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
         text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  current' : '');
-        text.style.cssText = 'flex:1;padding:6px 10px;';
+        text.style.cssText = 'flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doAddCell(cid));
@@ -3049,7 +3050,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
         text.textContent = str_keyLabel ? `[${str_keyLabel}] ${name}` : name;
-        text.style.cssText = 'flex:1;padding:6px 10px;';
+        text.style.cssText = 'flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));

@@ -234,11 +234,6 @@ body.project-gate-open .project-mode-header { display: block; }
     font-size: 11px; color: var(--text-dim);
     white-space: nowrap;
 }
-.slide-scanner-header {
-    flex: 0 0 auto;
-    margin-right: 0;
-    max-width: 320px;
-}
 .slide-scanner[hidden] { display: none; }
 .scanner-logo {
     display: inline-flex; align-items: center;
@@ -393,9 +388,10 @@ html.project-gate-boot #toolbar {
     background: var(--accent);
     box-shadow: 0 0 6px var(--accent);
 }
-#toolbar .toolbar-spacer + .toolbar-group,
-#toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator,
-#toolbar .toolbar-spacer + .toolbar-group + .toolbar-separator + .toolbar-group {
+#toolbar .toolbar-spacer + .toolbar-group {
+    flex-shrink: 0;
+}
+.toolbar-legacy-help {
     display: none;
 }
 
