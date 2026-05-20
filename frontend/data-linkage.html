@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDIAuto Studio - Data Linkage</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/shared-header.css?v=20260520-02">
+    <link rel="stylesheet" href="css/style.css?v=20260520-13">
+</head>
+<body class="data-linkage-page">
+    <div id="shared-header-root"></div>
+
+    <main class="data-linkage-shell">
+        <section class="data-linkage-topbar">
+            <div class="data-linkage-title">
+                <span>Data Linkage</span>
+                <span aria-hidden="true">›</span>
+                <strong>Data Linkage</strong>
+            </div>
+            <div class="data-linkage-filters">
+                <select id="dl-project-select" aria-label="Project">
+                    <option value="">Project (all) *</option>
+                </select>
+                <select id="dl-hospital-select" aria-label="Hospital">
+                    <option value="">Hospital (all) *</option>
+                </select>
+                <input id="dl-sample-search" type="search" placeholder="Sample No" aria-label="Sample No">
+                <button id="dl-search-btn" type="button">Search</button>
+                <select id="dl-page-size" class="data-linkage-page-size" aria-label="Rows per page">
+                    <option value="15">15 per page</option>
+                    <option value="30">30 per page</option>
+                    <option value="50">50 per page</option>
+                </select>
+            </div>
+            <label class="data-linkage-extra">
+                <input id="dl-extra-toggle" type="checkbox">
+                <span>Additional conditions</span>
+            </label>
+        </section>
+
+        <section class="data-linkage-workspace">
+            <aside class="data-linkage-list-panel">
+                <div class="data-linkage-table-head">
+                    <span>No</span>
+                    <button type="button" data-sort="case_name">Sample ID</button>
+                    <button type="button" data-sort="has_clinical_info">Clinical Info</button>
+                    <button type="button" data-sort="last_activity">Last activity</button>
+                </div>
+                <div id="dl-case-list" class="data-linkage-case-list"></div>
+                <div class="data-linkage-pager">
+                    <button id="dl-prev-page" type="button" aria-label="Previous page">‹</button>
+                    <span id="dl-page-indicator">1</span>
+                    <button id="dl-next-page" type="button" aria-label="Next page">›</button>
+                </div>
+                <div id="dl-total-label" class="data-linkage-total">Showing 0 entries</div>
+            </aside>
+
+            <section class="data-linkage-preview-panel">
+                <div class="data-linkage-viewer-tools" aria-label="Preview tools">
+                    <button type="button" title="Zoom in">+</button>
+                    <button type="button" title="Zoom out">−</button>
+                    <button type="button" title="Reset">⌂</button>
+                    <button type="button" title="Fit">⛶</button>
+                    <button type="button" title="More">•••</button>
+                </div>
+                <div class="data-linkage-preview-stage">
+                    <img id="dl-preview-img" alt="Selected slide preview">
+                    <div id="dl-preview-empty" class="data-linkage-empty">Select a sample to preview linked slides.</div>
+                </div>
+            </section>
+
+            <aside class="data-linkage-detail-panel">
+                <div class="data-linkage-case-summary">
+                    <div><span>Year:</span> <strong id="dl-year">-</strong></div>
+                    <div><span>Sample ID:</span> <strong id="dl-sample-id">-</strong></div>
+                </div>
+                <div id="dl-thumbnail-row" class="data-linkage-thumbnails"></div>
+                <form id="dl-clinical-form" class="data-linkage-form">
+                    <div class="data-linkage-form-empty">Clinical fields appear after selecting a sample.</div>
+                </form>
+                <div class="data-linkage-savebar">
+                    <span id="dl-save-status">Not saved</span>
+                    <button id="dl-save-btn" type="button">Save</button>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script src="js/shared-header.js?v=20260520-02"></script>
+    <script type="module" src="js/data-linkage.js?v=20260520-01"></script>
+</body>
+</html>

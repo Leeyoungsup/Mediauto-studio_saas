@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.37] - 2026-05-20
+
+### Added
+
+- Added a Data Linkage page with project/hospital/sample filtering, case list, linked slide thumbnails, preview image, and shared clinical info editing.
+- Added case-level clinical info API storage through `case_clinical_info` while keeping viewer slide clinical info synchronized.
+
 ## [1.1.36] - 2026-05-20
 
 ### Changed

@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import re
 import shutil
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +59,83 @@ def _case_name_from_filename(str_filename: str) -> str:
 
 def _case_filename_regex(str_case_name: str) -> str:
     return rf"(^|-)({re.escape(str_case_name)})(-|$)"
+
+
+SET_CLINICAL_INFO_KEYS = {
+    "ER_proportion_score",
+    "ER_intensity_score",
+    "PR_proportion_score",
+    "PR_intensity_score",
+    "Ki67_index",
+    "PD-L1_CPS_score",
+    "ISH_for_HER2_(FISH_SISH)",
+    "IHC_for_C-erbB2",
+}
+
+
+def _normalize_clinical_info(dict_raw: dict) -> dict:
+    if not isinstance(dict_raw, dict):
+        raise HTTPException(400, "Invalid clinical info payload")
+    dict_clinical_info = {}
+    for str_key in SET_CLINICAL_INFO_KEYS:
+        obj_val = dict_raw.get(str_key, "")
+        if obj_val is None:
+            obj_val = ""
+        dict_clinical_info[str_key] = str(obj_val).strip()[:120]
+    return dict_clinical_info
+
+
+def _has_clinical_info(dict_info: Optional[dict]) -> bool:
+    return any(str(v or "").strip() for v in (dict_info or {}).values())
+
+
+def _iso_datetime(obj_dt) -> Optional[str]:
+    if not obj_dt:
+        return None
+    if not getattr(obj_dt, "tzinfo", None):
+        return obj_dt.replace(tzinfo=timezone.utc).isoformat()
+    return obj_dt.isoformat()
+
+
+async def _get_case_clinical_info(db, str_case_name: str) -> dict:
+    dict_case_doc = await db.case_clinical_info.find_one({"str_case_name": str_case_name})
+    if dict_case_doc and isinstance(dict_case_doc.get("dict_clinical_info"), dict):
+        return dict_case_doc.get("dict_clinical_info") or {}
+    dict_slide_doc = await db.slides.find_one({
+        "$or": [
+            {"str_case_name": str_case_name},
+            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
+        ],
+        "dict_clinical_info": {"$exists": True},
+    })
+    return (dict_slide_doc or {}).get("dict_clinical_info") or {}
+
+
+async def _upsert_case_clinical_info(db, str_case_name: str, dict_clinical_info: dict) -> None:
+    dt_now = datetime.now(timezone.utc)
+    await db.case_clinical_info.update_one(
+        {"str_case_name": str_case_name},
+        {
+            "$set": {
+                "str_case_name": str_case_name,
+                "dict_clinical_info": dict_clinical_info,
+                "dt_updated_at": dt_now,
+            },
+            "$setOnInsert": {"dt_created_at": dt_now},
+        },
+        upsert=True,
+    )
+    await db.slides.update_many(
+        {"$or": [
+            {"str_case_name": str_case_name},
+            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
+        ]},
+        {"$set": {
+            "str_case_name": str_case_name,
+            "dict_clinical_info": dict_clinical_info,
+            "dt_updated_at": dt_now,
+        }},
+    )
 
 
 def _slide_response(slide_id: str, info, filename: str):
@@ -315,13 +392,19 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
     dict_db_slides = await slide_store.list_slides_in_folder(path)
     if is_db_connected() and set_case_names:
         db = get_db()
+        async for dict_doc in db.case_clinical_info.find({
+            "str_case_name": {"$in": sorted(set_case_names)},
+        }):
+            dict_clinical = dict_doc.get("dict_clinical_info") or {}
+            if _has_clinical_info(dict_clinical):
+                dict_case_clinical[dict_doc.get("str_case_name", "")] = dict_clinical
         async for dict_doc in db.slides.find({
             "str_case_name": {"$in": sorted(set_case_names)},
             "dict_clinical_info": {"$exists": True},
         }):
             str_case = dict_doc.get("str_case_name") or _case_name_from_filename(dict_doc.get("str_filename", ""))
             dict_clinical = dict_doc.get("dict_clinical_info") or {}
-            if dict_clinical and any(str(v or "").strip() for v in dict_clinical.values()):
+            if str_case not in dict_case_clinical and _has_clinical_info(dict_clinical):
                 dict_case_clinical[str_case] = dict_clinical
 
     for f in list_entries:
@@ -358,7 +441,7 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["annotation_status"] = dict_db.get("str_annotation_status") or dict_db.get("str_status") or ""
                 dict_clinical = dict_db.get("dict_clinical_info") or dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
-                dict_item["has_clinical_info"] = any(str(v or "").strip() for v in dict_clinical.values())
+                dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)
             else:
                 dict_item["ai_results"] = None
                 dict_item["status"] = ""
@@ -366,10 +449,159 @@ async def browse(path: str = Query("", description="uploads/ 기준 상대 경�
                 dict_item["annotation_status"] = ""
                 dict_clinical = dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
-                dict_item["has_clinical_info"] = any(str(v or "").strip() for v in dict_clinical.values())
+                dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)
             slides.append(dict_item)
 
     return {"path": path, "folders": folders, "slides": slides}
+
+
+@router.get("/cases")
+async def list_cases(
+    project: str = Query("", description="Project path under uploads"),
+    hospital: str = Query("", description="Project hospital/institution filter"),
+    sample_no: str = Query("", description="Case/sample id search"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=100),
+):
+    target = _safe_subpath(project) if project else Path(settings.UPLOAD_DIR)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, "Project path not found")
+
+    dict_project_info = {}
+    dict_slide_docs = {}
+    dict_case_clinical = {}
+    if is_db_connected():
+        db = get_db()
+        async for dict_doc in db.project_infos.find({}):
+            dict_project_info[dict_doc.get("str_project_path", "")] = dict_doc
+        async for dict_doc in db.case_clinical_info.find({}):
+            str_case = dict_doc.get("str_case_name", "")
+            if str_case:
+                dict_case_clinical[str_case] = dict_doc
+        async for dict_doc in db.slides.find({}):
+            str_rel = (dict_doc.get("str_rel_path") or "").replace("\\", "/").strip("/")
+            str_filename = dict_doc.get("str_filename") or ""
+            if str_filename:
+                dict_slide_docs[f"{str_rel}/{str_filename}".strip("/")] = dict_doc
+
+    str_sample_filter = sample_no.strip().lower()
+    str_hospital_filter = hospital.strip().lower()
+    dict_cases = {}
+    upload_root = Path(settings.UPLOAD_DIR)
+    for file_path in target.rglob("*"):
+        if not file_path.is_file() or file_path.suffix.lower() not in settings.SUPPORTED_EXTENSIONS:
+            continue
+        try:
+            rel_parts = file_path.relative_to(upload_root).parts
+        except Exception:
+            rel_parts = file_path.parts
+        if any(part.startswith(".") or part.startswith("_chunks_") for part in rel_parts):
+            continue
+        str_rel = _rel_path_for(str(file_path))
+        str_project = str_rel.split("/", 1)[0] if str_rel else ""
+        dict_proj = dict_project_info.get(str_project) or {}
+        str_hospital = dict_proj.get("str_institution", "")
+        if str_hospital_filter and str_hospital_filter not in str_hospital.lower():
+            continue
+        str_case_name = _case_name_from_filename(file_path.name)
+        if str_sample_filter and str_sample_filter not in str_case_name.lower() and str_sample_filter not in file_path.name.lower():
+            continue
+        str_key = f"{str_rel}/{file_path.name}".strip("/")
+        dict_doc = dict_slide_docs.get(str_key) or {}
+        dict_case = dict_cases.setdefault(str_case_name, {
+            "case_name": str_case_name,
+            "project": str_project,
+            "hospital": str_hospital,
+            "slides": [],
+            "last_activity": None,
+            "last_activity_ts": 0,
+            "clinical_info": {},
+            "has_clinical_info": False,
+            "ai_status": "",
+            "has_ai_result": False,
+        })
+        float_mtime = file_path.stat().st_mtime
+        if float_mtime > dict_case["last_activity_ts"]:
+            dict_case["last_activity_ts"] = float_mtime
+            dict_case["last_activity"] = datetime.fromtimestamp(float_mtime, timezone.utc).date().isoformat()
+        dt_doc = dict_doc.get("dt_updated_at") or dict_doc.get("dt_last_opened_at") or dict_doc.get("dt_uploaded_at")
+        if dt_doc and dt_doc.timestamp() > dict_case["last_activity_ts"]:
+            dict_case["last_activity_ts"] = dt_doc.timestamp()
+            dict_case["last_activity"] = dt_doc.date().isoformat()
+        str_ai_status = dict_doc.get("str_ai_status") or ""
+        if str_ai_status == "in_progress":
+            dict_case["ai_status"] = "in_progress"
+        dict_ai = dict_doc.get("dict_ai_results") or {}
+        bool_has_ai = any((v or {}).get("bool_has_result") for v in dict_ai.values())
+        if bool_has_ai:
+            dict_case["has_ai_result"] = True
+            if dict_case["ai_status"] != "in_progress":
+                dict_case["ai_status"] = "done"
+        dict_case["slides"].append({
+            "filename": file_path.name,
+            "path": str_rel,
+            "slide_id": dict_doc.get("str_slide_id") or hashlib.md5(file_path.name.encode()).hexdigest()[:12],
+            "size_mb": round(file_path.stat().st_size / 1024 / 1024, 1),
+            "ai_status": str_ai_status,
+            "has_ai_result": bool_has_ai,
+        })
+
+    for str_case_name, dict_case in dict_cases.items():
+        dict_case_doc = dict_case_clinical.get(str_case_name) or {}
+        dict_clinical = dict_case_doc.get("dict_clinical_info") or {}
+        if not dict_clinical and dict_case["slides"]:
+            first_slide = dict_case["slides"][0]
+            dict_slide_doc = dict_slide_docs.get(f"{first_slide.get('path', '')}/{first_slide.get('filename', '')}".strip("/")) or {}
+            dict_clinical = dict_slide_doc.get("dict_clinical_info") or {}
+        dict_case["clinical_info"] = dict_clinical
+        dict_case["has_clinical_info"] = _has_clinical_info(dict_clinical)
+        dict_case["year"] = (dict_case["last_activity"] or "")[:4]
+        dict_case["slides"].sort(key=lambda d: d.get("filename", "").lower())
+
+    list_cases_out = sorted(dict_cases.values(), key=lambda d: (d.get("case_name") or "").lower())
+    int_total = len(list_cases_out)
+    int_start = (page - 1) * page_size
+    list_page = list_cases_out[int_start:int_start + page_size]
+    for idx, dict_case in enumerate(list_page, start=int_start + 1):
+        dict_case["no"] = idx
+        dict_case.pop("last_activity_ts", None)
+
+    list_projects = []
+    for p in _list_project_dirs():
+        dict_info = dict_project_info.get(p.name) or {}
+        list_projects.append({
+            "name": p.name,
+            "path": p.name,
+            "hospital": dict_info.get("str_institution", ""),
+        })
+    list_hospitals = sorted({
+        (dict_info.get("str_institution") or "").strip()
+        for dict_info in dict_project_info.values()
+        if (dict_info.get("str_institution") or "").strip()
+    })
+    return {
+        "cases": list_page,
+        "projects": list_projects,
+        "hospitals": list_hospitals,
+        "total": int_total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.patch("/cases/{case_name}/clinical-info")
+async def update_case_clinical_info(case_name: str, payload: dict = Body(...)):
+    if not is_db_connected():
+        raise HTTPException(503, "Database is not connected")
+    dict_raw = payload.get("dict_clinical_info", payload)
+    dict_clinical_info = _normalize_clinical_info(dict_raw)
+    db = get_db()
+    await _upsert_case_clinical_info(db, case_name, dict_clinical_info)
+    return {
+        "case_name": case_name,
+        "dict_clinical_info": dict_clinical_info,
+        "has_clinical_info": _has_clinical_info(dict_clinical_info),
+    }
 
 
 @router.get("/folder-tree")
@@ -1452,17 +1684,11 @@ async def get_slide_clinical_info(slide_id: str):
             "str_rel_path": str_rel_path,
             "str_filename": str_filename,
         })
-    dict_case_doc = await db.slides.find_one({
-        "$or": [
-            {"str_case_name": str_case_name},
-            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
-        ],
-        "dict_clinical_info": {"$exists": True},
-    })
+    dict_clinical = await _get_case_clinical_info(db, str_case_name)
     return {
         "slide_id": slide_id,
         "case_name": str_case_name,
-        "dict_clinical_info": (dict_case_doc or dict_doc or {}).get("dict_clinical_info") or {},
+        "dict_clinical_info": dict_clinical or (dict_doc or {}).get("dict_clinical_info") or {},
     }
 
 
@@ -1475,32 +1701,15 @@ async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
     if not is_db_connected():
         raise HTTPException(503, "Database is not connected")
 
-    set_allowed_keys = {
-        "ER_proportion_score",
-        "ER_intensity_score",
-        "PR_proportion_score",
-        "PR_intensity_score",
-        "Ki67_index",
-        "PD-L1_CPS_score",
-        "ISH_for_HER2_(FISH_SISH)",
-        "IHC_for_C-erbB2",
-    }
     dict_raw = payload.get("dict_clinical_info", payload)
-    if not isinstance(dict_raw, dict):
-        raise HTTPException(400, "Invalid clinical info payload")
-
-    dict_clinical_info = {}
-    for str_key in set_allowed_keys:
-        obj_val = dict_raw.get(str_key, "")
-        if obj_val is None:
-            obj_val = ""
-        dict_clinical_info[str_key] = str(obj_val).strip()[:120]
+    dict_clinical_info = _normalize_clinical_info(dict_raw)
 
     db = get_db()
     str_rel_path = _rel_path_for(info.file_path)
     str_filename = Path(info.file_path).name
     str_case_name = _case_name_from_filename(str_filename)
     dt_now = datetime.now(timezone.utc)
+    await _upsert_case_clinical_info(db, str_case_name, dict_clinical_info)
     result = await db.slides.update_many(
         {"$or": [
             {"str_case_name": str_case_name},

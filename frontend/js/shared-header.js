@@ -102,6 +102,7 @@
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
                         <a href="/project" class="shared-nav-item ${active === 'project' ? 'active' : ''}">Project</a>
+                        <a href="/data-linkage" class="shared-nav-item ${active === 'data-linkage' ? 'active' : ''}">Data Linkage</a>
                         <a href="/ai" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
                         <div class="shared-nav-menu">
                             <button type="button" class="shared-nav-item shared-nav-parent ${annotationActive ? 'active' : ''}" aria-haspopup="true" aria-expanded="false">Annotation</button>

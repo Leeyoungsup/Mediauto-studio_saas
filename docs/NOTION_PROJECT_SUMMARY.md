@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.36 |
+| 현재 버전 | 1.1.37 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -33,6 +33,7 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | --- | --- | --- |
 | Home | `/home` | 운영 대시보드, 프로젝트/병원별 슬라이드 차트, 최근 슬라이드 |
 | Project | `/project` | 프로젝트 목록, Default AI 모델 목록, 프로젝트 생성/수정/삭제 |
+| Data Linkage | `/data-linkage` | 케이스 단위 clinical info 입력, 슬라이드 이미지 연결, 샘플 검색 |
 | AI | `/ai` | AI 분석 워크스페이스 |
 | Tissue Annotation | `/tissue-annotation` | 조직 단위 Annotation 워크스페이스 |
 | Cell Annotation | `/cell-annotation` | 세포 단위 Annotation 워크스페이스 |
@@ -40,6 +41,11 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.37
+
+- Added `/data-linkage` as a case-level clinical information linkage workspace.
+- Added project/hospital/sample filtering, linked slide thumbnails, preview, and shared clinical field editing.
 
 ### v1.1.36
 

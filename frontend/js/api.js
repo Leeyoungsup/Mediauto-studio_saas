@@ -214,6 +214,19 @@ export const api = {
         return res.json();
     },
 
+    async listCases({ project = '', hospital = '', sampleNo = '', page = 1, pageSize = 15 } = {}) {
+        const q = new URLSearchParams({
+            project: project || '',
+            hospital: hospital || '',
+            sample_no: sampleNo || '',
+            page: String(page || 1),
+            page_size: String(pageSize || 15),
+        });
+        const res = await _authFetch(`${API_BASE}/slides/cases?${q}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     /** 서버에 파일이 있는지 확인 후 바로 열기 */
     async listProjects() {
         const res = await _authFetch(`${API_BASE}/slides/projects`);
@@ -430,6 +443,16 @@ export const api = {
 
     async updateSlideClinicalInfo(slideId, clinicalInfo) {
         const res = await _authFetch(`${API_BASE}/slides/${slideId}/clinical-info`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dict_clinical_info: clinicalInfo || {} }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async updateCaseClinicalInfo(caseName, clinicalInfo) {
+        const res = await _authFetch(`${API_BASE}/slides/cases/${encodeURIComponent(caseName)}/clinical-info`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dict_clinical_info: clinicalInfo || {} }),

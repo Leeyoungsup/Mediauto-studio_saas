@@ -219,6 +219,7 @@ async def chrome_devtools_probe():
 _DICT_PAGE_ROUTES = {
     "home": "home.html",
     "project": "project.html",
+    "data-linkage": "data-linkage.html",
     "ai": "app.html",
     "annotation": "annotation.html",
     "tissue-annotation": "annotation.html",
