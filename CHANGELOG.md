@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.30] - 2026-05-20
+
+### Removed
+
+- Removed the `Set AI Status` section from the AI slide context menu.
+
 ## [1.1.29] - 2026-05-20
 
 ### Changed

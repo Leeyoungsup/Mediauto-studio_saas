@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.29 |
+| 현재 버전 | 1.1.30 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,7 +41,7 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 
 ## 5. 최근 변경 사항
 
-### v1.1.29
+### v1.1.30
 
 - Restored scanner/vendor and zoom/Mpp badges to the viewer toolbar.
 - Hid the duplicate legacy shortcut button group from the toolbar flow.

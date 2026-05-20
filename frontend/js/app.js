@@ -3642,26 +3642,6 @@ function _getSelectedSlideFilenames() {
         .filter(Boolean);
 }
 
-const SLIDE_STATUS_OPTIONS = [
-    { value: 'pending',     label: 'AI Pending',     color: '#95a5a6' },
-    { value: 'in_progress', label: 'AI In Progress', color: '#3498db' },
-    { value: 'done',        label: 'AI Reviewed',    color: '#27ae60' },
-    { value: 'flagged',     label: 'AI Flagged',     color: '#e74c3c' },
-    { value: '',            label: 'Clear AI Status', color: '' },
-];
-
-async function _applyStatusToSelected(strStatus) {
-    const list_filenames = _getSelectedSlideFilenames();
-    if (list_filenames.length === 0) return;
-    try {
-        await api.setFileStatus(list_filenames, strStatus, currentBrowsePath, 'ai');
-        setStatus(`Status updated: ${list_filenames.length} slide(s)`);
-        loadSlideList();
-    } catch (err) {
-        alert(`Failed to update status: ${err.message}`);
-    }
-}
-
 async function _deleteSelectedSlides() {
     const list_filenames = _getSelectedSlideFilenames();
     if (list_filenames.length === 0) return;
@@ -3705,40 +3685,6 @@ function showSlideContextMenu(e) {
         ? list_filenames[0]
         : `${list_filenames.length} slides selected`;
     menu.appendChild(header);
-
-    const labelStatus = document.createElement('div');
-    labelStatus.className = 'ctx-menu-label';
-    labelStatus.textContent = 'Set AI Status';
-    menu.appendChild(labelStatus);
-
-    for (const opt of SLIDE_STATUS_OPTIONS) {
-        const btn = document.createElement('div');
-        btn.className = 'ctx-menu-item ctx-menu-status';
-        if (opt.color) {
-            const dot = document.createElement('span');
-            dot.className = 'ctx-menu-status-dot';
-            dot.style.background = opt.color;
-            btn.appendChild(dot);
-        } else {
-            const dot = document.createElement('span');
-            dot.className = 'ctx-menu-status-dot';
-            dot.style.background = 'transparent';
-            dot.style.border = '1px dashed #999';
-            btn.appendChild(dot);
-        }
-        const span = document.createElement('span');
-        span.textContent = opt.label;
-        btn.appendChild(span);
-        btn.addEventListener('click', () => {
-            removeCtxMenu();
-            _applyStatusToSelected(opt.value);
-        });
-        menu.appendChild(btn);
-    }
-
-    const sep = document.createElement('div');
-    sep.className = 'ctx-menu-sep';
-    menu.appendChild(sep);
 
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'ctx-menu-item danger';
