@@ -206,8 +206,79 @@
         const CHUNK_SIZE = 5 * 1024 * 1024;
         const SUPPORTED = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg)$/i;
 
-        const accessToken = localStorage.getItem('access_token');
-        if (!accessToken) { window.close(); return; }
+        if (!localStorage.getItem('access_token')) { window.close(); return; }
+
+        let _refreshInFlight = null;
+        let _uploadKeepAliveTimer = null;
+
+        function getAccessToken() {
+            return localStorage.getItem('access_token') || '';
+        }
+
+        function getRefreshToken() {
+            return localStorage.getItem('refresh_token') || '';
+        }
+
+        function setTokens(accessToken, refreshToken, expiresIn) {
+            localStorage.setItem('access_token', accessToken);
+            localStorage.setItem('refresh_token', refreshToken);
+            localStorage.setItem('token_expires', Date.now() + Number(expiresIn || 0) * 1000);
+        }
+
+        function clearTokens() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('token_expires');
+            localStorage.removeItem('user');
+        }
+
+        function isTokenExpiringSoon(windowMs = 10 * 60 * 1000) {
+            const expires = parseInt(localStorage.getItem('token_expires') || '0', 10);
+            return !expires || Date.now() > expires - windowMs;
+        }
+
+        async function refreshTokenIfNeeded(force = false) {
+            if (_refreshInFlight) return _refreshInFlight;
+            if (!force && !isTokenExpiringSoon()) return true;
+            const refreshToken = getRefreshToken();
+            if (!refreshToken) return false;
+
+            _refreshInFlight = (async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/auth/refresh`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: JSON.stringify({ str_refresh_token: refreshToken }),
+                    });
+                    if (!res.ok) return false;
+                    const data = await res.json();
+                    setTokens(data.str_access_token, data.str_refresh_token, data.int_expires_in);
+                    if (data.dict_user) localStorage.setItem('user', JSON.stringify(data.dict_user));
+                    return true;
+                } catch (err) {
+                    console.error('Upload token refresh failed:', err);
+                    return false;
+                } finally {
+                    _refreshInFlight = null;
+                }
+            })();
+            return _refreshInFlight;
+        }
+
+        function startUploadTokenKeepAlive() {
+            if (_uploadKeepAliveTimer) return;
+            refreshTokenIfNeeded(true);
+            _uploadKeepAliveTimer = setInterval(() => {
+                refreshTokenIfNeeded(true);
+            }, 5 * 60 * 1000);
+        }
+
+        function stopUploadTokenKeepAlive() {
+            if (_uploadKeepAliveTimer) {
+                clearInterval(_uploadKeepAliveTimer);
+                _uploadKeepAliveTimer = null;
+            }
+        }
 
         // 업로드 대상 경로 — 폴더 셀렉터에서 동적으로 결정
         const initialPath = new URLSearchParams(location.search).get('path') || '';

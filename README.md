@@ -1,6 +1,6 @@
 # MeDIAuto Studio SaaS
 
-Current version: **1.1.38**. See [CHANGELOG.md](CHANGELOG.md) and [docs/VERSIONING.md](docs/VERSIONING.md).
+Current version: **1.1.39**. See [CHANGELOG.md](CHANGELOG.md) and [docs/VERSIONING.md](docs/VERSIONING.md).
 
 병원 온프레미스(On-Premise) 배포용 디지털 병리 WSI(Whole Slide Image) 뷰어 + AI 분석 플랫폼.
 
@@ -163,7 +163,7 @@ mongod --dbpath /data/db
 | `FIELD_ENCRYPTION_KEY` | `.secrets.json` 자동 생성 | AES-256-GCM 키 |
 | `AUTH_PEPPER` | `.secrets.json` (legacy 또는 신규) | bcrypt pepper |
 | `MEDIA_SIGNING_KEY` | JWT 키에서 파생 | 미디어 티켓 전용 키 (선택) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | 15 | Access Token 수명 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | 360 | Access Token 수명 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 7 | Refresh Token 수명 |
 | `MAX_UPLOAD_BYTES` | 20 GB | 단일 파일 업로드 상한 |
 | `TILE_CACHE_QUOTA_BYTES` | 50 GB | 타일 디스크 쿼터 (0 이면 janitor 비활성) |

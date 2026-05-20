@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.39] - 2026-05-20
+
+### Changed
+
+- Changed the default access token lifetime from 15 minutes to 360 minutes for on-premise workstation use.
+
 ## [1.1.38] - 2026-05-20
 
 ### Fixed
