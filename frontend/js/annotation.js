@@ -158,6 +158,15 @@ let _annotationStatusSaving = false;
 let _annotationRunningStep = '';
 let _annotationWorkflowFinished = false;
 let minimapImage = null;
+function _setMinimapDisplaySize(img) {
+    const body = document.getElementById('minimap-body');
+    if (!body || !img) return;
+    const maxW = 220;
+    const maxH = 170;
+    const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
+    const displayW = Math.max(120, Math.round(img.width * ratio));
+    body.style.width = `${displayW}px`;
+}
 let lastSegData = null;  // segmentation overlay data from epithelial classification
 
 const ANNOTATION_WORKFLOW_ORDER = ['annotation', 'review', 'termination'];
@@ -911,8 +920,7 @@ async function loadMinimap(slideId) {
         $minimapContainer.hidden = false;
         $minimapContainer.classList.remove('minimized');
         if ($minimapIcon) $minimapIcon.setAttribute('d', 'M3 7h8');
-        const body = document.getElementById('minimap-body');
-        if (body) body.style.width = `${img.width}px`;
+        _setMinimapDisplaySize(img);
         updateMinimap();
     };
     const str_url = api.thumbnailUrl(slideId, 2048);

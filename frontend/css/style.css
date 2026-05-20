@@ -81,8 +81,10 @@ html.project-gate-boot #menubar { display: none; }
 #shared-header-root { display: none; }
 body.project-gate-open #shared-header-root { display: block; }
 html.project-gate-boot #shared-header-root { display: block; }
+body.data-linkage-page #shared-header-root { display: block; }
 body.project-gate-open #shared-header-root,
-html.project-gate-boot #shared-header-root {
+html.project-gate-boot #shared-header-root,
+body.data-linkage-page #shared-header-root {
     position: relative;
     z-index: 2100;
 }
@@ -1491,8 +1493,18 @@ body.viewer-alt-held #wsi-canvas {
 #minimap-container.minimized { border-radius: 6px; }
 #minimap-container.minimized #minimap-body { display: none; }
 #minimap-container.minimized #minimap-resize { display: none; }
-#minimap-body { position: relative; overflow: hidden; border-radius: 0 0 5px 5px; }
-#minimap-canvas { display: block; width: 100%; height: auto; }
+#minimap-body {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0 0 5px 5px;
+    width: 220px;
+}
+#minimap-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+}
 #minimap-viewport {
     position: absolute; border: 2px solid var(--accent); pointer-events: none;
 }
@@ -3597,7 +3609,7 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     position: relative;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    background: linear-gradient(#fff 0 42%, #f1f0f8 42% 78%, #fff 78%);
+    background: #fff;
 }
 .data-linkage-viewer-tools {
     display: flex;

@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.42 |
+| 현재 버전 | 1.1.45 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,6 +41,20 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.45
+
+- Restored the shared top navigation on the Data Linkage page.
+- Removed the gray preview background band from the Data Linkage viewer.
+
+### v1.1.44
+
+- Removed the one-quarter viewport cap from viewer minimaps while preserving fixed initial sizing.
+
+### v1.1.43
+
+- Fixed AI/Annotation viewer minimap display sizing after the 2048px thumbnail change.
+- Capped minimap width/height to roughly one quarter of the viewer viewport.
 
 ### v1.1.42
 

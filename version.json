@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.42",
+  "version": "1.1.45",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Improves upload duplicate overwrite decisions and invalid slide handling."
+  "description": "Shows the shared Data Linkage top navigation and removes the preview background band."
 }

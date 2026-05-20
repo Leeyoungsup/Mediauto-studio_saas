@@ -2,6 +2,26 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.45] - 2026-05-20
+
+### Fixed
+
+- Restored the shared top navigation on the Data Linkage page.
+- Removed the gray preview background band from the Data Linkage viewer.
+
+## [1.1.44] - 2026-05-20
+
+### Changed
+
+- Removed the one-quarter viewport cap from AI/Annotation viewer minimaps while keeping the initial minimap size fixed.
+
+## [1.1.43] - 2026-05-20
+
+### Fixed
+
+- Fixed AI and Annotation viewer minimap display size so high-resolution thumbnails no longer enlarge the minimap.
+- Capped minimap display and resize width to roughly one quarter of the viewport.
+
 ## [1.1.42] - 2026-05-20
 
 ### Fixed
