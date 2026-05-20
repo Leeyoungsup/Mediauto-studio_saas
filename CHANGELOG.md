@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.31] - 2026-05-20
+
+### Fixed
+
+- Silenced Chrome DevTools `.well-known` probe requests with a 204 response.
+- Suppressed benign Windows Proactor `ConnectionResetError` 10054 callback noise without hiding other asyncio errors.
+
 ## [1.1.30] - 2026-05-20
 
 ### Removed

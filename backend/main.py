@@ -3,6 +3,7 @@ MeDIAuto Studio SaaS — FastAPI Backend
 WSI 타일 서빙 + AI 분석 API
 """
 
+import asyncio
 import os
 import sys
 import logging
@@ -78,7 +79,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -92,9 +93,28 @@ from app import tile_worker
 from app.version import APP_VERSION, get_version_info
 
 
+def _install_asyncio_noise_filter():
+    """Suppress benign Windows socket reset callbacks without hiding real errors."""
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+
+    def _handle_exception(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == 10054:
+            return
+        if previous_handler:
+            previous_handler(loop, context)
+            return
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handle_exception)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 리소스 관리"""
+    _install_asyncio_noise_filter()
+
     # CPU 파티셔닝 적용 — 메인 프로세스 affinity 를 AI cores 로 설정.
     # viewer / bg pool 은 자체 initializer 로 자기 cores 를 override.
     cpu_layout.setup_process_affinity()
@@ -187,6 +207,11 @@ async def health_check():
 @app.get("/api/version")
 async def version_check():
     return get_version_info()
+
+
+@app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
+async def chrome_devtools_probe():
+    return Response(status_code=204)
 
 
 _DICT_PAGE_ROUTES = {

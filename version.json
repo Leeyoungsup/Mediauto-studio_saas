@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.30",
+  "version": "1.1.31",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release removing Set AI Status from the slide context menu."
+  "description": "Patch release silencing Chrome DevTools probe and benign Windows socket reset noise."
 }
