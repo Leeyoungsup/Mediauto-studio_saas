@@ -2036,8 +2036,13 @@ function _normalizeSlideClinicalInfo(raw) {
 function _collectSlideClinicalInfo() {
     const values = {};
     LIST_SLIDE_CLINICAL_FIELDS.forEach((field) => {
-        const el = $slideInfoContent.querySelector(`[data-clinical-key="${CSS.escape(field.key)}"]`);
-        values[field.key] = String(el?.value ?? '').trim();
+        values[field.key] = '';
+    });
+    $slideInfoContent.querySelectorAll('[data-clinical-key]').forEach((el) => {
+        const key = el.dataset.clinicalKey;
+        if (Object.prototype.hasOwnProperty.call(values, key)) {
+            values[key] = String(el.value ?? '').trim();
+        }
     });
     return values;
 }
@@ -2114,15 +2119,33 @@ async function _saveSlideClinicalInfoIfNeeded() {
     if (!currentSlideId) return;
     const values = _collectSlideClinicalInfo();
     const nextJson = JSON.stringify(_normalizeSlideClinicalInfo(values));
-    if (!_slideClinicalDirty && nextJson === _slideClinicalInitialJson) return;
+    if (nextJson === _slideClinicalInitialJson) return;
     if (!_hasAnyClinicalValue(values) && _slideClinicalInitialJson === JSON.stringify(_normalizeSlideClinicalInfo({}))) return;
 
     const res = await api.updateSlideClinicalInfo(currentSlideId, values);
     const saved = res.dict_clinical_info || values;
     currentSlideInfo = { ...(currentSlideInfo || {}), dict_clinical_info: saved };
+    _markBrowseSlideClinicalInfo(currentSlideId, saved);
     _slideClinicalInitialJson = JSON.stringify(_normalizeSlideClinicalInfo(saved));
     _slideClinicalDirty = false;
     setStatus('Slide clinical information saved.');
+}
+
+function _markBrowseSlideClinicalInfo(slideId, clinicalInfo) {
+    const hasClinical = _hasAnyClinicalValue(clinicalInfo);
+    const slide = (_lastBrowseData.slides || []).find((item) => item.slide_id === slideId);
+    if (slide) {
+        slide.clinical_info = clinicalInfo || {};
+        slide.has_clinical_info = hasClinical;
+    }
+    const item = $slideList?.querySelector(`.slide-list-item[data-slide-id="${slideId}"]`);
+    const cell = item?.querySelector('.slide-state-cell.clinical');
+    if (cell) {
+        cell.classList.toggle('ready', hasClinical);
+        cell.classList.toggle('empty', !hasClinical);
+        cell.textContent = hasClinical ? '✓' : '-';
+        cell.title = hasClinical ? 'Clinical info saved' : 'No clinical info';
+    }
 }
 
 async function _closeSlideInfoDialog() {
@@ -2177,6 +2200,13 @@ $('#close-slide-info').addEventListener('click', (event) => {
 $slideInfoDialog.addEventListener('cancel', (event) => {
     event.preventDefault();
     _closeSlideInfoDialog();
+});
+$slideInfoDialog.addEventListener('close', () => {
+    if (!_slideInfoClosing && _slideClinicalDirty) {
+        _saveSlideClinicalInfoIfNeeded().catch((err) => {
+            setStatus(`Failed to save slide clinical information: ${err.message}`);
+        });
+    }
 });
 
 //   value: { task_id, buttonEl }
