@@ -141,7 +141,7 @@ import { api } from './api.js?v=20260520-03';
                     <span>${item.no || ''}</span>
                     <strong>${esc(item.case_name)}</strong>
                     <span class="data-linkage-state ${clinicalClass}">${clinicalText}</span>
-                    <span>${esc(item.last_activity || '-')}</span>
+                    <span title="${esc(item.last_activity_detail || item.last_activity || '-')}">${esc(item.last_activity || '-')}</span>
                 </button>
             `;
         }).join('');
@@ -178,14 +178,39 @@ import { api } from './api.js?v=20260520-03';
     }
 
     function renderSortHeaders() {
+        const help = {
+            case_name: 'Sort by case/sample id',
+            has_clinical_info: 'Sort by whether case-level clinical info exists',
+            last_activity: 'Sort by latest slide DB activity time or file modified time',
+        };
         document.querySelectorAll('[data-sort]').forEach((button) => {
             const key = button.dataset.sort;
-            const base = button.dataset.label || button.textContent.replace(/[▲▼↕]\s*$/u, '').trim();
+            const base = button.dataset.label || button.textContent.replace(/\s+(Asc|Desc|Sort)$/u, '').trim();
             button.dataset.label = base;
             const isActive = state.sortBy === key;
             button.classList.toggle('active', isActive);
             button.setAttribute('aria-sort', isActive ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
-            button.textContent = `${base} ${isActive ? (state.sortDir === 'asc' ? '▲' : '▼') : '↕'}`;
+            button.title = help[key] || 'Sort';
+            button.textContent = `${base} ${isActive ? (state.sortDir === 'asc' ? 'Asc' : 'Desc') : 'Sort'}`;
+        });
+    }
+
+    function sortCasesLocally() {
+        const dir = state.sortDir === 'desc' ? -1 : 1;
+        state.cases.sort((a, b) => {
+            let result = 0;
+            if (state.sortBy === 'has_clinical_info') {
+                result = Number(Boolean(b.has_clinical_info)) - Number(Boolean(a.has_clinical_info));
+            } else if (state.sortBy === 'last_activity') {
+                const at = Number(a.last_activity_ts || 0);
+                const bt = Number(b.last_activity_ts || 0);
+                result = at === bt
+                    ? String(a.case_name || '').localeCompare(String(b.case_name || ''), undefined, { numeric: true })
+                    : at - bt;
+            } else {
+                result = String(a.case_name || '').localeCompare(String(b.case_name || ''), undefined, { numeric: true });
+            }
+            return result * dir;
         });
     }
 
@@ -309,6 +334,8 @@ import { api } from './api.js?v=20260520-03';
             sortDir: state.sortDir,
         });
         state.cases = data.cases || [];
+        sortCasesLocally();
+        state.cases.forEach((item, index) => { item.no = ((state.page - 1) * state.pageSize) + index + 1; });
         state.projects = data.projects || state.projects || [];
         state.hospitals = data.hospitals || state.hospitals || [];
         state.total = Number(data.total || 0);

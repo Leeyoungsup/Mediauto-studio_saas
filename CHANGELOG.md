@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.48] - 2026-05-20
+
+### Fixed
+
+- Added a Data Linkage client-side sorting fallback so row order changes immediately on header clicks.
+- Exposed case last-activity timestamps for accurate Data Linkage sorting and hover details.
+- Replaced symbolic sort arrows with ASCII labels to avoid encoding issues.
+
 ## [1.1.47] - 2026-05-20
 
 ### Fixed

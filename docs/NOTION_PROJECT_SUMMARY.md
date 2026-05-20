@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.47 |
+| 현재 버전 | 1.1.48 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,6 +41,12 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.48
+
+- Added a Data Linkage client-side sorting fallback so row order changes immediately on header clicks.
+- Exposed case last-activity timestamps for accurate Data Linkage sorting and hover details.
+- Replaced symbolic sort arrows with ASCII labels to avoid encoding issues.
 
 ### v1.1.47
 

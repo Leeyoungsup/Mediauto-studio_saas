@@ -526,10 +526,12 @@ async def list_cases(
         if float_mtime > dict_case["last_activity_ts"]:
             dict_case["last_activity_ts"] = float_mtime
             dict_case["last_activity"] = datetime.fromtimestamp(float_mtime, timezone.utc).date().isoformat()
+            dict_case["last_activity_detail"] = datetime.fromtimestamp(float_mtime, timezone.utc).isoformat()
         dt_doc = dict_doc.get("dt_updated_at") or dict_doc.get("dt_last_opened_at") or dict_doc.get("dt_uploaded_at")
         if dt_doc and dt_doc.timestamp() > dict_case["last_activity_ts"]:
             dict_case["last_activity_ts"] = dt_doc.timestamp()
             dict_case["last_activity"] = dt_doc.date().isoformat()
+            dict_case["last_activity_detail"] = dt_doc.isoformat()
         str_ai_status = dict_doc.get("str_ai_status") or ""
         if str_ai_status == "in_progress":
             dict_case["ai_status"] = "in_progress"
@@ -577,7 +579,6 @@ async def list_cases(
     list_page = list_cases_out[int_start:int_start + page_size]
     for idx, dict_case in enumerate(list_page, start=int_start + 1):
         dict_case["no"] = idx
-        dict_case.pop("last_activity_ts", None)
 
     list_projects = []
     for p in _list_project_dirs():
