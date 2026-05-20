@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-09';
+import { TileViewer } from './tile-viewer.js?v=20260520-10';
 import { showVisualization } from './visualization.js';
 
 // ── 미로그인 가드 ──
@@ -1728,6 +1728,9 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
         border: 1px solid #ccc; border-radius: 8px;
         box-shadow: 0 4px 16px rgba(0,0,0,0.25);
         padding: 10px 12px; min-width: 220px;
+        width: min(360px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+        box-sizing: border-box;
         font-family: sans-serif; font-size: 12px;
         user-select: none;
     `;
@@ -1743,7 +1746,7 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
 
     // 클래스별 집계 표시
     const breakdown = document.createElement('div');
-    breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;';
+    breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;white-space:normal;word-break:break-word;line-height:1.35;';
     const list_breakdownLines = [];
     for (const k of Object.keys(dict_counts).sort((a, b) => parseInt(a) - parseInt(b))) {
         const name = classNames[k] || `Class ${k}`;

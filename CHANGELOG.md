@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.13] - 2026-05-20
+
+### Fixed
+
+- Constrained the multi-cell edit popup width and wrapped its class-count summary to prevent oversized popups.
+
 ## [1.1.12] - 2026-05-20
 
 ### Fixed
