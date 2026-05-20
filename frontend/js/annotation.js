@@ -5771,7 +5771,8 @@ function _setVsPanelCollapsed(collapsed, persist = true) {
 }
 
 if ($btnVsPanelMinimize) {
-    _setVsPanelCollapsed(localStorage.getItem(VS_PANEL_COLLAPSED_KEY) === '1', false);
+    const savedVsPanelState = localStorage.getItem(VS_PANEL_COLLAPSED_KEY);
+    _setVsPanelCollapsed(savedVsPanelState == null ? true : savedVsPanelState === '1', false);
     $btnVsPanelMinimize.addEventListener('click', () => {
         const collapsed = !$aiAnalysisGroup?.classList.contains('vs-panel-collapsed');
         _setVsPanelCollapsed(collapsed);

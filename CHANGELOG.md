@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.29] - 2026-05-20
+
+### Changed
+
+- Defaulted the annotation VS IHC panel to collapsed on first open while preserving the user's saved expanded/collapsed preference afterward.
+
 ## [1.1.28] - 2026-05-20
 
 ### Added

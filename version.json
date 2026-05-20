@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.28",
+  "version": "1.1.29",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release adding a minimizer for the annotation VS IHC panel."
+  "description": "Patch release defaulting the annotation VS IHC panel to collapsed on first open."
 }
