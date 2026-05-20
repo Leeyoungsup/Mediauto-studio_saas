@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.39",
+  "version": "1.1.40",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Extends default access token lifetime to 6 hours."
+  "description": "Keeps access tokens fresh during long slide uploads."
 }

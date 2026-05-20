@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.40] - 2026-05-20
+
+### Fixed
+
+- Added upload-popup token refresh keep-alive so long chunked uploads keep the access token current.
+- Retried upload requests once after a forced refresh when a 401 occurs.
+
 ## [1.1.39] - 2026-05-20
 
 ### Changed

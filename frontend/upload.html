@@ -354,20 +354,14 @@
         (async function loadFolderTree() {
             try {
                 const [projectRes, folderRes] = await Promise.all([
-                    fetch(`${API_BASE}/slides/projects`, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` },
-                    }),
-                    fetch(`${API_BASE}/slides/folder-tree`, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` },
-                    }),
+                    authFetch('/slides/projects'),
+                    authFetch('/slides/folder-tree'),
                 ]);
                 if (projectRes.ok) projectList = (await projectRes.json()).projects || [];
                 if (folderRes.ok) allFolders = (await folderRes.json()).folders || [];
                 renderProjectOptions();
                 return;
-                const res = await fetch(`${API_BASE}/slides/folder-tree`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` },
-                });
+                const res = await authFetch('/slides/folder-tree');
                 if (!res.ok) return;
                 const { folders } = await res.json();
                 for (const f of folders) {
@@ -404,10 +398,22 @@
 
         // ── Auth fetch ──
         async function authFetch(path, options = {}) {
+            await refreshTokenIfNeeded();
             const headers = { ...(options.headers || {}) };
-            headers['Authorization'] = `Bearer ${accessToken}`;
+            headers['Authorization'] = `Bearer ${getAccessToken()}`;
             headers['X-Requested-With'] = 'XMLHttpRequest';
-            return fetch(`${API_BASE}${path}`, { ...options, headers });
+            let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+            if (res.status === 401 && await refreshTokenIfNeeded(true)) {
+                const retryHeaders = { ...(options.headers || {}) };
+                retryHeaders['Authorization'] = `Bearer ${getAccessToken()}`;
+                retryHeaders['X-Requested-With'] = 'XMLHttpRequest';
+                res = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders });
+            }
+            if (res.status === 401) {
+                clearTokens();
+                throw new Error('Login expired during upload');
+            }
+            return res;
         }
 
         // ── File selection ──
@@ -514,23 +520,28 @@
 
             // 페이지 이탈 방지
             window.onbeforeunload = () => '';
+            startUploadTokenKeepAlive();
 
-            for (const item of fileQueue) {
-                if (item.status === 'done') continue;
-                try {
-                    setItemStatus(item, 'uploading', 'Uploading...');
-                    await uploadOneFile(item);
-                    setItemStatus(item, 'done', 'Done');
-                    item.fillEl.classList.add('done');
-                    item.fillEl.style.width = '100%';
-                    completedCount++;
-                } catch (err) {
-                    setItemStatus(item, 'error', err.message || 'Failed');
-                    item.fillEl.classList.add('error');
-                    item.fillEl.style.width = '100%';
-                    errorCount++;
+            try {
+                for (const item of fileQueue) {
+                    if (item.status === 'done') continue;
+                    try {
+                        setItemStatus(item, 'uploading', 'Uploading...');
+                        await uploadOneFile(item);
+                        setItemStatus(item, 'done', 'Done');
+                        item.fillEl.classList.add('done');
+                        item.fillEl.style.width = '100%';
+                        completedCount++;
+                    } catch (err) {
+                        setItemStatus(item, 'error', err.message || 'Failed');
+                        item.fillEl.classList.add('error');
+                        item.fillEl.style.width = '100%';
+                        errorCount++;
+                    }
+                    updateSummary();
                 }
-                updateSummary();
+            } finally {
+                stopUploadTokenKeepAlive();
             }
 
             isUploading = false;
