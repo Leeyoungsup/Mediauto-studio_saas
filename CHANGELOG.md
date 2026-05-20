@@ -2,6 +2,38 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.20] - 2026-05-20
+
+### Changed
+
+- Replaced Annotation Class Management `Hide`/`Show` text buttons with eye visibility icons.
+
+## [1.1.19] - 2026-05-20
+
+### Changed
+
+- Cleaned corrupted comments from the AI viewer module and replaced the file header with readable English documentation.
+
+## [1.1.18] - 2026-05-20
+
+### Fixed
+
+- Restored Tissue/Cell Annotation page module loading by repairing corrupted UI strings in annotation workflow, class controls, cell edit popups, saved AI result loading, and breadcrumb rendering.
+- Bumped the annotation viewer script cache key so browsers fetch the repaired module.
+
+## [1.1.17] - 2026-05-20
+
+### Fixed
+
+- Restored AI page module loading by repairing corrupted syntax in viewer role controls, annotation panel callbacks, result list rendering, and slide list UI setup.
+- Bumped the AI viewer app script cache key so browsers fetch the repaired project gate code.
+
+## [1.1.16] - 2026-05-20
+
+### Fixed
+
+- Restored AI page project gate initialization after corrupted comment text swallowed the startup IIFE and slide-list drop initializer.
+
 ## [1.1.15] - 2026-05-20
 
 ### Fixed

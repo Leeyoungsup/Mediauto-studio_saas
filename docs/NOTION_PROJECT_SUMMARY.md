@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.15 |
+| 현재 버전 | 1.1.20 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-20 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -40,6 +40,28 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.20
+
+- Annotation Class Management의 Hide/Show 버튼을 eye visibility icon으로 변경
+
+### v1.1.19
+
+- AI viewer module의 깨진 주석 정리 및 영어 파일 헤더 추가
+
+### v1.1.18
+
+- Tissue/Cell Annotation page module syntax 복구 및 project gate rendering 재활성화
+- Annotation viewer script cache key 갱신
+
+### v1.1.17
+
+- AI page module syntax 복구 및 project gate rendering 재활성화
+- AI viewer app script cache key 갱신
+
+### v1.1.16
+
+- AI page project gate startup IIFE 복구
 
 ### v1.1.15
 

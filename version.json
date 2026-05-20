@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.15",
+  "version": "1.1.20",
   "channel": "production",
   "release_date": "2026-05-20",
-  "description": "Patch release restoring scanner and MPP badge display."
+  "description": "Patch release replacing annotation class visibility text with icons."
 }

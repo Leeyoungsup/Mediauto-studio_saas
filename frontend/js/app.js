@@ -1,30 +1,23 @@
 /**
- * MeDIAuto Studio SaaS ??메인 ?? * 기존 PyQt5 viewer.py??UI 로직??JS�??�팅
+ * Main AI viewer module for MeDIAuto Studio.
+ * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
 import { api } from './api.js';
-import { TileViewer } from './tile-viewer.js?v=20260520-12';
+import { TileViewer } from './tile-viewer.js?v=20260520-13';
 import { showVisualization } from './visualization.js';
 
-// ???? 미로그인 �???????
-// ?�큰 ?�는 ?�태?�서 /ai �?직접 ?�어?�면 뷰어 UI �? ?�깐 그려�???api.me()
-// ??401 까�? 보고?�야 리다?�렉?��? ?�어??깜빡?�이 ?�긴?? home.js ?? ?�일??// ?�턴?�로 �?줄에??차단. replace() �?history ????broken state �? ???�게.
 if (!localStorage.getItem('access_token')) {
     window.location.replace('/login');
-    // 모듈 본체??�?navigation ?�로 unload ?��?�? ?�후 코드�? ?�행?�면??발생?�는
-    // null 참조�?막기 ?�해 명시?�으�?throw ??콘솔 ?�러 ??줄로 ?�난??
     throw new Error('Not authenticated ??redirecting to /login');
 }
 
-// HTML escape ??innerHTML ???�어�??�뢰 불�? 문자??(filename, annotation name,
-// vendor ?? ??반드???�과?�켜 stored XSS 차단.
 function _esc(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ???? DOM ?�소 ????
 const $ = (sel) => document.querySelector(sel);
 
 const $canvas = $('#wsi-canvas');
@@ -43,7 +36,6 @@ const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
 
-// ?�용??메뉴
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
 const $projectUserName = $('#project-user-name');
@@ -51,7 +43,6 @@ const $projectUserRole = $('#project-user-role');
 const $projectBtnLogout = $('#project-btn-logout');
 const $projectLinkAdmin = $('#project-link-admin');
 
-// ?�바 버튼
 const $btnOpen = $('#btn-open');
 const $btnInfo = $('#btn-info');
 const $btnFit = $('#btn-fit');
@@ -64,9 +55,7 @@ const $btnSaveResults = $('#btn-save-results');
 const $btnLoadResults = $('#btn-load-results');
 let _lastDetectionResult = null;
 let _lastDetectionTissue = null;
-// ?�재 뷰어???�라�?결과??AI 모드 ("Quanti HE" | "Quanti PD-L1" | "Quanti IHC")
 let _lastDetectionModel = null;
-// 로드??결과�?onXxxComplete �??�투?�할 ???�요??ROI (?�으�?null)
 let _lastDetectionRoi = null;
 
 function _isViewerRole() {
@@ -130,13 +119,11 @@ const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
 
-// ???? ?�태 ????
 let currentSlideId = null;
 let currentSlideInfo = null;
 let minimapImage = null;
 let lastSegData = null;  // segmentation overlay data from epithelial classification
 
-// ???? 뷰어 초기??????
 const viewer = new TileViewer($canvas, $overlay);
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
@@ -144,13 +131,6 @@ viewer.onZoomChange = (zoom, mag, mpp) => {
 };
 viewer.onViewChange = () => updateMinimap();
 
-// ???? ?�라?�드 초기 3-stage ?�리로드 로딩�?????
-// ?�로그래??바�? �?리키??것�? **?�라?�언??�?stage 2 ?????�운로드 진행�?* ?�다.
-// ?�버??tile_generator 진행률�? ?�로 ?��?�?(�?금�? 미사??, ?�용?��? ?�제�?// "기다리는" ?�간?? ?�버 ?�성 + ?�라?�언??HTTP ?�운로드 ???? 그래??�??�체�?
-// ?�라?�언??preload ?�만 매핑?�도�??�두�?
-//   - ?��? ???�이 ?�스?�에 ?�는 ?�라?�드: ?�운로드�? 빠르�???�?빠르�?찬다
-//   - ?�직 ?�성 중인 ?�라?�드: ?�버 ?�성 ??기로 HTTP �? ?�리�???�??�리�?찬다
-// "�?100% = ?�면 �?�??�료" ?�는 직�?�??�치.
 const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
 const $slideLoadingBarFill = document.getElementById('slide-loading-bar-fill');
 const $slideLoadingPct = document.getElementById('slide-loading-pct');
@@ -177,7 +157,6 @@ viewer.onPreloadComplete = () => {
     if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
 };
 
-// ???? 마우??좌표 ?�버?�이 (??좌표 기�? px) ????
 const $mousePosOverlay = $('#mouse-pos-overlay');
 if ($mousePosOverlay) {
     $canvas.addEventListener('mousemove', (e) => {
@@ -187,11 +166,12 @@ if ($mousePosOverlay) {
         $mousePosOverlay.textContent = `x: ${Math.round(sx)}px, y: ${Math.round(sy)}px`;
     });
     $canvas.addEventListener('mouseleave', () => {
-        // 값�? ?��??�되 ?�짝 ?�리�?    });
+        // Hide only after the cursor leaves the canvas.
+        });
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ???�환
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??document.querySelectorAll('.tab-btn').forEach(btn => {
+// Tab switching.
+document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if (btn.disabled) return;
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -201,7 +181,6 @@ if ($mousePosOverlay) {
     });
 });
 
-// ???? AI Analysis ?��?�?(?�재 ??�� 모델 ?�명) ????
 const AI_MODEL_HELP = {
     'hne-tab': {
         title: 'Quanti HE - H&E Cell Detection',
@@ -250,8 +229,7 @@ if ($aiHelpIcon) {
     $aiHelpIcon.addEventListener('blur', _hideAiHelpTooltip);
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�용???�증 UI
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??if ($btnLogout) {
+if ($btnLogout) {
     $btnLogout.addEventListener('click', () => {
         _stopAiActivePolling();
         api.logout();
@@ -264,7 +242,6 @@ if ($projectBtnLogout) {
     });
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�일 ?�기 + ?�로??// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ???? ?�로???�업 ????
 function openUploadPopup(files, targetPath = currentBrowsePath) {
     const projectName = (targetPath || '').split('/').filter(Boolean)[0] || '';
     if (!projectName) {
@@ -288,7 +265,6 @@ $fileInput.addEventListener('change', (e) => {
     e.target.value = '';
 });
 
-// ?�업?�서 ?�로???�료 ?�림 ?�신
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'upload-complete') {
         loadSlideList();
@@ -298,7 +274,6 @@ window.addEventListener('message', (e) => {
 
 const SLIDE_EXT_PATTERN = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn)$/i;
 
-// uploadFiles ???�래�????�롭 ?�에???�출 ???�업?�로 ?�달
 async function uploadFiles(fileList, _targetPath) {
     const files = [...fileList].filter(f => SLIDE_EXT_PATTERN.test(f.name));
     if (!files.length) {
@@ -308,11 +283,8 @@ async function uploadFiles(fileList, _targetPath) {
     openUploadPopup(fileList, _targetPath || currentBrowsePath);
 }
 
-// ?�위 ?�환 ??기존 uploadOneFile 참조 방�? (?�용�??�음)
-async function uploadOneFile() { /* deprecated ??upload ?�업 ?�용 */ return null; }
+async function uploadOneFile() { /* Deprecated compatibility shim. */ return null; }
 
-// ???? Scanner/Vendor 배�? ????
-// openslide vendor string ?? ?�문???�워???�태. ?�라??SVG 로고�?매핑.
 const SCANNER_META = {
     'hamamatsu': {
         label: 'Hamamatsu',
@@ -409,13 +381,10 @@ function _updateNdpColorToggleVisibility(slideInfo) {
     const bool_is_hamamatsu = str_vendor === 'hamamatsu';
     $btnNdpColor.hidden = !bool_is_hamamatsu;
     if (bool_is_hamamatsu) {
-        // Hamamatsu ?�라?�드: 기본 ON ??NDP.view2 ?�감???��??�고
-        // 보정 ?�이 보면 ?�르?�름?�게 보여 ?�용??�??�상???�쁘??
         viewer.setColorCorrectionEnabled(true);
         $btnNdpColor.classList.add('active');
         if ($ndpColorState) $ndpColorState.textContent = 'ON';
     } else {
-        // �?Hamamatsu ?�라?�드: ??�� OFF �??�돌�?(?�팅???��? ?�음)
         viewer.setColorCorrectionEnabled(false);
         $btnNdpColor.classList.remove('active');
         if ($ndpColorState) $ndpColorState.textContent = 'OFF';
@@ -435,7 +404,6 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
     currentSlideInfo = slideInfo;
 
-    // ?�라?�드 ?�환 ???�전 ?�라?�드??sticky ?�래?�는 ?��? ?�음 (class id/?�름 매핑??    // ??detection 결과???�라 ?��? ???�음). HUD ??같이 ?��?.
     _stickyAddClassId = null;
     _hideStickyHud();
 
@@ -444,7 +412,8 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     _updateNdpColorToggleVisibility(slideInfo);
     setStatus(`Loaded: ${slideInfo.dimensions[0]}x${slideInfo.dimensions[1]} (${slideInfo.level_count} levels)`);
 
-    // 버튼 ?�성??    $btnDetect.disabled = false;
+    // Enable AI controls after a slide is loaded.
+    $btnDetect.disabled = false;
     $btnVsMembrane.disabled = false;
     if ($btnPdScore) $btnPdScore.disabled = false;
     if ($btnIhcHer2) $btnIhcHer2.disabled = false;
@@ -452,45 +421,37 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if ($btnIhcKi67) $btnIhcKi67.disabled = false;
     $btnInfo.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
-    // tissue-type ?�디?�도 기본 ?�성 ???�후 ?�더 ?�한???�으�???��??
     document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
         el.disabled = false;
     });
 
-    // ?�더�?AI ?�동 분석 ?�정???�으�??�당 task �??�성?? ?�머�???disabled.
     if (!_isViewerRole()) {
         _applyFolderAiRestrictions(currentBrowsePath);
     }
 
-    // Viewer ??��?? AI / annotation 기능 ?�면 비활?? ?�더 ?�한보다 ?�선.
     if (_isViewerRole()) {
         _applyViewerRoleRestrictions();
     }
 
-    // 뷰어 로드 (???��? ?�청 ??즉석 ?�성 + 백그?�운???�리?�네?�이??
     viewer.loadSlide(slideId, slideInfo);
 
     if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
-    // 미니�?    loadMinimap(slideId);
+    // Load minimap for the current slide.
+    loadMinimap(slideId);
 
-    // 결과 초기??    clearResults();
+    // Clear previous AI results.
+    clearResults();
 
-    // VS IHC ?�버?�이 초기??    viewer.clearVirtualStainOverlay();
+    // Reset VS IHC overlay state.
+    viewer.clearVirtualStainOverlay();
     _setVsToggleState(false, true);
     _setVsSplitState(false, true);
 
-    // annotation?? ?�용?��? Load 버튼?�로 ?�일?�서 불러??(?�버 ?�동 로드 X)
 
     setProgress(0);
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�더�?AI ?�동 분석 ?�한
-// ????
-// ?�더???�동 분석 ?�정?????�돼 ?�으�?(bool_enabled=true AND tasks 존재),
-// ?�당 task(model+variant) ???�하�? ?�는 AI 버튼/?�디?��? 모두 disabled �?만든??
-// ?�정???�거??enabled=false �??�무것도 ?�한?��? ?�는??(기본 모두 ?�성).
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
 async function _applyFolderAiRestrictions(strFolderPath) {
     if (_isViewerRole()) return;
 
@@ -522,7 +483,6 @@ async function _applyFolderAiRestrictions(strFolderPath) {
             if (bool_ok && bool_first_ok === null) bool_first_ok = el;
             if (bool_ok && el.checked) bool_current_ok = true;
         });
-        // ?�재 ?�택??것이 ?�용?��? ?�으�?�??�용 ?�션?�로 ?�동 ?�환
         if (!bool_current_ok && bool_first_ok) {
             bool_first_ok.checked = true;
             bool_first_ok.dispatchEvent(new Event('change', { bubbles: true }));
@@ -538,16 +498,13 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     const bool_pd_any = _restrictRadios('pd-tissue-type', 'Quanti PD-L1');
     if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
 
-    // Quanti IHC ??마커�?버튼 ?�위
     if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Quanti IHC::HER2');
     if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Quanti IHC::ER_PR');
     if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Quanti IHC::KI_67');
 
-    // VS IHC ??ihc_membrane 모델??모든 �??�스 처리. target_mpp ???�한 ????
     const bool_vs_any = set_allowed.has('VS IHC::ihc_membrane');
     $btnVsMembrane.disabled = !bool_vs_any;
 
-    // ???? ?�성 모델???�는 ???�체 ?��? ????
     const dict_tab_visible = {
         'hne-tab': bool_hnf_any,
         'vs-tab': bool_vs_any,
@@ -574,7 +531,8 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         if (bool_show && !str_first_visible) str_first_visible = str_tab_id;
     }
 
-    // �?번째 보이????�� ?�성??    if (str_first_visible) {
+    // Activate the first visible tab.
+    if (str_first_visible) {
         const el_new_btn = document.querySelector(`.tab-btn[data-tab="${str_first_visible}"]`);
         const el_new_content = document.getElementById(str_first_visible);
         if (el_new_btn) el_new_btn.classList.add('active');
@@ -585,11 +543,10 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     }
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// Viewer ??�� ?�한 ??AI 기능 / annotation ?�면 비활??// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??function _applyViewerRoleRestrictions() {
+function _applyViewerRoleRestrictions() {
     document.body.classList.add('role-viewer');
     _stopAiActivePolling();
 
-    // Annotation 그리�??�구 (?�단 ?�바)
     const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
@@ -600,10 +557,10 @@ async function _applyFolderAiRestrictions(strFolderPath) {
             el.title = 'Viewer 권한?? annotation 기능???�용?????�습?�다';
         }
     });
-    // 그리�?모드�? 켜져?�었?�면 ?�제
     if (viewer && viewer.drawMode) viewer.setDrawMode(null);
 
-    // AI 분석 버튼 ?�체 비활??    const list_ai_btn_ids = [
+    // Disable AI action buttons for viewer role.
+    const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
         'btn-ihc-ki67', 'btn-vs-membrane', 'btn-vs-toggle', 'btn-vs-split',
         'btn-visualize', 'btn-clear-results', 'btn-save-results', 'btn-load-results',
@@ -616,14 +573,14 @@ async function _applyFolderAiRestrictions(strFolderPath) {
         }
     });
 
-    // AI ?�력 (tissue-type radio ?? 비활??    document.querySelectorAll(
+    // Disable AI inputs for viewer role.
+    document.querySelectorAll(
         '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button'
     ).forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer 권한?? AI 분석 기능???�용?????�습?�다.';
     });
 
-    // Annotation ?�널??????불러?�기/초기??버튼
     ['btn-ann-clear', 'btn-ann-save', 'btn-ann-load',
      'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
         const el = document.getElementById(id);
@@ -639,14 +596,14 @@ async function _applyFolderAiRestrictions(strFolderPath) {
     });
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�래�????�롭
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??const $viewerContainer = $('#viewer-container');
+// Viewer layout helpers.
+const $viewerContainer = $('#viewer-container');
 
-// OS ?�일 ?�래그만 감�? (뷰어 ?��? ?�소/?�스???�래그는 무시)
 function _isFileDrag(e) {
     const t = e.dataTransfer && e.dataTransfer.types;
     if (!t) return false;
-    // DOMStringList / Array 모두 �???    if (typeof t.contains === 'function') return t.contains('Files');
+    // Support both DOMStringList and Array dataTransfer types.
+    if (typeof t.contains === 'function') return t.contains('Files');
     return Array.from(t).includes('Files');
 }
 
@@ -668,7 +625,7 @@ $viewerContainer.addEventListener('drop', (e) => {
     if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files, currentBrowsePath);
 });
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// 미니�?// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??async function loadMinimap(slideId) {
+async function loadMinimap(slideId) {
     const img = new Image();
     img.onload = () => {
         minimapImage = img;
@@ -690,7 +647,6 @@ function updateMinimap() {
     const vr = viewer.getViewRect();
     if (!vr) return;
     const [imgW, imgH] = currentSlideInfo.dimensions;
-    // CSS width 기�? (리사?�즈 ????
     const displayW = $minimapCanvas.clientWidth || $minimapCanvas.width;
     const displayH = $minimapCanvas.clientHeight || $minimapCanvas.height;
     const sx = displayW / imgW;
@@ -711,18 +667,15 @@ $minimapCanvas.addEventListener('click', (e) => {
     );
 });
 
-// 미니�?최소???��?
 const $minimapToggle = $('#minimap-toggle');
 const $minimapIcon = $('#minimap-toggle-icon');
 $minimapToggle?.addEventListener('click', (e) => {
     e.stopPropagation();
     const minimized = $minimapContainer.classList.toggle('minimized');
-    // minimize: ??icon, expand: + icon
     $minimapIcon.setAttribute('d', minimized ? 'M3 7h8M7 3v8' : 'M3 7h8');
     $minimapToggle.title = minimized ? 'Expand' : 'Minimize';
 });
 
-// 미니�?리사?�즈 (?�른�???모서�??�래�????�기 조절)
 const $minimapResize = $('#minimap-resize');
 const $minimapBody = $('#minimap-body');
 let _minimapResizing = false;
@@ -746,12 +699,12 @@ $minimapResize?.addEventListener('pointermove', (e) => {
 $minimapResize?.addEventListener('pointerup', () => { _minimapResizing = false; });
 $minimapResize?.addEventListener('pointercancel', () => { _minimapResizing = false; });
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// �?컨트�?// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??$btnZoomIn.addEventListener('click', () => viewer.zoomIn());
+// View controls.
+$btnZoomIn.addEventListener('click', () => viewer.zoomIn());
 $btnZoomOut.addEventListener('click', () => viewer.zoomOut());
 $btnFit.addEventListener('click', () => viewer.fitToWindow());
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// Annotation 그리�??�구
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??const drawButtons = {
+const drawButtons = {
     polygon: $btnDrawPolygon,
     rectangle: $btnDrawRect,
     'rect-1mm2': $btnDrawRect1mm2,
@@ -761,7 +714,6 @@ $btnFit.addEventListener('click', () => viewer.fitToWindow());
 
 function setDrawMode(mode) {
     if (_blockViewerAction('Viewer 권한?? annotation 기능???�용?????�습?�다.')) return;
-    // 같�? 버튼 ?�시 ?�릭 ???�제
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
@@ -774,7 +726,6 @@ if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMo
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
 if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
-// ???? UX 기능 ?�명 모달 ????
 const $btnUxHelp = $('#btn-ux-help');
 const $uxHelpModal = $('#shortcuts-modal');
 const $uxHelpClose = $('#shortcuts-close');
@@ -880,7 +831,6 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-// ???? 모바???�널 ?��? (??00px) ????
 const $btnToggleLeft = $('#btn-toggle-left');
 const $btnToggleRight = $('#btn-toggle-right');
 const $mobileBackdrop = $('#mobile-backdrop');
@@ -904,17 +854,16 @@ window.addEventListener('keydown', (e) => {
         _closeMobilePanels();
     }
 });
-// 브레?�크?�인???�어�?�?drawer ?�태 ?�리
 window.matchMedia('(max-width: 900px)').addEventListener('change', (e) => {
     if (!e.matches) _closeMobilePanels();
 });
 
-// ESC ?�으�?drawMode�? �?경될 ??버튼 ?�기??viewer.onDrawModeChange = (mode) => {
+// Sync toolbar buttons when draw mode changes.
+viewer.onDrawModeChange = (mode) => {
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
     if (mode && drawButtons[mode]) drawButtons[mode].classList.add('active');
 };
 
-// ???? Annotation Panel ????
 const $annList = $('#annotation-list');
 const $btnAnnClear = $('#btn-ann-clear');
 const $btnAnnSave = $('#btn-ann-save');
@@ -928,22 +877,21 @@ function renderAnnotationPanel() {
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
-        // ann.name ?? ?�용???�블?�릭 rename ?�로 ?�의 문자??�?????반드??escape
         el.innerHTML = `
             <input type="color" class="ann-color-swatch" value="${rgbToHex(r, g, b)}"
                    title="Change color" style="background:rgb(${r},${g},${b})">
             <span class="ann-name" title="Double-click to rename">${_esc(ann.name)}</span>
             <span class="ann-type">${_esc(ann.type)}</span>
-            <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? '?��' : '?��?��?}</button>
-            <button class="ann-btn-del" title="Delete">??/button>
+            <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? 'Hide' : 'Show'}</button>
+            <button class="ann-btn-del" title="Delete">Del</button>
         `;
-        // ?�릭 ???�택
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input')) return;
             viewer.selectAnnotation(ann.id);
         });
-        // ?�블?�릭 ?�름 ??리네??        el.querySelector('.ann-name').addEventListener('dblclick', (e) => {
+        // Rename on double click.
+        el.querySelector('.ann-name').addEventListener('dblclick', (e) => {
             e.stopPropagation();
             const nameSpan = e.target;
             const input = document.createElement('input');
@@ -960,21 +908,20 @@ function renderAnnotationPanel() {
             input.addEventListener('blur', finish);
             input.addEventListener('keydown', (ke) => { if (ke.key === 'Enter') input.blur(); });
         });
-        // ?�상 �?�?        el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
+        // Change annotation color.
+        el.querySelector('.ann-color-swatch').addEventListener('input', (e) => {
             const hex = e.target.value;
             ann.color = hexToRgb(hex);
             e.target.style.background = `rgb(${ann.color[0]},${ann.color[1]},${ann.color[2]})`;
             if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
             viewer.requestRender();
         });
-        // �??�성 ?��?
         el.querySelector('.ann-btn-vis').addEventListener('click', (e) => {
             e.stopPropagation();
             ann.visible = !ann.visible;
             viewer.requestRender();
             renderAnnotationPanel();
         });
-        // ??��
         el.querySelector('.ann-btn-del').addEventListener('click', (e) => {
             e.stopPropagation();
             viewer.deleteAnnotation(ann.id);
@@ -991,7 +938,8 @@ function hexToRgb(hex) {
     return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [0, 255, 0];
 }
 
-// 캔버?????�널 ?�기??viewer.onAnnotationCreated = (ann) => {
+// Sync the annotation panel with viewer events.
+viewer.onAnnotationCreated = (ann) => {
     setStatus(`${ann.name} created`);
     renderAnnotationPanel();
 };
@@ -1002,17 +950,17 @@ viewer.onAnnotationDeleted = (ann) => {
     renderAnnotationPanel();
 };
 viewer.onAnnotationChanged = (ann) => {
-    // ?��? ?�더�??�청?????�널�?갱신 ?�요 ??};
+    renderAnnotationPanel();
+};
 
-// deleteAnnotation?�서 콜백 ?�출?�도�??�버?�이??const _origDelete = viewer.deleteAnnotation.bind(viewer);
+const _origDelete = viewer.deleteAnnotation.bind(viewer);
 viewer.deleteAnnotation = (id) => {
     const ann = viewer.annotations.find(a => a.id === id);
     _origDelete(id);
     if (ann && viewer.onAnnotationDeleted) viewer.onAnnotationDeleted(ann);
 };
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// Cell Edit ?�업 (Alt+Click)
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??let _cellEditPopupEl = null;
+let _cellEditPopupEl = null;
 
 function _closeCellEditPopup() {
     if (_cellEditPopupEl) {
@@ -1042,15 +990,12 @@ function _cellEditKeydown(e) {
         e.preventDefault();
         return;
     }
-    // Delete/D ???????�는 edit/multi 모드?�서�???add/sticky-pick ????�� ?????�음.
     if ((e.key === 'Delete' || e.key.toLowerCase() === 'd') &&
             _cellEditCtx.mode !== 'add' && _cellEditCtx.mode !== 'sticky-pick') {
         _doDeleteCell();
         e.preventDefault();
         return;
     }
-    // ?�자??1~9, 0 ???�래???�택. 모드�?분기:
-    //   edit/multi ???�래??�?�? add ???�릭 ?�치???? 추�?, sticky-pick ??sticky �?갱신.
     if (/^[0-9]$/.test(e.key)) {
         const num = parseInt(e.key, 10);
         const slot = num === 0 ? 9 : num - 1;
@@ -1093,7 +1038,6 @@ function _doChangeClass(newClsId) {
     _closeCellEditPopup();
 }
 
-// ?�을 CSS 문자?�로 ?�규??(hex "#RRGGBB" ?�는 [r,g,b] 모두 �???
 function _toCssColor(c) {
     if (typeof c === 'string') return c;
     if (Array.isArray(c) && c.length >= 3) return `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -1133,14 +1077,10 @@ function _makeCellEditPopupDraggable(popup, handle) {
 }
 
 /**
- * Popup ?�래??버튼???�필(?? ?�집 ?�이콘을 ?�워?�는?? ?�릭 ??�?row �? inline
- * ?�스???�력 + ????취소 모드�?바�?�며, ???�하�?_renameClassLabel �??�파?�고
- * ?�력값이 popup ???�시 ?�스?�에??반영. popup ?�체???��? ?�는??(?�용?��?
- * ?�벨 ?�리 ???�일 popup ?�서 add/change ?�어�????�름).
  */
 function _attachClassRenamePencil(btnEl, classId, textSpan) {
     const pencil = document.createElement('span');
-    pencil.title = '?�벨 ?�름 ?�집';
+    pencil.title = 'Rename label';
     pencil.setAttribute('aria-label', 'rename label');
     pencil.style.cssText = `
         flex:0 0 22px; height:22px; margin-right:6px;
@@ -1148,14 +1088,12 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
         border-radius:3px; cursor:pointer; opacity:0.55;
         font-size:13px; line-height:1;
     `;
-    pencil.textContent = '??;
+    pencil.textContent = 'Edit';
     pencil.onmouseover = () => { pencil.style.opacity = '1'; pencil.style.background = 'rgba(0,0,0,0.08)'; };
     pencil.onmouseout = () => { pencil.style.opacity = '0.55'; pencil.style.background = 'transparent'; };
     pencil.addEventListener('click', (ev) => {
-        ev.stopPropagation();   // row ??select ?�작 방�?
-        // textSpan ?�리??input + ????취소 버튼 ?�시 배치.
+        ev.stopPropagation();
         const original = textSpan.textContent || '';
-        // ?�시값에??[N] ?�축??prefix �? ?�으�?그건 빼고 ?�제 ?�벨�??�집.
         const m = original.match(/^\[\d\]\s+(.*)$/);
         const initialName = (m ? m[1] : original).trim();
 
@@ -1170,16 +1108,16 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
             font-size:12px; font-family:inherit;
         `;
         const ok = document.createElement('button');
-        ok.textContent = '??;
-        ok.title = '????(Enter)';
+        ok.textContent = 'OK';
+        ok.title = 'Apply (Enter)';
         ok.style.cssText = `
             flex:0 0 22px; height:22px; padding:0;
             background:#27ae60; color:#fff; border:none;
             border-radius:3px; cursor:pointer; font-weight:700;
         `;
         const cancel = document.createElement('button');
-        cancel.textContent = '×';
-        cancel.title = '취소 (Esc)';
+        cancel.textContent = 'X';
+        cancel.title = 'Cancel (Esc)';
         cancel.style.cssText = `
             flex:0 0 22px; height:22px; padding:0;
             background:#e74c3c; color:#fff; border:none;
@@ -1187,28 +1125,22 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
         `;
         wrap.append(input, ok, cancel);
 
-        // textSpan ???�시 wrap ?�로 ??�?
         const parent = textSpan.parentElement;
         parent.removeChild(textSpan);
-        // pencil 직전 ?�치??wrap ?�입.
         parent.insertBefore(wrap, pencil);
         pencil.style.display = 'none';
 
-        // popup ?�체???�보???�축??_cellEditKeydown) �? ?�력??�?로채�? 못하?�록
-        // input ?�벤?�는 stopPropagation. (Ctrl+Z / ?�자????충돌 방�?)
         input.addEventListener('keydown', (kev) => {
             kev.stopPropagation();
             if (kev.key === 'Enter') { commit(); }
             else if (kev.key === 'Escape') { abort(); }
         });
-        // ?��? ?�릭?�로 popup ?�히???�들?�도 ?�시 차단 ??input ?�체 ?�릭?�서.
         input.addEventListener('mousedown', (mev) => mev.stopPropagation());
         ok.addEventListener('click', (mev) => { mev.stopPropagation(); commit(); });
         cancel.addEventListener('click', (mev) => { mev.stopPropagation(); abort(); });
 
         const restoreText = () => {
             wrap.remove();
-            // ?�래 ?�치(pencil 직전)??textSpan ?�시 ?�입.
             parent.insertBefore(textSpan, pencil);
             pencil.style.display = '';
         };
@@ -1218,23 +1150,17 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
             if (!str_new || str_new === initialName) { restoreText(); return; }
             const ok2 = _renameClassLabel(classId, str_new);
             if (ok2) {
-                // popup ???�시 ?�스?�도 ?�기????[N] prefix ?��?.
                 textSpan.textContent = m ? `[${m[0].match(/\d/)[0]}] ${str_new}` : str_new;
             }
             restoreText();
         };
 
-        // ?�동 ?�커??+ ?�스???�체 ?�택.
         setTimeout(() => { input.focus(); input.select(); }, 0);
     });
-    // ???��?�??�음, ?�스???�에 ?�필 배치 ???�각?�으�??�스???�이 ?�연?�럽??
     btnEl.insertBefore(pencil, textSpan);
 }
 
 /**
- * ?�래???�벨 ?�름 �?�???`_lastDetectionResult.class_names[classId]` 갱신 +
- * ?�당 class_id ??모든 ????`class_name` ?�기??+ Result 리스??/ Score 카드
- * 즉시 ?�렌?? 메모리에�?반영 (???��? ROI Save 버튼???�당).
  */
 function _renameClassLabel(classId, newName) {
     if (!_lastDetectionResult) return false;
@@ -1247,7 +1173,6 @@ function _renameClassLabel(classId, newName) {
             if (cell.class_id === classId) cell.class_name = str_new;
         }
     }
-    // ?�널 / 카드 / status 즉시 반영.
     buildResultList(_lastDetectionResult);
     _updateResultCounts();
     setStatus(`Class ${classId} renamed to "${str_new}"`);
@@ -1277,7 +1202,6 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
         user-select: none;
     `;
 
-    // ?�더
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const swatch = document.createElement('span');
@@ -1298,7 +1222,6 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     labelChange.style.cssText = 'margin-bottom:4px;';
     popup.appendChild(labelChange);
 
-    // ?�래??버튼??(?�재 ?�래???�외, ?�자??매핑)
     const classButtonOrder = [];
     const sortedClsIds = Object.keys(classNames)
         .map(k => parseInt(k, 10))
@@ -1324,12 +1247,12 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
         btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
         btn.onmouseout = () => { btn.style.background = '#f0f0f0'; btn.style.color = '#222'; };
 
-        // ?�꺼??????(?�쪽 ?�체 ?�이)
         const stripe = document.createElement('span');
         stripe.style.cssText = `flex:0 0 12px;align-self:stretch;
             background:${colorCss};display:block;`;
 
-        // ???��?�?        const sw = document.createElement('span');
+        // Class color swatch.
+        const sw = document.createElement('span');
         sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;
             background:${colorCss};border:1px solid #333;
             display:inline-block;margin-left:8px;`;
@@ -1340,7 +1263,6 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
         btn.append(stripe, sw, text);
         btn.addEventListener('click', () => _doChangeClass(cid));
-        // ?�벨 ?�름 ?�집 ??text ?�에 ?�필(?? ?�워 inline rename UI ?�성??
         _attachClassRenamePencil(btn, cid, text);
         popup.appendChild(btn);
 
@@ -1352,7 +1274,6 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
     popup.appendChild(sep2);
 
-    // ??�� 버튼
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete Cell  (Del / D)';
     delBtn.style.cssText = `
@@ -1368,7 +1289,6 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
     document.body.appendChild(popup);
 
-    // ?�면 밖으�??��?�? ?�게 ?�치 보정
     const pw = popup.offsetWidth;
     const ph = popup.offsetHeight;
     let px = screenX;
@@ -1381,7 +1301,8 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
     _cellEditPopupEl = popup;
     _cellEditCtx = { idx, classNames, classColors, classButtonOrder };
 
-    // ?��? ?�릭/ESC/Del/?�자??    setTimeout(() => {
+    // Register outside click and keyboard handlers after the popup is mounted.
+    setTimeout(() => {
         document.addEventListener('mousedown', _outsideCellEditClick, true);
         document.addEventListener('keydown', _cellEditKeydown, true);
     }, 0);
@@ -1389,14 +1310,8 @@ function _showCellEditPopup(idx, cell, screenX, screenY) {
 
 viewer.onCellEditRequested = _showCellEditPopup;
 
-// ???? Alt+right-click ?? 추�? ????
-// Sticky class: �?추�? ???�용?��? popup ?�로 ?�택???�래?��? 기억???�고
-// ?�음 Alt+right-click �???popup ?�이 바로 �??�래?�로 추�?.
-// ?�측 ?�널???�래???�인 ?�릭?�로 sticky �?�?�???
 let _stickyAddClassId = null;
 
-// Alt HUD ??Alt ?�른 ?�안 마우???�상?�에 ?�재 sticky ?�래???�시.
-// ?�용?��? ?�떤 ?�래?�로 추�??��? ?�각?�으�?즉시 ?�인 �???
 let _stickyHudEl = null;
 let _stickyHudShiftHeld = false;
 let _stickyHudLastMouse = { x: 0, y: 0 };
@@ -1442,10 +1357,8 @@ function _updateStickyHudContent() {
 
 function _positionStickyHud() {
     if (!_stickyHudEl) return;
-    // 마우???�상????cursor ?? ??겹치�?+14 ?�측, -28 ??
     let x = _stickyHudLastMouse.x + 14;
     let y = _stickyHudLastMouse.y - 28;
-    // ?�면 �?방�? ??�?�?overflow �?좌측, ?�로 overflow �??�래�??�집??배치.
     const w = _stickyHudEl.offsetWidth;
     if (x + w > window.innerWidth - 4) x = _stickyHudLastMouse.x - w - 14;
     if (y < 4) y = _stickyHudLastMouse.y + 18;
@@ -1454,7 +1367,6 @@ function _positionStickyHud() {
 }
 
 function _showStickyHud() {
-    // ?�시 조건: Alt ?�름 + sticky ?�아?�음 + detection 결과 + drawMode ?�님.
     if (!_stickyHudShiftHeld) return;
     if (_stickyAddClassId == null) return;
     if (!_lastDetectionResult) return;
@@ -1503,7 +1415,6 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // Sticky �? ?�아 ?�으�?popup ?�이 즉시 추�? ???�래??�?경�? Alt+A ?�축??
     if (_stickyAddClassId != null && classNames[String(_stickyAddClassId)]) {
         const str_name = classNames[String(_stickyAddClassId)];
         viewer.addCell(sx, sy, _stickyAddClassId, str_name);
@@ -1596,7 +1507,6 @@ function _showCellAddPopup(sx, sy, screenX, screenY) {
     popup.style.top = `${Math.max(4, py)}px`;
 
     _cellEditPopupEl = popup;
-    // _cellEditCtx ??mode='add' �??�시 ???�자 ?�축?�도 ?�동.
     _cellEditCtx = { mode: 'add', sx, sy, classNames, classColors, classButtonOrder };
 
     setTimeout(() => {
@@ -1609,12 +1519,10 @@ function _doAddCell(classId) {
     if (!_cellEditCtx) return;
     const name = _cellEditCtx.classNames[String(classId)] || `Class ${classId}`;
     if (_cellEditCtx.mode === 'add') {
-        // ?�치�?받�? 모드 ???? 추�? + sticky 갱신.
         viewer.addCell(_cellEditCtx.sx, _cellEditCtx.sy, classId, name);
         _stickyAddClassId = classId;
         setStatus(`Sticky class: ${name} ??Alt+right-click to add, Alt+A to change`);
     } else if (_cellEditCtx.mode === 'sticky-pick') {
-        // ?�래?�만 �?�?(?? 추�? X) ??Alt+A 진입??popup.
         _stickyAddClassId = classId;
         setStatus(`Sticky class: ${name} ??Alt+right-click to add`);
     }
@@ -1622,9 +1530,6 @@ function _doAddCell(classId) {
 }
 
 /**
- * Alt+A ?�축?�로 ?�출 ??sticky ?�래?�만 �?�?(?? 추�? X).
- * popup ?? _showCellAddPopup ?? ?�일???�래??리스??UI �??�사?�하??
- * mode='sticky-pick' 컨텍?�트�??�릭 ??sticky �?갱신.
  */
 function _showStickyClassPickerPopup(screenX, screenY) {
     _closeCellEditPopup();
@@ -1692,7 +1597,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
             background:${colorCss};border:1px solid #333;
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
-        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  ?? : '');
+        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  current' : '');
         text.style.cssText = 'flex:1;padding:6px 10px;';
 
         btn.append(stripe, sw, text);
@@ -1724,7 +1629,6 @@ function _showStickyClassPickerPopup(screenX, screenY) {
     }, 0);
 }
 
-// Alt+A ??sticky ?�래??�?�?popup. ?�력 ?�젯 ?�커??중이�?무시.
 window.addEventListener('keydown', (e) => {
     if (e.key !== 'a' && e.key !== 'A') return;
     if (!e.altKey) return;
@@ -1735,7 +1639,6 @@ window.addEventListener('keydown', (e) => {
     if (viewer && viewer.drawMode) return;
     e.preventDefault();
     e.stopPropagation();
-    // 마우??마�?�??�치 ?�에 popup ?��? ??viewer ?�에???�르�?�??�치 근처????
     _showStickyClassPickerPopup(_stickyHudLastMouse.x, _stickyHudLastMouse.y);
 }, true);
 
@@ -1749,7 +1652,6 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     const classNames = _lastDetectionResult.class_names || {};
     const classColors = _lastDetectionResult.class_colors || {};
 
-    // ?�택?????�의 ?�래?�별 개수 집계
     const dict_counts = {};
     for (const c of listCells) {
         const k = String(c.class_id);
@@ -1771,7 +1673,6 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
         user-select: none;
     `;
 
-    // ?�더
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
     const headerLabel = document.createElement('span');
@@ -1780,7 +1681,6 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     popup.appendChild(header);
     _makeCellEditPopupDraggable(popup, header);
 
-    // ?�래?�별 집계 ?�시
     const breakdown = document.createElement('div');
     breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;white-space:normal;word-break:break-word;line-height:1.35;';
     const list_breakdownLines = [];
@@ -1800,7 +1700,6 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
     labelChange.style.cssText = 'margin-bottom:4px;';
     popup.appendChild(labelChange);
 
-    // 모든 ?�래??버튼
     const list_classButtonOrder = [];
     const list_sortedClsIds = Object.keys(classNames)
         .map(k => parseInt(k, 10))
@@ -1895,21 +1794,17 @@ viewer.onHiddenCellsMultiEditRequested = (listIndices, listCells, screenX, scree
     _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, { hiddenOther: true });
 
 viewer.onCellEdited = () => {
-    // 결과 리스??카운??+ ?�코??갱신
     if (_lastDetectionResult) {
         _lastDetectionResult.cells = viewer.detectionCells;
         _lastDetectionResult.total_cells = viewer.detectionCells.length;
         _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         buildResultList(_lastDetectionResult);
-        // ?�코??카드 ?�계??(Allred / HER2 / Quanti PD-L1)
         _updateResultCounts();
     }
     setStatus(`Cell edited ??${viewer.detectionCells.length} cells`);
 };
 
-// ???? Cell edit Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ????
 window.addEventListener('keydown', (e) => {
-    // ?�력 ?�젯 ?�커??중이�?무시
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -1941,7 +1836,6 @@ $btnAnnClear?.addEventListener('click', () => {
     setStatus('Annotations cleared');
 });
 
-// ???? Annotation Save/Load (download/upload) ????
 // JSON schema:
 // { "annotations": [ { id, name, type: "Polygon"|"Rectangle"|"Point",
 //                      coordinates: [[x,y],...], color: [r,g,b],
@@ -1984,7 +1878,6 @@ async function _downloadAnnotations() {
     }
     const suggestedName = `${baseName}.json`;
 
-    // File System Access API: ?�용?��? ?????�치(?�더 + ?�일�? 직접 ?�택
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
@@ -2004,12 +1897,10 @@ async function _downloadAnnotations() {
                 setStatus('Save cancelled');
                 return;
             }
-            // 권한 거�? ?????�운로드 fallback
             console.warn('showSaveFilePicker failed, falling back to download', err);
         }
     }
 
-    // Fallback: ?�반 브라?��? ?�운로드
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2083,7 +1974,8 @@ $btnAnnLoad?.addEventListener('click', () => {
     _uploadAnnotations();
 });
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�라?�드 ?�보 ?�이?�로�?// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??$btnInfo.addEventListener('click', () => {
+// Slide information dialog.
+$btnInfo.addEventListener('click', () => {
     if (!currentSlideInfo) return;
     const info = currentSlideInfo;
     const mag = info.objective_power !== 'Unknown' ? `${info.objective_power}x` : '-';
@@ -2114,10 +2006,7 @@ $btnAnnLoad?.addEventListener('click', () => {
 });
 $('#close-slide-info').addEventListener('click', () => $slideInfoDialog.close());
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// AI �?�?// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??
-// ?�행 중인 AI task 추적 ??key: 버튼 고유 ??('detect', 'VS IHC_membrane', 'Quanti PD-L1', 'ihc-HER2' ??
 //   value: { task_id, buttonEl }
-// 같�? 버튼 ?�클�???cancelTask ?�출.
 const _runningAiTasks = {};
 
 function _setButtonRunning(btnEl, bool_running) {
@@ -2138,9 +2027,6 @@ function _setButtonRunning(btnEl, bool_running) {
 async function _maybeCancelRunning(str_key) {
     const entry = _runningAiTasks[str_key];
     if (!entry) return false;
-    // task_id �? ?�직 ?�버?�서 ?�아?��? ?�았?�데 ?�클�?�� 경우:
-    // pending_cancel ?�래그만 ?�팅 ??start ?�들?��? task_id �?받는 즉시 cancelTask ?�출.
-    // (null ??URL ??박아 ?�면 /task/null/cancel �?405/404 ?��?�?금�?)
     if (!entry.task_id) {
         entry.pending_cancel = true;
         setStatus('중�? ?�약 ??task ?�작 직후 취소?�니??..');
@@ -2152,7 +2038,7 @@ async function _maybeCancelRunning(str_key) {
     } catch (e) {
         console.warn('[cancel] failed', e);
     }
-    return true;  // ?�출?�는 start 로직 건너?�기
+    return true;
 }
 
 $btnDetect.addEventListener('click', startDetection);
@@ -2168,13 +2054,11 @@ async function startDetection() {
     setProgress(0);
     setStatus('�?�??�작...');
 
-    // AI ?�작 ??그리�?모드 ?�제
     viewer.setDrawMode(null);
 
     try {
         const tissueType = document.querySelector('input[name="tissue-type"]:checked')?.value || 'Stomach';
 
-        // point ?�외??polygon/rectangle annotation ??ROI�??�달
         const roiAnnotations = viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
@@ -2186,17 +2070,14 @@ async function startDetection() {
             }
         }
 
-        // ?�링
         while (true) {
             await sleep(1000);
-            // ?�른 코드�? _runningAiTasks �?�??�으�?(?? ?�라?�드 �?�? 루프 ?�출
             if (!_runningAiTasks['detect']) return;
             const st = await api.getTaskStatus(task_id);
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
 
-            // 진행 ?�계???�라 ?�벨 ?�데?�트
             if (st.progress <= 50) {
                 $progressLabel.textContent = 'Cell Detection';
             } else if (st.progress < 92) {
@@ -2231,24 +2112,19 @@ async function startDetection() {
 function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $progressLabel.textContent = 'Detection Complete';
 
-    // AI ?�료 ??기존 annotation ?�거 (ROI ??????
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
-    // ?��? ???�용?�로 최신 결과 보존
     _lastDetectionResult = result;
     _lastDetectionTissue = tissueType;
     _lastDetectionModel = 'Quanti HE';
     _lastDetectionRoi = roiPolygons;
 
-    // segmentation ?�이??????(Spatial Heatmap ?�각?�용)
     lastSegData = result.seg_data || null;
 
-    // Quanti HE ?? 기본 CLASS_COLORS ?�용 (override ?�제)
     viewer.classColorOverride = null;
-    viewer.defaultConfidence = 0.1;  // 고정 (SaMD ?�현??
+    viewer.defaultConfidence = 0.1;
 
-    // ROI ?�리�??��? ??�??�터링하???�시
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
 
@@ -2264,13 +2140,11 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// 결과 리스??(기존 resultList ?�현)
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??const CLASS_COLORS = {
+const CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
 
-// ???? ?�코??�?차트 ?�틸 ????
 function _renderScoreBar(barEl, segments) {
     if (!barEl) return;
     barEl.innerHTML = '';
@@ -2301,7 +2175,6 @@ function _renderScoreLegend(detailEl, items) {
     detailEl.appendChild(wrap);
 }
 
-// ?�재 confidence ?�계값을 반영???�래?�별 카운??계산
 function _computeFilteredCounts(cells) {
     const counts = {};
     let total = 0;
@@ -2314,14 +2187,12 @@ function _computeFilteredCounts(cells) {
     return { counts, total };
 }
 
-// "1,234 (45.6%)" ???�래?�별 개수 + ?�체 ??�?비율. total ?? confidence ?�터 ?�과??// 모든 ?�래???? total=0 ?�면 비율 0%.
 function _formatCountWithRatio(int_count, int_total) {
     const str_count = int_count.toLocaleString();
     if (!int_total) return `${str_count} (0%)`;
     return `${str_count} (${(int_count / int_total * 100).toFixed(1)}%)`;
 }
 
-// 결과 리스?�의 카운???�벨�?갱신 (confidence ?�라?�더 �?�????�출)
 let _resultCountRefs = null; // {total: el, perClass: {id: el}}
 function _updateResultCounts() {
     if (!_resultCountRefs || !_lastDetectionResult) return;
@@ -2337,7 +2208,6 @@ function _updateResultCounts() {
     _updateKi67ScoreDisplay(counts);
 }
 
-// Confidence ?�터�? 반영??카운?�로 CPS/TPS ?�계?�하???�코??카드 갱신
 function _updatePdScoreDisplay(counts) {
     if (!$pdScoreResult || $pdScoreResult.hidden) return;
     if (!_lastDetectionResult || !_lastDetectionResult.pd_score) return;
@@ -2491,14 +2361,10 @@ function _updateKi67ScoreDisplay(counts) {
 function buildResultList(result) {
     $resultList.innerHTML = '';
 
-    // viewer.detectionCells ??ROI ?�리�??��? ??�??�아 ?��?�?(setDetectionResults),
-    // confidence ?�계�?미만 ????그�?�?보�??�다 (?�라?�더 조절???�용?�기 ?�해).
-    // ?�더�??�각???�코??카드??모두 _computeFilteredCounts (ROI + confidence) �?    // 거치�?�??�널 ?�자??같�? 기�??�로 맞춰???��??�이 ?��??�다.
     let counts, total;
     if (viewer.detectionCells && viewer.detectionCells.length) {
         ({ counts, total } = _computeFilteredCounts(viewer.detectionCells));
     } else {
-        // fallback ??viewer �? ?�직 초기???�인 ?��? �??�스 (???�본 직접 로드 ??
         counts = {};
         total = 0;
         for (const cell of (result.cells || [])) {
@@ -2507,10 +2373,10 @@ function buildResultList(result) {
         }
     }
 
-    // ?�래?�별 체크박스 참조 ????    const classCbs = {};
+    // Per-class checkbox references.
+    const classCbs = {};
     const perClassCountEls = {};
 
-    // �??? ??(?�체 ?��? 체크박스)
     const totalItem = document.createElement('div');
     totalItem.className = 'result-item';
 
@@ -2533,7 +2399,6 @@ function buildResultList(result) {
 
     const totalCount = document.createElement('span');
     totalCount.className = 'class-count';
-    // ROI ?�터�?결과(total)?? ?��?????result.total_cells ???�체 ?�라?�드 ?�이??ROI 추론 ???�긋?�다.
     totalCount.textContent = total.toLocaleString();
 
     totalItem.style.cursor = 'pointer';
@@ -2545,7 +2410,6 @@ function buildResultList(result) {
     totalItem.append(totalCb, totalName, totalCount);
     $resultList.appendChild(totalItem);
 
-    // ?�래?�별 ??�� (체크박스 + ?�상 + ?�름 + 카운??+ 개별 confidence ?�라?�더)
     for (const [idStr, name] of Object.entries(result.class_names)) {
         const id = parseInt(idStr);
         const count = counts[id] || 0;
@@ -2563,7 +2427,8 @@ function buildResultList(result) {
         classCbs[id] = cb;
         cb.addEventListener('change', () => {
             viewer.classVisibility[id] = cb.checked;
-            // ?�체 체크박스 ?�기??            const allChecked = Object.values(classCbs).every(c => c.checked);
+            // Sync the total checkbox state.
+            const allChecked = Object.values(classCbs).every(c => c.checked);
             const noneChecked = Object.values(classCbs).every(c => !c.checked);
             totalCb.checked = allChecked;
             totalCb.indeterminate = !allChecked && !noneChecked;
@@ -2591,7 +2456,8 @@ function buildResultList(result) {
 
         item.append(cb, dot, nameSpan, countSpan);
         $resultList.appendChild(item);
-        // confidence ?�계값�? SaMD ?�현?�을 ?�해 고정 ??UI 조절 ?�라?�더 ?�거??    }
+        // Confidence thresholds are fixed for SaMD reproducibility.
+    }
 
     _resultCountRefs = { total: totalCount, perClass: perClassCountEls };
 }
@@ -2607,7 +2473,6 @@ function clearResults() {
     lastSegData = null;
     _lastDetectionResult = null;
     _lastDetectionTissue = null;
-    // detection 결과�? ?�라�?�?sticky ??무효 ??class_names �? ?�어졌으???��? X.
     _stickyAddClassId = null;
     _hideStickyHud();
     _lastDetectionModel = null;
@@ -2622,7 +2487,8 @@ $btnClearResults.addEventListener('click', () => {
 $btnVisualize.addEventListener('click', () => {
     if (_blockViewerAction()) return;
     if (viewer.detectionCells.length === 0) return;
-    // ?�재 ?�래?�별 confidence ?�계값을 ?�과????�??�각??    const filtered = viewer.detectionCells.filter(c => {
+    // Visualize cells that pass current confidence thresholds.
+    const filtered = viewer.detectionCells.filter(c => {
         const thr = viewer.classConfidence[c.class_id] ?? 0.01;
         return (c.confidence ?? 1.0) >= thr;
     });
@@ -2635,7 +2501,6 @@ $btnVisualize.addEventListener('click', () => {
     const tissue = _lastDetectionTissue || 'Stomach';
     const slideDims = currentSlideInfo?.dimensions || null;  // [w, h] level-0
 
-    // 모델 ????/ ?�래??메�?
     const isPdScore = !!(_lastDetectionResult && _lastDetectionResult.pd_score);
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
@@ -2655,7 +2520,6 @@ $btnVisualize.addEventListener('click', () => {
     });
 });
 
-// Detection Result ???????�재 로그?�한 ?�용???�용 ?�집본으�?DB ????// (?�본 모델 추론 캐시??건드리�? ?�음)
 $btnSaveResults?.addEventListener('click', async () => {
     if (_blockViewerAction('Viewer 권한?? AI 결과 ????기능???�용?????�습?�다.')) return;
     if (!currentSlideId || !_lastDetectionResult) {
@@ -2666,14 +2530,11 @@ $btnSaveResults?.addEventListener('click', async () => {
     const aiMode = _lastDetectionModel || 'Quanti HE';
     try {
         $btnSaveResults.disabled = true;
-        // 뷰어?�서 ?�집??????결과 객체??반영 (class_id �?�???
         if (viewer?.detectionCells) {
             _lastDetectionResult.cells = viewer.detectionCells;
             _lastDetectionResult.total_cells = viewer.detectionCells.length;
             _lastDetectionResult.excluded_cells = viewer.hiddenDetectionCells || [];
         }
-        // confidence ?�계값�? SaMD ?�현?�을 ?�해 고정값만 ?�용.
-        // 과거 ???�본과의 ?�환???�해 ?�거???�드?????�하�? ?�음(?�어??로드 ??무시).
         delete _lastDetectionResult.class_confidence;
         delete _lastDetectionResult.default_confidence;
         const r = await api.saveDetectionResult(
@@ -2690,8 +2551,7 @@ $btnSaveResults?.addEventListener('click', async () => {
     }
 });
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// Detection Result 로드 ???�른 ?�용???�는 본인)?????�본 ?�택
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??const $loadUserEditDialog = $('#load-user-edit-dialog');
+const $loadUserEditDialog = $('#load-user-edit-dialog');
 const $loadUserEditList = $('#load-user-edit-list');
 const $loadUserEditMeta = $('#load-user-edit-meta');
 $('#close-load-user-edit')?.addEventListener('click', () => $loadUserEditDialog?.close());
@@ -2705,13 +2565,13 @@ function _fmtDateIso(str) {
 }
 
 async function _openLoadUserEditDialog() {
-    if (_blockViewerAction('Viewer 권한?? AI 결과 로드 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot load AI results.')) return;
     if (!currentSlideId) {
-        setStatus('?�라?�드�?먼�? ?�어주세??);
+        setStatus('Open a slide first.');
         return;
     }
     if (!_lastDetectionModel || !_lastDetectionTissue) {
-        setStatus('먼�? AI 모델???�행?�주?�요 (?�떤 모드�?로드?��? �??�해???�니??');
+        setStatus('Run an AI model first so the matching result type can be loaded.');
         return;
     }
     const aiMode = _lastDetectionModel;
@@ -2735,7 +2595,6 @@ async function _openLoadUserEditDialog() {
 
     $loadUserEditList.innerHTML = '';
 
-    // ?�의 ??��: "?�본 모델 추론 결과" (기존 AI 버튼 ?�실?�과 ?�일)
     const originalRow = document.createElement('div');
     originalRow.className = 'result-row';
     originalRow.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
@@ -2778,7 +2637,7 @@ async function _openLoadUserEditDialog() {
         info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
             try {
-                setStatus(`Loading ${displayName}'s analysis??);
+                setStatus(`Loading ${displayName}'s analysis...`);
                 const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
                 _applyLoadedResult(aiMode, variant, r.result);
                 setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
@@ -2801,7 +2660,6 @@ async function _openLoadUserEditDialog() {
                     del.disabled = true;
                     await api.deleteMyUserAiEdit(currentSlideId, aiMode, variant);
                     setStatus('Deleted your saved analysis');
-                    // 모달 ?�시 불러?�기
                     _openLoadUserEditDialog();
                 } catch (err) {
                     setStatus(`Delete failed: ${err.message}`);
@@ -2831,13 +2689,13 @@ function _applyLoadedResult(aiMode, variant, result) {
     } else if (aiMode === 'Quanti IHC') {
         onPreciseIhcComplete(result, roi, variant);
     }
-    // ?�거?????�본??class_confidence / default_confidence ?�드�? ?�어??무시.
-    // 모든 결과???�재 모델??고정 ?�계값으�??�시?�다 (SaMD ?�현??.
 }
 
 function _rerunOriginalInference(aiMode, variant) {
-    // 기존 AI 버튼�??�일??경로�??�실?????�버 ?�스??캐시�? ?�으�?즉시 반환??    if (aiMode === 'Quanti HE') {
-        // startDetection ?? 버튼 ?�들???��????�으�?�?버튼 ?�릭 ?�리�?        $('#btn-detect')?.click();
+    // Rerun through the matching AI action button.
+    if (aiMode === 'Quanti HE') {
+        // Trigger the HE detection button.
+        $('#btn-detect')?.click();
     } else if (aiMode === 'Quanti PD-L1') {
         $('#btn-pd-score')?.click();
     } else if (aiMode === 'Quanti IHC') {
@@ -2849,8 +2707,7 @@ function _rerunOriginalInference(aiMode, variant) {
 
 $btnLoadResults?.addEventListener('click', _openLoadUserEditDialog);
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// ?�틸리티
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??function setProgress(pct, statusMsg = '') {
+function setProgress(pct, statusMsg = '') {
     $progressBar.querySelector('.progress-fill').style.width = `${pct}%`;
     const $text = $('#progress-text');
     if (pct > 0 && pct < 100) {
@@ -2870,8 +2727,7 @@ function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// 좌측 ?�널 리사?�즈
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??const $leftPanel = $('#left-panel');
+const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
 const $rightPanel = $('#right-panel');
 const $rightResizer = $('#right-panel-resizer');
@@ -2890,7 +2746,6 @@ function _restorePanelSizes() {
 }
 _restorePanelSizes();
 
-// Ctrl + ?�로 ?�라?�드 리스???�네???�기 조정 (리스??그리??각각)
 const THUMB_RANGE_LIST = { min: 28, max: 96, step: 6, key: '--slide-thumb-list', storage: 'thumbSizeList' };
 const THUMB_RANGE_GRID = { min: 60, max: 200, step: 10, key: '--slide-thumb-grid', storage: 'thumbSizeGrid' };
 function _restoreThumbSizes() {
@@ -2960,8 +2815,7 @@ if ($rightResizer && $rightPanel) {
     });
 }
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// 좌측 ?�라?�드 리스??+ ?�더 ?�색
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??let currentBrowsePath = '';  // uploads/ 기�? ?��?경로
+let currentBrowsePath = '';
 let _projectListCache = [];
 let _projectGatePage = 1;
 let _projectGateSort = { key: 'name', dir: 'asc' };
@@ -3367,12 +3221,10 @@ async function loadSlideList() {
         $slideList.innerHTML = '';
         _syncProjectSelect();
 
-        // �??�더
         if (data.folders.length === 0 && data.slides.length === 0) {
             $slideList.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:11px;text-align:center;">Empty</div>';
         }
 
-        // ?�더 ??��
         for (const f of data.folders) {
             const folderPath = currentBrowsePath ? `${currentBrowsePath}/${f.name}` : f.name;
             const item = document.createElement('div');
@@ -3381,7 +3233,7 @@ async function loadSlideList() {
 
             const icon = document.createElement('span');
             icon.className = 'folder-icon';
-            icon.textContent = '?��';
+            icon.textContent = 'Folder';
 
             const name = document.createElement('div');
             name.className = 'slide-list-name';
@@ -3389,14 +3241,15 @@ async function loadSlideList() {
 
             item.append(icon, name);
 
-            // ?�블?�릭 ???�더 진입
             item.addEventListener('click', () => navigateToFolder(folderPath));
-            // ?�클�???컨텍?�트 메뉴
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 showFolderContextMenu(e, folderPath, f.name);
             });
-            // ?�래�?????(?�일???�더???�롭) ??OS ?�일 + ?��? ?�동 모두 �???            item.addEventListener('dragover', (e) => { e.preventDefault(); item.classList.add('drag-over'); });
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                item.classList.add('drag-over');
+            });
             item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
             item.addEventListener('drop', async (e) => {
                 e.preventDefault();
@@ -3412,7 +3265,6 @@ async function loadSlideList() {
             $slideList.appendChild(item);
         }
 
-        // ?�라?�드 ??��
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
@@ -3427,11 +3279,9 @@ async function loadSlideList() {
             thumb.className = 'slide-thumb';
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
-            // closure 캡처 ??currentBrowsePath �? ?�중??바�?�어?????�네?��? 처음 경로 ?��?.
             const str_thumb_filename = s.filename;
             const str_thumb_path = currentBrowsePath;
             thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96);
-            // 401 (만료??mt) ?????�켓?�로 1???�시????그래???�패?�면 ?��?.
             api.attachMediaImageRetry(thumb,
                 () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 96),
                 () => { thumb.style.display = 'none'; });
@@ -3443,13 +3293,12 @@ async function loadSlideList() {
 
             item.append(thumb, name);
 
-            // AI ?�태 배�?
             if (strSlideStatus) {
                 const statusMeta = {
-                    pending:     { label: '??, color: '#95a5a6', title: 'AI Pending' },
-                    in_progress: { label: '??, color: '#3498db', title: 'AI In Progress' },
-                    done:        { label: '??, color: '#27ae60', title: 'AI Reviewed' },
-                    flagged:     { label: '??, color: '#e74c3c', title: 'AI Flagged' },
+                    pending:     { label: 'P', color: '#95a5a6', title: 'AI Pending' },
+                    in_progress: { label: 'I', color: '#3498db', title: 'AI In Progress' },
+                    done:        { label: 'D', color: '#27ae60', title: 'AI Reviewed' },
+                    flagged:     { label: 'F', color: '#e74c3c', title: 'AI Flagged' },
                 };
                 const m = statusMeta[strSlideStatus];
                 if (m) {
@@ -3462,11 +3311,9 @@ async function loadSlideList() {
                 }
             }
 
-            // ?�클�? 컨텍?�트 메뉴 (?�태 ?�정 / ??��)
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // ?�재 ?�이?�이 ?�택?�어 ?��? ?�다�??�독 ?�택?�로 ?�환
                 if (!item.classList.contains('selected')) {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
@@ -3474,12 +3321,10 @@ async function loadSlideList() {
                 showSlideContextMenu(e);
             });
 
-            // ?�릭: Ctrl/Shift ?�중 ?�택, ?�반 ?�릭?? ?�일 ?�택+?�기
             item.addEventListener('click', (e) => {
                 if (e.ctrlKey || e.metaKey) {
                     item.classList.toggle('selected');
                 } else if (e.shiftKey) {
-                    // Shift: 범위 ?�택
                     const allItems = [...$slideList.querySelectorAll('.slide-list-item:not(.folder-item)')];
                     const lastIdx = allItems.findIndex(el => el.classList.contains('selected'));
                     const curIdx = allItems.indexOf(item);
@@ -3490,16 +3335,13 @@ async function loadSlideList() {
                         item.classList.add('selected');
                     }
                 } else {
-                    // ?�일 ?�릭 ???�택 초기??+ ?�기
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
                     openSavedSlide(s.filename, item);
                 }
             });
 
-            // ?�래�? ?�택???�일 ?��? ?�함
             item.addEventListener('dragstart', (e) => {
-                // ?�래�??�작???�이?�이 ?�택 ???�어 ?�으�??�독 ?�택
                 if (!item.classList.contains('selected')) {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
@@ -3508,7 +3350,7 @@ async function loadSlideList() {
                     .map(el => el.dataset.filename)
                     .filter(Boolean);
                 e.dataTransfer.setData('text/filenames', JSON.stringify(selectedFiles));
-                e.dataTransfer.setData('text/filename', selectedFiles[0]); // ?�환
+                e.dataTransfer.setData('text/filename', selectedFiles[0]);
                 e.dataTransfer.effectAllowed = 'move';
                 requestAnimationFrame(() => {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.add('dragging'));
@@ -3529,7 +3371,6 @@ async function loadSlideList() {
     }
 }
 
-// ???? AI 진행 �?배�? (auto/manual 공통) ????
 let _aiActivePollTimer = null;
 function _startAiActivePolling() {
     if (_isViewerRole()) {
@@ -3593,7 +3434,6 @@ if ($projectSelect) {
 }
 
 async function _dropMoveFiles(e, targetPath) {
-    // ?�중 ?�일 ?�동
     let filenames = [];
     try { filenames = JSON.parse(e.dataTransfer.getData('text/filenames') || '[]'); } catch {}
     if (!filenames.length) {
@@ -3625,7 +3465,8 @@ function _makeBreadcrumbDroppable(el, targetPath) {
     });
 }
 
-// 좌측 ?�라?�드 리스??�??�역??OS ?�일 ?�롭 ???�재 ?�더�??�로??(function _initSlideListOsDrop() {
+// Initialize OS file drop on the left slide list into the current folder.
+(function _initSlideListOsDrop() {
     $slideList.addEventListener('dragover', (e) => {
         if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
         e.preventDefault();
@@ -3662,7 +3503,7 @@ function updateBreadcrumb() {
             accumulated = accumulated ? `${accumulated}/${part}` : `${projectName}/${part}`;
             const sep = document.createElement('span');
             sep.className = 'breadcrumb-sep';
-            sep.textContent = '??;
+            sep.textContent = '>';
             $breadcrumb.appendChild(sep);
 
             const crumb = document.createElement('span');
@@ -3690,7 +3531,6 @@ async function openSavedSlide(filename, itemEl) {
     }
 }
 
-// ???? ?�더 ?�성 ????
 $('#btn-new-folder').addEventListener('click', async () => {
     if (!_getCurrentProjectName()) {
         alert('Select a project before creating folders.');
@@ -3707,7 +3547,6 @@ $('#btn-new-folder').addEventListener('click', async () => {
     }
 });
 
-// ???? ?�더 ?�클�?컨텍?�트 메뉴 ????
 let _ctxMenu = null;
 
 function removeCtxMenu() {
@@ -3760,7 +3599,6 @@ function showFolderContextMenu(e, folderPath, folderName) {
     _ctxMenu = menu;
 }
 
-// ???? ?�라?�드 ?�클�?컨텍?�트 메뉴 ????
 function _getSelectedSlideFilenames() {
     return [...$slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)')]
         .map(el => el.dataset.filename)
@@ -3824,7 +3662,6 @@ function showSlideContextMenu(e) {
     menu.style.left = `${e.clientX}px`;
     menu.style.top = `${e.clientY}px`;
 
-    // ?�더 (?�택 개수)
     const header = document.createElement('div');
     header.className = 'ctx-menu-header';
     header.textContent = list_filenames.length === 1
@@ -3832,7 +3669,6 @@ function showSlideContextMenu(e) {
         : `${list_filenames.length} slides selected`;
     menu.appendChild(header);
 
-    // Set Status ?�위 ??��
     const labelStatus = document.createElement('div');
     labelStatus.className = 'ctx-menu-label';
     labelStatus.textContent = 'Set AI Status';
@@ -3880,20 +3716,16 @@ function showSlideContextMenu(e) {
     _ctxMenu = menu;
 }
 
-// ???? ?�라?�드 리스??마키(?�버밴드) ?�래�??�택 ????
 (function _initMarqueeSelection() {
     let bool_active = false;
     let int_startX = 0;
     let int_startY = 0;
     let el_rect = null;
-    let list_baseline = []; // Ctrl/Shift ??기존 ?�택 ?��?
+    let list_baseline = [];
 
     $slideList.addEventListener('mousedown', (e) => {
-        // ?�쪽 버튼�? ?�크롤바/?�이?????�님
         if (e.button !== 0) return;
-        // ?�라?�드 ?�이???�더 ?�이???��? ?�릭?? 무시 (기존 ?�작 ?��?)
         if (e.target.closest('.slide-list-item')) return;
-        // ?�네??drag 중에??브라?��? 기본 drag �? 걸릴 ???�어 ?�기?�만 처리
         const rect_panel = $slideList.getBoundingClientRect();
         if (e.clientX < rect_panel.left || e.clientX > rect_panel.right) return;
 
@@ -3929,7 +3761,6 @@ function showSlideContextMenu(e) {
         el_rect.style.width = `${w}px`;
         el_rect.style.height = `${h}px`;
 
-        // 교차 ?�정: �??�라?�드 ?�이??rect ?? 교차?�면 selected
         const rectBox = { left: x, top: y, right: x + w, bottom: y + h };
         const list_items = $slideList.querySelectorAll('.slide-list-item:not(.folder-item)');
         const set_base = new Set(list_baseline);
@@ -3952,10 +3783,8 @@ function showSlideContextMenu(e) {
     });
 })();
 
-// ?�라?�드 리스??�??�역 ?�클�?? 컨텍?�트 메뉴 ?��? (기본 방�???불필??
 $slideList.addEventListener('contextmenu', (e) => {
     if (!e.target.closest('.slide-list-item')) {
-        // ?�택???�라?�드�? ?�으�?메뉴 ?�시
         const list_sel = $slideList.querySelectorAll('.slide-list-item.selected:not(.folder-item)');
         if (list_sel.length > 0) {
             e.preventDefault();
@@ -3964,7 +3793,6 @@ $slideList.addEventListener('contextmenu', (e) => {
     }
 });
 
-// ???? ?�더 AI ?�동 분석 ?�정 ?�이?�로�?????
 const AUTO_AI_TASK_OPTIONS = [
     { model: 'Quanti HE',      variant: 'Stomach', label: 'Quanti HE · Stomach' },
     { model: 'Quanti HE',      variant: 'Breast',  label: 'Quanti HE · Breast' },
@@ -3984,13 +3812,12 @@ const VS_MPP_CHOICES = [
 ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {
-    // 기존 ?�정 로드
     let cfg = { enabled: false, tasks: [] };
     try { cfg = await api.getFolderAiConfig(folderPath); }
     catch (err) { console.warn('folder config 로드 ?�패:', err); }
 
-    // ?�반 모델: model::variant key �??�택 ?��? ?�단
-    // VS IHC: variant �??�택??mpp set ???�로 �?�?    const set_selected = new Set();
+    // Selected base model keys.
+    const set_selected = new Set();
     const dict_vs_mpps = {};  // { variant: Set<number> }
     for (const t of (cfg.tasks || [])) {
         if (t.model === 'VS IHC') {
@@ -4001,7 +3828,6 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         }
     }
 
-    // 백드�?+ 카드
     const backdrop = document.createElement('div');
     backdrop.className = 'ai-cfg-backdrop';
     backdrop.innerHTML = `
@@ -4038,7 +3864,6 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
         wrap.dataset.variant = opt.variant;
 
         if (opt.mpp) {
-            // VS IHC: ?�위 체크박스 = ?�택??mpp �? ?�나?�도 ?�으�?checked
             const set_current = dict_vs_mpps[opt.variant] || new Set();
             const bool_parent_checked = set_current.size > 0;
             wrap.innerHTML = `
@@ -4061,7 +3886,6 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
             $parent.addEventListener('change', () => {
                 if ($parent.checked) {
                     $sub.hidden = false;
-                    // ?�무것도 체크 ???�어 ?�으�?기본 2.0 체크
                     const checked = wrap.querySelectorAll('.ai-cfg-mpp:checked');
                     if (checked.length === 0) {
                         const $def = wrap.querySelector('.ai-cfg-mpp[data-mpp="2"]');
@@ -4120,7 +3944,6 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     });
 }
 
-// ???? �??��? (리스??/ 그리?? ????
 const $btnViewList = $('#btn-view-list');
 const $btnViewGrid = $('#btn-view-grid');
 
@@ -4135,8 +3958,7 @@ $btnViewGrid.addEventListener('click', () => {
     $btnViewList.classList.remove('active');
 });
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// VS IHC (Virtual Staining)
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??async function startVirtualStain(stainType) {
+async function startVirtualStain(stainType) {
     if (_blockViewerAction()) return;
     if (!currentSlideId) return;
     const str_key = 'vs-' + stainType;
@@ -4152,7 +3974,6 @@ $btnViewGrid.addEventListener('click', () => {
 
     viewer.setDrawMode(null);
 
-    // ROI: polygon/rectangle annotation???�리곤으�??�달
     const roiAnns = viewer.annotations.filter(a =>
         a.visible && a.type !== 'point' && a.coordinates.length >= 3);
     const roiPolygons = roiAnns.length > 0 ? roiAnns.map(a => a.coordinates) : null;
@@ -4167,7 +3988,6 @@ $btnViewGrid.addEventListener('click', () => {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
             }
         }
-        // 결과 로딩 ??같�? mpp�?PNG ?�청
         _vsLastTargetMpp = targetMpp;
 
         while (true) {
@@ -4212,11 +4032,10 @@ function onVirtualStainComplete(result) {
         canvas_l0_h: result.canvas_l0_h,
         tile_size: result.tile_size || 512,
         levels: result.levels || [],
-        roi_polygons: result.roi_polygons || null,  // ?�시 ?�립??(level-0 좌표)
+        roi_polygons: result.roi_polygons || null,
     });
     _setVsToggleState(true, false);
-    _setVsSplitState(false, false);  // 분할 모드???�용?��? 켜야 ??
-    // AI ?�료: ROI annotation ?�거 (desktop ?�작�??�치)
+    _setVsSplitState(false, false);
     viewer.clearAnnotations();
     renderAnnotationPanel();
 
@@ -4229,7 +4048,6 @@ function onVirtualStainComplete(result) {
     setStatus(`Virtual staining complete ??${tc}/${tot} tissue patches`);
 }
 
-// VS IHC target mpp slider ??index ??mpp value
 const VS_MPP_VALUES = [4.0, 2.0, 1.0, 0.5];
 const VS_MPP_LABELS = [
     '4.0 µm/px (x2.5)',
@@ -4251,8 +4069,8 @@ $vsMppSlider?.addEventListener('input', () => {
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??// Quanti PD-L1 (PD-L1) ??CPS / TPS
-// ?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═?�═??$btnPdScore?.addEventListener('click', startPdScore);
+// Quanti PD-L1 scoring.
+$btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {
     if (_blockViewerAction()) return;
@@ -4325,7 +4143,6 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     _lastDetectionRoi = roiPolygons;
     lastSegData = null;
 
-    // Quanti PD-L1 ?�용 ?�래???�상 override (Stomach CPS: ????계열)
     const colorMap = {};
     if (result.class_colors) {
         for (const [k, v] of Object.entries(result.class_colors)) {
@@ -4333,7 +4150,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = 0.1;  // PD-L1 고정 (SaMD ?�현??
+    viewer.defaultConfidence = 0.1;
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
@@ -4341,12 +4158,8 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
-    // Score 카드??polygon-ROI + confidence ?�터링된 viewer.detectionCells 로만 그린??
-    // backend ??result.pd_score ??bbox-ROI 기반?�라 ?�역 그렸?????�긋?????��? ?�용 X.
-    // 카드 visibility �?켜고 ?�용?? buildResultList ??_updateResultCounts �?채운??
     if ($pdScoreResult) $pdScoreResult.hidden = false;
 
-    // status bar ?�스?�도 polygon-ROI 카운?�로 계산
     const { counts: dict_counts_status } = _computeFilteredCounts(viewer.detectionCells);
     const str_score_type = (result.pd_score && result.pd_score.score_type) || 'Score';
     let float_status_score = 0;
@@ -4362,12 +4175,11 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     }
     setStatus(`${str_score_type}: ${float_status_score.toFixed(1)}% | ${displayCount.toLocaleString()} cells`);
 
-    // onCellEdited ?? ?�일???�턴 ??_lastDetectionResult.cells �?polygon-?�터링된 ??�?    // ?�렬???�면 buildResultList �? ?�떤 경로�?result.cells �??�더?�도 ?�전.
     _lastDetectionResult.cells = viewer.detectionCells;
     _lastDetectionResult.total_cells = viewer.detectionCells.length;
 
     buildResultList(_lastDetectionResult);
-    _updateResultCounts();   // _updatePdScoreDisplay �? polygon-ROI 기반?�로 카드 채�?
+    _updateResultCounts();
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -4468,7 +4280,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
     viewer.classColorOverride = Object.keys(colorMap).length > 0 ? colorMap : null;
-    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;  // 고정 (SaMD ?�현??
+    viewer.defaultConfidence = (marker === 'ER_PR' || marker === 'KI_67') ? 0.3 : 0.5;
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
@@ -4476,12 +4288,8 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
 
-    // Score 카드??polygon-ROI + confidence ?�터??viewer.detectionCells 기반?�로�?그린??
-    // backend ??result.{her2,allred,ki67}_score ??bbox-ROI 기반?�라 ?�역 그렸????    // ?�널/?�각?��? ?�긋?????��? ?�용 X. visibility �?켜고 _updateResultCounts() �?
-    // ?�리�?카운?�로 카드 ?�용 (?�수/막�?/범�?) ??채우?�록 ?�임.
     if ($ihcScoreResult) {
         $ihcScoreResult.hidden = false;
-        // 마커�??�벨 ??_updateXxxScoreDisplay �? ?�시 ??��?�기???��?�?�??�레??�??�벨 방�?.
         if (result.her2_score) {
             $ihcScoreLabel.textContent = 'HER2';
         } else if (result.allred_score) {
@@ -4491,7 +4299,6 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         }
     }
 
-    // status bar ?�스?�도 polygon-ROI 카운?�로 ?�계??(backend ?�수 X).
     const { counts: dict_counts_ihc } = _computeFilteredCounts(viewer.detectionCells);
     const n0 = dict_counts_ihc[0] || 0, n1 = dict_counts_ihc[1] || 0;
     const n2 = dict_counts_ihc[2] || 0, n3 = dict_counts_ihc[3] || 0;
@@ -4524,12 +4331,11 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
         setStatus(`KI-67 Index: ${ki67Index.toFixed(1)}% ??${interp} | ${displayCount.toLocaleString()} cells`);
     }
 
-    // onCellEdited ?? ?�일???�턴?�로 result.cells �?polygon-?�터링된 ????맞춤.
     _lastDetectionResult.cells = viewer.detectionCells;
     _lastDetectionResult.total_cells = viewer.detectionCells.length;
 
     buildResultList(_lastDetectionResult);
-    _updateResultCounts();   // _updateXxxScoreDisplay �? polygon-ROI 기반?�로 카드 채�?
+    _updateResultCounts();
     $btnVisualize.disabled = false;
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
@@ -4537,7 +4343,6 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     if (_isViewerRole()) _applyViewerRoleRestrictions();
 }
 
-// ?????? VS toggle ?�퍼 ??????
 function _setVsToggleState(visible, disabled) {
     if (!$btnVsToggle) return;
     $btnVsToggle.disabled = !!disabled;
@@ -4561,7 +4366,8 @@ $btnVsToggle?.addEventListener('click', () => {
     const next = $btnVsToggle.getAttribute('aria-pressed') !== 'true';
     _setVsToggleState(next, false);
     viewer.setVirtualStainVisible(next);
-    // overlay�??�면 split???��?�? ?�으�?�???    if (!next) {
+    // Disable split view when the overlay is turned off.
+    if (!next) {
         _setVsSplitState(false, false);
         viewer.setVirtualStainSplitMode(false);
     }
@@ -4572,7 +4378,6 @@ $btnVsSplit?.addEventListener('click', () => {
     if ($btnVsSplit.disabled) return;
     const next = $btnVsSplit.getAttribute('aria-pressed') !== 'true';
     _setVsSplitState(next, false);
-    // split??켜면 overlay??강제�?ON
     if (next) {
         _setVsToggleState(true, false);
         viewer.setVirtualStainVisible(true);
@@ -4580,7 +4385,8 @@ $btnVsSplit?.addEventListener('click', () => {
     viewer.setVirtualStainSplitMode(next);
 });
 
-// ?�이�? 로드 ???�증 ?�인 ???�라?�드 목록 �??�오�?(async () => {
+// On page load, verify auth and load projects/slides.
+(async () => {
     try {
         const dict_me = await api.me();
         if ($userName && dict_me.str_name) {
@@ -4612,10 +4418,8 @@ $btnVsSplit?.addEventListener('click', () => {
             _applyViewerRoleRestrictions();
         }
     } catch (_) {
-        // ?�증 ?�패 ??api.js �? 리다?�렉??처리. ?�라?�드/?�링 ?�작 ?�략.
         return;
     }
-    // URL ?�라미터�??�라?�드 ?�동 ?�기 (?slide=filename&path=rel_path)
     const _urlParams = new URLSearchParams(location.search);
     const _paramSlide = _urlParams.get('slide');
     const _paramPath = _urlParams.get('path');
@@ -4631,9 +4435,7 @@ $btnVsSplit?.addEventListener('click', () => {
     await loadSlideList();
 
     if (_paramSlide) {
-        // ?�라?�드 목록 로드 ???�동 ?�기
         openSavedSlide(_paramSlide, null);
-        // URL ?�라미터 ?�거 (?�로�?�????�로??방�?)
         history.replaceState(null, '', '/ai');
     }
 })();

@@ -695,7 +695,7 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
         const boolRunning = _annotationRunningStep === strTarget;
         const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
-        const strAction = boolComplete ? '?�료' : (boolRunning ? '진행�? : (boolActive ? '?? : '-'));
+        const strAction = boolComplete ? 'Done' : (boolRunning ? 'Running' : (boolActive ? 'Current' : '-'));
         btn.textContent = `${strLabel} ${strAction}`;
         btn.classList.toggle('is-active', boolActive);
         btn.classList.toggle('is-complete', boolComplete);
@@ -707,8 +707,8 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) connectorA.textContent = intCurrent > 0 ? '?? : '-';
-    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? '?? : '-';
+    if (connectorA) connectorA.textContent = intCurrent > 0 ? 'Done' : '-';
+    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? 'Done' : '-';
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {
@@ -1469,13 +1469,13 @@ function renderClassManagementPanel() {
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
             <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '?? : '??}</button>
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}" aria-label="${classHidden ? 'Show class' : 'Hide class'}">${_visibilityIcon(!classHidden)}</button>
             <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
         ` : `
             <button type="button" class="class-active-btn" title="Select class"></button>
             <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
             <span class="class-name-label" title="${_esc(cls.name)}">${_esc(cls.name)}</span>
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}">${classHidden ? '?? : '??}</button>
+            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}" aria-label="${classHidden ? 'Show class' : 'Hide class'}">${_visibilityIcon(!classHidden)}</button>
             <span class="class-shortcut-label">${_annotationClasses.indexOf(cls) < 9 ? _annotationClasses.indexOf(cls) + 1 : _annotationClasses.indexOf(cls) === 9 ? 0 : ''}</span>
         `;
         const activeBtn = row.querySelector('.class-active-btn');
@@ -2128,7 +2128,7 @@ function renderAnnotationPanel() {
         const cell = document.createElement('span');
         cell.className = 'ann-sort-header' + (_annotationListSort.key === key ? ' active' : '');
         cell.dataset.sortKey = key;
-        cell.textContent = `${label}${_annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' ?? : ' ??) : ''}`;
+        cell.textContent = `${label}${_annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' ↑' : ' ↓') : ''}`;
         cell.title = `Sort by ${label}`;
         cell.addEventListener('click', () => {
             if (_annotationListSort.key === key) {
@@ -2480,7 +2480,7 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
         border-radius:3px; cursor:pointer; opacity:0.55;
         font-size:13px; line-height:1;
     `;
-    pencil.textContent = '??;
+    pencil.textContent = 'Edit';
     pencil.onmouseover = () => { pencil.style.opacity = '1'; pencil.style.background = 'rgba(0,0,0,0.08)'; };
     pencil.onmouseout = () => { pencil.style.opacity = '0.55'; pencil.style.background = 'transparent'; };
     pencil.addEventListener('click', (ev) => {
@@ -2502,16 +2502,16 @@ function _attachClassRenamePencil(btnEl, classId, textSpan) {
             font-size:12px; font-family:inherit;
         `;
         const ok = document.createElement('button');
-        ok.textContent = '??;
-        ok.title = '????(Enter)';
+        ok.textContent = 'OK';
+        ok.title = 'Apply (Enter)';
         ok.style.cssText = `
             flex:0 0 22px; height:22px; padding:0;
             background:#27ae60; color:#fff; border:none;
             border-radius:3px; cursor:pointer; font-weight:700;
         `;
         const cancel = document.createElement('button');
-        cancel.textContent = '×';
-        cancel.title = '취소 (Esc)';
+        cancel.textContent = 'X';
+        cancel.title = 'Cancel (Esc)';
         cancel.style.cssText = `
             flex:0 0 22px; height:22px; padding:0;
             background:#e74c3c; color:#fff; border:none;
@@ -3026,7 +3026,7 @@ function _showStickyClassPickerPopup(screenX, screenY) {
             background:${colorCss};border:1px solid #333;
             display:inline-block;margin-left:8px;`;
         const text = document.createElement('span');
-        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  ?? : '');
+        text.textContent = (keyLabel ? `[${keyLabel}] ` : '') + name + (isCurrent ? '  current' : '');
         text.style.cssText = 'flex:1;padding:6px 10px;';
 
         btn.append(stripe, sw, text);
@@ -4216,13 +4216,13 @@ function _fmtDateIso(str) {
 }
 
 async function _openLoadUserEditDialog() {
-    if (_blockViewerAction('Viewer 권한?? AI 결과 로드 기능???�용?????�습?�다.')) return;
+    if (_blockViewerAction('Viewer role cannot load AI results.')) return;
     if (!currentSlideId) {
-        setStatus('?�라?�드�?먼�? ?�어주세??);
+        setStatus('Open a slide first.');
         return;
     }
     if (!_lastDetectionModel || !_lastDetectionTissue) {
-        setStatus('먼�? AI 모델???�행?�주?�요 (?�떤 모드�?로드?��? �??�해???�니??');
+        setStatus('Run an AI model first so the matching result type can be loaded.');
         return;
     }
     const aiMode = _lastDetectionModel;
@@ -4289,7 +4289,7 @@ async function _openLoadUserEditDialog() {
         info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
             try {
-                setStatus(`Loading ${displayName}'s analysis??);
+                setStatus(`Loading ${displayName}'s analysis...`);
                 const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
                 _applyLoadedResult(aiMode, variant, r.result);
                 setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
@@ -5312,7 +5312,7 @@ function updateBreadcrumb() {
             accumulated = accumulated ? `${accumulated}/${part}` : `${projectName}/${part}`;
             const sep = document.createElement('span');
             sep.className = 'breadcrumb-sep';
-            sep.textContent = '??;
+            sep.textContent = '>';
             $breadcrumb.appendChild(sep);
 
             const crumb = document.createElement('span');
