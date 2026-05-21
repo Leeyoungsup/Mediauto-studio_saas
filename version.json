@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.56",
+  "version": "1.1.54",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Waits longer for the NDP thumbnail first paint before overview tiles begin loading."
+  "description": "Uses raw thumbnails as immediate viewer fallbacks for color-matched slides and avoids black first paint."
 }

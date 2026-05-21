@@ -319,20 +319,19 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            // Non-NDP slides can fall back quickly to raw/list thumbnails.
-            // NDP slides must avoid raw-color first paint, so wait for the
-            // color-matched thumbnail before allowing overview tile preload.
-            const int_first_paint_timeout_ms = bool_ndp ? 30000 : 1500;
-            setTimeout(() => finish(false), int_first_paint_timeout_ms);
+            setTimeout(() => finish(false), 1500);
 
             const el_sidebar_thumb = document.querySelector(
                 `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
             );
-            if (!bool_ndp && el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
+            // Use the already-loaded sidebar thumbnail as an immediate placeholder.
+            // For NDP color correction slides this may be the raw thumbnail, but it is
+            // still much better than a black canvas while the corrected 2048 image is generated.
+            if (el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
                 this._thumbnailBitmap = el_sidebar_thumb;
                 this.requestRender();
                 finish(true);
-            } else if (!bool_ndp && el_sidebar_thumb) {
+            } else if (el_sidebar_thumb) {
                 el_sidebar_thumb.addEventListener('load', () => {
                     if (this.slideId !== str_slide_id || el_sidebar_thumb.naturalWidth <= 0) return;
                     this._thumbnailBitmap = el_sidebar_thumb;
@@ -369,23 +368,19 @@ export class TileViewer {
                 };
 
                 const str_raw_thumb_url = api.thumbnailUrl(str_slide_id, 2048, false);
+                const str_raw_hi_url = api.previewUrl(str_slide_id, 2048, false);
                 const str_match_thumb_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
                 const str_match_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
 
                 let bool_started = false;
-                // For color-matched slides, keep the first paint color-stable:
-                // thumbnail?ndp=true is cached on disk, while preview?ndp=true is generated on demand.
-                if (bool_ndp) {
-                    bool_started = loadImage(str_match_thumb_url, 'NDP thumbnail', applyHi, () => finish(false)) || bool_started;
-                    setTimeout(() => {
-                        if (this.slideId === str_slide_id && this._thumbnailBitmap) {
-                            loadImage(str_match_hi_url, 'NDP hi-res preview', applyHi);
-                        }
-                    }, 250);
-                } else {
-                    bool_started = loadImage(str_raw_thumb_url, 'raw thumbnail', applyThumb) || bool_started;
-                    bool_started = loadImage(str_match_hi_url, 'hi-res preview', applyHi) || bool_started;
-                }
+                // Raw thumbnail is the fastest stable fallback, especially while NDP-match assets are generated.
+                bool_started = loadImage(str_raw_thumb_url, 'raw thumbnail', applyThumb) || bool_started;
+                bool_started = loadImage(str_match_hi_url, 'hi-res preview', applyHi, () => {
+                    if (bool_ndp) loadImage(str_raw_hi_url, 'raw hi-res preview', applyHi);
+                }) || bool_started;
+                bool_started = loadImage(str_match_thumb_url, 'thumbnail', applyThumb, () => {
+                    if (bool_ndp) loadImage(str_raw_thumb_url, 'raw thumbnail retry', applyThumb);
+                }) || bool_started;
                 if (!bool_started) finish(false);
             }).catch(() => finish(false));
         });

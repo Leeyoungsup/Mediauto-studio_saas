@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.56 |
+| 현재 버전 | 1.1.54 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-21 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,12 +41,6 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
-
-### v1.1.56
-- NDP viewer first paint: overview tile preload now waits much longer for the color-matched thumbnail, preventing white-canvas tile buildup during normal NDP thumbnail generation.
-
-### v1.1.55
-- Viewer first paint color stability: NDP slides now prioritize cached NDP thumbnails instead of showing raw thumbnails first.
 
 ### v1.1.54
 - Viewer thumbnail fallback: color-matched slides now use the raw thumbnail immediately while corrected thumbnails are generated, avoiding black first paint.
