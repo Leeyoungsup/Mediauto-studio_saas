@@ -2,7 +2,7 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260521-13';
+import { api } from './api.js?v=20260521-14';
 import { TileViewer } from './tile-viewer.js?v=20260521-07';
 import { showVisualization } from './visualization.js';
 

@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.58 |
+| 현재 버전 | 1.1.59 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-21 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,6 +41,9 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.59
+- Large result download stability: AI result JSON streaming now buffers bytes and decodes once to avoid oversized intermediate browser strings.
 
 ### v1.1.58
 - AI result download progress: large task result JSON downloads now report percent/MB in the AI progress bar before rendering.

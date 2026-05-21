@@ -257,14 +257,14 @@ async function _jsonOrThrowWithProgress(res, label = 'API', onProgress = null) {
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    const chunks = [];
     let loaded = 0;
-    let text = '';
 
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         loaded += value.byteLength;
-        text += decoder.decode(value, { stream: true });
+        chunks.push(value);
         if (typeof onProgress === 'function') {
             onProgress({
                 loaded,
@@ -273,10 +273,17 @@ async function _jsonOrThrowWithProgress(res, label = 'API', onProgress = null) {
             });
         }
     }
-    text += decoder.decode();
     if (typeof onProgress === 'function') {
         onProgress({ loaded, total, percent: total > 0 ? 100 : null });
     }
+
+    const bytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    const text = decoder.decode(bytes);
 
     if (!text.trim()) {
         throw new Error(`${label} returned an empty response`);

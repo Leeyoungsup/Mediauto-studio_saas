@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.59] - 2026-05-21
+
+### Fixed
+
+- Large AI result JSON downloads now buffer byte chunks and decode once, avoiding browser `Invalid string length` errors caused by repeated string concatenation.
+
 ## [1.1.58] - 2026-05-21
 
 ### Added
