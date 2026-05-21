@@ -27,7 +27,12 @@ from app.slide_manager import (
     STAGE_COUNT,
     TILE_SIZE_OUT,
 )
-from app.tile_generator import get_tiles_dir
+from app.tile_generator import (
+    COMPLETE_MARKER_VERSION,
+    get_tiles_dir,
+    image_to_white_rgb,
+    read_complete_marker,
+)
 from app.priority import notify_viewer_activity
 from app.cpu_layout import viewer_executor
 from app.thread_slide_pool import get_thread_slide
@@ -37,6 +42,11 @@ from app.thread_slide_pool import get_thread_slide
 router = APIRouter()
 
 TILE_SIZE = TILE_SIZE_OUT
+
+
+def _tile_cache_is_current(filename: str) -> bool:
+    dict_marker = read_complete_marker(filename)
+    return bool(dict_marker and dict_marker.get("version") == COMPLETE_MARKER_VERSION)
 
 
 # ── LRU 접근 시각 touch (janitor 용) ──
@@ -113,7 +123,8 @@ async def get_tile_ndp(
     _touch_slide_access(slide_id, tiles_root)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
-    if path_ndp_tile.exists():
+    bool_current_tile_cache = _tile_cache_is_current(filename)
+    if path_ndp_tile.exists() and bool_current_tile_cache:
         return FileResponse(
             path_ndp_tile,
             media_type="image/jpeg",
@@ -126,14 +137,14 @@ async def get_tile_ndp(
 
     def _make_ndp_variant() -> bytes:
         # (1) raw 먼저 확보
-        if not path_raw_tile.exists():
+        if not path_raw_tile.exists() or not bool_current_tile_cache:
             obj_slide = get_thread_slide(slide_id, info.file_path)
             obj_region = obj_slide.read_region(
                 (tile_x * int_read_size, tile_y * int_read_size),
                 0,
                 (int_read_size, int_read_size),
             )
-            obj_rgb = obj_region.convert("RGB")
+            obj_rgb = image_to_white_rgb(obj_region)
             obj_rgb = info.apply_icc(obj_rgb)
             if int_read_size != TILE_SIZE:
                 obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
@@ -192,7 +203,7 @@ async def get_tile(
     _touch_slide_access(slide_id, tiles_root)
 
     # 1) 프리제네레이트된 타일이 있으면 바로 반환
-    if tile_path.exists():
+    if tile_path.exists() and _tile_cache_is_current(filename):
         return FileResponse(
             tile_path,
             media_type="image/jpeg",
@@ -217,7 +228,7 @@ async def get_tile(
         )
         float_t1 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
-        obj_rgb = obj_region.convert("RGB")
+        obj_rgb = image_to_white_rgb(obj_region)
         obj_rgb = info.apply_icc(obj_rgb)
         if int_read_size != TILE_SIZE:
             obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)

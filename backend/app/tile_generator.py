@@ -48,8 +48,28 @@ TILE_SIZE = TILE_SIZE_OUT
 # v2: 3단계 stage 피라미드 (level 0 리샘플링) — 이전 level-index 기반 타일 무효화
 # v3: Hamamatsu NDP.view2 호환 gamma=1.8 + Target.White.Intensity LUT 도입 —
 #     이전 raw-pass-through 타일은 색감이 달라 자동 재생성 필요.
-COMPLETE_MARKER_VERSION = 3
+COMPLETE_MARKER_VERSION = 4
 COMPLETE_MARKER_NAME = ".complete"
+
+
+def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
+    """Return RGB with transparent pixels composited onto white.
+
+    OpenSlide regions may include transparent outside-slide padding. Direct
+    RGBA-to-RGB conversion maps those pixels to black, which appears as
+    letterbox bars in the viewer.
+    """
+    if obj_img.mode in ("RGBA", "LA"):
+        obj_rgba = obj_img.convert("RGBA")
+        obj_white = Image.new("RGB", obj_rgba.size, (255, 255, 255))
+        obj_white.paste(obj_rgba, mask=obj_rgba.getchannel("A"))
+        return obj_white
+    if obj_img.mode == "P" and "transparency" in obj_img.info:
+        obj_rgba = obj_img.convert("RGBA")
+        obj_white = Image.new("RGB", obj_rgba.size, (255, 255, 255))
+        obj_white.paste(obj_rgba, mask=obj_rgba.getchannel("A"))
+        return obj_white
+    return obj_img.convert("RGB")
 
 
 def _slide_icc_hash(slide) -> Optional[str]:
@@ -269,7 +289,7 @@ def _generate_tiles(filename: str, file_path: str):
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumb_path.exists():
             thumb = slide.get_thumbnail((300, 300))
-            _to_srgb(thumb.convert("RGB")).save(str(thumb_path), "JPEG", quality=85)
+            _to_srgb(image_to_white_rgb(thumb)).save(str(thumb_path), "JPEG", quality=85)
 
         # stage 디렉토리 준비
         for int_stage in range(STAGE_COUNT):
@@ -299,7 +319,7 @@ def _generate_tiles(filename: str, file_path: str):
                 obj_region = slide.read_region(
                     (int_sx, int_sy), 0, (int_read_size2, int_read_size2)
                 )
-                obj_rgb = _to_srgb(obj_region.convert("RGB"))
+                obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
 
                 # ── stage 2 tile (8192 → 1024) ──
                 tile_path2 = stage2_dir / f"{tx2}_{ty2}.jpeg"

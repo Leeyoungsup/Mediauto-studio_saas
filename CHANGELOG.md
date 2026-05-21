@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.63] - 2026-05-21
+
+### Fixed
+
+- Slide tiles and thumbnails now composite transparent outside-slide padding onto white before RGB conversion, preventing black letterbox areas in the viewer.
+- Tile cache marker version was bumped so old black-padding tile caches regenerate.
+
 ## [1.1.62] - 2026-05-21
 
 ### Changed

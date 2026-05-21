@@ -11,7 +11,7 @@ The backend reads this file through `backend/app/version.py`.
 ## Current Version
 
 ```text
-1.1.62
+1.1.63
 ```
 
 ## Update Checklist
@@ -23,8 +23,8 @@ The backend reads this file through `backend/app/version.py`.
 5. Create a Git tag after the merge if needed:
 
 ```bash
-git tag v1.1.62
-git push origin v1.1.62
+git tag v1.1.63
+git push origin v1.1.63
 ```
 
 ## Exposed Endpoints

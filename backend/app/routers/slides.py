@@ -1817,7 +1817,7 @@ async def verify_slide_integrity(slide_id: str, dict_user: dict = Depends(get_cu
 async def get_thumbnail_by_name(
     filename: str = Query(...),
     path: str = Query(""),
-    size: int = Query(2048, ge=512, le=8192),
+    size: int = Query(2048, ge=64, le=8192),
 ):
     """파일명 기반 썸네일 — slide_manager 불필요, 디스크에서 바로 반환"""
     import io
@@ -1825,9 +1825,14 @@ async def get_thumbnail_by_name(
 
     filename = _safe_filename(filename)
     # 1) 프리제네레이트된 썸네일이 있으면 바로 반환
-    int_size = max(2048, int(size or 2048))
-    thumb_path = tile_generator.get_tiles_dir(filename) / f"thumbnail_{int_size}.jpeg"
-    if thumb_path.exists():
+    int_size = max(64, min(8192, int(size or 2048)))
+    tiles_root = tile_generator.get_tiles_dir(filename)
+    thumb_path = tiles_root / f"thumbnail_{int_size}.jpeg"
+    dict_marker = tile_generator.read_complete_marker(filename)
+    bool_current_tile_cache = bool(
+        dict_marker and dict_marker.get("version") == tile_generator.COMPLETE_MARKER_VERSION
+    )
+    if thumb_path.exists() and bool_current_tile_cache:
         return StreamingResponse(open(thumb_path, "rb"), media_type="image/jpeg")
 
     # 2) 없으면 즉석 생성 + 저장
@@ -1840,7 +1845,7 @@ async def get_thumbnail_by_name(
 
         slide = openslide.OpenSlide(str(file_path))
         thumb = slide.get_thumbnail((int_size, int_size))
-        thumb_rgb = thumb.convert("RGB")
+        thumb_rgb = tile_generator.image_to_white_rgb(thumb)
 
         # 통합 색 보정 — ICC → NDP LUT → raw 순. slide_manager 와 동일 로직.
         _apply_color, _ = build_color_corrector(slide)
@@ -1861,7 +1866,7 @@ async def get_thumbnail_by_name(
 @media_router.get("/{slide_id}/preview")
 async def get_preview(
     slide_id: str,
-    size: int = Query(2048, ge=512, le=8192),
+    size: int = Query(2048, ge=64, le=8192),
     ndp: bool = Query(False, description="true 면 NDP 색 매칭 2차 보정 적용"),
 ):
     """고해상도 슬라이드 프리뷰 (PDF 리포트용, 캐시 미사용)"""
@@ -1870,7 +1875,7 @@ async def get_preview(
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
     import io
     thumb = info.slide.get_thumbnail((size, size))
-    thumb_rgb = info.apply_icc(thumb.convert("RGB"))
+    thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
     if ndp:
         from app.ndp_color_match import apply_ndp_fit
         thumb_rgb = apply_ndp_fit(thumb_rgb)
@@ -1883,7 +1888,7 @@ async def get_preview(
 @media_router.get("/{slide_id}/thumbnail")
 async def get_thumbnail(
     slide_id: str,
-    size: int = Query(2048, ge=512, le=8192),
+    size: int = Query(2048, ge=64, le=8192),
     ndp: bool = Query(False, description="true 면 NDP 색 매칭 2차 보정본 반환"),
 ):
     """slide_id 기반 썸네일 (하위 호환). `?ndp=true` 면 ndpmatch 버전."""
@@ -1892,23 +1897,27 @@ async def get_thumbnail(
         raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
     filename = Path(info.file_path).name
     tiles_root = tile_generator.get_tiles_dir(filename)
-    int_size = max(2048, int(size or 2048))
+    int_size = max(64, min(8192, int(size or 2048)))
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
+    dict_marker = tile_generator.read_complete_marker(filename)
+    bool_current_tile_cache = bool(
+        dict_marker and dict_marker.get("version") == tile_generator.COMPLETE_MARKER_VERSION
+    )
 
     # NDP 변형 요청 — 있으면 바로, 없으면 raw 썸네일 → apply → 저장
     if ndp:
-        if thumb_path_ndp.exists():
+        if thumb_path_ndp.exists() and bool_current_tile_cache:
             return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
 
         from PIL import Image as _Image
         from app.ndp_color_match import apply_ndp_fit
         # raw 썸네일 확보 (없으면 slide 에서 즉석 생성)
-        if thumb_path_raw.exists():
+        if thumb_path_raw.exists() and bool_current_tile_cache:
             obj_rgb = _Image.open(str(thumb_path_raw)).convert("RGB")
         else:
             obj_thumb = info.slide.get_thumbnail((int_size, int_size))
-            obj_rgb = info.apply_icc(obj_thumb.convert("RGB"))
+            obj_rgb = info.apply_icc(tile_generator.image_to_white_rgb(obj_thumb))
             thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
             obj_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
 
@@ -1922,12 +1931,12 @@ async def get_thumbnail(
         return StreamingResponse(buf, media_type="image/jpeg")
 
     # raw 경로
-    if thumb_path_raw.exists():
+    if thumb_path_raw.exists() and bool_current_tile_cache:
         return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
 
     import io
     thumb = info.slide.get_thumbnail((int_size, int_size))
-    thumb_rgb = info.apply_icc(thumb.convert("RGB"))
+    thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
     thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
     thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
     buf = io.BytesIO()
