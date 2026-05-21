@@ -58,6 +58,11 @@ _ACCESS_TOUCH_THROTTLE_SEC = 60.0
 
 def _touch_slide_access(slide_id: str, tiles_root: Path) -> None:
     float_now = time.time()
+    if len(_dict_access_touch) > 2048:
+        float_cutoff = float_now - 24 * 60 * 60
+        for str_key, float_ts in list(_dict_access_touch.items()):
+            if float_ts < float_cutoff:
+                _dict_access_touch.pop(str_key, None)
     if _dict_access_touch.get(slide_id, 0.0) + _ACCESS_TOUCH_THROTTLE_SEC > float_now:
         return
     _dict_access_touch[slide_id] = float_now
@@ -152,7 +157,8 @@ async def get_tile_ndp(
             obj_rgb.save(str(path_raw_tile), "JPEG", quality=settings.TILE_QUALITY)
             obj_region.close()
         else:
-            obj_rgb = Image.open(str(path_raw_tile)).convert("RGB")
+            with Image.open(str(path_raw_tile)) as obj_file:
+                obj_rgb = obj_file.convert("RGB")
 
         # (2) NDP fit 적용 → 저장
         obj_ndp = apply_ndp_fit(obj_rgb)
@@ -162,6 +168,14 @@ async def get_tile_ndp(
         # (3) 응답 바이트
         buf = io.BytesIO()
         obj_ndp.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+        try:
+            obj_rgb.close()
+        except Exception:
+            pass
+        try:
+            obj_ndp.close()
+        except Exception:
+            pass
         return buf.getvalue()
 
     try:
@@ -252,6 +266,10 @@ async def get_tile(
                 f"total={int((float_t4-float_t0)*1000)}ms"
             )
         obj_region.close()
+        try:
+            obj_rgb.close()
+        except Exception:
+            pass
         return buf.getvalue()
 
     try:

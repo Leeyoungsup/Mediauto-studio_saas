@@ -247,6 +247,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         # ── I/O → 텐서 변환 함수 (스레드별 독립 OpenSlide) ──
         icc_tf = info.icc_transform
         def _read_patch_tensor(patch_x, patch_y):
+            patch = None
+            patch_rgb = None
             try:
                 wait_if_viewer_busy()
                 local_slide = get_thread_slide(slide_id, slide_path)
@@ -261,6 +263,17 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
             except Exception as e:
                 return None
+            finally:
+                if patch_rgb is not None:
+                    try:
+                        patch_rgb.close()
+                    except Exception:
+                        pass
+                if patch is not None:
+                    try:
+                        patch.close()
+                    except Exception:
+                        pass
 
         # ── 배치 GPU 추론 함수 (기존 _infer_batch와 동일) ──
         def _infer_batch(batch_coords, batch_tensors):

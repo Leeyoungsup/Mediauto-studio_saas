@@ -26,7 +26,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # 공유 task 상태 — 라우트가 새 task 등록 / 조회 시 직접 사용한다.
-from app.ai_pipelines.task_state import _tasks, _tasks_lock
+from app.ai_pipelines.task_state import (
+    _tasks,
+    _tasks_lock,
+    cleanup_old_tasks,
+    release_task_result,
+)
 
 # 캐시 경로 — VS 결과 PNG/타일 서빙 라우트에서 사용.
 from app.ai_pipelines.cache_paths import (
@@ -209,6 +214,7 @@ async def get_active_tasks():
         {"active": {filename: [{"model": ..., "variant": ..., "status": ...}, ...], ...}}
     """
     dict_active: dict[str, list] = {}
+    cleanup_old_tasks()
     with _tasks_lock:
         for _, dict_task in _tasks.items():
             if dict_task.get("status") not in ("queued", "running"):
@@ -232,6 +238,7 @@ async def get_task_status(task_id: str):
     스레드풀로 오프로드한다. 이벤트 루프에서 직렬화하면 같은 시간 동안
     타일 서빙이 밀린다.
     """
+    cleanup_old_tasks()
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
@@ -281,11 +288,14 @@ async def get_task_result(task_id: str):
     if task["status"] != "completed":
         raise HTTPException(400, f"작업 미완료 (status: {task['status']})")
 
-    obj_result = task["result"]
+    obj_result = task.get("result")
+    if obj_result is None:
+        raise HTTPException(410, "AI task result has already been released from memory. Run the analysis again or load the cached result.")
     loop = asyncio.get_running_loop()
     bytes_body = await loop.run_in_executor(
         None, lambda: json.dumps(obj_result, separators=(',', ':')).encode("utf-8")
     )
+    release_task_result(task_id)
     return Response(content=bytes_body, media_type="application/json")
 
 

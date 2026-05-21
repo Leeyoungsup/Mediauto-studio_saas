@@ -35,7 +35,13 @@ def _get_cached_user(str_user_id: str) -> dict | None:
 
 
 def _set_cached_user(str_user_id: str, dict_user: dict):
-    _USER_CACHE[str_user_id] = (dict_user, time.monotonic())
+    float_now = time.monotonic()
+    if len(_USER_CACHE) > 1024:
+        float_cutoff = float_now - _USER_CACHE_TTL * 2
+        for str_key, (_dict_user, float_ts) in list(_USER_CACHE.items()):
+            if float_ts < float_cutoff:
+                _USER_CACHE.pop(str_key, None)
+    _USER_CACHE[str_user_id] = (dict_user, float_now)
 
 
 def invalidate_user_cache(str_user_id: str = ""):

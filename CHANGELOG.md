@@ -2,6 +2,15 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.64] - 2026-05-21
+
+### Fixed
+
+- Completed AI task results are released from process memory after the client downloads them, and finished task records are expired after a short TTL.
+- OpenSlide handles are now bounded by idle/LRU eviction in `SlideManager`.
+- Large PIL/OpenSlide image intermediates in tile, thumbnail, and AI patch paths are closed more aggressively.
+- Small in-memory user/tile access caches now prune stale entries.
+
 ## [1.1.63] - 2026-05-21
 
 ### Fixed

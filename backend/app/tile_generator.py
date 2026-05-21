@@ -63,11 +63,19 @@ def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
         obj_rgba = obj_img.convert("RGBA")
         obj_white = Image.new("RGB", obj_rgba.size, (255, 255, 255))
         obj_white.paste(obj_rgba, mask=obj_rgba.getchannel("A"))
+        try:
+            obj_rgba.close()
+        except Exception:
+            pass
         return obj_white
     if obj_img.mode == "P" and "transparency" in obj_img.info:
         obj_rgba = obj_img.convert("RGBA")
         obj_white = Image.new("RGB", obj_rgba.size, (255, 255, 255))
         obj_white.paste(obj_rgba, mask=obj_rgba.getchannel("A"))
+        try:
+            obj_rgba.close()
+        except Exception:
+            pass
         return obj_white
     return obj_img.convert("RGB")
 
@@ -289,7 +297,18 @@ def _generate_tiles(filename: str, file_path: str):
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumb_path.exists():
             thumb = slide.get_thumbnail((300, 300))
-            _to_srgb(image_to_white_rgb(thumb)).save(str(thumb_path), "JPEG", quality=85)
+            thumb_rgb = _to_srgb(image_to_white_rgb(thumb))
+            try:
+                thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
+            finally:
+                try:
+                    thumb_rgb.close()
+                except Exception:
+                    pass
+                try:
+                    thumb.close()
+                except Exception:
+                    pass
 
         # stage 디렉토리 준비
         for int_stage in range(STAGE_COUNT):
@@ -330,6 +349,7 @@ def _generate_tiles(filename: str, file_path: str):
                     obj_tile2.save(
                         str(tile_path2), "JPEG", quality=settings.TILE_QUALITY
                     )
+                    obj_tile2.close()
                 progress.generated_tiles += 1
 
                 # ── stage 1 sub-tiles (2x2, 각 4096 → 1024) ──
@@ -355,6 +375,8 @@ def _generate_tiles(filename: str, file_path: str):
                             obj_tile1.save(
                                 str(tile_path1), "JPEG", quality=settings.TILE_QUALITY
                             )
+                            obj_tile1.close()
+                            obj_sub.close()
                         progress.generated_tiles += 1
 
                 # ── stage 0 sub-tiles (8x8, 각 1024 그대로) ──
@@ -377,10 +399,15 @@ def _generate_tiles(filename: str, file_path: str):
                             obj_tile0.save(
                                 str(tile_path0), "JPEG", quality=settings.TILE_QUALITY
                             )
+                            obj_tile0.close()
                         progress.generated_tiles += 1
 
                 # 큰 버퍼 즉시 해제 — 다음 스텝 전 메모리 확보
                 obj_region.close()
+                try:
+                    obj_rgb.close()
+                except Exception:
+                    pass
                 del obj_region, obj_rgb
 
         # 완료 마커 — 현재 슬라이드의 ICC 해시 + 실제 적용 여부 기록

@@ -11,6 +11,9 @@ from typing import Optional, Dict, Tuple
 import numpy as np
 import openslide
 
+MAX_OPEN_SLIDES = 8
+IDLE_SLIDE_TTL_SECONDS = 30 * 60
+
 # ── Hamamatsu NDP.view2 호환 색 보정 상수 ──
 # NDP.view2 는 표시 gamma = 1.8 고정 + 배경을 Target.White.Intensity 로 맞춘다.
 # ICC 프로파일이 임베드되지 않은 Hamamatsu 슬라이드에 한해
@@ -223,12 +226,42 @@ class SlideManager:
         self._generations: Dict[str, int] = {}
         self._lock = threading.Lock()
 
+    def _close_info_locked(self, slide_id: str, info: SlideInfo) -> None:
+        self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
+        try:
+            info.slide.close()
+        except Exception:
+            pass
+
+    def _evict_idle_locked(self, exclude_slide_id: str = "") -> None:
+        """Close idle or least-recently-used OpenSlide handles."""
+        float_now = time.time()
+        for str_sid, info in list(self._slides.items()):
+            if str_sid == exclude_slide_id:
+                continue
+            if info.last_accessed + IDLE_SLIDE_TTL_SECONDS <= float_now:
+                self._slides.pop(str_sid, None)
+                self._close_info_locked(str_sid, info)
+
+        while len(self._slides) > MAX_OPEN_SLIDES:
+            list_candidates = [
+                (str_sid, info)
+                for str_sid, info in self._slides.items()
+                if str_sid != exclude_slide_id
+            ]
+            if not list_candidates:
+                break
+            str_evict_id, info_evict = min(list_candidates, key=lambda item: item[1].last_accessed)
+            self._slides.pop(str_evict_id, None)
+            self._close_info_locked(str_evict_id, info_evict)
+
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
         """슬라이드 열기 (이미 열려있으면 캐시 반환)"""
         with self._lock:
             if slide_id in self._slides:
                 info = self._slides[slide_id]
                 info.touch()
+                self._evict_idle_locked(exclude_slide_id=slide_id)
                 return info
 
             slide = openslide.OpenSlide(file_path)
@@ -236,6 +269,7 @@ class SlideManager:
             self._slides[slide_id] = info
             # 최초 open 시 generation 0 부여 (이미 있으면 유지)
             self._generations.setdefault(slide_id, 0)
+            self._evict_idle_locked(exclude_slide_id=slide_id)
             return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
@@ -244,6 +278,7 @@ class SlideManager:
             info = self._slides.get(slide_id)
             if info:
                 info.touch()
+                self._evict_idle_locked(exclude_slide_id=slide_id)
             return info
 
     def get_generation(self, slide_id: str) -> int:
@@ -254,13 +289,9 @@ class SlideManager:
     def close(self, slide_id: str):
         """슬라이드 닫기 — generation 을 bump 하여 모든 thread-local 핸들을 무효화."""
         with self._lock:
-            self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
             info = self._slides.pop(slide_id, None)
             if info:
-                try:
-                    info.slide.close()
-                except Exception:
-                    pass
+                self._close_info_locked(slide_id, info)
 
     def close_all(self):
         """모든 슬라이드 닫기 — 전체 generation bump."""

@@ -227,7 +227,12 @@ def build_vs_pyramid_from_disk(path_tile_dir: Path, int_tile_size: int,
                             if not path_jp.exists():
                                 continue
                             bool_any = True
-                            np_src = np.asarray(Image.open(path_jp).convert('RGB'))
+                            with Image.open(path_jp) as img_src:
+                                img_rgb = img_src.convert('RGB')
+                                try:
+                                    np_src = np.asarray(img_rgb).copy()
+                                finally:
+                                    img_rgb.close()
                             ah, aw = np_src.shape[:2]
                             np_merged[dy * int_tile_size:dy * int_tile_size + ah,
                                        dx * int_tile_size:dx * int_tile_size + aw] = np_src
@@ -382,13 +387,20 @@ def run_virtual_stain(task_id: str, slide_id: str,
                     try:
                         update_task(task_id, progress=30,
                                     status_msg="Upgrading legacy cache → tile pyramid...")
-                        legacy_png = Image.open(str(png_path))
-                        if legacy_png.mode == 'RGBA':
-                            bg = Image.new('RGB', legacy_png.size, (255, 255, 255))
-                            bg.paste(legacy_png, mask=legacy_png.split()[3])
-                            legacy_arr = np.asarray(bg)
-                        else:
-                            legacy_arr = np.asarray(legacy_png.convert('RGB'))
+                        with Image.open(str(png_path)) as legacy_png:
+                            if legacy_png.mode == 'RGBA':
+                                bg = Image.new('RGB', legacy_png.size, (255, 255, 255))
+                                try:
+                                    bg.paste(legacy_png, mask=legacy_png.split()[3])
+                                    legacy_arr = np.asarray(bg).copy()
+                                finally:
+                                    bg.close()
+                            else:
+                                legacy_rgb = legacy_png.convert('RGB')
+                                try:
+                                    legacy_arr = np.asarray(legacy_rgb).copy()
+                                finally:
+                                    legacy_rgb.close()
                         tile_size_px = int(cached_meta.get("tile_size", 512))
                         levels_meta = generate_vs_tiles(
                             legacy_arr, tile_dir,

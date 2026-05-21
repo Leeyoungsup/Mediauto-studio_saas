@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.63",
+  "version": "1.1.64",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Composites transparent slide padding onto white to remove black viewer letterbox areas."
+  "description": "Bounds Python-side memory growth from AI task results, OpenSlide handles, and large image intermediates."
 }

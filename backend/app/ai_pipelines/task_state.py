@@ -1,51 +1,93 @@
-"""AI 워커 작업 상태 관리 — 진행률, 취소 플래그, 캐시 cleanup.
+"""Shared AI task state for background analysis workers.
 
-routers/ai.py 의 모든 백그라운드 워커(_run_detection, _run_pd_score,
-_run_precise_ihc, _run_virtual_stain) 와 라우트 핸들러가 이 모듈을 통해
-공유 상태 dict 에 접근한다.
-
-설계 메모:
-- _tasks 는 프로세스 메모리에 사는 단일 dict — On-Premise 단일 프로세스 전제.
-- threading.Lock 으로 워커 스레드와 라우트 핸들러 간 동시 접근 직렬화.
-- _update_task 는 사용자 트리거 task 일 때만 auto_ai 의 idle 타이머를 reset
-  (auto_ 접두어 task 는 자동 추론이라 카운트하지 않는다).
+The API routes create task records here and the worker threads update them.
+Large completed results are kept only until the client downloads them, because
+the same payload is also persisted in the AI result cache on disk.
 """
 
+import gc
 import shutil
 import threading
+import time
 from pathlib import Path
 
 # {task_id: {status, progress, status_msg, result, error, cancel_requested, ...}}
 _tasks: dict = {}
 _tasks_lock = threading.Lock()
 
+_FINISHED_TASK_TTL_SECONDS = 60 * 60
+_TASK_CLEANUP_INTERVAL_SECONDS = 60
+_last_task_cleanup_ts = 0.0
+
 
 class TaskCancelled(Exception):
-    """사용자가 추론을 중단 요청했을 때 워커가 raise 하는 예외."""
-    pass
+    """Raised by workers when a user requests task cancellation."""
 
 
 def get_tasks() -> dict:
-    """라우트 핸들러용 — _tasks dict 직접 접근. lock 은 호출자 책임."""
+    """Return the shared task dict. Callers are responsible for locking."""
     return _tasks
 
 
 def get_lock() -> threading.Lock:
-    """라우트 핸들러용 — _tasks_lock 직접 접근."""
+    """Return the shared task lock."""
     return _tasks_lock
 
 
 def update_task(task_id: str, **kwargs) -> None:
-    """워커 진행 상황 갱신. 사용자 task 면 auto_ai idle 타이머도 ping."""
+    """Update a task and ping the auto-AI idle timer for user-triggered tasks."""
+    float_now = time.time()
     with _tasks_lock:
         if task_id in _tasks:
+            _tasks[task_id].setdefault("created_at", float_now)
+            kwargs.setdefault("updated_at", float_now)
             _tasks[task_id].update(kwargs)
+    cleanup_old_tasks()
     if not task_id.startswith("auto_"):
         try:
             from app import auto_ai
             auto_ai.ping_ai_activity()
         except Exception:
             pass
+
+
+def release_task_result(task_id: str) -> bool:
+    """Drop a completed task's large in-memory result after the client fetches it."""
+    bool_released = False
+    float_now = time.time()
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        if task is not None and task.get("result") is not None:
+            task["result"] = None
+            task["result_released"] = True
+            task["result_released_at"] = float_now
+            task["updated_at"] = float_now
+            bool_released = True
+    if bool_released:
+        gc.collect()
+    return bool_released
+
+
+def cleanup_old_tasks() -> None:
+    """Remove finished task records so the global task dict cannot grow forever."""
+    global _last_task_cleanup_ts
+    float_now = time.time()
+    if _last_task_cleanup_ts + _TASK_CLEANUP_INTERVAL_SECONDS > float_now:
+        return
+    _last_task_cleanup_ts = float_now
+
+    list_drop = []
+    with _tasks_lock:
+        for str_task_id, dict_task in list(_tasks.items()):
+            if dict_task.get("status") not in ("completed", "error", "cancelled"):
+                continue
+            float_updated = float(dict_task.get("updated_at") or dict_task.get("created_at") or float_now)
+            if float_updated + _FINISHED_TASK_TTL_SECONDS <= float_now:
+                list_drop.append(str_task_id)
+        for str_task_id in list_drop:
+            _tasks.pop(str_task_id, None)
+    if list_drop:
+        gc.collect()
 
 
 def is_cancel_requested(task_id: str) -> bool:
@@ -55,13 +97,13 @@ def is_cancel_requested(task_id: str) -> bool:
 
 
 def check_cancel(task_id: str) -> None:
-    """체크포인트 — 취소 요청이 있으면 TaskCancelled 발생."""
+    """Raise TaskCancelled when a task cancellation request is pending."""
     if is_cancel_requested(task_id):
         raise TaskCancelled()
 
 
 def cleanup_cache_paths(list_paths) -> None:
-    """취소 시 부분 저장된 캐시 파일/폴더 전부 삭제. 충돌 방지용."""
+    """Remove partially written cache files/directories after cancellation."""
     for p in list_paths:
         if p is None:
             continue

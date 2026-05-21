@@ -1914,7 +1914,8 @@ async def get_thumbnail(
         from app.ndp_color_match import apply_ndp_fit
         # raw 썸네일 확보 (없으면 slide 에서 즉석 생성)
         if thumb_path_raw.exists() and bool_current_tile_cache:
-            obj_rgb = _Image.open(str(thumb_path_raw)).convert("RGB")
+            with _Image.open(str(thumb_path_raw)) as obj_file:
+                obj_rgb = obj_file.convert("RGB")
         else:
             obj_thumb = info.slide.get_thumbnail((int_size, int_size))
             obj_rgb = info.apply_icc(tile_generator.image_to_white_rgb(obj_thumb))

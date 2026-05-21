@@ -283,6 +283,8 @@ def run_marker_detection_pipeline(
 
         icc_tf = info.icc_transform
         def _read_patch_tensor(patch_x, patch_y):
+            patch = None
+            patch_rgb = None
             try:
                 wait_if_viewer_busy()
                 local_slide = get_thread_slide(slide_id, slide_path)
@@ -297,6 +299,17 @@ def run_marker_detection_pipeline(
                 return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
             except Exception:
                 return None
+            finally:
+                if patch_rgb is not None:
+                    try:
+                        patch_rgb.close()
+                    except Exception:
+                        pass
+                if patch is not None:
+                    try:
+                        patch.close()
+                    except Exception:
+                        pass
 
         def _infer_batch(batch_coords, batch_tensors):
             bx, by, bcls, bconf = [], [], [], []
