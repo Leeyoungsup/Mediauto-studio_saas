@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.49",
+  "version": "1.1.52",
   "channel": "production",
-  "release_date": "2026-05-20",
-  "description": "Uses compact icons for Data Linkage table sort controls."
+  "release_date": "2026-05-21",
+  "description": "Paints the AI and Annotation minimap immediately from the loaded sidebar thumbnail before refreshing the 2048px image."
 }

@@ -2,6 +2,28 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.52] - 2026-05-21
+
+### Fixed
+
+- AI and Annotation minimaps now paint immediately from the already-loaded sidebar thumbnail before refreshing with the 2048px thumbnail.
+- Minimap loads now ignore stale image callbacks when switching slides quickly.
+
+## [1.1.51] - 2026-05-21
+
+### Fixed
+
+- Kept the high-resolution slide thumbnail visible under missing AI/Annotation viewer tiles until the actual tiles are ready.
+- Delayed background overview tile preload a little longer so the thumbnail gets the first visible paint.
+
+## [1.1.50] - 2026-05-21
+
+### Changed
+
+- AI and Annotation viewers now keep the slide loading overlay hidden during overview tile preload so the thumbnail fallback can show immediately.
+- Overview tile preload now remains queued in the background instead of being cleared by render refreshes.
+- Visible viewport tiles are promoted ahead of background overview preload when users zoom or navigate.
+
 ## [1.1.49] - 2026-05-20
 
 ### Changed

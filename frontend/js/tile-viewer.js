@@ -103,6 +103,7 @@ export class TileViewer {
         this._colorCorrectionEnabled = false;
         this._maxCacheTiles = 3000;
         this._loadQueue = [];         // 우선순위 로드 큐
+        this._loadQueuedKeys = new Set();
         this._activeLoads = 0;
         // 인플라이트 Image 객체들 — 슬라이드 전환 시 abort 용
         this._inflightImages = new Set();
@@ -236,6 +237,7 @@ export class TileViewer {
         this._tileLoading.clear();
         this._tileFadeStart.clear();
         this._loadQueue = [];
+        this._loadQueuedKeys.clear();
         this._activeLoads = 0;
         this._thumbnailBitmap = null;
         this.detectionCells = [];
@@ -252,11 +254,15 @@ export class TileViewer {
         this._preloadDone = 0;
         this._isPreloading = false;
 
+        const str_preload_slide_id = this.slideId;
+        this._loadThumbnailFallbackImmediate().finally(() => {
+            if (this.slideId !== str_preload_slide_id) return;
+            this._preloadAllStageLevels();
+        });
         this.fitToWindow();
         // 3 stage level 전체 프리로드 — 완료까지 앱은 로딩창 표시
-        this._preloadAllStageLevels();
+        // Overview preload starts after the thumbnail gets first chance to paint.
         // 전역 폴백용 고해상도 썸네일 1회 로드 — 타일/폴백 모두 miss 일 때 최후의 블러 표시
-        this._loadThumbnailFallback();
     }
 
     async _loadThumbnailFallback() {
@@ -302,6 +308,66 @@ export class TileViewer {
         if (str_hi_url) img_hi.src = str_hi_url;
     }
 
+    _loadThumbnailFallbackImmediate() {
+        if (!this.slideId) return Promise.resolve(false);
+        const str_slide_id = this.slideId;
+        const bool_ndp = !!this._colorCorrectionEnabled;
+        return new Promise((resolve) => {
+            let bool_done = false;
+            const finish = (ok = false) => {
+                if (bool_done) return;
+                bool_done = true;
+                resolve(ok);
+            };
+            setTimeout(() => finish(false), 1500);
+
+            const el_sidebar_thumb = document.querySelector(
+                `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
+            );
+            if (!bool_ndp && el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
+                this._thumbnailBitmap = el_sidebar_thumb;
+                this.requestRender();
+                finish(true);
+            } else if (!bool_ndp && el_sidebar_thumb) {
+                el_sidebar_thumb.addEventListener('load', () => {
+                    if (this.slideId !== str_slide_id || el_sidebar_thumb.naturalWidth <= 0) return;
+                    this._thumbnailBitmap = el_sidebar_thumb;
+                    this.requestRender();
+                    finish(true);
+                }, { once: true });
+            }
+
+            api.ensureMediaReady().then(() => {
+                if (this.slideId !== str_slide_id) return finish(false);
+
+                const img_hi = new Image();
+                img_hi.onload = () => {
+                    if (this.slideId !== str_slide_id) return;
+                    this._thumbnailBitmap = img_hi;
+                    this.requestRender();
+                    finish(true);
+                };
+                img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
+                const str_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
+                if (str_hi_url) img_hi.src = str_hi_url;
+
+                const img_small = new Image();
+                img_small.onload = () => {
+                    if (this.slideId !== str_slide_id) return;
+                    if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
+                        this._thumbnailBitmap = img_small;
+                        this.requestRender();
+                    }
+                    finish(true);
+                };
+                img_small.onerror = (e) => console.warn('[tile-viewer] thumbnail load failed', img_small.src, e);
+                const str_small_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
+                if (str_small_url) img_small.src = str_small_url;
+                if (!str_hi_url && !str_small_url) finish(false);
+            }).catch(() => finish(false));
+        });
+    }
+
     _preloadAllStageLevels() {
         if (!this.slideInfo) return;
         // 초기에는 stage 2 (가장 거친) 만 전체 프리로드.
@@ -335,7 +401,7 @@ export class TileViewer {
         }
 
         for (const t of list_tasks) {
-            this._loadQueue.push(t);
+            this._queueTileTask(t);
         }
         this._processLoadQueue();
     }
@@ -1139,7 +1205,6 @@ export class TileViewer {
         // parent / child 분리 — parent 들을 strictly 먼저 다 큐잉한 뒤 child 큐잉.
         // FIFO + MAX_CONCURRENT_LOADS 병렬이라 parent 가 제일 먼저 다 출발해
         // child 보다 빨리 도착할 가능성이 높아진다.
-        this._loadQueue = [];
         const list_parent_tasks = [];
         const list_child_tasks = [];
         const set_parent_enqueued = new Set();
@@ -1249,7 +1314,9 @@ export class TileViewer {
         };
 
         // ── Pass 2a: 썸네일 (최후 폴백) 을 뷰 전체에 한 번만 ──
-        if (bool_any_missing_without_fallback && this._thumbnailBitmap) {
+        const bool_should_draw_thumbnail = !!this._thumbnailBitmap
+            && (bool_any_missing_without_fallback || list_missing_children.length > 0);
+        if (bool_should_draw_thumbnail) {
             const tb = this._thumbnailBitmap;
             const [int_scene_w, int_scene_h] = this.slideInfo.dimensions;
             const [float_thumb_x, float_thumb_y] = this.sceneToCanvas(0, 0);
@@ -1311,8 +1378,7 @@ export class TileViewer {
             const float_db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
             return float_da - float_db;
         });
-        for (const t of list_parent_tasks) this._loadQueue.push(t);
-        for (const t of list_child_tasks) this._loadQueue.push(t);
+        this._queueTileTasksFront([...list_parent_tasks, ...list_child_tasks]);
 
         // 큐에 있는 타일 로딩 시작
         this._processLoadQueue();
@@ -1620,9 +1686,35 @@ export class TileViewer {
 
     // ── 타일 로딩 (병렬, 큐 기반) ──
 
+    _tileTaskKey(task) {
+        return task?.key || `${task.level}/${task.tx}/${task.ty}`;
+    }
+
+    _queueTileTask(task, front = false) {
+        if (!task) return;
+        const key = this._tileTaskKey(task);
+        if (!key || this._tileCache.has(key) || this._tileLoading.has(key)) return;
+        task.key = key;
+        if (this._loadQueuedKeys.has(key)) {
+            if (!front) return;
+            this._loadQueue = this._loadQueue.filter(item => this._tileTaskKey(item) !== key);
+            this._loadQueuedKeys.delete(key);
+        }
+        if (front) this._loadQueue.unshift(task);
+        else this._loadQueue.push(task);
+        this._loadQueuedKeys.add(key);
+    }
+
+    _queueTileTasksFront(tasks) {
+        for (let i = tasks.length - 1; i >= 0; i--) {
+            this._queueTileTask(tasks[i], true);
+        }
+    }
+
     _processLoadQueue() {
         while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
             const task = this._loadQueue.shift();
+            this._loadQueuedKeys.delete(this._tileTaskKey(task));
             this._loadTile(task.level, task.tx, task.ty);
         }
     }
@@ -1698,9 +1790,10 @@ export class TileViewer {
         this._tileLoading.clear();
         this._tileFadeStart.clear();
         this._loadQueue = [];
+        this._loadQueuedKeys.clear();
         this._activeLoads = 0;
         this._thumbnailBitmap = null;
-        this._loadThumbnailFallback();
+        this._loadThumbnailFallbackImmediate();
         this.requestRender();
     }
 
@@ -1710,6 +1803,7 @@ export class TileViewer {
         this._tileLoading.clear();
         this._tileFadeStart.clear();
         this._loadQueue = [];
+        this._loadQueuedKeys.clear();
         this._activeLoads = 0;
         this.requestRender();
     }

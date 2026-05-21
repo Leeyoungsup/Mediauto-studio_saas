@@ -3,7 +3,7 @@
  */
 
 import { api } from './api.js?v=20260520-02';
-import { TileViewer } from './tile-viewer.js?v=20260520-14';
+import { TileViewer } from './tile-viewer.js?v=20260521-04';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -278,7 +278,7 @@ function _setSlideLoadingProgress(pct) {
 }
 
 viewer.onPreloadStart = () => {
-    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = false;
+    if ($slideLoadingOverlay) $slideLoadingOverlay.hidden = true;
     _setSlideLoadingProgress(0);
 };
 
@@ -909,19 +909,46 @@ $viewerContainer.addEventListener('drop', (e) => {
 });
 
 // Minimap
+let _minimapLoadToken = 0;
+function _paintMinimap(slideId, img) {
+    if (!img || currentSlideId !== slideId || img.naturalWidth <= 0) return false;
+    minimapImage = img;
+    $minimapCanvas.width = img.naturalWidth || img.width;
+    $minimapCanvas.height = img.naturalHeight || img.height;
+    $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
+    $minimapContainer.hidden = false;
+    $minimapContainer.classList.remove('minimized');
+    if ($minimapIcon) $minimapIcon.setAttribute('d', 'M3 7h8');
+    _setMinimapDisplaySize(img);
+    updateMinimap();
+    return true;
+}
+
+function _trySidebarMinimap(slideId, token) {
+    const thumb = document.querySelector(`.slide-list-item[data-slide-id="${slideId}"] .slide-thumb`);
+    if (!thumb) return false;
+    if (thumb.complete && thumb.naturalWidth > 0) {
+        return _paintMinimap(slideId, thumb);
+    }
+    thumb.addEventListener('load', () => {
+        if (token === _minimapLoadToken) _paintMinimap(slideId, thumb);
+    }, { once: true });
+    return false;
+}
+
 async function loadMinimap(slideId) {
+    const token = ++_minimapLoadToken;
+    minimapImage = null;
+    if ($minimapContainer) $minimapContainer.hidden = true;
+
+    _trySidebarMinimap(slideId, token);
+
     await api.ensureMediaReady();
+    if (token !== _minimapLoadToken || currentSlideId !== slideId) return;
     const img = new Image();
     img.onload = () => {
-        minimapImage = img;
-        $minimapCanvas.width = img.width;
-        $minimapCanvas.height = img.height;
-        $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
-        $minimapContainer.hidden = false;
-        $minimapContainer.classList.remove('minimized');
-        if ($minimapIcon) $minimapIcon.setAttribute('d', 'M3 7h8');
-        _setMinimapDisplaySize(img);
-        updateMinimap();
+        if (token !== _minimapLoadToken) return;
+        _paintMinimap(slideId, img);
     };
     const str_url = api.thumbnailUrl(slideId, 2048);
     if (str_url) img.src = str_url;

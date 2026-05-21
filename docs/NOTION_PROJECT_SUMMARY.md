@@ -7,9 +7,9 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.49 |
+| 현재 버전 | 1.1.52 |
 | 릴리스 채널 | production |
-| 최신 릴리스 | 2026-05-20 |
+| 최신 릴리스 | 2026-05-21 |
 | 배포 형태 | 병원 내부망 On-Premise |
 | 주요 사용자 | 병리과 의사, 연구자, 관리자, viewer 계정 |
 | 핵심 목적 | WSI 조회, Annotation, AI 분석, 프로젝트 단위 운영, 감사 추적 |
@@ -41,6 +41,18 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.52
+- Viewer minimap first paint: AI and Annotation minimaps now reuse the already-loaded sidebar thumbnail immediately, then refresh with the authenticated 2048px image.
+
+### v1.1.51
+- Viewer first paint refinement: high-resolution thumbnails now stay visible while missing tiles arrive, and overview preload waits longer for the thumbnail to paint first.
+
+### v1.1.50
+
+- AI and Annotation viewers now keep the slide loading overlay hidden during overview tile preload so the thumbnail fallback can show immediately.
+- Overview tile preload now remains queued in the background instead of being cleared by render refreshes.
+- Visible viewport tiles are promoted ahead of background overview preload when users zoom or navigate.
 
 ### v1.1.49
 
