@@ -593,10 +593,10 @@ export const api = {
         return res.json();
     },
 
-    thumbnailUrl(slideId, size = 2048, ndpMatch = false) {
+    thumbnailUrl(slideId, size = 300, ndpMatch = false) {
         const str_ticket = _getMediaTicketSync();
         if (!str_ticket) return '';
-        const int_size = Math.max(2048, Number(size) || 2048);
+        const int_size = Math.max(64, Math.min(8192, Number(size) || 300));
         const str_ndp = ndpMatch ? '&ndp=true' : '';
         return `${API_BASE}/slides/${slideId}/thumbnail?size=${int_size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
@@ -610,10 +610,10 @@ export const api = {
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
-    thumbnailUrlByName(filename, path = '', size = 2048) {
+    thumbnailUrlByName(filename, path = '', size = 300) {
         const str_ticket = _getMediaTicketSync();
         if (!str_ticket) return '';
-        const int_size = Math.max(2048, Number(size) || 2048);
+        const int_size = Math.max(64, Math.min(8192, Number(size) || 300));
         return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${int_size}&mt=${encodeURIComponent(str_ticket)}`;
     },
 

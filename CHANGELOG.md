@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.65] - 2026-05-21
+
+### Fixed
+
+- Thumbnail URL helpers now honor small sizes such as 300px instead of forcing every thumbnail request to at least 2048px.
+
 ## [1.1.64] - 2026-05-21
 
 ### Fixed

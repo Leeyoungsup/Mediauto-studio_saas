@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.64",
+  "version": "1.1.65",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Bounds Python-side memory growth from AI task results, OpenSlide handles, and large image intermediates."
+  "description": "Allows compact 300px thumbnail requests instead of forcing thumbnails to 2048px."
 }
