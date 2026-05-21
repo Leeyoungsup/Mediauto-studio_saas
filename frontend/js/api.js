@@ -204,6 +204,22 @@ async function _authFetch(url, options = {}) {
     return res;
 }
 
+async function _jsonOrThrow(res, label = 'API') {
+    const text = await res.text();
+    if (!res.ok) {
+        throw new Error(text || `${label} failed with HTTP ${res.status}`);
+    }
+    if (!text.trim()) {
+        throw new Error(`${label} returned an empty response`);
+    }
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        const preview = text.slice(0, 160).replace(/\s+/g, ' ').trim();
+        throw new Error(`${label} returned invalid JSON${preview ? `: ${preview}` : ''}`);
+    }
+}
+
 export const api = {
     // ── 슬라이드 ──
 
@@ -625,8 +641,7 @@ export const api = {
         if (roiPolygons) form.append('roi_polygons', JSON.stringify(roiPolygons));
         form.append('tissue_type', tissueType);
         const res = await _authFetch(`${API_BASE}/ai/pd-score`, { method: 'POST', body: form });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        return _jsonOrThrow(res, 'Quanti PD-L1 start');
     },
 
     /** Quanti IHC 시작 (현재 HER2 만 지원) */
@@ -688,8 +703,12 @@ export const api = {
     /** 작업 상태 조회 */
     async getTaskStatus(taskId) {
         const res = await _authFetch(`${API_BASE}/ai/task/${taskId}`);
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        return _jsonOrThrow(res, 'AI task status');
+    },
+
+    async getTaskResult(taskId) {
+        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}/result`);
+        return _jsonOrThrow(res, 'AI task result');
     },
 
     /** 실행 중인 AI task 를 취소 요청. 워커는 다음 체크포인트에서 중단하고 부분 캐시를 정리. */

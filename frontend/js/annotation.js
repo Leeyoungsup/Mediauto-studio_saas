@@ -2,7 +2,7 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260520-02';
+import { api } from './api.js?v=20260521-11';
 import { TileViewer } from './tile-viewer.js?v=20260521-07';
 import { showVisualization } from './visualization.js';
 
@@ -3799,7 +3799,8 @@ async function startDetection() {
             }
 
             if (st.status === 'completed') {
-                onDetectionComplete(st.result, roiPolygons, tissueType);
+                const result = await api.getTaskResult(task_id);
+                onDetectionComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
@@ -5917,7 +5918,8 @@ async function startVirtualStain(stainType) {
             setStatus(msg);
 
             if (st.status === 'completed') {
-                onVirtualStainComplete(st.result);
+                const result = await api.getTaskResult(task_id);
+                onVirtualStainComplete(result);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
@@ -6046,7 +6048,8 @@ async function startPdScore() {
             $progressLabel.textContent = 'PD-L1 Detection';
 
             if (st.status === 'completed') {
-                onPdScoreComplete(st.result, roiPolygons, tissueType);
+                const result = await api.getTaskResult(task_id);
+                onPdScoreComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
@@ -6175,7 +6178,8 @@ async function startPreciseIhc(marker) {
             $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
-                onPreciseIhcComplete(st.result, roiPolygons, marker);
+                const result = await api.getTaskResult(task_id);
+                onPreciseIhcComplete(result, roiPolygons, marker);
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);

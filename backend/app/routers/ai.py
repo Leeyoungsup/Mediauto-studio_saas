@@ -244,7 +244,7 @@ async def get_task_status(task_id: str):
         "status_msg": task.get("status_msg", ""),
     }
     if task["status"] == "completed":
-        response["result"] = task["result"]
+        response["has_result"] = task.get("result") is not None
     elif task["status"] == "error":
         response["error"] = task["error"]
 

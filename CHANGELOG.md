@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.56] - 2026-05-21
+
+### Fixed
+
+- AI task polling no longer embeds large result JSON in `/api/ai/task/{task_id}` responses.
+- AI, Annotation, PD-L1, IHC, and VS IHC viewers now fetch the large task result once from `/api/ai/task/{task_id}/result` after completion.
+
+## [1.1.55] - 2026-05-21
+
+### Fixed
+
+- Quanti PD-L1 start/status polling now reports empty or malformed API responses clearly instead of showing the browser's generic JSON parse error.
+
 ## [1.1.54] - 2026-05-21
 
 ### Fixed
