@@ -2,6 +2,27 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.56] - 2026-05-21
+
+### Fixed
+
+- NDP/color-matched viewer first paint now waits longer for the cached NDP thumbnail before overview tile preload starts.
+- Failed NDP thumbnail loads still fall through to tile loading instead of blocking the viewer indefinitely.
+
+## [1.1.55] - 2026-05-21
+
+### Changed
+
+- NDP/color-matched viewer first paint now prioritizes the cached NDP thumbnail instead of briefly showing the raw thumbnail.
+- NDP high-resolution preview loading is deferred until after the cached thumbnail has painted, reducing visual color jumps.
+
+## [1.1.54] - 2026-05-21
+
+### Fixed
+
+- Color-matched slides now use the already-loaded raw thumbnail as the immediate viewer fallback while corrected thumbnails/previews are generated.
+- Viewer first paint now uses a white background instead of black when no fallback image is available yet.
+
 ## [1.1.53] - 2026-05-21
 
 ### Added

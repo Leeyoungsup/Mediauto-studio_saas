@@ -319,7 +319,11 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            setTimeout(() => finish(false), 1500);
+            // Non-NDP slides can fall back quickly to raw/list thumbnails.
+            // NDP slides must avoid raw-color first paint, so wait for the
+            // color-matched thumbnail before allowing overview tile preload.
+            const int_first_paint_timeout_ms = bool_ndp ? 30000 : 1500;
+            setTimeout(() => finish(false), int_first_paint_timeout_ms);
 
             const el_sidebar_thumb = document.querySelector(
                 `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
@@ -340,30 +344,49 @@ export class TileViewer {
             api.ensureMediaReady().then(() => {
                 if (this.slideId !== str_slide_id) return finish(false);
 
-                const img_hi = new Image();
-                img_hi.onload = () => {
-                    if (this.slideId !== str_slide_id) return;
-                    this._thumbnailBitmap = img_hi;
-                    this.requestRender();
-                    finish(true);
-                };
-                img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
-                const str_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
-                if (str_hi_url) img_hi.src = str_hi_url;
-
-                const img_small = new Image();
-                img_small.onload = () => {
-                    if (this.slideId !== str_slide_id) return;
-                    if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
-                        this._thumbnailBitmap = img_small;
+                const loadImage = (url, label, applyImage, onError) => {
+                    if (!url) return false;
+                    const img = new Image();
+                    img.onload = () => {
+                        if (this.slideId !== str_slide_id) return;
+                        applyImage(img);
                         this.requestRender();
-                    }
-                    finish(true);
+                        finish(true);
+                    };
+                    img.onerror = (e) => {
+                        console.warn(`[tile-viewer] ${label} load failed`, img.src, e);
+                        if (typeof onError === 'function') onError();
+                    };
+                    img.src = url;
+                    return true;
                 };
-                img_small.onerror = (e) => console.warn('[tile-viewer] thumbnail load failed', img_small.src, e);
-                const str_small_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
-                if (str_small_url) img_small.src = str_small_url;
-                if (!str_hi_url && !str_small_url) finish(false);
+
+                const applyHi = (img) => { this._thumbnailBitmap = img; };
+                const applyThumb = (img) => {
+                    if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
+                        this._thumbnailBitmap = img;
+                    }
+                };
+
+                const str_raw_thumb_url = api.thumbnailUrl(str_slide_id, 2048, false);
+                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
+                const str_match_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
+
+                let bool_started = false;
+                // For color-matched slides, keep the first paint color-stable:
+                // thumbnail?ndp=true is cached on disk, while preview?ndp=true is generated on demand.
+                if (bool_ndp) {
+                    bool_started = loadImage(str_match_thumb_url, 'NDP thumbnail', applyHi, () => finish(false)) || bool_started;
+                    setTimeout(() => {
+                        if (this.slideId === str_slide_id && this._thumbnailBitmap) {
+                            loadImage(str_match_hi_url, 'NDP hi-res preview', applyHi);
+                        }
+                    }, 250);
+                } else {
+                    bool_started = loadImage(str_raw_thumb_url, 'raw thumbnail', applyThumb) || bool_started;
+                    bool_started = loadImage(str_match_hi_url, 'hi-res preview', applyHi) || bool_started;
+                }
+                if (!bool_started) finish(false);
             }).catch(() => finish(false));
         });
     }
@@ -1171,13 +1194,13 @@ export class TileViewer {
         // VS overlay 등 기타 CSS 픽셀 기반 코드는 dpr transform 으로 복구 후 실행.
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (!this.slideInfo) {
-            this.ctx.fillStyle = '#000';
+            this.ctx.fillStyle = '#fff';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
             return;
         }
 
         const ctx = this.ctx;
-        ctx.fillStyle = '#000';
+        ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         ctx.imageSmoothingEnabled = false;
 
