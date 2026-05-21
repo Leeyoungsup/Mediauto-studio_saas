@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.61] - 2026-05-21
+
+### Added
+
+- Added `backend/scripts/compact_ai_result_cache.py` to compact existing object-cell AI result JSON cache files across `backend/ai_results`.
+
 ## [1.1.60] - 2026-05-21
 
 ### Changed

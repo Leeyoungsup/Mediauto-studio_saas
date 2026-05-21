@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.60",
+  "version": "1.1.61",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Compacts AI cell result JSON by storing cells as arrays and normalizing them on the client."
+  "description": "Adds a maintenance script to compact existing AI result cache JSON files."
 }
