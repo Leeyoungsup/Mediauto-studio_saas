@@ -969,15 +969,39 @@ function updateMinimap() {
     $minimapViewport.style.height = `${Math.max(4, vr.height * sy)}px`;
 }
 
-$minimapCanvas.addEventListener('click', (e) => {
+function _navigateMinimapEvent(e) {
     if (!currentSlideInfo) return;
     const rect = $minimapCanvas.getBoundingClientRect();
     const [imgW, imgH] = currentSlideInfo.dimensions;
+    const float_x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const float_y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     viewer.navigateTo(
-        ((e.clientX - rect.left) / rect.width) * imgW,
-        ((e.clientY - rect.top) / rect.height) * imgH
+        float_x * imgW,
+        float_y * imgH
     );
+}
+
+let _minimapPanning = false;
+$minimapCanvas.addEventListener('click', _navigateMinimapEvent);
+$minimapCanvas.addEventListener('pointerdown', (e) => {
+    if (!currentSlideInfo || e.button !== 0) return;
+    e.preventDefault();
+    _minimapPanning = true;
+    $minimapCanvas.setPointerCapture?.(e.pointerId);
+    _navigateMinimapEvent(e);
 });
+$minimapCanvas.addEventListener('pointermove', (e) => {
+    if (!_minimapPanning) return;
+    e.preventDefault();
+    _navigateMinimapEvent(e);
+});
+function _stopMinimapPanning(e) {
+    if (!_minimapPanning) return;
+    _minimapPanning = false;
+    try { $minimapCanvas.releasePointerCapture?.(e.pointerId); } catch (_) {}
+}
+$minimapCanvas.addEventListener('pointerup', _stopMinimapPanning);
+$minimapCanvas.addEventListener('pointercancel', _stopMinimapPanning);
 
 const $minimapToggle = $('#minimap-toggle');
 const $minimapIcon = $('#minimap-toggle-icon');

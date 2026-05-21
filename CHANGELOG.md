@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.53] - 2026-05-21
+
+### Added
+
+- AI and Annotation minimaps now support drag panning, keeping the main viewer centered under the pointer while dragging.
+
 ## [1.1.52] - 2026-05-21
 
 ### Fixed

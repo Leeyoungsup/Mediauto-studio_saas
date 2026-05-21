@@ -7,7 +7,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.52 |
+| 현재 버전 | 1.1.53 |
 | 릴리스 채널 | production |
 | 최신 릴리스 | 2026-05-21 |
 | 배포 형태 | 병원 내부망 On-Premise |
@@ -41,6 +41,9 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v1.1.53
+- Minimap interaction: dragging inside the AI and Annotation minimap now pans the main viewer continuously.
 
 ### v1.1.52
 - Viewer minimap first paint: AI and Annotation minimaps now reuse the already-loaded sidebar thumbnail immediately, then refresh with the authenticated 2048px image.

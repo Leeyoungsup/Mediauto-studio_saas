@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.52",
+  "version": "1.1.53",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Paints the AI and Annotation minimap immediately from the loaded sidebar thumbnail before refreshing the 2048px image."
+  "description": "Adds drag panning on the AI and Annotation minimap so the viewer follows pointer movement."
 }
