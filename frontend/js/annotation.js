@@ -2,7 +2,7 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260521-11';
+import { api } from './api.js?v=20260521-13';
 import { TileViewer } from './tile-viewer.js?v=20260521-07';
 import { showVisualization } from './visualization.js';
 
@@ -2145,7 +2145,8 @@ function renderAnnotationPanel() {
         const cell = document.createElement('span');
         cell.className = 'ann-sort-header' + (_annotationListSort.key === key ? ' active' : '');
         cell.dataset.sortKey = key;
-        cell.textContent = `${label}${_annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' ↑' : ' ↓') : ''}`;
+        const sortIcon = _annotationListSort.key === key ? (_annotationListSort.dir === 'asc' ? ' \u2191' : ' \u2193') : '';
+        cell.textContent = `${label}${sortIcon}`;
         cell.title = `Sort by ${label}`;
         cell.addEventListener('click', () => {
             if (_annotationListSort.key === key) {
@@ -3799,7 +3800,7 @@ async function startDetection() {
             }
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onDetectionComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
@@ -4430,6 +4431,20 @@ function setProgress(pct, statusMsg = '') {
 
 function setStatus(msg) {
     $statusText.textContent = msg;
+}
+
+function _makeResultDownloadProgress(label = 'Loading result JSON') {
+    return ({ loaded, total, percent }) => {
+        if (percent != null) {
+            const shown = Math.min(99, Math.max(1, percent));
+            setProgress(shown, `${label} ${percent}%`);
+            setStatus(`${label}: ${percent}%`);
+            return;
+        }
+        const mb = loaded / (1024 * 1024);
+        setProgress(99, `${label} ${mb.toFixed(1)} MB`);
+        setStatus(`${label}: ${mb.toFixed(1)} MB`);
+    };
 }
 
 function sleep(ms) {
@@ -5918,7 +5933,7 @@ async function startVirtualStain(stainType) {
             setStatus(msg);
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onVirtualStainComplete(result);
                 return;
             } else if (st.status === 'error') {
@@ -6048,7 +6063,7 @@ async function startPdScore() {
             $progressLabel.textContent = 'PD-L1 Detection';
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onPdScoreComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
@@ -6178,7 +6193,7 @@ async function startPreciseIhc(marker) {
             $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onPreciseIhcComplete(result, roiPolygons, marker);
                 return;
             } else if (st.status === 'error') {

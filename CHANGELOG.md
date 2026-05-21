@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.58] - 2026-05-21
+
+### Added
+
+- AI result JSON downloads now update the AI progress bar with percent or downloaded MB while large results are fetched.
+
+## [1.1.57] - 2026-05-21
+
+### Fixed
+
+- AI task status responses now use FastAPI's native JSON response path.
+- Empty or malformed AI task status/result responses are retried briefly before surfacing an error.
+
 ## [1.1.56] - 2026-05-21
 
 ### Fixed

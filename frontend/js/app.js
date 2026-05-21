@@ -3,7 +3,7 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260521-11';
+import { api } from './api.js?v=20260521-13';
 import { TileViewer } from './tile-viewer.js?v=20260521-07';
 import { showVisualization } from './visualization.js';
 
@@ -2205,7 +2205,7 @@ function _markBrowseSlideClinicalInfo(slideId, clinicalInfo, caseName = '') {
         if (cell) {
             cell.classList.toggle('ready', hasClinical);
             cell.classList.toggle('empty', !hasClinical);
-            cell.textContent = hasClinical ? '✓' : '-';
+            cell.textContent = hasClinical ? '\u2713' : '-';
             cell.title = hasClinical ? 'Clinical info saved' : 'No clinical info';
         }
     });
@@ -2357,7 +2357,7 @@ async function startDetection() {
             }
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onDetectionComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
@@ -2994,6 +2994,20 @@ function setStatus(msg) {
     $statusText.textContent = msg;
 }
 
+function _makeResultDownloadProgress(label = 'Loading result JSON') {
+    return ({ loaded, total, percent }) => {
+        if (percent != null) {
+            const shown = Math.min(99, Math.max(1, percent));
+            setProgress(shown, `${label} ${percent}%`);
+            setStatus(`${label}: ${percent}%`);
+            return;
+        }
+        const mb = loaded / (1024 * 1024);
+        setProgress(99, `${label} ${mb.toFixed(1)} MB`);
+        setStatus(`${label}: ${mb.toFixed(1)} MB`);
+    };
+}
+
 function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
@@ -3512,7 +3526,7 @@ function _makeSlideStateCell(kind, state, title) {
     cell.className = `slide-state-cell ${kind} ${state}`;
     cell.title = title || '';
     if (state === 'ready') {
-        cell.textContent = '✓';
+        cell.textContent = '\u2713';
     } else if (state === 'running') {
         cell.textContent = '';
     } else {
@@ -3753,7 +3767,7 @@ async function _refreshAiActiveBadges() {
                 const hasAi = _hasSlideAiResult(_findSlideByFilename(fn));
                 aiCell.classList.remove('running', hasAi ? 'empty' : 'ready');
                 aiCell.classList.add(hasAi ? 'ready' : 'empty');
-                aiCell.textContent = hasAi ? '✓' : '-';
+                aiCell.textContent = hasAi ? '\u2713' : '-';
                 aiCell.title = hasAi ? 'AI result exists' : 'No AI result';
             }
         }
@@ -4292,7 +4306,7 @@ async function startVirtualStain(stainType) {
             setStatus(msg);
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onVirtualStainComplete(result);
                 return;
             } else if (st.status === 'error') {
@@ -4403,7 +4417,7 @@ async function startPdScore() {
             $progressLabel.textContent = 'PD-L1 Detection';
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onPdScoreComplete(result, roiPolygons, tissueType);
                 return;
             } else if (st.status === 'error') {
@@ -4533,7 +4547,7 @@ async function startPreciseIhc(marker) {
             $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id);
+                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
                 onPreciseIhcComplete(result, roiPolygons, marker);
                 return;
             } else if (st.status === 'error') {

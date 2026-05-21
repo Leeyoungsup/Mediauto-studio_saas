@@ -248,11 +248,7 @@ async def get_task_status(task_id: str):
     elif task["status"] == "error":
         response["error"] = task["error"]
 
-    loop = asyncio.get_running_loop()
-    bytes_body = await loop.run_in_executor(
-        None, lambda: json.dumps(response).encode("utf-8")
-    )
-    return Response(content=bytes_body, media_type="application/json")
+    return response
 
 
 @router.post("/task/{task_id}/cancel")

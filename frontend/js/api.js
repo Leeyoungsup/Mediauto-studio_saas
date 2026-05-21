@@ -220,6 +220,90 @@ async function _jsonOrThrow(res, label = 'API') {
     }
 }
 
+function _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function _isTransientJsonResponseError(err) {
+    const msg = String(err?.message || '');
+    return msg.includes('returned an empty response') || msg.includes('returned invalid JSON');
+}
+
+async function _fetchJsonWithRetry(fn_fetch, label = 'API', tries = 3) {
+    let lastErr = null;
+    for (let i = 0; i < tries; i++) {
+        try {
+            const res = await fn_fetch();
+            return await _jsonOrThrow(res, label);
+        } catch (err) {
+            lastErr = err;
+            if (!_isTransientJsonResponseError(err) || i === tries - 1) break;
+            await _sleep(250 * (i + 1));
+        }
+    }
+    throw lastErr;
+}
+
+async function _jsonOrThrowWithProgress(res, label = 'API', onProgress = null) {
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `${label} failed with HTTP ${res.status}`);
+    }
+
+    const total = Number(res.headers.get('content-length') || 0);
+    if (!res.body || typeof res.body.getReader !== 'function') {
+        return _jsonOrThrow(res, label);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let loaded = 0;
+    let text = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        loaded += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+        if (typeof onProgress === 'function') {
+            onProgress({
+                loaded,
+                total,
+                percent: total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null,
+            });
+        }
+    }
+    text += decoder.decode();
+    if (typeof onProgress === 'function') {
+        onProgress({ loaded, total, percent: total > 0 ? 100 : null });
+    }
+
+    if (!text.trim()) {
+        throw new Error(`${label} returned an empty response`);
+    }
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        const preview = text.slice(0, 160).replace(/\s+/g, ' ').trim();
+        throw new Error(`${label} returned invalid JSON${preview ? `: ${preview}` : ''}`);
+    }
+}
+
+async function _fetchJsonWithProgressRetry(fn_fetch, label = 'API', onProgress = null, tries = 3) {
+    let lastErr = null;
+    for (let i = 0; i < tries; i++) {
+        try {
+            const res = await fn_fetch();
+            return await _jsonOrThrowWithProgress(res, label, onProgress);
+        } catch (err) {
+            lastErr = err;
+            if (!_isTransientJsonResponseError(err) || i === tries - 1) break;
+            await _sleep(250 * (i + 1));
+        }
+    }
+    throw lastErr;
+}
+
 export const api = {
     // ── 슬라이드 ──
 
@@ -702,13 +786,20 @@ export const api = {
 
     /** 작업 상태 조회 */
     async getTaskStatus(taskId) {
-        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}`);
-        return _jsonOrThrow(res, 'AI task status');
+        return _fetchJsonWithRetry(
+            () => _authFetch(`${API_BASE}/ai/task/${taskId}`),
+            'AI task status',
+            4
+        );
     },
 
-    async getTaskResult(taskId) {
-        const res = await _authFetch(`${API_BASE}/ai/task/${taskId}/result`);
-        return _jsonOrThrow(res, 'AI task result');
+    async getTaskResult(taskId, onProgress = null) {
+        return _fetchJsonWithProgressRetry(
+            () => _authFetch(`${API_BASE}/ai/task/${taskId}/result`),
+            'AI task result',
+            onProgress,
+            3
+        );
     },
 
     /** 실행 중인 AI task 를 취소 요청. 워커는 다음 체크포인트에서 중단하고 부분 캐시를 정리. */
