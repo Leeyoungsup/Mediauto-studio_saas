@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.65",
+  "version": "1.1.67",
   "channel": "production",
   "release_date": "2026-05-21",
-  "description": "Allows compact 300px thumbnail requests instead of forcing thumbnails to 2048px."
+  "description": "Keeps viewer fallback thumbnails at 2048px while slide lists use compact 300px thumbnails."
 }

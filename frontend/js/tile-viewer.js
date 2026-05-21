@@ -13,6 +13,7 @@
 import { api } from './api.js';
 
 const TILE_SIZE = 1024;
+const VIEWER_THUMBNAIL_SIZE = 2048;
 // 타일 동시 로딩 상한 — 브라우저 HTTP/1.1 per-origin 제한(6)에 맞춘다.
 // 이보다 크게 잡으면 남는 요청이 브라우저 큐에 박혀 abort 불가 상태가 되고,
 // 팬/줌으로 더 이상 필요 없어진 좀비 요청들이 _activeLoads 슬롯을 계속 점유해
@@ -276,24 +277,15 @@ export class TileViewer {
 
         // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms).
         // 사이드바 썸네일은 ndp 보정 안 된 raw 라 색보정 ON 상태라면 사용 안 함.
-        const el_sidebar_thumb = document.querySelector(
-            `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
-        );
-        if (!bool_ndp && el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
-            this._thumbnailBitmap = el_sidebar_thumb;
-        }
-
         // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드
         const img_small = new Image();
         img_small.onload = () => {
             if (this.slideId !== str_slide_id) return;
-            if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
-                this._thumbnailBitmap = img_small;
-                this.requestRender();
-            }
+            this._thumbnailBitmap = img_small;
+            this.requestRender();
         };
         img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
-        const str_small_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
+        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
         if (str_small_url) img_small.src = str_small_url;
 
         // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
@@ -304,7 +296,7 @@ export class TileViewer {
             this.requestRender();
         };
         img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
-        const str_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
+        const str_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
         if (str_hi_url) img_hi.src = str_hi_url;
     }
 
@@ -320,25 +312,6 @@ export class TileViewer {
                 resolve(ok);
             };
             setTimeout(() => finish(false), 1500);
-
-            const el_sidebar_thumb = document.querySelector(
-                `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
-            );
-            // Use the already-loaded sidebar thumbnail as an immediate placeholder.
-            // For NDP color correction slides this may be the raw thumbnail, but it is
-            // still much better than a black canvas while the corrected 2048 image is generated.
-            if (el_sidebar_thumb && el_sidebar_thumb.complete && el_sidebar_thumb.naturalWidth > 0) {
-                this._thumbnailBitmap = el_sidebar_thumb;
-                this.requestRender();
-                finish(true);
-            } else if (el_sidebar_thumb) {
-                el_sidebar_thumb.addEventListener('load', () => {
-                    if (this.slideId !== str_slide_id || el_sidebar_thumb.naturalWidth <= 0) return;
-                    this._thumbnailBitmap = el_sidebar_thumb;
-                    this.requestRender();
-                    finish(true);
-                }, { once: true });
-            }
 
             api.ensureMediaReady().then(() => {
                 if (this.slideId !== str_slide_id) return finish(false);
@@ -361,16 +334,12 @@ export class TileViewer {
                 };
 
                 const applyHi = (img) => { this._thumbnailBitmap = img; };
-                const applyThumb = (img) => {
-                    if (!this._thumbnailBitmap || this._thumbnailBitmap.naturalWidth <= 300) {
-                        this._thumbnailBitmap = img;
-                    }
-                };
+                const applyThumb = (img) => { this._thumbnailBitmap = img; };
 
-                const str_raw_thumb_url = api.thumbnailUrl(str_slide_id, 2048, false);
-                const str_raw_hi_url = api.previewUrl(str_slide_id, 2048, false);
-                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, 2048, bool_ndp);
-                const str_match_hi_url = api.previewUrl(str_slide_id, 2048, bool_ndp);
+                const str_raw_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false);
+                const str_raw_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false);
+                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
+                const str_match_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
 
                 let bool_started = false;
                 // Raw thumbnail is the fastest stable fallback, especially while NDP-match assets are generated.

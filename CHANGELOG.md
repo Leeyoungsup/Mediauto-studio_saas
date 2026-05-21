@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.67] - 2026-05-21
+
+### Fixed
+
+- Viewer canvas fallback thumbnails now use dedicated 2048px image requests instead of reusing the 300px sidebar list thumbnails.
+- AI and Annotation pages now load the refreshed tile viewer bundle.
+
+## [1.1.66] - 2026-05-21
+
+### Fixed
+
+- Data Linkage now loads the refreshed API helper so linked-image thumbnail strips use 300px requests; the main preview remains 2048px for zooming.
+
 ## [1.1.65] - 2026-05-21
 
 ### Fixed
