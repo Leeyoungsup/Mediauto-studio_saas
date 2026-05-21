@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.62] - 2026-05-21
+
+### Changed
+
+- Compact slide lists, Home recent slide cards, and Data Linkage thumbnail strips now request 300px thumbnails instead of 2048px images.
+
 ## [1.1.61] - 2026-05-21
 
 ### Added

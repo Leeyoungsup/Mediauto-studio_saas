@@ -2,7 +2,7 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260521-15';
+import { api } from './api.js?v=20260521-16';
 import { TileViewer } from './tile-viewer.js?v=20260521-07';
 import { showVisualization } from './visualization.js';
 
@@ -5132,9 +5132,9 @@ async function loadSlideList() {
             thumb.loading = 'lazy';
             const str_thumb_filename = s.filename;
             const str_thumb_path = currentBrowsePath;
-            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 2048);
+            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300);
             api.attachMediaImageRetry(thumb,
-                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 2048),
+                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300),
                 () => { thumb.style.display = 'none'; });
 
             const name = document.createElement('div');

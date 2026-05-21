@@ -245,7 +245,7 @@ import { api } from './api.js?v=20260520-03';
             btn.setAttribute('aria-label', `Select ${slide.filename || `image ${index + 1}`}`);
             btn.setAttribute('aria-pressed', index === 0 ? 'true' : 'false');
             const img = document.createElement('img');
-            const setSrc = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 2048);
+            const setSrc = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 300);
             img.src = setSrc();
             api.attachMediaImageRetry?.(img, setSrc);
             btn.appendChild(img);
