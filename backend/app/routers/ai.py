@@ -284,7 +284,7 @@ async def get_task_result(task_id: str):
     obj_result = task["result"]
     loop = asyncio.get_running_loop()
     bytes_body = await loop.run_in_executor(
-        None, lambda: json.dumps(obj_result).encode("utf-8")
+        None, lambda: json.dumps(obj_result, separators=(',', ':')).encode("utf-8")
     )
     return Response(content=bytes_body, media_type="application/json")
 

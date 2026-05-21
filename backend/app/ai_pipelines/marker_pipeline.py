@@ -42,6 +42,48 @@ from app.slide_manager import slide_manager
 from app.thread_slide_pool import get_thread_slide
 
 
+def _compact_cell(cell: dict) -> dict:
+    if isinstance(cell, (list, tuple)):
+        return list(cell)
+    compact = [
+        round(float(cell.get("x", 0.0)), 2),
+        round(float(cell.get("y", 0.0)), 2),
+        int(cell.get("class_id", 0)),
+        round(float(cell.get("confidence", 0.0)), 4),
+    ]
+    if cell.get("hidden") or cell.get("exclude_from_score"):
+        compact.extend([bool(cell.get("hidden")), bool(cell.get("exclude_from_score"))])
+    return compact
+
+
+def _compact_result_payload(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return result
+    for key in ("cells", "excluded_cells"):
+        cells = result.get(key)
+        if isinstance(cells, list):
+            result[key] = [_compact_cell(c) for c in cells if isinstance(c, (dict, list, tuple))]
+    if isinstance(result.get("cells"), list):
+        result["total_cells"] = len(result["cells"])
+    return result
+
+
+def _cell_class_id(cell) -> int:
+    if isinstance(cell, (list, tuple)):
+        return int(cell[2]) if len(cell) > 2 else 0
+    if isinstance(cell, dict):
+        return int(cell.get("class_id", 0))
+    return 0
+
+
+def _cell_confidence(cell) -> float:
+    if isinstance(cell, (list, tuple)):
+        return float(cell[3]) if len(cell) > 3 else 0.0
+    if isinstance(cell, dict):
+        return float(cell.get("confidence", 0.0))
+    return 0.0
+
+
 def run_marker_detection_pipeline(
     task_id, slide_id, roi_polygons,
     dict_config, cache_path,
@@ -85,6 +127,13 @@ def run_marker_detection_pipeline(
                 if list_exclude and "excluded_cells" not in cached:
                     raise ValueError("stale cache missing excluded_cells")
 
+                list_cached_before_compact = cached.get("cells") or []
+                bool_object_cell_cache = bool(
+                    list_cached_before_compact and isinstance(list_cached_before_compact[0], dict)
+                )
+                cached = _compact_result_payload(cached)
+                bool_rewrite_compact_cache = bool_object_cell_cache
+
                 # 레거시 캐시(score_conf_threshold 필드 없음 또는 값이 다른 경우)는
                 # cells 로부터 현재 임계값으로 score 재계산.
                 float_cached_thr = cached.get("score_conf_threshold")
@@ -92,11 +141,11 @@ def run_marker_detection_pipeline(
                     list_cached_cells = cached.get("cells") or []
                     if list_cached_cells:
                         arr_cls = np.array(
-                            [c.get("class_id", 0) for c in list_cached_cells],
+                            [_cell_class_id(c) for c in list_cached_cells],
                             dtype=np.int32,
                         )
                         arr_conf = np.array(
-                            [c.get("confidence", 0.0) for c in list_cached_cells],
+                            [_cell_confidence(c) for c in list_cached_cells],
                             dtype=np.float32,
                         )
                         cls_for_score = arr_cls[arr_conf >= float_score_conf_threshold]
@@ -104,10 +153,13 @@ def run_marker_detection_pipeline(
                         cls_for_score = np.empty(0, dtype=np.int32)
                     cached[score_key] = score_fn(cls_for_score)
                     cached["score_conf_threshold"] = float_score_conf_threshold
+                    bool_rewrite_compact_cache = True
+
+                if bool_rewrite_compact_cache:
                     try:
                         with open(cache_path, 'w', encoding='utf-8') as f:
-                            json.dump(cached, f)
-                        print(f"{log_label} cached score recomputed @ conf>={float_score_conf_threshold}")
+                            json.dump(cached, f, separators=(',', ':'))
+                        print(f"{log_label} compact cache rewritten")
                     except Exception as e:
                         print(f"{log_label} cache rewrite failed: {e}")
 
@@ -372,15 +424,14 @@ def run_marker_detection_pipeline(
         if list_exclude and len(all_cls) > 0:
             exclude_mask = np.isin(all_cls, list_exclude)
             excluded_cells = [
-                {
-                    "x": float(all_x[i]),
-                    "y": float(all_y[i]),
-                    "confidence": float(all_conf[i]),
-                    "class_id": int(all_cls[i]),
-                    "class_name": dict_class_names.get(int(all_cls[i]), "Unknown"),
-                    "hidden": True,
-                    "exclude_from_score": True,
-                }
+                [
+                    round(float(all_x[i]), 2),
+                    round(float(all_y[i]), 2),
+                    int(all_cls[i]),
+                    round(float(all_conf[i]), 4),
+                    True,
+                    True,
+                ]
                 for i in np.where(exclude_mask)[0]
             ]
             keep_mask = ~exclude_mask
@@ -394,13 +445,12 @@ def run_marker_detection_pipeline(
                     status_msg=f"Computing {dict_config['score_type']} score...")
 
         all_cells = [
-            {
-                "x": float(all_x[i]),
-                "y": float(all_y[i]),
-                "confidence": float(all_conf[i]),
-                "class_id": int(all_cls[i]),
-                "class_name": dict_class_names.get(int(all_cls[i]), "Unknown"),
-            }
+            [
+                round(float(all_x[i]), 2),
+                round(float(all_y[i]), 2),
+                int(all_cls[i]),
+                round(float(all_conf[i]), 4),
+            ]
             for i in range(n_cells)
         ]
 
@@ -428,7 +478,7 @@ def run_marker_detection_pipeline(
         if roi_polygons is None:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
-                    json.dump(result, f)
+                    json.dump(result, f, separators=(',', ':'))
                 print(f"{log_label} result cached: {cache_path}")
                 from app import slide_store
                 # "Quanti IHC/HER2" → "Quanti IHC"

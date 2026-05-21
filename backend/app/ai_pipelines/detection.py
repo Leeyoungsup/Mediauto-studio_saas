@@ -30,6 +30,30 @@ from app.slide_manager import slide_manager
 from app.thread_slide_pool import get_thread_slide
 
 
+def _compact_cell(cell):
+    if isinstance(cell, (list, tuple)):
+        return list(cell)
+    if not isinstance(cell, dict):
+        return cell
+    return [
+        round(float(cell.get("x", 0.0)), 2),
+        round(float(cell.get("y", 0.0)), 2),
+        int(cell.get("class_id", 0)),
+        round(float(cell.get("confidence", 0.0)), 4),
+    ]
+
+
+def _compact_cached_result(result):
+    if not isinstance(result, dict):
+        return result, False
+    cells = result.get("cells")
+    bool_object_cell_cache = bool(cells and isinstance(cells, list) and isinstance(cells[0], dict))
+    if isinstance(cells, list):
+        result["cells"] = [_compact_cell(c) for c in cells if isinstance(c, (dict, list, tuple))]
+        result["total_cells"] = len(result["cells"])
+    return result, bool_object_cell_cache
+
+
 # ── Stromal cell 압도 방지 후처리 상수 ──
 # Stromal cell (class 5) 위치에 일정 confidence 이상의 다른 클래스가 있으면
 # Stromal 을 제거하고 다른 클래스를 우선시. NMS 가 클래스 무관하게 한 박스만
@@ -115,6 +139,13 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             status_msg=f"Loading cached AI result: {cache_path.name}")
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
+                cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
+                if bool_rewrite_compact_cache:
+                    try:
+                        with open(cache_path, 'w', encoding='utf-8') as f:
+                            json.dump(cached, f, separators=(',', ':'))
+                    except Exception as e:
+                        print(f"Compact cache rewrite failed: {e}")
                 # 캐시 hit 이어도 DB 플래그가 비어 있으면 auto_ai 가 매 사이클 다시 끌어옴.
                 # (과거 추론이 DB 미연결 상태에서 끝났거나 slide doc 이 늦게 생성된 케이스.)
                 # 멱등 — 이미 set 이면 변화 없음.
@@ -393,13 +424,12 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         n_cells = len(all_x)
         all_cells = [
-            {
-                "x": float(all_x[i]),
-                "y": float(all_y[i]),
-                "confidence": float(all_conf[i]),
-                "class_id": int(all_cls[i]),
-                "class_name": CLASS_NAMES.get(int(all_cls[i]), "Unknown"),
-            }
+            [
+                round(float(all_x[i]), 2),
+                round(float(all_y[i]), 2),
+                int(all_cls[i]),
+                round(float(all_conf[i]), 4),
+            ]
             for i in range(n_cells)
         ]
 
@@ -416,7 +446,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         if roi_polygons is None:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
-                    json.dump(result, f)
+                    json.dump(result, f, separators=(',', ':'))
                 print(f"AI result cached: {cache_path}")
                 from app import slide_store
                 slide_store.mark_ai_result_threadsafe(info.file_path, "Quanti HE", tissue_type)

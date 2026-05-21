@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.60] - 2026-05-21
+
+### Changed
+
+- AI cell results are now stored and transferred in a compact array format, then normalized on the frontend, dramatically reducing very large PD-L1 JSON payloads.
+- Existing large PD-L1 cache files are compacted on load when needed.
+
 ## [1.1.59] - 2026-05-21
 
 ### Fixed

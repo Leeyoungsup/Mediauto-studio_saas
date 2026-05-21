@@ -311,6 +311,29 @@ async function _fetchJsonWithProgressRetry(fn_fetch, label = 'API', onProgress =
     throw lastErr;
 }
 
+function _normalizeCellArray(cell) {
+    if (!Array.isArray(cell)) return cell;
+    const normalized = {
+        x: cell[0],
+        y: cell[1],
+        class_id: cell[2],
+        confidence: cell[3],
+    };
+    if (cell[4]) normalized.hidden = true;
+    if (cell[5]) normalized.exclude_from_score = true;
+    return normalized;
+}
+
+function _normalizeAiResultPayload(result) {
+    if (!result || typeof result !== 'object') return result;
+    for (const key of ['cells', 'excluded_cells']) {
+        if (Array.isArray(result[key])) {
+            result[key] = result[key].map(_normalizeCellArray);
+        }
+    }
+    return result;
+}
+
 export const api = {
     // ── 슬라이드 ──
 
@@ -801,12 +824,13 @@ export const api = {
     },
 
     async getTaskResult(taskId, onProgress = null) {
-        return _fetchJsonWithProgressRetry(
+        const result = await _fetchJsonWithProgressRetry(
             () => _authFetch(`${API_BASE}/ai/task/${taskId}/result`),
             'AI task result',
             onProgress,
             3
         );
+        return _normalizeAiResultPayload(result);
     },
 
     /** 실행 중인 AI task 를 취소 요청. 워커는 다음 체크포인트에서 중단하고 부분 캐시를 정리. */
