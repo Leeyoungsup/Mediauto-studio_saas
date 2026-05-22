@@ -1,10 +1,10 @@
 /**
- * MeDIAuto Studio SaaS ??메인 ??
+ * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260522-06';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-06';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-06';
+import { api } from './api.js?v=20260522-09';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-09';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-09';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -260,7 +260,7 @@ function _nextAnnotationWorkflowStatus(status) {
     return ANNOTATION_WORKFLOW_ORDER[Math.min(int_current + 1, ANNOTATION_WORKFLOW_ORDER.length - 1)];
 }
 
-// ???? 뷰어 초기??????
+// Viewer initialization.
 const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
     ? CellAnnotationViewer
     : TissueAnnotationViewer;
@@ -630,7 +630,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     // Minimap
     loadMinimap(slideId);
 
-    // 결과 초기??
+    // Reset results.
     clearResults();
 
     viewer.clearVirtualStainOverlay();
@@ -740,7 +740,7 @@ function _setSlideListItemAnnotationStatus(filename, status) {
 }
 
 // Folder auto-AI restrictions
-// ????
+// Minimap.
 
 async function _applyFolderAiRestrictions(strFolderPath) {
     if (_isViewerRole()) return;
@@ -917,6 +917,7 @@ let _minimapLoadToken = 0;
 function _paintMinimap(slideId, img) {
     if (!img || currentSlideId !== slideId || img.naturalWidth <= 0) return false;
     minimapImage = img;
+    viewer.setThumbnailFallbackImage?.(slideId, img);
     $minimapCanvas.width = img.naturalWidth || img.width;
     $minimapCanvas.height = img.naturalHeight || img.height;
     $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
@@ -954,7 +955,7 @@ async function loadMinimap(slideId) {
         if (token !== _minimapLoadToken) return;
         _paintMinimap(slideId, img);
     };
-    const str_url = api.thumbnailUrl(slideId, 2048, false, currentSlideInfo);
+    const str_url = api.thumbnailUrl(slideId, 2048, api.shouldUseNdpMatch?.(currentSlideInfo) || false, currentSlideInfo);
     if (str_url) img.src = str_url;
 }
 
@@ -1012,7 +1013,7 @@ const $minimapIcon = $('#minimap-toggle-icon');
 $minimapToggle?.addEventListener('click', (e) => {
     e.stopPropagation();
     const minimized = $minimapContainer.classList.toggle('minimized');
-    // minimize: ??icon, expand: + icon
+    // Minimize: minus icon, expand: plus icon.
     $minimapIcon.setAttribute('d', minimized ? 'M3 7h8M7 3v8' : 'M3 7h8');
     $minimapToggle.title = minimized ? 'Expand' : 'Minimize';
 });
@@ -1215,7 +1216,7 @@ viewer.onDrawModeChange = (mode) => {
     if (mode && drawButtons[mode]) drawButtons[mode].classList.add('active');
 };
 
-// ???? Annotation Panel ????
+// Annotation panel.
 const $annList = $('#annotation-list');
 const $annStylePanel = $('#annotation-style-panel');
 const $annStyleControls = $annStylePanel?.querySelector('.annotation-style-controls');
@@ -3203,7 +3204,7 @@ viewer.onCellEdited = () => {
     setStatus(`Cell edited - ${viewer.detectionCells.length} cells`);
 };
 
-// ???? Cell edit Undo / Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ????
+// Cell edit undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y).
 window.addEventListener('keydown', (e) => {
     const tag = (e.target && e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
@@ -3258,7 +3259,7 @@ $btnAnnClear?.addEventListener('click', () => {
     setStatus('Annotations cleared');
 });
 
-// ???? Annotation Save/Load (download/upload) ????
+// Annotation save/load (download/upload).
 // JSON schema:
 // { "annotations": [ { id, name, type: "Polygon"|"Rectangle"|"Point",
 //                      coordinates: [[x,y],...], color: [r,g,b],
@@ -5785,7 +5786,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
                 <div class="ai-cfg-list" id="ai-cfg-list"></div>
             </div>
             <div class="ai-cfg-footer">
-                <button type="button" class="ai-cfg-btn ai-cfg-cancel">취소</button>
+                <button type="button" class="ai-cfg-btn ai-cfg-cancel">Cancel</button>
                 <button type="button" class="ai-cfg-btn ai-cfg-save primary">Save</button>
             </div>
         </div>
@@ -6027,7 +6028,7 @@ if ($btnVsPanelMinimize) {
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 
-// Quanti PD-L1 (PD-L1) ??CPS / TPS
+// Quanti PD-L1 CPS / TPS.
 $btnPdScore?.addEventListener('click', startPdScore);
 
 async function startPdScore() {

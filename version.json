@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.78",
+  "version": "1.1.82",
   "channel": "production",
   "release_date": "2026-05-22",
-  "description": "Uses only the fast 300px NDP-matched thumbnail as the viewer startup fallback and skips 2048 preview loading."
+  "description": "Shares the minimap thumbnail with the main viewer fallback and removes the duplicate 300px viewer thumbnail request."
 }

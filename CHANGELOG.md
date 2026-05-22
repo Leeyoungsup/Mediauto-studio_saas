@@ -2,6 +2,35 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.82] - 2026-05-22
+
+### Changed
+
+- Reused the loaded minimap thumbnail as the main viewer fallback image.
+- Removed the duplicate 300px thumbnail request from the tile viewer startup path.
+
+## [1.1.81] - 2026-05-22
+
+### Fixed
+
+- Restored 2048px NDP-matched thumbnails for AI and annotation minimaps.
+- Reverted the broad NDPI thumbnail clamp so only viewer startup fallback remains on the fast 300px path.
+
+## [1.1.80] - 2026-05-22
+
+### Fixed
+
+- Clamped NDPI thumbnail URL builders to 300px so stale or indirect callers cannot request 2048px matched thumbnails.
+- Bumped frontend module cache keys again to force the corrected API URL builder into the browser.
+
+## [1.1.79] - 2026-05-22
+
+### Fixed
+
+- Removed remaining 2048px minimap thumbnail requests from AI and annotation viewer startup paths.
+- Bumped frontend module cache keys so browsers do not keep stale viewer modules.
+- Cleaned viewer/API comments to ASCII-safe text to avoid source mojibake in editors.
+
 ## [1.1.78] - 2026-05-22
 
 ### Changed

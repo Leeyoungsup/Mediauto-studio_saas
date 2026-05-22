@@ -1,34 +1,19 @@
 /**
- * WSI Tile Viewer — Canvas 기반 타일 렌더링 엔진
- * PyQt5 wsi_view_widget.py + wsi_tile_manager.py 로직을 JS로 포팅
- *
- * 좌표계: WSI level-0 픽셀 좌표 (scene 좌표)
- * 렌더링: 현재 zoom에 맞는 OpenSlide level의 타일을 서버에서 로드하여 canvas에 그림
- *
- * 핵심 원리 (PyQt5 원본과 동일):
- *  - 레벨 변경 시 이전 레벨 타일을 스케일해서 먼저 보여줌 (fallback)
- *  - 새 레벨 타일이 로드되면 점차 교체 → 검은 화면 없음
+ * WSI Tile Viewer - canvas-based tiled slide renderer.
+ * Keeps viewer startup lightweight by using the fast matched thumbnail first,
+ * then loading visible tiles through the normal queue.
  */
 
-import { api } from './api.js?v=20260522-04';
+import { api } from './api.js?v=20260522-09';
 
 const TILE_SIZE = 1024;
-const VIEWER_FAST_THUMBNAIL_SIZE = 300;
-// 타일 동시 로딩 상한 — 브라우저 HTTP/1.1 per-origin 제한(6)에 맞춘다.
-// 이보다 크게 잡으면 남는 요청이 브라우저 큐에 박혀 abort 불가 상태가 되고,
-// 팬/줌으로 더 이상 필요 없어진 좀비 요청들이 _activeLoads 슬롯을 계속 점유해
-// 새 타일이 못 나가는 stall 이 발생했다.
 const MAX_CONCURRENT_LOADS = 6;
 
-// 3단계 stage 피라미드 — 반드시 backend slide_manager.STAGE_DOWNSAMPLES 와 동일
-//   stage 0: level0 1024x1024 그대로   (downsample 1)
-//   stage 1: level0 4096x4096 → 1024   (downsample 4)
-//   stage 2: level0 8192x8192 → 1024   (downsample 8)
 const STAGE_DOWNSAMPLES = [1, 4, 8];
 
 /**
- * 공간 격자 인덱스 — 데스크톱 SpatialGrid와 동일
- * 셀을 grid_size 단위 버킷에 분류하여 뷰포트 영역의 셀만 O(1)에 조회
+  *
+  *
  */
 class SpatialGrid {
     constructor(gridSize = 2048) {
@@ -78,73 +63,56 @@ export class TileViewer {
         this.overlayCanvas = overlayCanvas;
         this.overlayCtx = overlayCanvas.getContext('2d');
 
-        // 슬라이드 상태
         this.slideId = null;
         this.slideInfo = null;
 
-        // 뷰 상태 (scene 좌표계 = level-0 px)
         this.viewCenterX = 0;
         this.viewCenterY = 0;
         this.zoom = 1.0;
         this.minZoom = 0.001;
         this.maxZoom = 40.0;
 
-        // 타일 캐시 — 모든 레벨의 타일을 보관 (fallback용). NDP 토글 시 비우고 재로드.
         this._tileCache = new Map();  // "level/tx/ty" -> HTMLImageElement
         this._tileLoading = new Set();
-        // 타일 페이드인 — key → fade start timestamp (ms). 새로 도착한 current-level
-        // child 타일을 alpha 0 → 1 로 램프해 OSD 처럼 부드럽게 레이어 전환을 보이게 한다.
         this._tileFadeStart = new Map();
         this._fadeDurationMs = 250;
-        this._thumbnailBitmap = null;  // 전역 폴백용 고해상도 썸네일 (slide 열 때 1회 로드)
-        // ── NDP 색보정 toggle (Hamamatsu 전용) ──
-        // app.js 가 setColorCorrectionEnabled() 로 제어. 기본 OFF.
-        // ON 시 타일/썸네일 URL 에 ?ndp=true 또는 /ndp/ 서브경로 사용 — 서버가
-        // ndpmatch 변형 JPEG 을 디스크 캐시에 두고 반환. 클라이언트 CPU 부담 없음.
+        this._thumbnailBitmap = null;
         this._colorCorrectionEnabled = false;
         this._maxCacheTiles = 3000;
-        this._loadQueue = [];         // 우선순위 로드 큐
+        this._loadQueue = [];
         this._loadQueuedKeys = new Set();
         this._activeLoads = 0;
-        // 인플라이트 Image 객체들 — 슬라이드 전환 시 abort 용
         this._inflightImages = new Set();
-        // 슬라이드 generation — onload 콜백이 자기 generation 을 기억해 stale 방지
         this._loadGeneration = 0;
 
-        // 3-stage 프리로드 추적 — 슬라이드 열 때 3개 stage level 의 모든 타일이 다
-        // 로드될 때까지 앱에서 로딩창을 띄운다.
         this._preloadKeys = null;   // Set<string> of tile keys that belong to initial preload
         this._preloadTotal = 0;
         this._preloadDone = 0;
         this._isPreloading = false;
 
-        // 패닝 상태
         this._isPanning = false;
         this._lastPanX = 0;
         this._lastPanY = 0;
 
-        // 검출 결과
         this.detectionCells = [];
         this.hiddenDetectionCells = [];
         this.classVisibility = {};   // {class_id: bool}
-        this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
-        this.classConfidence = {};   // {class_id: float} 클래스별 threshold (기본 defaultConfidence)
-        this.defaultConfidence = 0.01;  // 현재 활성 모델의 초기 임계값 (PD-L1/HER2 는 0.1)
+        this.classColorOverride = null;
+        this.classConfidence = {};
+        this.defaultConfidence = 0.01;
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._hiddenSpatialGrid = null;
-        this._highlightedCellIdx = -1; // Alt+Click 편집 대상 셀
-        this._highlightedCellIdxSet = null; // Alt+Drag 다중 선택 셀 Set
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = null;
         this._highlightedHiddenCellIdxSet = null;
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
         this.onCellsMultiEditRequested = null; // (indices, cells, screenX, screenY) callback
         this.onHiddenCellsMultiEditRequested = null; // (indices, hidden cells, screenX, screenY) callback
         this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback for Alt+right-click
-        this.onCellEdited = null;        // 편집 후 콜백
-        // Alt+Drag 라쏘 상태
+        this.onCellEdited = null;
         this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
         this._lassoActive = false;
-        this._lassoPoints = [];    // [[sx, sy], ...] scene 좌표
-        // Undo/Redo (셀 편집)
+        this._lassoPoints = [];
         this._undoStack = [];
         this._redoStack = [];
         this._maxUndo = 200;
@@ -152,60 +120,53 @@ export class TileViewer {
         this._annotationRedoStack = [];
         this._maxAnnotationUndo = 100;
 
-        // Segmentation 오버레이
         this._segOverlay = null;     // {image, sceneX, sceneY, sceneW, sceneH}
         this.segClassVisibility = {}; // {cls_id: bool}
 
-        // Virtual Stain (VS IHC) 오버레이 — 타일 피라미드 기반
         // meta: {slideId, stainType, targetMpp, originX, originY, sceneW, sceneH,
         //        tileSize, levels: [{level,width,height,nx,ny}...], roiPolygons}
         this._vsOverlay = null;
         this._vsVisible = true;
-        this._vsSplitMode = false;   // true: 분할선 기준 우측에만 VS 표시 (좌: 원본 IHC)
-        this._vsSplitFrac = 0.5;     // 분할선 위치 (0..1, 캔버스 가로 비율)
+        this._vsSplitMode = false;
+        this._vsSplitFrac = 0.5;
         this._vsSplitDragging = false;
-        this._vsSplitHandleW = 10;   // 분할선 hit-area (±px)
+        this._vsSplitHandleW = 10;
 
-        // VS 타일 캐시 (level/tx/ty 키)
-        this._vsTileCache = new Map();    // key → HTMLImageElement (LRU: Map insertion order)
+        this._vsTileCache = new Map();
         this._vsTileLoading = new Set();  // in-flight keys
-        this._vsTileMissing = new Set();  // 404 마크 (빈 타일 재요청 방지)
-        this._vsLoadQueue = [];           // VS 타일 로딩 큐
-        this._vsActiveLoads = 0;          // 현재 진행 중인 VS 타일 로드 수
+        this._vsTileMissing = new Set();
+        this._vsLoadQueue = [];
+        this._vsActiveLoads = 0;
         this._vsMaxTiles = 512;
 
-        // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
         this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
-        this._drawingPoints = [];     // 진행 중인 폴리곤 좌표 (scene)
-        this._drawingStart = null;    // 사각형 시작점 (scene)
-        this._drawingCurrent = null;  // 사각형/폴리곤 현재 마우스 (scene)
+        this._drawingPoints = [];
+        this._drawingStart = null;
+        this._drawingCurrent = null;
         this._brushSizePx = Number(localStorage.getItem('annotationBrushSizePx') || 28);
         this._brushSizePx = Math.max(4, Math.min(120, this._brushSizePx));
         this.annotationStrokeWidth = 2;
         this.annotationFillOpacity = 0.1;
         this.annotationDrawColor = [0, 255, 0];
         this.hiddenAnnotationClassIds = new Set();
-        // Ruler — 일회성 측정. annotation 으로 저장하지 않고 화면에만 남는다.
-        // mode 해제 / 새 측정 시작 시 사라짐.
         this._rulerStart = null;      // [sx, sy]
-        this._rulerEnd = null;        // [sx, sy] — 마우스 따라가다가 두 번째 클릭 시 고정
-        this._rulerFinalized = false; // true 면 두 번째 클릭이 들어와 측정이 고정된 상태
+        this._rulerEnd = null;
+        this._rulerFinalized = false;
         this._isDrawing = false;
         this._annotationCounter = 0;
         this.selectedAnnotationId = null;
         this._insertVertexPreview = null; // {annId, insertIndex, point:[sx,sy]} Ctrl+polygon edge insert preview
         this._mergeHover = null;       // {annIds:[id,id], scenePoint:[sx,sy]} same-class polygon merge affordance
-        this._dragControlPoint = null;  // {annId, pointIndex} 드래그 중인 컨트롤포인트
-        this._dragAnnotation = null;    // {annId, startScene} 어노테이션 전체 이동
-        this._lastDrawDragScene = null; // 폴리곤 드래그 점 추가용
+        this._dragControlPoint = null;
+        this._dragAnnotation = null;
+        this._lastDrawDragScene = null;
 
-        // 콜백
         this.onZoomChange = null;
         this.onViewChange = null;
-        this.onPreloadStart = null;     // () => {}  3-stage 프리로드 시작
+        this.onPreloadStart = null;
         this.onPreloadProgress = null;  // (done, total) => {}
-        this.onPreloadComplete = null;  // () => {}  3-stage 프리로드 완료
+        this.onPreloadComplete = null;
         this.onAnnotationCreated = null;   // (annotation) => {}
         this.onAnnotationSelected = null;  // (annotation|null) => {}
         this.onAnnotationDeleted = null;   // (annotation) => {}
@@ -213,7 +174,6 @@ export class TileViewer {
         this.onAnnotationContextMenu = null; // (annotation, event) => {}
         this.onDrawModeChange = null;      // (mode) => {}
 
-        // 렌더 루프 제어
         this._renderPending = false;
 
         this._setupEvents();
@@ -221,10 +181,8 @@ export class TileViewer {
         window.addEventListener('resize', () => this._resizeCanvas());
     }
 
-    // ── 슬라이드 로드 ──
 
     loadSlide(slideId, slideInfo) {
-        // 인플라이트 Image 들 abort — onload 가 새 슬라이드 cache 에 옛 픽셀 박는 것 차단
         this._loadGeneration++;
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
@@ -249,7 +207,6 @@ export class TileViewer {
         this._annotationRedoStack = [];
         this._thumbnailBitmap = null;
 
-        // 이전 슬라이드의 프리로드 상태 초기화
         this._preloadKeys = null;
         this._preloadTotal = 0;
         this._preloadDone = 0;
@@ -261,42 +218,7 @@ export class TileViewer {
             this._preloadAllStageLevels();
         });
         this.fitToWindow();
-        // 3 stage level 전체 프리로드 — 완료까지 앱은 로딩창 표시
         // Overview preload starts after the thumbnail gets first chance to paint.
-        // 전역 폴백용 고해상도 썸네일 1회 로드 — 타일/폴백 모두 miss 일 때 최후의 블러 표시
-    }
-
-    async _loadThumbnailFallback() {
-        if (!this.slideId) return;
-        const str_slide_id = this.slideId;
-        const int_gen = this._loadGeneration;
-        await api.ensureMediaReady();
-        if (this.slideId !== str_slide_id) return;
-
-        // ndpMatch 상태를 URL 에 반영 — 서버가 ndpmatch 변형을 리턴
-        const bool_auto_ndp = api.shouldUseNdpMatch?.(this.slideInfo) || false;
-        const bool_ndp = !!this._colorCorrectionEnabled || bool_auto_ndp;
-
-        // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms).
-        // Use only the fast matched thumbnail for viewer startup.
-        const img_small = new Image();
-        this._inflightImages.add(img_small);
-        img_small.onload = () => {
-            this._inflightImages.delete(img_small);
-            if (int_gen !== this._loadGeneration) return;
-            if (this.slideId !== str_slide_id) return;
-            this._thumbnailBitmap = img_small;
-            this.requestRender();
-        };
-        img_small.onerror = (e) => {
-            this._inflightImages.delete(img_small);
-            if (int_gen !== this._loadGeneration) return;
-            console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
-        };
-        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
-        if (str_small_url) img_small.src = str_small_url;
-
-
     }
 
     _loadThumbnailFallbackImmediate() {
@@ -312,7 +234,7 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            // Start tile preload after the fast matched thumbnail gets a chance to paint.
+            // Start tile preload after sidebar/minimap fallback gets a chance to paint.
             setTimeout(() => finish(false), 1500);
 
             const el_sidebar_thumb = document.querySelector(
@@ -332,46 +254,20 @@ export class TileViewer {
                 el_sidebar_thumb.addEventListener('load', paintSidebarThumb, { once: true });
             }
 
-            api.ensureMediaReady().then(() => {
-                if (this.slideId !== str_slide_id) return finish(false);
-
-                const loadImage = (url, label, applyImage, onError, resolveOnLoad = false) => {
-                    if (!url) return false;
-                    const img = new Image();
-                    this._inflightImages.add(img);
-                    img.onload = () => {
-                        this._inflightImages.delete(img);
-                        if (int_gen !== this._loadGeneration) return;
-                        if (this.slideId !== str_slide_id) return;
-                        applyImage(img);
-                        this.requestRender();
-                        if (resolveOnLoad) finish(true);
-                    };
-                    img.onerror = (e) => {
-                        this._inflightImages.delete(img);
-                        if (int_gen !== this._loadGeneration) return;
-                        console.warn(`[tile-viewer] ${label} load failed`, img.src, e);
-                        if (typeof onError === 'function') onError();
-                    };
-                    img.src = url;
-                    return true;
-                };
-
-                const applyThumb = (img) => { this._thumbnailBitmap = img; };
-
-                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
-
-                let bool_started = false;
-                bool_started = loadImage(str_match_thumb_url, 'thumbnail', applyThumb, null, true) || bool_started;
-                if (!bool_started) finish(false);
-            }).catch(() => finish(false));
+            finish(false);
         });
+    }
+
+    setThumbnailFallbackImage(slideId, img) {
+        if (!img || img.naturalWidth <= 0) return false;
+        if (slideId && this.slideId !== slideId) return false;
+        this._thumbnailBitmap = img;
+        this.requestRender();
+        return true;
     }
 
     _preloadAllStageLevels() {
         if (!this.slideInfo) return;
-        // 초기에는 stage 2 (가장 거친) 만 전체 프리로드.
-        // stage 0, 1 은 사용자가 zoom in 할 때 on-demand 로 로드.
         const int_level = 2;
         const [levelW, levelH] = this._stageDimensions(int_level);
         const nx = Math.ceil(levelW / TILE_SIZE);
@@ -436,7 +332,6 @@ export class TileViewer {
         this.requestRender();
     }
 
-    // ── 좌표 변환 ──
 
     sceneToCanvas(sx, sy) {
         const cx = (sx - this.viewCenterX) * this.zoom + this._viewW / 2;
@@ -462,14 +357,12 @@ export class TileViewer {
     }
 
     _getStageLevel(effectiveMpp) {
-        // stage index 반환 (0/1/2). level 이 아닌 stage 인덱스 그 자체.
         if (effectiveMpp < 2.0) return 0;
         if (effectiveMpp < 15.0) return 1;
         return 2;
     }
 
     _getLevelStages() {
-        // 3단계 stage 는 항상 [0, 1, 2] — stage index 가 곧 level 변수의 값
         return [0, 1, 2];
     }
 
@@ -478,7 +371,6 @@ export class TileViewer {
     }
 
     _stageDimensions(stage) {
-        // backend 의 stage_dimensions 가 있으면 사용, 없으면 level 0 크기에서 계산
         if (this.slideInfo &&
             Array.isArray(this.slideInfo.stage_dimensions) &&
             this.slideInfo.stage_dimensions[stage]) {
@@ -489,7 +381,6 @@ export class TileViewer {
         return [Math.max(1, Math.ceil(w0 / ds)), Math.max(1, Math.ceil(h0 / ds))];
     }
 
-    // ── 줌 ──
 
     setZoom(newZoom, anchorCanvasX = null, anchorCanvasY = null) {
         newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
@@ -543,10 +434,8 @@ export class TileViewer {
         }
     }
 
-    // ── 이벤트 ──
 
     _setupEvents() {
-        // ── 줌 ──
         this.canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             if (e.altKey && this.drawMode === 'brush') {
@@ -586,14 +475,12 @@ export class TileViewer {
             this.overlayCanvas.addEventListener('contextmenu', suppressAltContextMenu, true);
         }
 
-        // ── 마우스 ──
         this.canvas.addEventListener('mousedown', (e) => {
             const rect = this.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
             const cy = e.clientY - rect.top;
             const [sx, sy] = this.canvasToScene(cx, cy);
 
-            // VS Split mode: 분할선 핸들 hit-test (최우선)
             if (e.button === 0 && this._vsSplitMode && this._vsOverlay && this._vsVisible) {
                 const splitX = this._viewW * this._vsSplitFrac;
                 if (Math.abs(cx - splitX) <= this._vsSplitHandleW) {
@@ -604,8 +491,6 @@ export class TileViewer {
                 }
             }
 
-            // Alt + 좌클릭/드래그: 셀 편집 (클릭=단일, 드래그=라쏘 다중 선택)
-            // mousedown 시점에는 판단 유보 — mousemove로 드래그 여부 감지
             if (e.altKey && e.button === 2 && !this.drawMode) {
                 suppressContextMenuUntil = Date.now() + 2000;
                 this._altPending = {
@@ -662,9 +547,6 @@ export class TileViewer {
                 return;
             }
 
-            // Shift + 좌클릭: 새 셀 추가 (drawMode 가 아닌 경우만 — drawMode 는 자체 click 처리).
-            // detection 결과가 있을 때만 의미 — class_names 가 결정되어 있어야 클래스 선택 가능.
-            // 클래스 변경은 Shift+A 단축키로 별도 처리 (Ctrl 사용 안 함 — Ctrl 은 패닝 modifier).
             if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey) {
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
@@ -681,14 +563,11 @@ export class TileViewer {
                 }
             }
 
-            // 그리기 모드
             if (this.drawMode && e.button === 0 && !e.ctrlKey) {
                 this._onDrawMouseDown(sx, sy, cx, cy, e);
                 return;
             }
 
-            // 컨트롤포인트 드래그 감지 (선택된 annotation의 꼭짓점)
-            // Ctrl 누른 상태면 annotation 내부여도 pan 우선 (주석 이동 방지)
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
                 const cp = this._hitControlPoint(cx, cy);
                 if (cp) {
@@ -698,20 +577,17 @@ export class TileViewer {
                     return;
                 }
 
-                // annotation 클릭 선택 / 이동
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
                     this.canvas.style.cursor = 'grabbing';
                 }
 
-                // 빈 공간 클릭 → 선택 해제
                 if (!hitAnn && !e.ctrlKey && this.selectedAnnotationId) {
                     this.selectAnnotation(null);
                 }
             }
 
-            // Ctrl+좌클릭 또는 일반 패닝
             if (e.button === 0 || e.button === 1) {
                 this._isPanning = true;
                 this._lastPanX = e.clientX;
@@ -731,7 +607,6 @@ export class TileViewer {
                 this.canvas.style.cursor = 'crosshair';
             }
 
-            // Alt+드래그 라쏘 진행
             if (this._altPending) {
                 if (!this._lassoActive) {
                     const dx = cx - this._altPending.cx;
@@ -748,11 +623,9 @@ export class TileViewer {
                 return;
             }
 
-            // VS Split 분할선 드래그
             if (this._vsSplitDragging) {
                 const w = this._viewW;
                 let frac = cx / w;
-                // 양 끝 여백 (최소 5%)
                 frac = Math.max(0.05, Math.min(0.95, frac));
                 this._vsSplitFrac = frac;
                 this.requestRender();
@@ -772,7 +645,6 @@ export class TileViewer {
                     return;
                 }
             }
-            // hover 시 cursor 힌트 (드래그/패닝/그리기 중이 아닐 때만)
             if (this._vsSplitMode && this._vsOverlay && this._vsVisible &&
                 !this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
                 const insideCanvas = cx >= 0 && cy >= 0 &&
@@ -795,7 +667,6 @@ export class TileViewer {
                 }
             }
 
-            // 컨트롤포인트 드래그
             if (this._dragControlPoint) {
                 const ann = this.annotations.find(a => a.id === this._dragControlPoint.annId);
                 if (ann) {
@@ -810,7 +681,6 @@ export class TileViewer {
                 return;
             }
 
-            // annotation 전체 이동
             if (this._dragAnnotation) {
                 const ann = this.annotations.find(a => a.id === this._dragAnnotation.annId);
                 if (ann) {
@@ -823,12 +693,10 @@ export class TileViewer {
                 return;
             }
 
-            // 그리기 모드
             if (this.drawMode && this._isDrawing) {
                 this._onDrawMouseMove(sx, sy, cx, cy);
                 return;
             }
-            // 1mm² 고정 크기 모드는 클릭 없이도 커서 따라가는 미리보기 표시
             if (this.drawMode === 'brush') {
                 this._drawingCurrent = [sx, sy];
                 this.requestRender();
@@ -837,15 +705,12 @@ export class TileViewer {
                 this._drawingCurrent = [sx, sy];
                 this.requestRender();
             }
-            // Ruler — 시작점만 찍힌 상태에선 끝점이 마우스 따라간다 (실시간 길이 미리보기).
-            // 수평/수직 ±2° 스냅을 preview 단계에서도 적용해 사용자가 스냅된 길이를 미리 본다.
             if (this.drawMode === 'ruler' && this._rulerStart && !this._rulerFinalized) {
                 this._rulerEnd = this._snapRulerEnd(
                     this._rulerStart[0], this._rulerStart[1], sx, sy);
                 this.requestRender();
             }
 
-            // 패닝
             if (!this._isPanning) return;
             const dx = e.clientX - this._lastPanX;
             const dy = e.clientY - this._lastPanY;
@@ -859,7 +724,6 @@ export class TileViewer {
         });
 
         window.addEventListener('mouseup', (e) => {
-            // Alt+드래그/클릭 종료 처리
             if (this._altPending) {
                 const pending = this._altPending;
                 this._altPending = null;
@@ -872,8 +736,6 @@ export class TileViewer {
                             ? this._findHiddenCellsInPolygon(pts)
                             : this._findCellsInPolygon(pts);
                         if (list_indices.length > 0) {
-                            // 콜백 내부에서 기존 팝업 close가 highlight를 초기화하므로
-                            // 팝업을 먼저 연 뒤 새 highlight Set을 설정한다
                             if (pending.hiddenOther) {
                                 if (this.onHiddenCellsMultiEditRequested) {
                                     const list_cells = list_indices.map(i => this.hiddenDetectionCells[i]);
@@ -902,7 +764,6 @@ export class TileViewer {
                         this.requestRender();
                         return;
                     }
-                    // 단일 Alt+클릭: 가장 가까운 셀 편집
                     const hit = this._findNearestCell(pending.sx, pending.sy, 30);
                     if (hit) {
                         if (this.onCellEditRequested) {
@@ -916,7 +777,6 @@ export class TileViewer {
                 return;
             }
 
-            // Shift+click 종료 — 거의 안 움직였으면 셀 추가 콜백 (드래그면 무시).
             if (this._vsSplitDragging) {
                 this._vsSplitDragging = false;
                 this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
@@ -946,7 +806,6 @@ export class TileViewer {
             }
         });
 
-        // ── 우클릭: 컨텍스트 메뉴 방지 + 그리기 모드 해제 ──
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             suppressContextMenuUntil = Date.now() + 500;
@@ -966,7 +825,6 @@ export class TileViewer {
             }
         });
 
-        // ── 더블클릭: annotation 센터링 ──
         this.canvas.addEventListener('dblclick', (e) => {
             if (!this.drawMode) {
                 const rect = this.canvas.getBoundingClientRect();
@@ -976,7 +834,6 @@ export class TileViewer {
             }
         });
 
-        // ── 키보드 ──
         window.addEventListener('keydown', (e) => {
             if ((e.key === 'Control' || e.key === 'Alt') &&
                     !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
@@ -993,14 +850,12 @@ export class TileViewer {
                     this.requestRender();
                 }
                 if (this.drawMode) {
-                    this.setDrawMode(null); // 모드 해제
+                    this.setDrawMode(null);
                 }
             }
             if (e.key === 'Delete' && this.selectedAnnotationId) {
                 this.deleteAnnotation(this.selectedAnnotationId);
             }
-            // Shift 누르면 셀 추가 가능 — 십자 커서로 바꿔 클릭 위치를 정확히 보이게.
-            // (drawMode/패닝 등 다른 상태가 아닐 때만, 그리고 detectionCells 가 있을 때만.)
         });
         window.addEventListener('keyup', (e) => {
             if (e.key === 'Alt') {
@@ -1011,14 +866,12 @@ export class TileViewer {
                 this._setMergeHover(null);
             }
             if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
-                // 다른 cursor 상태 (drawMode/패닝/이동) 가 아니면 grab 으로 복귀.
                 if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                         !this._vsSplitDragging) {
                     this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
                 }
             }
         });
-        // 창 포커스가 빠진 사이 Shift 가 떼져도 keyup 을 못 받을 수 있어 blur 시 복원.
         window.addEventListener('blur', () => {
             document.body.classList.remove('viewer-alt-held');
             this._setInsertVertexPreview(null);
@@ -1028,7 +881,6 @@ export class TileViewer {
             }
         });
 
-        // ── 터치 ──
         let lastTouchDist = 0;
         let lastTouchCenter = null;
         this.canvas.addEventListener('touchstart', (e) => {
@@ -1088,7 +940,6 @@ export class TileViewer {
         this._dpr = float_dpr;
         this._viewW = w;
         this._viewH = h;
-        // 비트맵을 디바이스 픽셀 해상도로 — 브라우저가 리샘플링 없이 1:1 로 표시
         this.canvas.width = Math.round(w * float_dpr);
         this.canvas.height = Math.round(h * float_dpr);
         this.canvas.style.width = w + 'px';
@@ -1103,7 +954,6 @@ export class TileViewer {
         }
     }
 
-    // ── 렌더링 ──
 
     requestRender() {
         if (this._renderPending) return;
@@ -1115,13 +965,13 @@ export class TileViewer {
     }
 
     /**
-     * child scene 영역을 **덮는 모든 fallback 타일** 을 캐시에서 찾아 리스트로 반환.
-     * child 가 parent 격자 경계를 가로지르면 parent 가 최대 2x2 = 4 개 필요.
-     * 각 parent 는 child 와 겹치는 부분만 그려지도록 호출자가 clamp 한다.
+      *
+      *
+      *
      *
-     * 탐색: **한 level 씩** 차례로 (가까운 stage 먼저), 해당 level 에서 child 를
-     * 덮는 parent 들을 수집. 하나라도 cache 에 있으면 그 level 에서 멈춤.
-     * (모자란 부분은 더 먼 level 로 떨어지면 섞여 지저분해지므로 그냥 그 level 에서 끝냄)
+      *
+      *
+      *
      */
     _findFallbackTiles(sceneX, sceneY, sceneSize, currentLevel) {
         const list_stages = this._getLevelStages();
@@ -1138,10 +988,8 @@ export class TileViewer {
         for (const l of levels) {
             const ds = this._stageDownsample(l);
             const tileScene = TILE_SIZE * ds;
-            // child 가 걸치는 parent 타일 격자 범위 (좌상 ~ 우하)
             const int_ptx_min = Math.floor(sceneX / tileScene);
             const int_pty_min = Math.floor(sceneY / tileScene);
-            // child 끝에서 살짝 (1e-6) 빼 경계에 걸친 경우 한 칸 더 포함 안 되게
             const int_ptx_max = Math.floor((sceneX + sceneSize - 1e-6) / tileScene);
             const int_pty_max = Math.floor((sceneY + sceneSize - 1e-6) / tileScene);
             const list_hits = [];
@@ -1166,9 +1014,6 @@ export class TileViewer {
     }
 
     _render() {
-        // 타일 draw 만 identity transform 으로 device pixel 직접 그리기
-        // (브라우저별 scale+drawImage 내부 rounding 차이가 격자의 원인).
-        // VS overlay 등 기타 CSS 픽셀 기반 코드는 dpr transform 으로 복구 후 실행.
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (!this.slideInfo) {
             this.ctx.fillStyle = '#fff';
@@ -1186,7 +1031,6 @@ export class TileViewer {
         const downsample = this._stageDownsample(level);
         const [levelW, levelH] = this._stageDimensions(level);
 
-        // 뷰 영역 (scene 좌표)
         const halfVW = this._viewW / this.zoom / 2;
         const halfVH = this._viewH / this.zoom / 2;
         const viewLeft = this.viewCenterX - halfVW;
@@ -1194,32 +1038,23 @@ export class TileViewer {
         const viewRight = this.viewCenterX + halfVW;
         const viewBottom = this.viewCenterY + halfVH;
 
-        // 타일 범위
         const tileSceneSize = TILE_SIZE * downsample;
         const txMin = Math.max(0, Math.floor(viewLeft / tileSceneSize));
         const tyMin = Math.max(0, Math.floor(viewTop / tileSceneSize));
         const txMax = Math.min(Math.ceil(levelW / TILE_SIZE) - 1, Math.ceil(viewRight / tileSceneSize));
         const tyMax = Math.min(Math.ceil(levelH / TILE_SIZE) - 1, Math.ceil(viewBottom / tileSceneSize));
 
-        // 로드 큐 초기화 (새 프레임마다 현재 뷰 기준으로 재구성)
-        // parent / child 분리 — parent 들을 strictly 먼저 다 큐잉한 뒤 child 큐잉.
-        // FIFO + MAX_CONCURRENT_LOADS 병렬이라 parent 가 제일 먼저 다 출발해
-        // child 보다 빨리 도착할 가능성이 높아진다.
         const list_parent_tasks = [];
         const list_child_tasks = [];
         const set_parent_enqueued = new Set();
 
-        // 현재 stage 의 "바로 위 stage level" — fallback prefetch 대상
         const list_stage_unique = Array.from(new Set(this._getLevelStages())).sort((a, b) => a - b);
         const int_cur_stage_idx = list_stage_unique.indexOf(level);
         const int_parent_stage_level = (int_cur_stage_idx >= 0 && int_cur_stage_idx + 1 < list_stage_unique.length)
             ? list_stage_unique[int_cur_stage_idx + 1]
             : -1;
 
-        // ── Pass 1: 누락된 child 가 있으면 그 영역을 덮을 parent 들을 수집 ──
-        // child 마다 parent 를 잘라 그리면 sub-pixel 경계에 격자 artifact 가 생긴다.
-        // 대신 parent 는 자기 전체 영역을 **한 번에** 그려, 중복/부분 draw 를 제거한다.
-        const map_fallback_parents = new Map(); // key → {img, srcSceneX, srcSceneY, srcSceneSize, srcPixelSize}
+        const map_fallback_parents = new Map();
         const list_missing_children = []; // {tx, ty, sceneX, sceneY, canvasX, canvasY, canvasSize}
         const list_present_children = []; // {img, canvasX, canvasY, canvasSize, key}
         let bool_any_missing_without_fallback = false;
@@ -1236,7 +1071,6 @@ export class TileViewer {
 
                 if (img && img.complete && img.naturalWidth > 0) {
                     list_present_children.push({ img, canvasX, canvasY, canvasSize, key, sceneX, sceneY });
-                    // 아직 페이드 중이면 부모를 아래에 깔아 블랙→타일 블렌딩 깜빡임 방지
                     const float_fs = this._tileFadeStart.get(key);
                     if (float_fs !== undefined && (performance.now() - float_fs) < this._fadeDurationMs) {
                         const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
@@ -1249,7 +1083,6 @@ export class TileViewer {
                     }
                 } else {
                     list_missing_children.push({ tx, ty, sceneX, sceneY, canvasX, canvasY, canvasSize });
-                    // 이 child 를 덮는 parent 들을 수집 (중복은 map 이 dedup)
                     const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
                     if (list_fbs.length === 0) {
                         bool_any_missing_without_fallback = true;
@@ -1261,7 +1094,6 @@ export class TileViewer {
                         }
                     }
 
-                    // 바로 위 stage level 부모 타일 프리페치 (parent 큐로 분리).
                     const int_parent_level = int_parent_stage_level;
                     if (int_parent_level >= 0) {
                         const float_parent_ds = this._stageDownsample(int_parent_level);
@@ -1286,7 +1118,6 @@ export class TileViewer {
                         }
                     }
 
-                    // 현재 레벨 child 는 별도 리스트에 모아둔다 — 모든 parent 이후에 큐잉
                     if (!this._tileLoading.has(key)) {
                         list_child_tasks.push({ level, tx, ty, key });
                     }
@@ -1294,9 +1125,6 @@ export class TileViewer {
             }
         }
 
-        // ── device pixel 좌표로 직접 drawImage (transform 미사용) ──
-        // CSS px 입력을 device px 정수로 snap. floor(left) + ceil(right) 로 인접 타일
-        // 경계가 반드시 공유되거나 겹치게 한다. ceil 은 항상 floor 이상이므로 gap 불가.
         const float_dpr = this._dpr;
         const _drawAligned = (img, sx, sy, sw, sh, dx, dy, dw, dh) => {
             const int_l = Math.floor(dx * float_dpr);
@@ -1313,7 +1141,6 @@ export class TileViewer {
             }
         };
 
-        // ── Pass 2a: 썸네일 (최후 폴백) 을 뷰 전체에 한 번만 ──
         const bool_should_draw_thumbnail = !!this._thumbnailBitmap
             && (bool_any_missing_without_fallback || list_missing_children.length > 0);
         if (bool_should_draw_thumbnail) {
@@ -1325,7 +1152,6 @@ export class TileViewer {
                 int_scene_w * this.zoom, int_scene_h * this.zoom);
         }
 
-        // ── Pass 2b: fallback parent 들을 각자 전체 영역에 한 번씩 ──
         for (const fb of map_fallback_parents.values()) {
             const [float_px, float_py] = this.sceneToCanvas(fb.srcSceneX, fb.srcSceneY);
             _drawAligned(fb.img, 0, 0, fb.srcPixelSize, fb.srcPixelSize,
@@ -1333,9 +1159,6 @@ export class TileViewer {
                 fb.srcSceneSize * this.zoom, fb.srcSceneSize * this.zoom);
         }
 
-        // ── Pass 3: 현재 레벨 child 타일 (fade-in) ──
-        // 새로 도착한 타일은 alpha 0 → 1 로 램프해 OSD 처럼 레이어가 서서히 올라오게
-        // 보이게 한다. 폴백 parent/썸네일은 이미 아래에 깔려있어 빈 공간이 생기지 않는다.
         const float_now_ms = performance.now();
         const float_fade_dur = this._fadeDurationMs;
         let bool_any_fading = false;
@@ -1367,10 +1190,6 @@ export class TileViewer {
             this.requestRender();
         }
 
-        // 부모 stage 타일을 먼저, 그 다음 현재 레벨 child 타일을 큐에 넣는다.
-        // parent 들이 먼저 모두 출발해 child 보다 빠르게 도착,
-        // fallback 으로 즉시 사용 가능해진다.
-        // child 는 뷰포트 중심에서 가까운 순으로 정렬 — 사용자가 보는 영역이 먼저 로딩.
         const float_center_tx = (txMin + txMax) / 2;
         const float_center_ty = (tyMin + tyMax) / 2;
         list_child_tasks.sort((a, b) => {
@@ -1380,19 +1199,14 @@ export class TileViewer {
         });
         this._queueTileTasksFront([...list_parent_tasks, ...list_child_tasks]);
 
-        // 큐에 있는 타일 로딩 시작
         this._processLoadQueue();
 
-        // 여기서부터 CSS 픽셀 기반 코드 — dpr transform 복구
         ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
 
-        // Virtual Stain 오버레이 (메인 캔버스 위에 직접 그림 — 슬라이드를 가림)
         this._renderVirtualStainOverlay(ctx);
 
-        // 오버레이 렌더링 — device pixel 좌표계, dpr scale 로 annotation 그리기
         this.overlayCtx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
         this.overlayCtx.clearRect(0, 0, this._viewW, this._viewH);
-        // 주의: annotation/detection 렌더러들은 CSS 픽셀 기준으로 그린다.
         this._renderDetectionOverlay();
         this._renderAnnotations(this.overlayCtx);
     }
@@ -1405,12 +1219,10 @@ export class TileViewer {
         const canvasW = this._viewW;
         const canvasH = this._viewH;
 
-        // 오버레이 전체 → 캔버스 매핑
         const [cx, cy] = this.sceneToCanvas(ov.originX, ov.originY);
         const cw = ov.sceneW * this.zoom;
         const ch = ov.sceneH * this.zoom;
 
-        // 가시 교집합
         const dx0 = Math.max(0, cx);
         const dy0 = Math.max(0, cy);
         const dx1 = Math.min(canvasW, cx + cw);
@@ -1418,8 +1230,6 @@ export class TileViewer {
         const overlayVisible = (dx1 > dx0 && dy1 > dy0);
         if (!overlayVisible && !this._vsSplitMode) return;
 
-        // ── 레벨 선택: level width 가 화면상 오버레이 폭보다 아주 조금 작거나 같은 것 중 가장 낮은 해상도 ──
-        // 화면에 그려질 VS 폭(픽셀)과 각 레벨 이미지 폭을 비교
         let chosenL = 0;
         for (let L = 0; L < ov.levels.length; L++) {
             if (ov.levels[L].width >= cw * 0.8) chosenL = L;
@@ -1428,7 +1238,6 @@ export class TileViewer {
         const lvl = ov.levels[chosenL];
         const scaleX = ov.sceneW / lvl.width;    // scene px per level-pixel
 
-        // 업샘플(zoom 이 큼)이면 스무딩 off, 다운샘플이면 low 품질
         const screenPerLvlPx = this.zoom * scaleX;
         if (screenPerLvlPx > 1) {
             ctx.imageSmoothingEnabled = false;
@@ -1437,7 +1246,6 @@ export class TileViewer {
             ctx.imageSmoothingQuality = 'low';
         }
 
-        // 가시 scene 영역
         const [vsx0, vsy0] = this.canvasToScene(0, 0);
         const [vsx1, vsy1] = this.canvasToScene(canvasW, canvasH);
         const xlo = Math.max(ov.originX, vsx0);
@@ -1445,15 +1253,11 @@ export class TileViewer {
         const xhi = Math.min(ov.originX + ov.sceneW, vsx1);
         const yhi = Math.min(ov.originY + ov.sceneH, vsy1);
         if (xhi <= xlo || yhi <= ylo) {
-            // 오버레이가 가시영역 밖 — split 분할선만 그리고 끝 (아래서 처리)
             if (!this._vsSplitMode) return;
         }
 
         const TS = ov.tileSize || 512;
 
-        // 특정 레벨의 가시 타일을 draw (요청/로드 분리 옵션 포함)
-        // requestMissing: true 면 캐시 miss 시 _getVsTile 로 백그라운드 로드 트리거
-        //                 false 면 이미 캐시된 타일만 그림 (fallback 용)
         const drawLevel = (L, requestMissing) => {
             const lv = ov.levels[L];
             const sX = ov.sceneW / lv.width;
@@ -1482,7 +1286,6 @@ export class TileViewer {
             }
         };
 
-        // ROI 폴리곤 클립
         const roiPolys = ov.roiPolygons;
         const drawWithRoiClip = (drawFn) => {
             if (!roiPolys || roiPolys.length === 0) {
@@ -1506,19 +1309,14 @@ export class TileViewer {
             ctx.restore();
         };
 
-        // drawTiles: 저해상도 레벨 → 선택 레벨 → 더 고해상도 (캐시된 것만) 순으로 레이어링
-        //   1) 가장 깊은 레벨(최저해상도)을 배경으로 깔아 빈 영역 제거 (blur pad)
-        //   2) 선택 레벨을 덧그림 (로드 트리거)
-        //   3) 선택 레벨보다 더 고해상도 (L-1, L-2...) 중 이미 캐시된 타일이 있으면 덧그림
-        //      (줌아웃 직후 이전 고해상도 타일이 남아있어 선명도 유지)
         const drawTiles = () => {
             const bgL = ov.levels.length - 1;
             if (bgL !== chosenL) {
-                drawLevel(bgL, true);  // 저해상도는 항상 요청 → 거의 항상 캐시됨
+                drawLevel(bgL, true);
             }
             drawLevel(chosenL, true);
             for (let L = chosenL - 1; L >= 0; L--) {
-                drawLevel(L, false);  // 더 고해상도는 캐시된 것만 추가로 덧그림
+                drawLevel(L, false);
             }
         };
 
@@ -1533,16 +1331,13 @@ export class TileViewer {
                 ctx.restore();
             }
 
-            // 분할선 + 핸들 + 라벨
             ctx.save();
-            // 그림자 라인 (가독성)
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.lineWidth = 4;
             ctx.beginPath();
             ctx.moveTo(splitX, 0);
             ctx.lineTo(splitX, canvasH);
             ctx.stroke();
-            // 흰색 라인
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -1550,7 +1345,6 @@ export class TileViewer {
             ctx.lineTo(splitX, canvasH);
             ctx.stroke();
 
-            // 가운데 드래그 핸들 (원형 + 좌우 화살표)
             const handleY = canvasH / 2;
             const handleR = 14;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
@@ -1560,7 +1354,6 @@ export class TileViewer {
             ctx.arc(splitX, handleY, handleR, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
-            // 좌우 화살표
             ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
             ctx.beginPath();
             ctx.moveTo(splitX - 7, handleY);
@@ -1583,12 +1376,10 @@ export class TileViewer {
             const mL = ctx.measureText(labelL);
             const mR = ctx.measureText(labelR);
             const bh = 18;
-            // 좌측 라벨
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(padX, padY, mL.width + 12, bh);
             ctx.fillStyle = '#fff';
             ctx.fillText(labelL, padX + 6, padY + 3);
-            // 우측 라벨
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(canvasW - mR.width - padX - 12, padY, mR.width + 12, bh);
             ctx.fillStyle = '#fff';
@@ -1602,7 +1393,7 @@ export class TileViewer {
     }
 
     /**
-     * VS 타일 캐시 조회만 (로드 트리거 없음). 폴백 드로우용.
+      *
      */
     _peekVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
@@ -1617,8 +1408,8 @@ export class TileViewer {
     }
 
     /**
-     * VS 타일 반환 (LRU 캐시 + 큐 기반 비동기 로드).
-     * 없으면 null 리턴하고 큐에 넣어 순차 로드 후 재렌더.
+      *
+      *
      */
     _getVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
@@ -1635,7 +1426,6 @@ export class TileViewer {
         const ov = this._vsOverlay;
         if (!ov) return null;
 
-        // 큐에 추가하고 큐 처리 시작
         this._vsTileLoading.add(key);
         this._vsLoadQueue.push({ key, level, tx, ty, ov });
         this._processVsLoadQueue();
@@ -1651,9 +1441,7 @@ export class TileViewer {
             img.onload = () => {
                 this._vsActiveLoads--;
                 this._vsTileLoading.delete(task.key);
-                // 로드 도중 overlay 가 바뀌었으면 버림
                 if (this._vsOverlay !== task.ov) return;
-                // LRU 제거
                 if (this._vsTileCache.size >= this._vsMaxTiles) {
                     const oldest = this._vsTileCache.keys().next().value;
                     this._vsTileCache.delete(oldest);
@@ -1675,7 +1463,6 @@ export class TileViewer {
 
     setVirtualStainSplitMode(enabled) {
         this._vsSplitMode = !!enabled;
-        // split mode에선 항상 overlay가 보여야 의미가 있음
         if (this._vsSplitMode) this._vsVisible = true;
         if (!this._vsSplitMode) {
             this._vsSplitDragging = false;
@@ -1684,7 +1471,6 @@ export class TileViewer {
         this.requestRender();
     }
 
-    // ── 타일 로딩 (병렬, 큐 기반) ──
 
     _tileTaskKey(task) {
         return task?.key || `${task.level}/${task.tx}/${task.ty}`;
@@ -1726,7 +1512,6 @@ export class TileViewer {
         this._tileLoading.add(key);
         this._activeLoads++;
 
-        // 이 로드가 시작된 시점의 generation — 슬라이드 전환되면 이 콜백 무시
         const int_gen = this._loadGeneration;
         const img = new Image();
         this._inflightImages.add(img);
@@ -1734,8 +1519,6 @@ export class TileViewer {
             this._inflightImages.delete(img);
             this._tileLoading.delete(key);
             this._activeLoads--;
-            // 슬라이드가 바뀐 뒤 도착한 응답은 폐기 (이전 슬라이드 픽셀이 새 cache 에
-            // 같은 키로 박히는 contamination 차단)
             if (int_gen !== this._loadGeneration) {
                 this._processLoadQueue();
                 return;
@@ -1750,7 +1533,6 @@ export class TileViewer {
             this._inflightImages.delete(img);
             this._tileLoading.delete(key);
             this._activeLoads--;
-            // 실패도 "완료" 로 간주해야 로딩창이 영원히 멈추지 않음
             this._markPreloadTileDone(key);
             this._processLoadQueue();
         };
@@ -1758,9 +1540,7 @@ export class TileViewer {
     }
 
     _putCache(key, img) {
-        // LRU 제거
         if (this._tileCache.size >= this._maxCacheTiles) {
-            // 가장 오래된 (Map 첫 번째) 항목 제거
             const oldest = this._tileCache.keys().next().value;
             this._tileCache.delete(oldest);
             this._tileFadeStart.delete(oldest);
@@ -1769,18 +1549,17 @@ export class TileViewer {
     }
 
     /**
-     * NDP 색보정 ON/OFF. Hamamatsu 슬라이드 뷰어의 toggle 버튼에서 호출.
+      *
      *
-     * 이 토글이 바뀌면 타일/썸네일 URL 이 바뀌므로 (서버가 /ndp/ 경로에서 보정본
-     * JPEG 을 디스크 캐시로 반환) 현재 캐시를 비우고 재로드를 트리거한다. 첫 전환
-     * 시엔 서버가 보정 타일을 생성하느라 약간 느리지만, 그 이후엔 브라우저
-     * HTTP 캐시 + 서버 디스크 캐시 둘 다 활용되어 즉답 수준이 된다.
+      *
+      *
+      *
+      *
      */
     setColorCorrectionEnabled(bool_enabled) {
         bool_enabled = !!bool_enabled;
         if (this._colorCorrectionEnabled === bool_enabled) return;
         this._colorCorrectionEnabled = bool_enabled;
-        // 이전 URL 로 받은 타일/썸네일은 전부 버리고 현재 flag 기준으로 재로드
         this._loadGeneration++;
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
@@ -1797,7 +1576,7 @@ export class TileViewer {
         this.requestRender();
     }
 
-    /** 타일 캐시 비우고 다시 렌더 (타일 생성 완료 후 호출) */
+    /**      (    ) */
     clearCacheAndRender() {
         this._tileCache.clear();
         this._tileLoading.clear();
@@ -1808,12 +1587,10 @@ export class TileViewer {
         this.requestRender();
     }
 
-    // ── 검출 오버레이 ──
 
     setDetectionResults(cells, roiPolygons = null) {
         let filtered = cells || [];
 
-        // ROI 폴리곤이 있으면 폴리곤 내부 셀만 필터링
         if (roiPolygons && roiPolygons.length > 0) {
             filtered = filtered.filter(c =>
                 roiPolygons.some(poly => this._pointInPolygon(c.x, c.y, poly))
@@ -1834,7 +1611,6 @@ export class TileViewer {
             this.classConfidence[id] = defConf;
         });
 
-        // 공간 인덱스 구축 (뷰포트 영역만 O(1) 조회용)
         this._spatialGrid = new SpatialGrid(2048);
         this._spatialGrid.build(filtered);
 
@@ -1864,13 +1640,12 @@ export class TileViewer {
         this.requestRender();
     }
 
-    // ── Cell editing (Alt+Click) ──
 
     /**
-     * 클릭 위치(WSI 좌표)에서 가장 가까운 셀 찾기.
+      *
      * @param {number} sx WSI x
      * @param {number} sy WSI y
-     * @param {number} maxScreenPx 화면 픽셀 기준 최대 거리
+      *
      * @returns {{index, cell}|null}
      */
     _findNearestCell(sx, sy, maxScreenPx = 30) {
@@ -1878,11 +1653,9 @@ export class TileViewer {
         const maxDistWsi = this.zoom > 0 ? maxScreenPx / this.zoom : maxScreenPx;
         const r = maxDistWsi;
 
-        // SpatialGrid로 후보 좁히기
         let candidates;
         if (this._spatialGrid) {
             const cellsInBox = this._spatialGrid.query(sx - r, sy - r, sx + r, sy + r);
-            // SpatialGrid는 cell 객체만 반환 → 원본 인덱스 매핑
             candidates = cellsInBox.map(c => ({ cell: c, index: this.detectionCells.indexOf(c) }));
         } else {
             candidates = this.detectionCells.map((c, i) => ({ cell: c, index: i }));
@@ -1892,7 +1665,6 @@ export class TileViewer {
         let bestCell = null;
         let bestDist = Infinity;
         for (const { cell, index } of candidates) {
-            // visibility/confidence 필터 (편집 대상은 화면에 보이는 셀만)
             if (this.classVisibility[cell.class_id] === false) continue;
             const thresh = this.classConfidence[cell.class_id] ?? 0.01;
             if ((cell.confidence ?? 1.0) < thresh) continue;
@@ -1913,7 +1685,7 @@ export class TileViewer {
         return null;
     }
 
-    /** Ray-casting point-in-polygon (scene 좌표) */
+    /** Ray-casting point-in-polygon (scene ) */
     _pointInPolygon(x, y, poly) {
         let inside = false;
         for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -1926,7 +1698,7 @@ export class TileViewer {
         return inside;
     }
 
-    /** 라쏘 폴리곤 내부에 포함되는 셀들의 인덱스 리스트 (visibility/confidence 필터 적용) */
+    /**        (visibility/confidence  ) */
     _findCellsInPolygon(poly) {
         if (!this.detectionCells.length || poly.length < 3) return [];
         let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
@@ -2022,10 +1794,10 @@ export class TileViewer {
     }
 
     /**
-     * 새 셀을 detectionCells 끝에 추가 — Shift+click UX 용.
-     * confidence 는 1.0 (사용자가 수동으로 추가했으니 max). undo/redo 지원.
-     * highlight 는 적용 안 함 — 연속 추가 시 이전 셀이 선택 표시로 덮여 보기 힘들기 때문.
-     * 반환: 추가된 셀 객체.
+      *
+      *
+      *
+      *
      */
     addCell(sx, sy, classId, className = null) {
         const cell = {
@@ -2041,14 +1813,13 @@ export class TileViewer {
             items: [{ index: int_index, cell }],
         });
         this.detectionCells.push(cell);
-        // 기존 highlight 가 남아 있을 수 있으므로 명시적으로 해제.
         this._highlightedCellIdx = -1;
         this._highlightedCellIdxSet = null;
         this._refreshAfterCellEdit();
         return cell;
     }
 
-    /** 여러 셀 일괄 삭제 */
+    /**     */
     deleteCells(listIndices) {
         if (!listIndices || listIndices.length === 0) return;
         const list_valid = listIndices
@@ -2066,7 +1837,7 @@ export class TileViewer {
         this._refreshAfterCellEdit();
     }
 
-    /** 여러 셀 일괄 클래스 변경 */
+    /**      */
     changeCellsClass(listIndices, newClassId, newClassName = null) {
         if (!listIndices || listIndices.length === 0) return;
         const list_items = [];
@@ -2135,7 +1906,7 @@ export class TileViewer {
         return promoted;
     }
 
-    /** 직전 셀 편집 되돌리기 */
+    /**     */
     undoCellEdit() {
         const op = this._undoStack.pop();
         if (!op) return false;
@@ -2153,7 +1924,6 @@ export class TileViewer {
                 c.class_name = it.oldClassName;
             }
         } else if (op.type === 'add') {
-            // 추가의 역연산 = 큰 인덱스부터 splice (인덱스 시프트 방지).
             const sortedDesc = [...op.items].sort((a, b) => b.index - a.index);
             for (const { index } of sortedDesc) {
                 if (index < 0 || index >= this.detectionCells.length) continue;
@@ -2180,7 +1950,7 @@ export class TileViewer {
         return true;
     }
 
-    /** 직전 undo 복구 */
+    /**  undo  */
     redoCellEdit() {
         const op = this._redoStack.pop();
         if (!op) return false;
@@ -2308,14 +2078,12 @@ export class TileViewer {
     }
 
     _refreshAfterCellEdit() {
-        // 새 클래스가 처음 등장할 수 있음
         const cls = new Set(this.detectionCells.map(c => c.class_id));
         cls.forEach(id => {
             if (this.classVisibility[id] === undefined) this.classVisibility[id] = true;
             if (this.classConfidence[id] === undefined) this.classConfidence[id] = this.defaultConfidence ?? 0.01;
         });
 
-        // 공간 인덱스 + 히트맵 캐시 재구축
         this._spatialGrid = new SpatialGrid(2048);
         this._spatialGrid.build(this.detectionCells);
         this._heatmapDirty = true;
@@ -2327,20 +2095,19 @@ export class TileViewer {
     }
 
     /**
-     * 클래스별 density 그리드 사전 계산 (기존 TiledDetectionOverlay._build_heatmap_cache)
-     * 종횡비 유지한 2048 해상도 그리드에 histogram2d
-     * confidence 필터링은 클래스별로 적용
+      *
+      *
+      *
      */
     /**
-     * 클래스별 density 그리드 사전 계산 — setDetectionResults 시 1회만 실행
-     * 데스크톱과 동일: confidence 필터 없이 전체 셀로 density 빌드
-     * confidence/visibility 필터링은 렌더 시 클래스 단위로 적용 (재빌드 불필요)
+      *
+      *
+      *
      */
     _buildHeatmapCache() {
         this._heatmapCache = null;
         if (!this.detectionCells.length || !this.slideInfo) return;
 
-        // 셀 범위 계산
         let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
         for (const c of this.detectionCells) {
             if (c.x < xMin) xMin = c.x;
@@ -2364,7 +2131,6 @@ export class TileViewer {
         const sx = gw / spanW;
         const sy = gh / spanH;
 
-        // 클래스별 density 그리드 (confidence 필터 적용)
         const clsDensities = {};
         for (const cell of this.detectionCells) {
             const cls = cell.class_id;
@@ -2386,16 +2152,15 @@ export class TileViewer {
     }
 
     /**
-     * 가우시안 블러 (5x5 box blur 반복으로 근사)
-     * 데스크톱: cv2.GaussianBlur(sigma = max(3.0, w/60)) ≈ sigma 8~9
-     * 5x5 box blur × passes 회 → sigma ≈ sqrt(passes * 2) 에 근사
-     * passes=18 → sigma ≈ 6, passes=32 → sigma ≈ 8
+      *
+      *
+      *
+      *
      */
     _blurGrid(src, w, h, passes) {
         let a = new Float32Array(src);
         let b = new Float32Array(w * h);
         for (let p = 0; p < passes; p++) {
-            // 수평 5-tap 블러: [1,2,3,2,1]/9 가중 근사 → 균등 5-tap
             for (let y = 0; y < h; y++) {
                 for (let x = 0; x < w; x++) {
                     const x0 = Math.max(0, x - 2);
@@ -2406,7 +2171,6 @@ export class TileViewer {
                     b[row + x] = (a[row + x0] + a[row + x1] + a[row + x] + a[row + x3] + a[row + x4]) / 5;
                 }
             }
-            // 수직 5-tap 블러
             for (let y = 0; y < h; y++) {
                 const y0 = Math.max(0, y - 2) * w;
                 const y1 = Math.max(0, y - 1) * w;
@@ -2421,7 +2185,7 @@ export class TileViewer {
         return a;
     }
 
-    /** jet 컬러맵: 0~1 → [r, g, b] */
+    /** jet : 0~1  [r, g, b] */
     _jetColor(t) {
         t = Math.max(0, Math.min(1, t));
         let r, g, b;
@@ -2432,29 +2196,25 @@ export class TileViewer {
         return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
     }
 
-    // ── Segmentation 오버레이 (데스크톱 wsi_view_widget.py 동일) ──
-    // 색상: Stroma=빨강, Non_Tumor=초록, Tumor=파랑, alpha=128
 
     /**
-     * Segmentation 마스크 설정
-     * @param {Uint8Array} maskData - 클래스 인덱스 배열 (0=BG, 1=Stroma, 2=Non_Tumor, 3=Tumor)
-     * @param {number} maskW - 마스크 너비
-     * @param {number} maskH - 마스크 높이
+      *
+      *
+      *
+      *
      * @param {number} sceneX - WSI level-0 offset X
      * @param {number} sceneY - WSI level-0 offset Y
-     * @param {number} sceneW - WSI level-0 영역 너비
-     * @param {number} sceneH - WSI level-0 영역 높이
+      *
+      *
      * @param {string[]} classNames - ['Stroma', 'Non_Tumor', 'Tumor']
      */
     setSegmentationOverlay(maskData, maskW, maskH, sceneX, sceneY, sceneW, sceneH, classNames) {
-        // 데스크톱과 동일한 색상: Stroma=빨강, Non_Tumor=초록, Tumor=파랑
         const SEG_COLORS = {
             1: [255, 0, 0, 128],    // Stroma
             2: [0, 255, 0, 128],    // Non_Tumor
             3: [0, 0, 255, 128],    // Tumor
         };
 
-        // RGBA ImageData 생성
         const offscreen = new OffscreenCanvas(maskW, maskH);
         const offCtx = offscreen.getContext('2d');
         const imgData = offCtx.createImageData(maskW, maskH);
@@ -2476,7 +2236,7 @@ export class TileViewer {
     }
 
     /**
-     * base64 인코딩된 seg overlay 이미지 설정 (백엔드에서 받은 데이터)
+      *
      */
     setSegmentationOverlayFromData(segData) {
         if (!segData || !segData.mask_b64) {
@@ -2508,16 +2268,15 @@ export class TileViewer {
     }
 
     /**
-     * Virtual Stain (VS IHC) 오버레이 설정 — 타일 피라미드 방식.
+      *
      * @param {object} meta - {
      *   slide_id, stain_type, target_mpp,
      *   roi_origin: [x,y], canvas_l0_w, canvas_l0_h,
      *   tile_size, levels: [{level,width,height,nx,ny}...],
-     *   roi_polygons? (표시 클립용)
+      *
      * }
      */
     setVirtualStainOverlay(meta) {
-        // 이전 타일 캐시 정리
         this._vsTileCache.clear();
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
@@ -2584,8 +2343,6 @@ export class TileViewer {
         const octx = this.overlayCtx;
         if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet) return;
 
-        // effectiveMpp 기준: 화면에 보이는 실제 해상도로 판단
-        // mpp < 3.0 → 개별 셀, mpp >= 3.0 → 저배율 → 히트맵
         const effectiveMpp = this.getEffectiveMpp();
         if (this.detectionCells.length) {
             if (effectiveMpp >= 3.0) {
@@ -2595,7 +2352,6 @@ export class TileViewer {
             }
         }
 
-        // 편집 대상 셀 하이라이트는 어떤 모드든 항상 표시
         this._renderCellHighlight(octx);
         this._renderMultiCellHighlight(octx);
         this._renderHiddenCellHighlight(octx);
@@ -2705,25 +2461,21 @@ export class TileViewer {
         const g = parseInt(hexColor.slice(3, 5), 16);
         const b = parseInt(hexColor.slice(5, 7), 16);
 
-        // 줌과 무관하게 항상 잘 보이는 크기 (최소 18px)
         const baseR = Math.max(18, 12 * this.zoom);
 
         octx.save();
 
-        // 외곽 어두운 링 (대비)
         octx.strokeStyle = 'rgba(0,0,0,0.85)';
         octx.lineWidth = 6;
         octx.beginPath();
         octx.arc(hx, hy, baseR + 2, 0, Math.PI * 2);
         octx.stroke();
 
-        // 채움
         octx.fillStyle = `rgba(${r},${g},${b},0.25)`;
         octx.beginPath();
         octx.arc(hx, hy, baseR, 0, Math.PI * 2);
         octx.fill();
 
-        // 클래스 색 외곽선
         octx.strokeStyle = `rgb(${r},${g},${b})`;
         octx.lineWidth = 3;
         octx.shadowColor = `rgb(${r},${g},${b})`;
@@ -2732,7 +2484,6 @@ export class TileViewer {
         octx.arc(hx, hy, baseR, 0, Math.PI * 2);
         octx.stroke();
 
-        // 십자선 (셀 위치 정확히 표시)
         octx.shadowBlur = 0;
         octx.strokeStyle = '#FFFFFF';
         octx.lineWidth = 2;
@@ -2752,23 +2503,21 @@ export class TileViewer {
     }
 
     /**
-     * 히트맵 렌더링 (기존 create_heatmap_mask와 동일 방식)
-     * 1. 가시 클래스 density를 합산
-     * 2. 현재 뷰 영역만 crop
-     * 3. 가우시안 블러
-     * 4. jet 컬러맵 + 알파를 ImageData로 그리기
+      *
+      *
+      *
+      *
+      *
      */
     _renderHeatmap(octx) {
         const cache = this._heatmapCache;
         if (!cache) return;
 
-        // 가시 클래스 키 — 변경 감지용
         const visKey = Object.keys(cache.clsDensities)
             .filter(k => this.classVisibility[parseInt(k)] !== false)
             .sort()
             .join(',');
 
-        // 캐시된 이미지가 유효하면 그대로 drawImage
         if (!this._heatmapImage || this._heatmapImage.visKey !== visKey) {
             this._heatmapImage = this._buildHeatmapImage(visKey);
         }
@@ -2784,15 +2533,14 @@ export class TileViewer {
     }
 
     /**
-     * 전체 데이터 범위에 대한 히트맵 이미지를 1회 빌드.
-     * 줌/팬 시 재계산 없이 drawImage로 재사용.
+      *
+      *
      */
     _buildHeatmapImage(visKey) {
         const cache = this._heatmapCache;
         if (!cache) return null;
         const { clsDensities, xMin, yMin, gw, gh, sx, sy } = cache;
 
-        // 가시 클래스 합산 (전체 그리드)
         const total = gw * gh;
         const combined = new Float32Array(total);
         let hasData = false;
@@ -2809,7 +2557,6 @@ export class TileViewer {
         }
         if (!hasData) return null;
 
-        // 출력 해상도 (최대 512px)
         const maxDim = 512;
         let outW, outH;
         if (gw >= gh) {
@@ -2820,7 +2567,6 @@ export class TileViewer {
             outW = Math.max(1, Math.round(outH * gw / gh));
         }
 
-        // 리사이즈 (nearest)
         const resized = new Float32Array(outH * outW);
         const rxScale = gw / outW;
         const ryScale = gh / outH;
@@ -2832,7 +2578,6 @@ export class TileViewer {
             }
         }
 
-        // 가우시안 블러
         const blurPasses = Math.max(8, Math.round(outW / 20));
         const blurred = this._blurGrid(resized, outW, outH, blurPasses);
 
@@ -2842,7 +2587,6 @@ export class TileViewer {
         }
         if (maxVal === 0) return null;
 
-        // ImageData → 오프스크린 캔버스
         const offscreen = new OffscreenCanvas(outW, outH);
         const offCtx = offscreen.getContext('2d');
         const imgData = offCtx.createImageData(outW, outH);
@@ -2880,10 +2624,8 @@ export class TileViewer {
         const viewRight = this.viewCenterX + halfVW;
         const viewBottom = this.viewCenterY + halfVH;
 
-        // SpatialGrid로 뷰포트 내 셀만 조회 (O(1), 전체 순회 제거)
         const visible = this._spatialGrid.query(viewLeft, viewTop, viewRight, viewBottom);
 
-        // effectiveMpp에 따라 셀 크기/두께 조절
         const effectiveMpp = this.getEffectiveMpp();
         let baseRadius, lineW;
         if (effectiveMpp < 1.0) {
@@ -2918,7 +2660,6 @@ export class TileViewer {
 
     }
 
-    // ── Annotation 그리기 ──
 
     setDrawMode(mode) {
         // mode: 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | null
@@ -2978,19 +2719,19 @@ export class TileViewer {
     }
 
     /**
-     * 슬라이드 좌표계 기준 1mm 가 몇 px 인지. mpp(µm/px) 가 0.25 면 4000 px = 1mm.
-     * slideInfo 가 없거나 mpp 가 없으면 null — 호출 측에서 가드 필요.
+      *
+      *
      */
     _pixelsPerMM() {
         if (!this.slideInfo || !this.slideInfo.mpp) return null;
-        return 1000 / this.slideInfo.mpp;  // 1mm = 1000 µm
+        return 1000 / this.slideInfo.mpp;
     }
 
-    /** 중심(cx,cy) 기준 1mm × 1mm 정사각형 4 꼭짓점 (scene 좌표). */
+    /** (cx,cy)  1mm  1mm  4  (scene ). */
     _makeRect1mm2Coords(cx, cy) {
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
-        const half = ppm / 2;  // 1mm 변의 절반
+        const half = ppm / 2;
         return [
             [cx - half, cy - half],
             [cx + half, cy - half],
@@ -2999,11 +2740,10 @@ export class TileViewer {
         ];
     }
 
-    /** 중심(cx,cy) 기준 면적 1mm² 인 원의 64각형 근사 (scene 좌표). */
+    /** (cx,cy)   1mm   64  (scene ). */
     _makeCircle1mm2Coords(cx, cy) {
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
-        // 면적 = π r² = 1mm²  →  r = √(1/π) mm  →  px 로 환산
         const radiusPx = Math.sqrt(1 / Math.PI) * ppm;
         const N = 64;
         const pts = [];
@@ -3016,7 +2756,6 @@ export class TileViewer {
 
     _onDrawMouseDown(sx, sy, cx, cy, e) {
         if (this.drawMode === 'polygon') {
-            // 누르는 순간 시작, 드래그하면서 점 추가, 떼면 완성
             this._drawingPoints = [[sx, sy]];
             this._isDrawing = true;
             this._drawingCurrent = [sx, sy];
@@ -3049,23 +2788,17 @@ export class TileViewer {
         } else if (this.drawMode === 'point') {
             this._createAnnotation('point', [[sx, sy]]);
         } else if (this.drawMode === 'rect-1mm2') {
-            // 클릭 위치를 중심으로 1mm × 1mm 정사각형 즉시 배치.
             const coords = this._makeRect1mm2Coords(sx, sy);
             if (coords) this._createAnnotation('rectangle', coords);
         } else if (this.drawMode === 'circle-1mm2') {
-            // 면적 1mm² 원 (64각형 근사) — 기존 polygon 파이프라인에 그대로 들어가
-            // 편집/ROI 내보내기/저장 모두 자동 동작.
             const coords = this._makeCircle1mm2Coords(sx, sy);
             if (coords) this._createAnnotation('polygon', coords);
         } else if (this.drawMode === 'ruler') {
-            // 1차 클릭: 시작점, 2차 클릭: 고정, 3차 클릭: 새 측정 시작.
-            // annotation 으로 저장 X — drawMode 해제 시 사라지는 일회성 측정.
             if (!this._rulerStart || this._rulerFinalized) {
                 this._rulerStart = [sx, sy];
                 this._rulerEnd = [sx, sy];
                 this._rulerFinalized = false;
             } else {
-                // 수평/수직 ±2° 스냅 — preview 와 동일 규칙으로 고정.
                 this._rulerEnd = this._snapRulerEnd(
                     this._rulerStart[0], this._rulerStart[1], sx, sy);
                 this._rulerFinalized = true;
@@ -3077,7 +2810,6 @@ export class TileViewer {
     _onDrawMouseMove(sx, sy, cx, cy) {
         this._drawingCurrent = [sx, sy];
 
-        // 폴리곤 드래그로 점 추가 (10px 간격)
         if ((this.drawMode === 'polygon' || this.drawMode === 'brush' || this.drawMode === 'cut') &&
                 this._drawingPoints.length > 0 && (cx !== undefined)) {
             if (this._lastDrawDragCanvas) {
@@ -3096,7 +2828,6 @@ export class TileViewer {
 
     _onDrawMouseUp(sx, sy) {
         if (this.drawMode === 'polygon' && this._isDrawing) {
-            // 마우스 떼면 폴리곤 완성 (최소 3점)
             if (this._drawingPoints.length >= 3) {
                 this._finishPolygon();
             } else {
@@ -3155,7 +2886,6 @@ export class TileViewer {
 
     _finishPolygon() {
         if (this._drawingPoints.length >= 3) {
-            // 자기교차(self-intersection) 검사 — 닫는 선분 포함
             if (this._isSelfIntersecting(this._drawingPoints)) {
                 this._cancelDrawing();
                 return;
@@ -3169,7 +2899,7 @@ export class TileViewer {
         this.requestRender();
     }
 
-    /** 폴리곤 선분들이 자기 자신과 교차하는지 검사 */
+    /**       */
     _makeCirclePolygon(cx, cy, radius, count = 28) {
         const pts = [];
         for (let i = 0; i < count; i++) {
@@ -3435,12 +3165,11 @@ export class TileViewer {
 
     _isSelfIntersecting(pts) {
         const n = pts.length;
-        if (n < 4) return false; // 삼각형은 교차 불가
-        // 닫힌 폴리곤의 모든 변(edge) 쌍 검사
+        if (n < 4) return false;
         for (let i = 0; i < n; i++) {
             const a = pts[i], b = pts[(i + 1) % n];
             for (let j = i + 2; j < n; j++) {
-                if (i === 0 && j === n - 1) continue; // 인접 변 (첫-끝) 건너뛰기
+                if (i === 0 && j === n - 1) continue;
                 const c = pts[j], d = pts[(j + 1) % n];
                 if (this._segmentsIntersect(a, b, c, d)) return true;
             }
@@ -3448,7 +3177,7 @@ export class TileViewer {
         return false;
     }
 
-    /** 두 선분 (p1-p2, p3-p4) 교차 판정 */
+    /**   (p1-p2, p3-p4)   */
     _segmentsIntersect(p1, p2, p3, p4) {
         const d1 = this._cross(p3, p4, p1);
         const d2 = this._cross(p3, p4, p2);
@@ -3469,7 +3198,6 @@ export class TileViewer {
         this._drawingCurrent = null;
         this._isDrawing = false;
         this._lastDrawDragCanvas = null;
-        // Ruler 일회성 측정도 함께 정리 (모드 전환/해제 시 잔상 방지).
         this._rulerStart = null;
         this._rulerEnd = null;
         this._rulerFinalized = false;
@@ -3532,10 +3260,8 @@ export class TileViewer {
         this.requestRender();
     }
 
-    // ── Annotation 렌더링 ──
 
     _renderAnnotations(octx) {
-        // 확정된 annotation
         for (const ann of this.annotations) {
             if (!ann.visible) continue;
             if (this._isAnnotationClassHidden(ann)) continue;
@@ -3567,7 +3293,6 @@ export class TileViewer {
             }
         }
 
-        // 진행 중인 그리기 프리뷰
         this._renderInsertVertexPreview(octx);
         this._renderMergeHover(octx);
         this._renderDrawingPreview(octx);
@@ -3653,10 +3378,10 @@ export class TileViewer {
     }
 
     /**
-     * scene 좌표 두 점 사이의 실측 거리를 사람이 읽기 좋은 문자열로.
-     *  - 1 mm 미만: "342.7 µm (1,370 px)"
-     *  - 1 mm 이상: "1.234 mm (4,936 px)"
-     * mpp 가 없으면 px 단위만.
+      *
+      *
+      *
+      *
      */
     _formatDistance(sx0, sy0, sx1, sy1) {
         const dx = sx1 - sx0, dy = sy1 - sy0;
@@ -3666,15 +3391,15 @@ export class TileViewer {
         if (!mpp) return strPx;
         const distUm = distPx * mpp;
         const strUnit = distUm < 1000
-            ? `${distUm.toFixed(1)} µm`
+            ' `${distUm.toFixed(1)} m`
             : `${(distUm / 1000).toFixed(3)} mm`;
         return `${strUnit} (${strPx})`;
     }
 
     /**
-     * 시작점→끝점 각도가 수평/수직 ±2° 이내면 해당 축으로 스냅.
-     * 약간의 손떨림 보정용 — 임계값을 너무 키우면 의도된 비스듬 측정이 막혀 답답해진다.
-     * 반환: [snappedSx, snappedSy]
+      *
+      *
+      *
      */
     _snapRulerEnd(sx0, sy0, sx1, sy1) {
         const dx = sx1 - sx0;
@@ -3682,13 +3407,11 @@ export class TileViewer {
         if (dx === 0 && dy === 0) return [sx1, sy1];
         const FLOAT_SNAP_DEG = 2;
         const float_tol = FLOAT_SNAP_DEG * Math.PI / 180;
-        const float_ang = Math.atan2(dy, dx);  // (-π, π]
+        const float_ang = Math.atan2(dy, dx);
         const float_abs = Math.abs(float_ang);
-        // 수평: 0 또는 ±π
         if (float_abs < float_tol || Math.abs(float_abs - Math.PI) < float_tol) {
             return [sx1, sy0];
         }
-        // 수직: ±π/2
         if (Math.abs(float_abs - Math.PI / 2) < float_tol) {
             return [sx0, sy1];
         }
@@ -3703,7 +3426,6 @@ export class TileViewer {
 
         const color = this._rulerFinalized ? 'rgba(255,140,0,0.95)' : 'rgba(255,140,0,0.8)';
 
-        // 본 직선
         octx.beginPath();
         octx.moveTo(cx0, cy0);
         octx.lineTo(cx1, cy1);
@@ -3713,7 +3435,6 @@ export class TileViewer {
         octx.stroke();
         octx.setLineDash([]);
 
-        // 양 끝 점
         for (const [px, py] of [[cx0, cy0], [cx1, cy1]]) {
             octx.beginPath();
             octx.arc(px, py, 4, 0, Math.PI * 2);
@@ -3724,7 +3445,6 @@ export class TileViewer {
             octx.stroke();
         }
 
-        // 길이 라벨 — 직선 가운데에 배경박스 + 텍스트
         const label = this._formatDistance(sx0, sy0, sx1, sy1);
         const midX = (cx0 + cx1) / 2;
         const midY = (cy0 + cy1) / 2;
@@ -3735,7 +3455,6 @@ export class TileViewer {
         const padX = 6, padY = 3;
         const boxW = textW + padX * 2;
         const boxH = 18;
-        // 라벨이 직선과 겹치지 않게 살짝 위로 (직선 방향 수직 오프셋)
         const ang = Math.atan2(cy1 - cy0, cx1 - cx0);
         const off = 14;
         const ox = midX + Math.sin(ang) * off;
@@ -3747,7 +3466,6 @@ export class TileViewer {
         octx.strokeRect(ox - boxW / 2, oy - boxH / 2, boxW, boxH);
         octx.fillStyle = '#fff';
         octx.fillText(label, ox, oy + 0.5);
-        // 기본값 복구 (다른 렌더러 영향 방지)
         octx.textAlign = 'start';
         octx.textBaseline = 'alphabetic';
     }
@@ -3779,7 +3497,6 @@ export class TileViewer {
             octx.stroke();
             octx.setLineDash([]);
 
-            // 시작점 표시
             octx.beginPath();
             octx.arc(cx0, cy0, 6, 0, Math.PI * 2);
             octx.fillStyle = previewFillStrong;
@@ -3788,7 +3505,6 @@ export class TileViewer {
             octx.lineWidth = 1;
             octx.stroke();
 
-            // 각 점
             for (const [sx, sy] of this._drawingPoints) {
                 const [cx, cy] = this.sceneToCanvas(sx, sy);
                 octx.beginPath();
@@ -3878,12 +3594,10 @@ export class TileViewer {
             octx.setLineDash([]);
         }
 
-        // Ruler — 일회성 거리 측정. annotation 이 아니라 drawMode 활성 동안만 표시.
         if (this.drawMode === 'ruler' && this._rulerStart && this._rulerEnd) {
             this._renderRulerPreview(octx);
         }
 
-        // 1mm² 고정 크기 미리보기 — 마우스 위치 중심으로 따라간다.
         if ((this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2')
                 && this._drawingCurrent) {
             const [sx, sy] = this._drawingCurrent;
@@ -3908,7 +3622,6 @@ export class TileViewer {
                 octx.setLineDash([6, 3]);
                 octx.stroke();
                 octx.setLineDash([]);
-                // 중심 십자선
                 const [ccx, ccy] = this.sceneToCanvas(sx, sy);
                 octx.strokeStyle = strokeColor;
                 octx.lineWidth = 1;
@@ -3920,9 +3633,8 @@ export class TileViewer {
         }
     }
 
-    // ── Hit Testing ──
 
-    /** 캔버스 좌표에서 선택된 annotation의 컨트롤포인트 히트 테스트 */
+    /**    annotation    */
     _getEditableSelectedPolygon() {
         const ann = this.annotations.find(a => a.id === this.selectedAnnotationId);
         if (!ann || !ann.visible || this._isAnnotationClassHidden(ann)) return null;
@@ -4313,7 +4025,7 @@ export class TileViewer {
         return null;
     }
 
-    /** scene 좌표에서 annotation 히트 테스트 (역순: 위에 그려진 것 우선) */
+    /** scene  annotation   (:    ) */
     _hitAnnotation(sx, sy) {
         const threshold = Math.max(4, 8 / Math.max(this.zoom, 0.0001));
         for (let i = this.annotations.length - 1; i >= 0; i--) {
@@ -4442,7 +4154,7 @@ export class TileViewer {
         return inside;
     }
 
-    /** annotation 중심으로 뷰 이동 */
+    /** annotation    */
     centerOnAnnotation(ann) {
         if (!ann || !ann.coordinates || ann.coordinates.length === 0) return;
         const xs = ann.coordinates.map(c => c[0]);
@@ -4456,7 +4168,6 @@ export class TileViewer {
         if (this.onViewChange) this.onViewChange();
     }
 
-    // ── 미니맵 ──
 
     getViewRect() {
         if (!this.slideInfo) return null;

@@ -3,8 +3,8 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260522-06';
-import { AiViewer } from './ai-viewer.js?v=20260522-06';
+import { api } from './api.js?v=20260522-09';
+import { AiViewer } from './ai-viewer.js?v=20260522-09';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -686,6 +686,7 @@ let _minimapLoadToken = 0;
 function _paintMinimap(slideId, img) {
     if (!img || currentSlideId !== slideId || img.naturalWidth <= 0) return false;
     minimapImage = img;
+    viewer.setThumbnailFallbackImage?.(slideId, img);
     $minimapCanvas.width = img.naturalWidth || img.width;
     $minimapCanvas.height = img.naturalHeight || img.height;
     $minimapCanvas.getContext('2d').drawImage(img, 0, 0);
@@ -723,7 +724,7 @@ async function loadMinimap(slideId) {
         if (token !== _minimapLoadToken) return;
         _paintMinimap(slideId, img);
     };
-    const str_url = api.thumbnailUrl(slideId, 2048, false, currentSlideInfo);
+    const str_url = api.thumbnailUrl(slideId, 2048, api.shouldUseNdpMatch?.(currentSlideInfo) || false, currentSlideInfo);
     if (str_url) img.src = str_url;
 }
 
@@ -4155,7 +4156,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
                 <div class="ai-cfg-list" id="ai-cfg-list"></div>
             </div>
             <div class="ai-cfg-footer">
-                <button type="button" class="ai-cfg-btn ai-cfg-cancel">취소</button>
+                <button type="button" class="ai-cfg-btn ai-cfg-cancel">Cancel</button>
                 <button type="button" class="ai-cfg-btn ai-cfg-save primary">Save</button>
             </div>
         </div>
