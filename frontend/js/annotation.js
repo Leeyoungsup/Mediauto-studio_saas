@@ -3,7 +3,8 @@
  */
 
 import { api } from './api.js?v=20260521-16';
-import { TileViewer } from './tile-viewer.js?v=20260522-02';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-03';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-03';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -260,7 +261,10 @@ function _nextAnnotationWorkflowStatus(status) {
 }
 
 // ???? 뷰어 초기??????
-const viewer = new TileViewer($canvas, $overlay);
+const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
+    ? CellAnnotationViewer
+    : TissueAnnotationViewer;
+const viewer = new ViewerClass($canvas, $overlay);
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;

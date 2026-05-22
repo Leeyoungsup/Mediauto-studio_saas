@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js?v=20260521-16';
-import { TileViewer } from './tile-viewer.js?v=20260522-02';
+import { AiViewer } from './ai-viewer.js?v=20260522-03';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -148,7 +148,7 @@ function _setMinimapDisplaySize(img) {
 }
 let lastSegData = null;  // segmentation overlay data from epithelial classification
 
-const viewer = new TileViewer($canvas, $overlay);
+const viewer = new AiViewer($canvas, $overlay);
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;

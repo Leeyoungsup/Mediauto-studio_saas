@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.72] - 2026-05-22
+
+### Changed
+
+- AI, Tissue Annotation, and Cell Annotation now instantiate separate viewer entry classes instead of importing the shared tile engine directly.
+- Viewer page capabilities are defined in a small shared module so page-specific behavior can be separated without changing the tile rendering core.
+
 ## [1.1.71] - 2026-05-22
 
 ### Fixed
