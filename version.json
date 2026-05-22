@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.84",
+  "version": "1.1.87",
   "channel": "production",
   "release_date": "2026-05-22",
-  "description": "Uses only 300px NDP thumbnails for AI and annotation viewer minimaps and main fallback."
+  "description": "Restores tile URL generation and initial visible tile loading in the viewer."
 }

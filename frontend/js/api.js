@@ -675,9 +675,7 @@ export const api = {
     },
 
 
-    /**   URL (  ).
-      *
-      *
+    /** Build a tile image URL. */
     tileUrl(slideId, level, tileX, tileY, ndpMatch = false) {
         const str_variant = ndpMatch ? `${slideId}/ndp/${level}` : `${slideId}/${level}`;
         return `${API_BASE}/tiles/${str_variant}/${tileX}/${tileY}.jpeg?mt=${encodeURIComponent(_getMediaTicketSync())}`;

@@ -4,7 +4,7 @@
  * then loading visible tiles before background overview tiles.
  */
 
-import { api } from './api.js?v=20260522-11';
+import { api } from './api.js?v=20260522-14';
 
 const TILE_SIZE = 1024;
 const MAX_FOREGROUND_LOADS = 6;
@@ -222,6 +222,7 @@ export class TileViewer {
 
         this.fitToWindow();
         this._loadThumbnailFallbackImmediate();
+        this._queueVisibleTilesForCurrentView();
         this._scheduleOverviewPreload();
     }
 
@@ -343,6 +344,93 @@ export class TileViewer {
         }
     }
 
+    _collectVisibleTileTasks() {
+        if (!this.slideInfo || this.zoom <= 0 || !this._viewW || !this._viewH) {
+            return { parentTasks: [], childTasks: [] };
+        }
+
+        const effectiveMpp = this.getEffectiveMpp();
+        const level = this._getStageLevel(effectiveMpp);
+        const downsample = this._stageDownsample(level);
+        const [levelW, levelH] = this._stageDimensions(level);
+        const nx = Math.max(1, Math.ceil(levelW / TILE_SIZE));
+        const ny = Math.max(1, Math.ceil(levelH / TILE_SIZE));
+
+        const halfVW = this._viewW / this.zoom / 2;
+        const halfVH = this._viewH / this.zoom / 2;
+        const viewLeft = this.viewCenterX - halfVW;
+        const viewTop = this.viewCenterY - halfVH;
+        const viewRight = this.viewCenterX + halfVW;
+        const viewBottom = this.viewCenterY + halfVH;
+
+        const tileSceneSize = TILE_SIZE * downsample;
+        const txMin = Math.max(0, Math.floor(viewLeft / tileSceneSize));
+        const tyMin = Math.max(0, Math.floor(viewTop / tileSceneSize));
+        const txMax = Math.min(nx - 1, Math.ceil(viewRight / tileSceneSize));
+        const tyMax = Math.min(ny - 1, Math.ceil(viewBottom / tileSceneSize));
+
+        if (txMin > txMax || tyMin > tyMax) {
+            return { parentTasks: [], childTasks: [] };
+        }
+
+        const parentTasks = [];
+        const childTasks = [];
+        const parentKeys = new Set();
+        const list_stage_unique = Array.from(new Set(this._getLevelStages())).sort((a, b) => a - b);
+        const int_cur_stage_idx = list_stage_unique.indexOf(level);
+        const int_parent_stage_level = (int_cur_stage_idx >= 0 && int_cur_stage_idx + 1 < list_stage_unique.length)
+            ? list_stage_unique[int_cur_stage_idx + 1]
+            : -1;
+
+        for (let ty = tyMin; ty <= tyMax; ty++) {
+            for (let tx = txMin; tx <= txMax; tx++) {
+                const key = `${level}/${tx}/${ty}`;
+                if (!this._tileCache.has(key) && !this._tileLoading.has(key)) {
+                    childTasks.push({ level, tx, ty, key });
+                }
+
+                if (int_parent_stage_level < 0) continue;
+                const parentDs = this._stageDownsample(int_parent_stage_level);
+                const parentTileScene = TILE_SIZE * parentDs;
+                const sceneX = tx * tileSceneSize;
+                const sceneY = ty * tileSceneSize;
+                const int_ptx = Math.floor((sceneX + tileSceneSize / 2) / parentTileScene);
+                const int_pty = Math.floor((sceneY + tileSceneSize / 2) / parentTileScene);
+                const parentKey = `${int_parent_stage_level}/${int_ptx}/${int_pty}`;
+                if (
+                    !parentKeys.has(parentKey) &&
+                    !this._tileCache.has(parentKey) &&
+                    !this._tileLoading.has(parentKey)
+                ) {
+                    parentKeys.add(parentKey);
+                    parentTasks.push({
+                        level: int_parent_stage_level,
+                        tx: int_ptx,
+                        ty: int_pty,
+                        key: parentKey,
+                    });
+                }
+            }
+        }
+
+        const float_center_tx = (txMin + txMax) / 2;
+        const float_center_ty = (tyMin + tyMax) / 2;
+        childTasks.sort((a, b) => {
+            const da = (a.tx - float_center_tx) ** 2 + (a.ty - float_center_ty) ** 2;
+            const db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
+            return da - db;
+        });
+
+        return { parentTasks, childTasks };
+    }
+
+    _queueVisibleTilesForCurrentView() {
+        const { parentTasks, childTasks } = this._collectVisibleTileTasks();
+        if (parentTasks.length === 0 && childTasks.length === 0) return;
+        this._queueTileTasksFront([...parentTasks, ...childTasks]);
+        this._processLoadQueue();
+    }
+
     fitToWindow() {
         if (!this.slideInfo) return;
         const [imgW, imgH] = this.slideInfo.dimensions;
@@ -402,7 +490,12 @@ export class TileViewer {
         if (this.slideInfo &&
             Array.isArray(this.slideInfo.stage_dimensions) &&
             this.slideInfo.stage_dimensions[stage]) {
-            return this.slideInfo.stage_dimensions[stage];
+            const dims = this.slideInfo.stage_dimensions[stage];
+            const w = Number(dims?.[0]);
+            const h = Number(dims?.[1]);
+            if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+                return [w, h];
+            }
         }
         const [w0, h0] = this.slideInfo.dimensions;
         const ds = STAGE_DOWNSAMPLES[stage];
@@ -3455,7 +3548,7 @@ export class TileViewer {
         if (!mpp) return strPx;
         const distUm = distPx * mpp;
         const strUnit = distUm < 1000
-            ' `${distUm.toFixed(1)} m`
+            ? `${distUm.toFixed(1)} um`
             : `${(distUm / 1000).toFixed(3)} mm`;
         return `${strUnit} (${strPx})`;
     }

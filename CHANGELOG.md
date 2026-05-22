@@ -2,6 +2,29 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.87] - 2026-05-22
+
+### Fixed
+
+- Fixed a broken `api.js` comment that accidentally disabled `tileUrl()` and stopped tile image requests.
+- Bumped frontend module cache keys so the restored API module loads immediately.
+
+## [1.1.86] - 2026-05-22
+
+### Fixed
+
+- Restored initial visible tile requests after thumbnail-first viewer loading.
+- Added validation for stage dimensions before calculating visible tile ranges.
+- Bumped frontend module cache keys so the fixed tile loader is used immediately.
+
+## [1.1.85] - 2026-05-22
+
+### Fixed
+
+- Fixed a syntax regression in `tile-viewer.js` that prevented the AI module from loading.
+- Replaced broken/mojibake AI viewer help markup with ASCII-safe English HTML.
+- Bumped frontend module cache keys so the corrected viewer module loads immediately.
+
 ## [1.1.84] - 2026-05-22
 
 ### Changed
