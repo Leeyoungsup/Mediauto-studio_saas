@@ -10,7 +10,7 @@
  *  - 새 레벨 타일이 로드되면 점차 교체 → 검은 화면 없음
  */
 
-import { api } from './api.js';
+import { api } from './api.js?v=20260522-04';
 
 const TILE_SIZE = 1024;
 const VIEWER_THUMBNAIL_SIZE = 2048;
@@ -274,7 +274,8 @@ export class TileViewer {
         if (this.slideId !== str_slide_id) return;
 
         // ndpMatch 상태를 URL 에 반영 — 서버가 ndpmatch 변형을 리턴
-        const bool_ndp = !!this._colorCorrectionEnabled;
+        const bool_auto_ndp = api.shouldUseNdpMatch?.(this.slideInfo) || false;
+        const bool_ndp = !!this._colorCorrectionEnabled || bool_auto_ndp;
 
         // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms).
         // 사이드바 썸네일은 ndp 보정 안 된 raw 라 색보정 ON 상태라면 사용 안 함.
@@ -293,7 +294,7 @@ export class TileViewer {
             if (int_gen !== this._loadGeneration) return;
             console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
         };
-        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
+        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
         if (str_small_url) img_small.src = str_small_url;
 
         // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
@@ -311,7 +312,7 @@ export class TileViewer {
             if (int_gen !== this._loadGeneration) return;
             console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
         };
-        const str_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
+        const str_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
         if (str_hi_url) img_hi.src = str_hi_url;
     }
 
@@ -319,7 +320,8 @@ export class TileViewer {
         if (!this.slideId) return Promise.resolve(false);
         const str_slide_id = this.slideId;
         const int_gen = this._loadGeneration;
-        const bool_ndp = !!this._colorCorrectionEnabled;
+        const bool_auto_ndp = api.shouldUseNdpMatch?.(this.slideInfo) || false;
+        const bool_ndp = !!this._colorCorrectionEnabled || bool_auto_ndp;
         return new Promise((resolve) => {
             let bool_done = false;
             const finish = (ok = false) => {
@@ -376,10 +378,10 @@ export class TileViewer {
                 const applyHi = (img) => { this._thumbnailBitmap = img; };
                 const applyThumb = (img) => { this._thumbnailBitmap = img; };
 
-                const str_raw_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false);
-                const str_raw_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false);
-                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
-                const str_match_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
+                const str_raw_thumb_url = bool_auto_ndp ? '' : api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false, this.slideInfo);
+                const str_raw_hi_url = bool_auto_ndp ? '' : api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false, this.slideInfo);
+                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
+                const str_match_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
 
                 let bool_started = false;
                 // Raw thumbnail is the fastest stable fallback, especially while NDP-match assets are generated.

@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.72",
+  "version": "1.1.74",
   "channel": "production",
   "release_date": "2026-05-22",
-  "description": "Splits AI, Tissue Annotation, and Cell Annotation viewer entry classes while keeping the shared tile engine as the common core."
+  "description": "Starts backend refactoring by extracting clinical-info domain helpers and shared resource cleanup utilities."
 }

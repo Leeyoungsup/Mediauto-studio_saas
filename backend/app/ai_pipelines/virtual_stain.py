@@ -9,7 +9,6 @@ VS IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간�
 
 import json
 import os
-import gc
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -27,6 +26,7 @@ from app.ai_pipelines.task_state import (
 )
 from app.config import settings
 from app.priority import wait_if_viewer_busy
+from app.resource_utils import close_safely, collect_garbage
 from app.slide_manager import slide_manager
 
 VS_MODEL_FILES = {
@@ -512,7 +512,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
             update_task(task_id, status="error",
                         error=f"Slide too small for target_mpp={target_mpp} "
                               f"(needs >= {read_size}px at level-0, slide is {W}x{H}).")
-            slide.close()
+            close_safely(slide)
+            slide = None
             return
 
         pos_x = list(range(x_min, x_max - read_size + 1, read_stride))
@@ -759,7 +760,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                     result=result_payload)
 
         del generator
-        slide.close()
+        close_safely(slide)
         slide = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -782,7 +783,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
     finally:
         try:
             if slide is not None:
-                slide.close()
+                close_safely(slide)
         except Exception:
             pass
         try:
@@ -798,4 +799,4 @@ def run_virtual_stain(task_id: str, slide_id: str,
         except Exception:
             pass
         generator = None
-        gc.collect()
+        collect_garbage()

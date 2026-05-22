@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260521-17';
+import { api } from './api.js?v=20260522-04';
 
 (function () {
     'use strict';

@@ -2,9 +2,9 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260521-16';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-03';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-03';
+import { api } from './api.js?v=20260522-04';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-04';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-04';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -582,8 +582,8 @@ if ($btnNdpColor) {
 
 function onSlideLoaded(slideId, slideInfo, filename) {
     currentSlideId = slideId;
-    currentSlideInfo = slideInfo;
-    currentSlideFilename = filename || slideInfo?.filename || '';
+    currentSlideInfo = { ...(slideInfo || {}), filename: filename || slideInfo?.filename || '' };
+    currentSlideFilename = currentSlideInfo.filename;
     currentSlideMemo = '';
     currentSlideMemoHistory = [];
     currentAnnotationStatus = _findSlideListStatus(currentSlideFilename);
@@ -623,7 +623,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
         _applyViewerRoleRestrictions();
     }
 
-    viewer.loadSlide(slideId, slideInfo);
+    viewer.loadSlide(slideId, currentSlideInfo);
 
     if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
@@ -954,7 +954,7 @@ async function loadMinimap(slideId) {
         if (token !== _minimapLoadToken) return;
         _paintMinimap(slideId, img);
     };
-    const str_url = api.thumbnailUrl(slideId, 2048);
+    const str_url = api.thumbnailUrl(slideId, 2048, false, currentSlideInfo);
     if (str_url) img.src = str_url;
 }
 
@@ -4209,7 +4209,7 @@ $btnVisualize.addEventListener('click', () => {
         setStatus('No cells pass current confidence thresholds');
         return;
     }
-    const thumbUrl = currentSlideId ? api.previewUrl(currentSlideId, 4096) : null;
+    const thumbUrl = currentSlideId ? api.previewUrl(currentSlideId, 4096, false, currentSlideInfo) : null;
     const slideName = ($slideName.textContent || '').replace(/\.[^.]+$/, '') || 'slide';
     const tissue = _lastDetectionTissue || 'Stomach';
     const slideDims = currentSlideInfo?.dimensions || null;  // [w, h] level-0

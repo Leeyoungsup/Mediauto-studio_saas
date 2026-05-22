@@ -2,6 +2,22 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.74] - 2026-05-22
+
+### Changed
+
+- Started backend refactoring by extracting case-level clinical info helpers from the large slide router into `app/clinical_info.py`.
+- Added shared backend resource cleanup helpers in `app/resource_utils.py` and applied them to VS IHC slide cleanup.
+- Added backend refactoring notes documenting the target router/service boundaries.
+
+## [1.1.73] - 2026-05-22
+
+### Fixed
+
+- NDPI files now automatically request NDP-matched thumbnail/preview images through shared API helpers.
+- AI, Tissue Annotation, Cell Annotation, and Data Linkage bundles were cache-busted so the updated thumbnail routing is used immediately.
+- Viewer fallback thumbnails avoid showing raw-color placeholders for NDPI slides before the NDP-matched image loads.
+
 ## [1.1.72] - 2026-05-22
 
 ### Changed

@@ -8,7 +8,6 @@ import json
 import uuid
 import asyncio
 import hashlib
-import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +19,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer, require_role
 from app.config import settings
+from app.clinical_info import (
+    case_filename_regex as _case_filename_regex,
+    case_name_from_filename as _case_name_from_filename,
+    get_case_clinical_info as _get_case_clinical_info,
+    has_clinical_info as _has_clinical_info,
+    iso_datetime as _iso_datetime,
+    normalize_clinical_info as _normalize_clinical_info,
+    upsert_case_clinical_info as _upsert_case_clinical_info,
+)
 from app.models import UserRole
 from app.slide_manager import slide_manager
 from app import tile_generator
@@ -44,98 +52,6 @@ def _rel_path_for(file_path: str) -> str:
         return "" if s in (".", "") else s
     except Exception:
         return ""
-
-
-def _case_name_from_filename(str_filename: str) -> str:
-    """Extract case name from CODIPAI-BRCA-SS-00192-I-KI-01.svs -> BRCA-SS-00192."""
-    str_stem = Path(str_filename or "").stem
-    list_parts = [p for p in str_stem.split("-") if p]
-    if len(list_parts) >= 4 and list_parts[0].upper() == "CODIPAI":
-        return "-".join(list_parts[1:4])
-    if len(list_parts) >= 3:
-        return "-".join(list_parts[:3])
-    return str_stem
-
-
-def _case_filename_regex(str_case_name: str) -> str:
-    return rf"(^|-)({re.escape(str_case_name)})(-|$)"
-
-
-SET_CLINICAL_INFO_KEYS = {
-    "ER_proportion_score",
-    "ER_intensity_score",
-    "PR_proportion_score",
-    "PR_intensity_score",
-    "Ki67_index",
-    "PD-L1_CPS_score",
-    "ISH_for_HER2_(FISH_SISH)",
-    "IHC_for_C-erbB2",
-}
-
-
-def _normalize_clinical_info(dict_raw: dict) -> dict:
-    if not isinstance(dict_raw, dict):
-        raise HTTPException(400, "Invalid clinical info payload")
-    dict_clinical_info = {}
-    for str_key in SET_CLINICAL_INFO_KEYS:
-        obj_val = dict_raw.get(str_key, "")
-        if obj_val is None:
-            obj_val = ""
-        dict_clinical_info[str_key] = str(obj_val).strip()[:120]
-    return dict_clinical_info
-
-
-def _has_clinical_info(dict_info: Optional[dict]) -> bool:
-    return any(str(v or "").strip() for v in (dict_info or {}).values())
-
-
-def _iso_datetime(obj_dt) -> Optional[str]:
-    if not obj_dt:
-        return None
-    if not getattr(obj_dt, "tzinfo", None):
-        return obj_dt.replace(tzinfo=timezone.utc).isoformat()
-    return obj_dt.isoformat()
-
-
-async def _get_case_clinical_info(db, str_case_name: str) -> dict:
-    dict_case_doc = await db.case_clinical_info.find_one({"str_case_name": str_case_name})
-    if dict_case_doc and isinstance(dict_case_doc.get("dict_clinical_info"), dict):
-        return dict_case_doc.get("dict_clinical_info") or {}
-    dict_slide_doc = await db.slides.find_one({
-        "$or": [
-            {"str_case_name": str_case_name},
-            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
-        ],
-        "dict_clinical_info": {"$exists": True},
-    })
-    return (dict_slide_doc or {}).get("dict_clinical_info") or {}
-
-
-async def _upsert_case_clinical_info(db, str_case_name: str, dict_clinical_info: dict) -> None:
-    dt_now = datetime.now(timezone.utc)
-    await db.case_clinical_info.update_one(
-        {"str_case_name": str_case_name},
-        {
-            "$set": {
-                "str_case_name": str_case_name,
-                "dict_clinical_info": dict_clinical_info,
-                "dt_updated_at": dt_now,
-            },
-            "$setOnInsert": {"dt_created_at": dt_now},
-        },
-        upsert=True,
-    )
-    await db.slides.update_many(
-        {"$or": [
-            {"str_case_name": str_case_name},
-            {"str_filename": {"$regex": _case_filename_regex(str_case_name)}},
-        ]},
-        {"$set": {
-            "str_case_name": str_case_name,
-            "dict_clinical_info": dict_clinical_info,
-            "dt_updated_at": dt_now,
-        }},
-    )
 
 
 def _slide_response(slide_id: str, info, filename: str):

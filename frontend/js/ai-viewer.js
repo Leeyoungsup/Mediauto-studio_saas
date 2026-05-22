@@ -1,5 +1,5 @@
-import { TileViewer } from './tile-viewer.js?v=20260522-02';
-import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260522-03';
+import { TileViewer } from './tile-viewer.js?v=20260522-04';
+import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260522-04';
 
 export class AiViewer extends TileViewer {
     constructor(canvas, overlayCanvas) {

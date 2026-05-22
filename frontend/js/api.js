@@ -224,6 +224,26 @@ function _sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function _isNdpiFilename(value) {
+    return /\.ndpi(?:$|[?#])/i.test(String(value || '').trim());
+}
+
+function _slideMetaLooksNdpi(meta) {
+    if (!meta) return false;
+    if (typeof meta === 'string') return _isNdpiFilename(meta);
+    const candidates = [
+        meta.filename,
+        meta.name,
+        meta.file_name,
+        meta.file_path,
+        meta.path,
+        meta.original_filename,
+        meta.slide_filename,
+    ];
+    if (Array.isArray(meta.files)) candidates.push(...meta.files);
+    return candidates.some(_isNdpiFilename);
+}
+
 function _isTransientJsonResponseError(err) {
     const msg = String(err?.message || '');
     return msg.includes('returned an empty response') || msg.includes('returned invalid JSON');
@@ -593,28 +613,38 @@ export const api = {
         return res.json();
     },
 
-    thumbnailUrl(slideId, size = 300, ndpMatch = false) {
+    isNdpiFilename(value) {
+        return _isNdpiFilename(value);
+    },
+
+    shouldUseNdpMatch(meta) {
+        return _slideMetaLooksNdpi(meta);
+    },
+
+    thumbnailUrl(slideId, size = 300, ndpMatch = false, slideMeta = null) {
         const str_ticket = _getMediaTicketSync();
         if (!str_ticket) return '';
         const int_size = Math.max(64, Math.min(8192, Number(size) || 300));
-        const str_ndp = ndpMatch ? '&ndp=true' : '';
+        const str_ndp = (ndpMatch || _slideMetaLooksNdpi(slideMeta)) ? '&ndp=true' : '';
         return `${API_BASE}/slides/${slideId}/thumbnail?size=${int_size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 고해상도 프리뷰 URL (PDF 리포트용).  ndpMatch 동일. */
-    previewUrl(slideId, size = 2048, ndpMatch = false) {
+    previewUrl(slideId, size = 2048, ndpMatch = false, slideMeta = null) {
         const str_ticket = _getMediaTicketSync();
         if (!str_ticket) return '';
-        const str_ndp = ndpMatch ? '&ndp=true' : '';
+        const str_ndp = (ndpMatch || _slideMetaLooksNdpi(slideMeta)) ? '&ndp=true' : '';
         return `${API_BASE}/slides/${slideId}/preview?size=${size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 썸네일 URL (파일명 기반 — 리스트용, slide_manager 불필요) */
-    thumbnailUrlByName(filename, path = '', size = 300) {
+    thumbnailUrlByName(filename, path = '', size = 300, ndpMatch = null) {
         const str_ticket = _getMediaTicketSync();
         if (!str_ticket) return '';
         const int_size = Math.max(64, Math.min(8192, Number(size) || 300));
-        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${int_size}&mt=${encodeURIComponent(str_ticket)}`;
+        const bool_ndp = ndpMatch === true || (ndpMatch !== false && (_isNdpiFilename(filename) || _isNdpiFilename(path)));
+        const str_ndp = bool_ndp ? '&ndp=true' : '';
+        return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${int_size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
     /** 미디어 티켓이 준비되지 않았다면 기다린다. 슬라이드 뷰어 초기 렌더에서 호출. */
