@@ -4,6 +4,7 @@ OpenSlide 객체를 캐싱하여 매 타일 요청마다 다시 열지 않도록
 """
 
 import math
+import os
 import threading
 import time
 from typing import Optional, Dict, Tuple
@@ -11,8 +12,8 @@ from typing import Optional, Dict, Tuple
 import numpy as np
 import openslide
 
-MAX_OPEN_SLIDES = 8
-IDLE_SLIDE_TTL_SECONDS = 30 * 60
+MAX_OPEN_SLIDES = max(1, int(os.environ.get("MAX_OPEN_SLIDES", "4")))
+IDLE_SLIDE_TTL_SECONDS = max(30, int(os.environ.get("IDLE_SLIDE_TTL_SECONDS", "300")))
 
 # ── Hamamatsu NDP.view2 호환 색 보정 상수 ──
 # NDP.view2 는 표시 gamma = 1.8 고정 + 배경을 Target.White.Intensity 로 맞춘다.

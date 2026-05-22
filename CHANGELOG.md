@@ -2,12 +2,20 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.71] - 2026-05-22
+
+### Fixed
+
+- VS IHC now closes its direct OpenSlide handle in all exit paths and releases the shared slide handle after the task finishes.
+- Default OpenSlide handle retention was reduced from 8 slides / 30 minutes to 4 slides / 5 minutes, with `MAX_OPEN_SLIDES` and `IDLE_SLIDE_TTL_SECONDS` environment overrides.
+
 ## [1.1.70] - 2026-05-22
 
 ### Fixed
 
 - VS IHC now uses bounded patch prefetching instead of queueing every patch read at once, reducing memory spikes during large virtual stain jobs.
 - VS IHC GAN batch tensors are released immediately after each batch is splatted into the tile streamer.
+- VS IHC read-ahead can be tuned with `VS_IHC_PREFETCH_LIMIT` for very memory-constrained machines.
 
 ## [1.1.69] - 2026-05-22
 

@@ -9,6 +9,7 @@ VS IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간�
 
 import json
 import os
+import gc
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -341,6 +342,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
     Qt 시그널 대신 update_task() 사용.
     """
     list_cleanup_on_cancel = []
+    slide = None
+    generator = None
     try:
         import torch
         import openslide
@@ -633,7 +636,11 @@ def run_virtual_stain(task_id: str, slide_id: str,
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
             # Keep only a small read-ahead window. Submitting every patch at once
             # lets completed numpy regions pile up in memory during large VS IHC jobs.
-            int_prefetch_limit = max(io_workers * 2, bs * 2)
+            int_default_prefetch = max(io_workers * 2, bs * 2)
+            try:
+                int_prefetch_limit = max(1, int(os.environ.get("VS_IHC_PREFETCH_LIMIT", int_default_prefetch)))
+            except ValueError:
+                int_prefetch_limit = int_default_prefetch
             pending_reads = deque()
             next_patch_idx = 0
 
@@ -753,6 +760,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         del generator
         slide.close()
+        slide = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -771,3 +779,23 @@ def run_virtual_stain(task_id: str, slide_id: str,
         import traceback
         update_task(task_id, status="error",
                     error=f"Virtual staining failed: {e}\n{traceback.format_exc()}")
+    finally:
+        try:
+            if slide is not None:
+                slide.close()
+        except Exception:
+            pass
+        try:
+            # VS IHC is a heavy one-shot task; close the shared handle so Windows
+            # can reclaim file-cache pressure without waiting for server shutdown.
+            slide_manager.close(slide_id)
+        except Exception:
+            pass
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        generator = None
+        gc.collect()
