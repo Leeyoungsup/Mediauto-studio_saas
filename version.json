@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.75",
+  "version": "1.1.78",
   "channel": "production",
   "release_date": "2026-05-22",
-  "description": "Splits slide media, project and folder management, file operations, and annotation storage into focused backend routers."
+  "description": "Uses only the fast 300px NDP-matched thumbnail as the viewer startup fallback and skips 2048 preview loading."
 }

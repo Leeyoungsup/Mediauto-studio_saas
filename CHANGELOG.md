@@ -2,6 +2,30 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.78] - 2026-05-22
+
+### Changed
+
+- Viewer startup no longer requests the 2048px preview fallback.
+- NDPI slides now use only the fast 300px NDP-matched thumbnail as the initial main viewer fallback.
+- Viewer module cache-busting was bumped so the simplified startup path loads immediately.
+
+## [1.1.77] - 2026-05-22
+
+### Fixed
+
+- Viewer startup now begins overview tile preload as soon as the fast NDP-matched thumbnail is painted, instead of waiting for the 2048px preview.
+- The 2048px preview still loads in the background and replaces the initial thumbnail when ready.
+
+## [1.1.76] - 2026-05-22
+
+### Fixed
+
+- NDPI viewer startup no longer paints raw thumbnails into the main viewer while NDP matching is enabled.
+- Viewer startup now paints a fast 300px matched thumbnail first, then waits for the 2048px preview before starting overview tile preload.
+- Slide preview endpoints now reuse the cached 2048 thumbnail/NDP-match image when available instead of regenerating the preview every time.
+- AI and annotation viewer module cache-busting was bumped so browsers load the updated tile viewer immediately.
+
 ## [1.1.75] - 2026-05-22
 
 ### Changed

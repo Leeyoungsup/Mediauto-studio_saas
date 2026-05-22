@@ -13,7 +13,7 @@
 import { api } from './api.js?v=20260522-04';
 
 const TILE_SIZE = 1024;
-const VIEWER_THUMBNAIL_SIZE = 2048;
+const VIEWER_FAST_THUMBNAIL_SIZE = 300;
 // 타일 동시 로딩 상한 — 브라우저 HTTP/1.1 per-origin 제한(6)에 맞춘다.
 // 이보다 크게 잡으면 남는 요청이 브라우저 큐에 박혀 abort 불가 상태가 되고,
 // 팬/줌으로 더 이상 필요 없어진 좀비 요청들이 _activeLoads 슬롯을 계속 점유해
@@ -278,8 +278,7 @@ export class TileViewer {
         const bool_ndp = !!this._colorCorrectionEnabled || bool_auto_ndp;
 
         // 0단계 — 사이드바가 이미 로드해 놓은 DOM <img> 훔치기 (네트워크 0ms).
-        // 사이드바 썸네일은 ndp 보정 안 된 raw 라 색보정 ON 상태라면 사용 안 함.
-        // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드
+        // Use only the fast matched thumbnail for viewer startup.
         const img_small = new Image();
         this._inflightImages.add(img_small);
         img_small.onload = () => {
@@ -294,26 +293,10 @@ export class TileViewer {
             if (int_gen !== this._loadGeneration) return;
             console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
         };
-        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
+        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
         if (str_small_url) img_small.src = str_small_url;
 
-        // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
-        const img_hi = new Image();
-        this._inflightImages.add(img_hi);
-        img_hi.onload = () => {
-            this._inflightImages.delete(img_hi);
-            if (int_gen !== this._loadGeneration) return;
-            if (this.slideId !== str_slide_id) return;
-            this._thumbnailBitmap = img_hi;
-            this.requestRender();
-        };
-        img_hi.onerror = (e) => {
-            this._inflightImages.delete(img_hi);
-            if (int_gen !== this._loadGeneration) return;
-            console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
-        };
-        const str_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
-        if (str_hi_url) img_hi.src = str_hi_url;
+
     }
 
     _loadThumbnailFallbackImmediate() {
@@ -329,15 +312,14 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            // Keep tiles behind the 2048px viewer thumbnail. If the thumbnail
-            // endpoint is unusually slow or fails, fall back after a short grace
-            // period so the viewer never stalls forever.
-            setTimeout(() => finish(false), 6000);
+            // Start tile preload after the fast matched thumbnail gets a chance to paint.
+            setTimeout(() => finish(false), 1500);
 
             const el_sidebar_thumb = document.querySelector(
                 `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
             );
             const paintSidebarThumb = () => {
+                if (bool_ndp && !String(el_sidebar_thumb?.currentSrc || el_sidebar_thumb?.src || '').includes('ndp=true')) return;
                 if (int_gen !== this._loadGeneration) return;
                 if (this.slideId !== str_slide_id) return;
                 if (!el_sidebar_thumb || el_sidebar_thumb.naturalWidth <= 0) return;
@@ -353,7 +335,7 @@ export class TileViewer {
             api.ensureMediaReady().then(() => {
                 if (this.slideId !== str_slide_id) return finish(false);
 
-                const loadImage = (url, label, applyImage, onError) => {
+                const loadImage = (url, label, applyImage, onError, resolveOnLoad = false) => {
                     if (!url) return false;
                     const img = new Image();
                     this._inflightImages.add(img);
@@ -363,7 +345,7 @@ export class TileViewer {
                         if (this.slideId !== str_slide_id) return;
                         applyImage(img);
                         this.requestRender();
-                        finish(true);
+                        if (resolveOnLoad) finish(true);
                     };
                     img.onerror = (e) => {
                         this._inflightImages.delete(img);
@@ -375,23 +357,12 @@ export class TileViewer {
                     return true;
                 };
 
-                const applyHi = (img) => { this._thumbnailBitmap = img; };
                 const applyThumb = (img) => { this._thumbnailBitmap = img; };
 
-                const str_raw_thumb_url = bool_auto_ndp ? '' : api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false, this.slideInfo);
-                const str_raw_hi_url = bool_auto_ndp ? '' : api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, false, this.slideInfo);
-                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
-                const str_match_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
+                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
 
                 let bool_started = false;
-                // Raw thumbnail is the fastest stable fallback, especially while NDP-match assets are generated.
-                bool_started = loadImage(str_raw_thumb_url, 'raw thumbnail', applyThumb) || bool_started;
-                bool_started = loadImage(str_match_hi_url, 'hi-res preview', applyHi, () => {
-                    if (bool_ndp) loadImage(str_raw_hi_url, 'raw hi-res preview', applyHi);
-                }) || bool_started;
-                bool_started = loadImage(str_match_thumb_url, 'thumbnail', applyThumb, () => {
-                    if (bool_ndp) loadImage(str_raw_thumb_url, 'raw thumbnail retry', applyThumb);
-                }) || bool_started;
+                bool_started = loadImage(str_match_thumb_url, 'thumbnail', applyThumb, null, true) || bool_started;
                 if (!bool_started) finish(false);
             }).catch(() => finish(false));
         });

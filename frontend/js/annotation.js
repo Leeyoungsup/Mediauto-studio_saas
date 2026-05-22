@@ -2,9 +2,9 @@
  * MeDIAuto Studio SaaS ??메인 ??
  */
 
-import { api } from './api.js?v=20260522-04';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-04';
+import { api } from './api.js?v=20260522-06';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260522-06';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260522-06';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {

@@ -89,15 +89,31 @@ async def get_preview(
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "Slide not found")
+    int_size = max(64, min(8192, int(size or 2048)))
+    filename = Path(info.file_path).name
+    tiles_root = tile_generator.get_tiles_dir(filename)
+    thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
+    thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
+    bool_current_cache = _current_tile_cache(filename)
+
+    if ndp and thumb_path_ndp.exists() and bool_current_cache:
+        return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+    if not ndp and thumb_path_raw.exists() and bool_current_cache:
+        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+
     thumb = None
     thumb_rgb = None
     thumb_ndp = None
     try:
-        thumb = info.slide.get_thumbnail((size, size))
+        thumb = info.slide.get_thumbnail((int_size, int_size))
         thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+        thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+        thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=92)
         if ndp:
             from app.ndp_color_match import apply_ndp_fit
             thumb_ndp = apply_ndp_fit(thumb_rgb)
+            thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
+            thumb_ndp.save(str(thumb_path_ndp), "JPEG", quality=92)
             return _jpeg_response(thumb_ndp, quality=92)
         return _jpeg_response(thumb_rgb, quality=92)
     finally:
