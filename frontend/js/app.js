@@ -3,8 +3,8 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260522-09';
-import { AiViewer } from './ai-viewer.js?v=20260522-09';
+import { api } from './api.js?v=20260522-11';
+import { AiViewer } from './ai-viewer.js?v=20260522-11';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -683,6 +683,9 @@ $viewerContainer.addEventListener('drop', (e) => {
 });
 
 let _minimapLoadToken = 0;
+let _minimapRequestUrl = '';
+let _minimapRequestImage = null;
+let _minimapRequestSlideId = '';
 function _paintMinimap(slideId, img) {
     if (!img || currentSlideId !== slideId || img.naturalWidth <= 0) return false;
     minimapImage = img;
@@ -714,18 +717,33 @@ async function loadMinimap(slideId) {
     const token = ++_minimapLoadToken;
     minimapImage = null;
     if ($minimapContainer) $minimapContainer.hidden = true;
+    if (_minimapRequestSlideId !== slideId) {
+        _minimapRequestSlideId = slideId;
+        _minimapRequestUrl = '';
+        _minimapRequestImage = null;
+    }
 
     _trySidebarMinimap(slideId, token);
 
     await api.ensureMediaReady();
     if (token !== _minimapLoadToken || currentSlideId !== slideId) return;
+    const str_url = api.thumbnailUrl(slideId, 300, api.shouldUseNdpMatch?.(currentSlideInfo) || false, currentSlideInfo);
+    if (!str_url || str_url === _minimapRequestUrl) return;
     const img = new Image();
+    _minimapRequestUrl = str_url;
+    _minimapRequestImage = img;
     img.onload = () => {
         if (token !== _minimapLoadToken) return;
         _paintMinimap(slideId, img);
     };
-    const str_url = api.thumbnailUrl(slideId, 2048, api.shouldUseNdpMatch?.(currentSlideInfo) || false, currentSlideInfo);
-    if (str_url) img.src = str_url;
+    img.onerror = () => {
+        if (_minimapRequestImage === img) {
+            _minimapRequestUrl = '';
+            _minimapRequestImage = null;
+            _minimapRequestSlideId = '';
+        }
+    };
+    img.src = str_url;
 }
 
 function updateMinimap() {

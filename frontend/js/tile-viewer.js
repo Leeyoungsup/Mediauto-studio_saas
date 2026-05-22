@@ -1,13 +1,15 @@
 /**
  * WSI Tile Viewer - canvas-based tiled slide renderer.
- * Keeps viewer startup lightweight by using the fast matched thumbnail first,
- * then loading visible tiles through the normal queue.
+ * Keeps viewer startup lightweight by sharing the minimap thumbnail as fallback,
+ * then loading visible tiles before background overview tiles.
  */
 
-import { api } from './api.js?v=20260522-09';
+import { api } from './api.js?v=20260522-11';
 
 const TILE_SIZE = 1024;
-const MAX_CONCURRENT_LOADS = 6;
+const MAX_FOREGROUND_LOADS = 6;
+const MAX_BACKGROUND_LOADS = 2;
+const OVERVIEW_PRELOAD_DELAY_MS = 900;
 
 const STAGE_DOWNSAMPLES = [1, 4, 8];
 
@@ -82,8 +84,11 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys = new Set();
         this._activeLoads = 0;
+        this._activeForegroundLoads = 0;
+        this._activeBackgroundLoads = 0;
         this._inflightImages = new Set();
         this._loadGeneration = 0;
+        this._overviewPreloadTimer = null;
 
         this._preloadKeys = null;   // Set<string> of tile keys that belong to initial preload
         this._preloadTotal = 0;
@@ -184,6 +189,7 @@ export class TileViewer {
 
     loadSlide(slideId, slideInfo) {
         this._loadGeneration++;
+        this._clearOverviewPreloadTimer();
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
         }
@@ -198,6 +204,8 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
+        this._activeForegroundLoads = 0;
+        this._activeBackgroundLoads = 0;
         this._thumbnailBitmap = null;
         this.detectionCells = [];
         this.annotations = [];
@@ -212,13 +220,26 @@ export class TileViewer {
         this._preloadDone = 0;
         this._isPreloading = false;
 
-        const str_preload_slide_id = this.slideId;
-        this._loadThumbnailFallbackImmediate().finally(() => {
-            if (this.slideId !== str_preload_slide_id) return;
-            this._preloadAllStageLevels();
-        });
         this.fitToWindow();
-        // Overview preload starts after the thumbnail gets first chance to paint.
+        this._loadThumbnailFallbackImmediate();
+        this._scheduleOverviewPreload();
+    }
+
+    _clearOverviewPreloadTimer() {
+        if (!this._overviewPreloadTimer) return;
+        clearTimeout(this._overviewPreloadTimer);
+        this._overviewPreloadTimer = null;
+    }
+
+    _scheduleOverviewPreload(delayMs = OVERVIEW_PRELOAD_DELAY_MS) {
+        this._clearOverviewPreloadTimer();
+        const str_slide_id = this.slideId;
+        const int_gen = this._loadGeneration;
+        this._overviewPreloadTimer = setTimeout(() => {
+            this._overviewPreloadTimer = null;
+            if (int_gen !== this._loadGeneration || this.slideId !== str_slide_id) return;
+            this._preloadAllStageLevels();
+        }, delayMs);
     }
 
     _loadThumbnailFallbackImmediate() {
@@ -234,9 +255,6 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            // Start tile preload after sidebar/minimap fallback gets a chance to paint.
-            setTimeout(() => finish(false), 1500);
-
             const el_sidebar_thumb = document.querySelector(
                 `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
             );
@@ -278,10 +296,20 @@ export class TileViewer {
         for (let ty = 0; ty < ny; ty++) {
             for (let tx = 0; tx < nx; tx++) {
                 const key = `${int_level}/${tx}/${ty}`;
+                if (this._tileCache.has(key)) continue;
                 set_keys.add(key);
-                list_tasks.push({ level: int_level, tx, ty });
+                if (this._tileLoading.has(key)) continue;
+                list_tasks.push({ level: int_level, tx, ty, priority: 2, source: 'overview' });
             }
         }
+
+        const float_center_tx = Math.max(0, Math.min(nx - 1, this.viewCenterX / (TILE_SIZE * this._stageDownsample(int_level))));
+        const float_center_ty = Math.max(0, Math.min(ny - 1, this.viewCenterY / (TILE_SIZE * this._stageDownsample(int_level))));
+        list_tasks.sort((a, b) => {
+            const da = (a.tx - float_center_tx) ** 2 + (a.ty - float_center_ty) ** 2;
+            const db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
+            return da - db;
+        });
 
         this._preloadKeys = set_keys;
         this._preloadTotal = set_keys.size;
@@ -297,7 +325,7 @@ export class TileViewer {
         }
 
         for (const t of list_tasks) {
-            this._queueTileTask(t);
+            this._queueTileTask(t, false);
         }
         this._processLoadQueue();
     }
@@ -1481,8 +1509,11 @@ export class TileViewer {
         const key = this._tileTaskKey(task);
         if (!key || this._tileCache.has(key) || this._tileLoading.has(key)) return;
         task.key = key;
+        task.priority = front ? 0 : (Number.isFinite(task.priority) ? task.priority : 1);
         if (this._loadQueuedKeys.has(key)) {
-            if (!front) return;
+            const existing = this._loadQueue.find(item => this._tileTaskKey(item) === key);
+            const existingPriority = Number.isFinite(existing?.priority) ? existing.priority : 1;
+            if (existingPriority <= task.priority && !front) return;
             this._loadQueue = this._loadQueue.filter(item => this._tileTaskKey(item) !== key);
             this._loadQueuedKeys.delete(key);
         }
@@ -1498,27 +1529,52 @@ export class TileViewer {
     }
 
     _processLoadQueue() {
-        while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
-            const task = this._loadQueue.shift();
+        while (this._loadQueue.length > 0 && this._activeLoads < MAX_FOREGROUND_LOADS) {
+            const int_index = this._nextLoadTaskIndex();
+            if (int_index < 0) break;
+            const task = this._loadQueue.splice(int_index, 1)[0];
             this._loadQueuedKeys.delete(this._tileTaskKey(task));
-            this._loadTile(task.level, task.tx, task.ty);
+            this._loadTile(task);
         }
     }
 
-    _loadTile(level, tx, ty) {
+    _nextLoadTaskIndex() {
+        let int_background_index = -1;
+        for (let i = 0; i < this._loadQueue.length; i++) {
+            const task = this._loadQueue[i];
+            const int_priority = Number.isFinite(task?.priority) ? task.priority : 1;
+            if (int_priority < 2) return i;
+            if (int_background_index < 0) int_background_index = i;
+        }
+        if (int_background_index >= 0 && this._activeBackgroundLoads < MAX_BACKGROUND_LOADS) {
+            return int_background_index;
+        }
+        return -1;
+    }
+
+    _loadTile(task) {
+        const { level, tx, ty } = task;
         const key = `${level}/${tx}/${ty}`;
         if (this._tileLoading.has(key) || this._tileCache.has(key)) return;
+        const bool_background = (Number.isFinite(task.priority) ? task.priority : 1) >= 2;
 
         this._tileLoading.add(key);
         this._activeLoads++;
+        if (bool_background) this._activeBackgroundLoads++;
+        else this._activeForegroundLoads++;
 
         const int_gen = this._loadGeneration;
         const img = new Image();
         this._inflightImages.add(img);
-        img.onload = () => {
+        const finishLoad = () => {
             this._inflightImages.delete(img);
             this._tileLoading.delete(key);
-            this._activeLoads--;
+            this._activeLoads = Math.max(0, this._activeLoads - 1);
+            if (bool_background) this._activeBackgroundLoads = Math.max(0, this._activeBackgroundLoads - 1);
+            else this._activeForegroundLoads = Math.max(0, this._activeForegroundLoads - 1);
+        };
+        img.onload = () => {
+            finishLoad();
             if (int_gen !== this._loadGeneration) {
                 this._processLoadQueue();
                 return;
@@ -1530,9 +1586,7 @@ export class TileViewer {
             this.requestRender();
         };
         img.onerror = () => {
-            this._inflightImages.delete(img);
-            this._tileLoading.delete(key);
-            this._activeLoads--;
+            finishLoad();
             this._markPreloadTileDone(key);
             this._processLoadQueue();
         };
@@ -1561,6 +1615,7 @@ export class TileViewer {
         if (this._colorCorrectionEnabled === bool_enabled) return;
         this._colorCorrectionEnabled = bool_enabled;
         this._loadGeneration++;
+        this._clearOverviewPreloadTimer();
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
         }
@@ -1571,8 +1626,15 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
+        this._activeForegroundLoads = 0;
+        this._activeBackgroundLoads = 0;
         this._thumbnailBitmap = null;
+        this._preloadKeys = null;
+        this._preloadTotal = 0;
+        this._preloadDone = 0;
+        this._isPreloading = false;
         this._loadThumbnailFallbackImmediate();
+        this._scheduleOverviewPreload();
         this.requestRender();
     }
 
@@ -1584,6 +1646,8 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
+        this._activeForegroundLoads = 0;
+        this._activeBackgroundLoads = 0;
         this.requestRender();
     }
 

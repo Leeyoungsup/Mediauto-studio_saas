@@ -2,6 +2,23 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.84] - 2026-05-22
+
+### Changed
+
+- AI and annotation viewer minimaps now use the same 300px NDP thumbnail as the main fallback.
+- Removed 2048px thumbnail requests from AI and annotation viewer startup paths.
+- Added simple minimap URL dedupe so repeated load calls for the same slide do not start duplicate thumbnail requests.
+
+## [1.1.83] - 2026-05-22
+
+### Changed
+
+- Refactored tile viewer loading into foreground visible-tile work and throttled background overview preload work.
+- Delayed overview preload until after the initial viewport render path starts.
+- Limited overview preload to two concurrent background tile requests so zoom/pan tiles stay responsive.
+- Reordered overview preload around the current view center instead of simple row order.
+
 ## [1.1.82] - 2026-05-22
 
 ### Changed
