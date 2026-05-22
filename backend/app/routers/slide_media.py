@@ -1,0 +1,163 @@
+"""Media endpoints for slide thumbnails and previews."""
+
+import io
+from pathlib import Path
+
+import openslide
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from app.auth import get_media_user
+from app.path_utils import safe_filename, safe_subpath
+from app.resource_utils import close_many
+from app.slide_manager import build_color_corrector, slide_manager
+from app import tile_generator
+
+router = APIRouter(dependencies=[Depends(get_media_user)])
+
+
+def _current_tile_cache(filename: str) -> bool:
+    marker = tile_generator.read_complete_marker(filename)
+    return bool(marker and marker.get("version") == tile_generator.COMPLETE_MARKER_VERSION)
+
+
+def _jpeg_response(image, quality: int = 85) -> StreamingResponse:
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG", quality=quality)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/jpeg")
+
+
+@router.get("/thumbnail-by-name")
+async def get_thumbnail_by_name(
+    filename: str = Query(...),
+    path: str = Query(""),
+    size: int = Query(2048, ge=64, le=8192),
+    ndp: bool = Query(False, description="true returns an NDP-matched thumbnail"),
+):
+    """Return a thumbnail by filename without requiring the slide to be open."""
+    filename = safe_filename(filename)
+    int_size = max(64, min(8192, int(size or 2048)))
+    tiles_root = tile_generator.get_tiles_dir(filename)
+    thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
+    thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
+    bool_current_cache = _current_tile_cache(filename)
+
+    if ndp and thumb_path_ndp.exists() and bool_current_cache:
+        return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+    if not ndp and thumb_path_raw.exists() and bool_current_cache:
+        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+
+    file_path = safe_subpath(path) / filename
+    if not file_path.exists():
+        raise HTTPException(404, "File not found")
+
+    slide = None
+    thumb = None
+    thumb_rgb = None
+    thumb_ndp = None
+    try:
+        slide = openslide.OpenSlide(str(file_path))
+        thumb = slide.get_thumbnail((int_size, int_size))
+        thumb_rgb = tile_generator.image_to_white_rgb(thumb)
+        apply_color, _ = build_color_corrector(slide)
+        thumb_rgb = apply_color(thumb_rgb)
+        thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+        thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
+
+        if ndp:
+            from app.ndp_color_match import apply_ndp_fit
+            thumb_ndp = apply_ndp_fit(thumb_rgb)
+            thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
+            thumb_ndp.save(str(thumb_path_ndp), "JPEG", quality=85)
+            return _jpeg_response(thumb_ndp, quality=85)
+
+        return _jpeg_response(thumb_rgb, quality=85)
+    except Exception as exc:
+        raise HTTPException(500, f"Thumbnail generation failed: {exc}")
+    finally:
+        close_many(thumb_ndp, thumb_rgb, thumb, slide)
+
+
+@router.get("/{slide_id}/preview")
+async def get_preview(
+    slide_id: str,
+    size: int = Query(2048, ge=64, le=8192),
+    ndp: bool = Query(False, description="true applies NDP color matching"),
+):
+    """Return a high-resolution slide preview."""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "Slide not found")
+    thumb = None
+    thumb_rgb = None
+    thumb_ndp = None
+    try:
+        thumb = info.slide.get_thumbnail((size, size))
+        thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+        if ndp:
+            from app.ndp_color_match import apply_ndp_fit
+            thumb_ndp = apply_ndp_fit(thumb_rgb)
+            return _jpeg_response(thumb_ndp, quality=92)
+        return _jpeg_response(thumb_rgb, quality=92)
+    finally:
+        close_many(thumb_ndp, thumb_rgb, thumb)
+
+
+@router.get("/{slide_id}/thumbnail")
+async def get_thumbnail(
+    slide_id: str,
+    size: int = Query(2048, ge=64, le=8192),
+    ndp: bool = Query(False, description="true returns an NDP-matched thumbnail"),
+):
+    """Return a cached or generated slide thumbnail."""
+    info = slide_manager.get(slide_id)
+    if not info:
+        raise HTTPException(404, "Slide not found")
+
+    filename = Path(info.file_path).name
+    tiles_root = tile_generator.get_tiles_dir(filename)
+    int_size = max(64, min(8192, int(size or 2048)))
+    thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
+    thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
+    bool_current_cache = _current_tile_cache(filename)
+
+    if ndp:
+        if thumb_path_ndp.exists() and bool_current_cache:
+            return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+
+        from PIL import Image as _Image
+        from app.ndp_color_match import apply_ndp_fit
+        thumb = None
+        thumb_rgb = None
+        thumb_ndp = None
+        if thumb_path_raw.exists() and bool_current_cache:
+            with _Image.open(str(thumb_path_raw)) as file_obj:
+                thumb_rgb = file_obj.convert("RGB")
+        else:
+            thumb = info.slide.get_thumbnail((int_size, int_size))
+            thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+            thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+            thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
+
+        try:
+            thumb_ndp = apply_ndp_fit(thumb_rgb)
+            thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
+            thumb_ndp.save(str(thumb_path_ndp), "JPEG", quality=85)
+            return _jpeg_response(thumb_ndp, quality=85)
+        finally:
+            close_many(thumb_ndp, thumb_rgb, thumb)
+
+    if thumb_path_raw.exists() and bool_current_cache:
+        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+
+    thumb = None
+    thumb_rgb = None
+    try:
+        thumb = info.slide.get_thumbnail((int_size, int_size))
+        thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+        thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+        thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
+        return _jpeg_response(thumb_rgb, quality=85)
+    finally:
+        close_many(thumb_rgb, thumb)

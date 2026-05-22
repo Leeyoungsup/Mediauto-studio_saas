@@ -2,11 +2,23 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.75] - 2026-05-22
+
+### Changed
+
+- Split slide thumbnail and preview endpoints into `app/routers/slide_media.py`.
+- Split project and folder management endpoints into `app/routers/projects.py`.
+- Split file delete/status/move endpoints into `app/routers/file_operations.py`.
+- Split annotation class and annotation JSON storage endpoints into `app/routers/annotation_storage.py`.
+- Extracted project metadata and project-level AI task helpers into `app/project_utils.py`.
+- Cleaned broken encoded backend source comments/messages in the remaining slide router so backend compilation is stable.
+
 ## [1.1.74] - 2026-05-22
 
 ### Changed
 
 - Started backend refactoring by extracting case-level clinical info helpers from the large slide router into `app/clinical_info.py`.
+- Extracted upload path and filename validation helpers into `app/path_utils.py`.
 - Added shared backend resource cleanup helpers in `app/resource_utils.py` and applied them to VS IHC slide cleanup.
 - Added backend refactoring notes documenting the target router/service boundaries.
 

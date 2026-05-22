@@ -89,7 +89,7 @@ from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
 from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, startup 에서 affinity 적용
-from app.routers import slides, tiles, ai, auth, users
+from app.routers import slides, slide_media, annotation_storage, projects, file_operations, tiles, ai, auth, users
 from app import auto_ai
 from app import tile_worker
 from app.version import APP_VERSION, get_version_info
@@ -178,8 +178,11 @@ app.add_middleware(RateLimitMiddleware)
 # 라우터 등록
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(projects.router, prefix="/api/slides", tags=["slide-projects"])
+app.include_router(file_operations.router, prefix="/api/slides", tags=["slide-files"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
-app.include_router(slides.media_router, prefix="/api/slides", tags=["slides-media"])
+app.include_router(slide_media.router, prefix="/api/slides", tags=["slides-media"])
+app.include_router(annotation_storage.router, prefix="/api/slides", tags=["slide-annotations"])
 app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])
