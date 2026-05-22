@@ -3,7 +3,7 @@
  */
 
 import { api } from './api.js?v=20260521-16';
-import { TileViewer } from './tile-viewer.js?v=20260521-18';
+import { TileViewer } from './tile-viewer.js?v=20260522-02';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {

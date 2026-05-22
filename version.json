@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.67",
+  "version": "1.1.70",
   "channel": "production",
-  "release_date": "2026-05-21",
-  "description": "Keeps viewer fallback thumbnails at 2048px while slide lists use compact 300px thumbnails."
+  "release_date": "2026-05-22",
+  "description": "Bounds VS IHC patch prefetching so large virtual stain jobs do not queue every image patch in memory."
 }

@@ -2,6 +2,27 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.70] - 2026-05-22
+
+### Fixed
+
+- VS IHC now uses bounded patch prefetching instead of queueing every patch read at once, reducing memory spikes during large virtual stain jobs.
+- VS IHC GAN batch tensors are released immediately after each batch is splatted into the tile streamer.
+
+## [1.1.69] - 2026-05-22
+
+### Fixed
+
+- Viewer first paint now uses the already-loaded 300px sidebar thumbnail as a temporary placeholder.
+- Tile preloading now waits for a dedicated 2048px viewer thumbnail/preview to paint, with a short fallback timeout to avoid stalls.
+
+## [1.1.68] - 2026-05-22
+
+### Fixed
+
+- Viewer 2048px thumbnail/preview preload images are now tracked as in-flight resources so they are not dropped before painting.
+- AI and Annotation pages now load the refreshed tile viewer bundle.
+
 ## [1.1.67] - 2026-05-21
 
 ### Fixed

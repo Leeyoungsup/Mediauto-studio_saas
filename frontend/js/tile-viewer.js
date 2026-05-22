@@ -269,6 +269,7 @@ export class TileViewer {
     async _loadThumbnailFallback() {
         if (!this.slideId) return;
         const str_slide_id = this.slideId;
+        const int_gen = this._loadGeneration;
         await api.ensureMediaReady();
         if (this.slideId !== str_slide_id) return;
 
@@ -279,23 +280,37 @@ export class TileViewer {
         // 사이드바 썸네일은 ndp 보정 안 된 raw 라 색보정 ON 상태라면 사용 안 함.
         // 1단계 — 디스크 캐시된 300px 썸네일 업그레이드
         const img_small = new Image();
+        this._inflightImages.add(img_small);
         img_small.onload = () => {
+            this._inflightImages.delete(img_small);
+            if (int_gen !== this._loadGeneration) return;
             if (this.slideId !== str_slide_id) return;
             this._thumbnailBitmap = img_small;
             this.requestRender();
         };
-        img_small.onerror = (e) => console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
+        img_small.onerror = (e) => {
+            this._inflightImages.delete(img_small);
+            if (int_gen !== this._loadGeneration) return;
+            console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
+        };
         const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
         if (str_small_url) img_small.src = str_small_url;
 
         // 2단계 — 2048px 고해상도 preview (on-demand, 수 초 가능)
         const img_hi = new Image();
+        this._inflightImages.add(img_hi);
         img_hi.onload = () => {
+            this._inflightImages.delete(img_hi);
+            if (int_gen !== this._loadGeneration) return;
             if (this.slideId !== str_slide_id) return;
             this._thumbnailBitmap = img_hi;
             this.requestRender();
         };
-        img_hi.onerror = (e) => console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
+        img_hi.onerror = (e) => {
+            this._inflightImages.delete(img_hi);
+            if (int_gen !== this._loadGeneration) return;
+            console.warn('[tile-viewer] hi-res preview load failed', img_hi.src, e);
+        };
         const str_hi_url = api.previewUrl(str_slide_id, VIEWER_THUMBNAIL_SIZE, bool_ndp);
         if (str_hi_url) img_hi.src = str_hi_url;
     }
@@ -303,6 +318,7 @@ export class TileViewer {
     _loadThumbnailFallbackImmediate() {
         if (!this.slideId) return Promise.resolve(false);
         const str_slide_id = this.slideId;
+        const int_gen = this._loadGeneration;
         const bool_ndp = !!this._colorCorrectionEnabled;
         return new Promise((resolve) => {
             let bool_done = false;
@@ -311,7 +327,26 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
-            setTimeout(() => finish(false), 1500);
+            // Keep tiles behind the 2048px viewer thumbnail. If the thumbnail
+            // endpoint is unusually slow or fails, fall back after a short grace
+            // period so the viewer never stalls forever.
+            setTimeout(() => finish(false), 6000);
+
+            const el_sidebar_thumb = document.querySelector(
+                `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
+            );
+            const paintSidebarThumb = () => {
+                if (int_gen !== this._loadGeneration) return;
+                if (this.slideId !== str_slide_id) return;
+                if (!el_sidebar_thumb || el_sidebar_thumb.naturalWidth <= 0) return;
+                this._thumbnailBitmap = el_sidebar_thumb;
+                this.requestRender();
+            };
+            if (el_sidebar_thumb?.complete) {
+                paintSidebarThumb();
+            } else if (el_sidebar_thumb) {
+                el_sidebar_thumb.addEventListener('load', paintSidebarThumb, { once: true });
+            }
 
             api.ensureMediaReady().then(() => {
                 if (this.slideId !== str_slide_id) return finish(false);
@@ -319,13 +354,18 @@ export class TileViewer {
                 const loadImage = (url, label, applyImage, onError) => {
                     if (!url) return false;
                     const img = new Image();
+                    this._inflightImages.add(img);
                     img.onload = () => {
+                        this._inflightImages.delete(img);
+                        if (int_gen !== this._loadGeneration) return;
                         if (this.slideId !== str_slide_id) return;
                         applyImage(img);
                         this.requestRender();
                         finish(true);
                     };
                     img.onerror = (e) => {
+                        this._inflightImages.delete(img);
+                        if (int_gen !== this._loadGeneration) return;
                         console.warn(`[tile-viewer] ${label} load failed`, img.src, e);
                         if (typeof onError === 'function') onError();
                     };

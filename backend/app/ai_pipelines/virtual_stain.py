@@ -9,6 +9,7 @@ VS IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간�
 
 import json
 import os
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
@@ -626,20 +627,38 @@ def run_virtual_stain(task_id: str, slide_id: str,
             for i, (int_px, int_py, _t, np_inp) in enumerate(list_batch):
                 np_fake = (fake_batch[i].permute(1, 2, 0).numpy() * 255.0)
                 streamer.splat(int_px, int_py, np_inp, np_fake)
+            del fake_batch, batch, tensors
             return len(list_batch)
 
         with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
-            futures = []
-            for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:
-                check_cancel(task_id)
-                wait_if_viewer_busy()
-                f = pool.submit(_read_patch, slide_path, x0, y0,
-                                best_level, level_read, ps, icc_tf, None)
-                futures.append(f)
+            # Keep only a small read-ahead window. Submitting every patch at once
+            # lets completed numpy regions pile up in memory during large VS IHC jobs.
+            int_prefetch_limit = max(io_workers * 2, bs * 2)
+            pending_reads = deque()
+            next_patch_idx = 0
 
-            for patch_idx, (xi, yi, x0, y0, px, py_c, is_tissue) in enumerate(all_patches):
+            def _submit_next_patch_read():
+                nonlocal next_patch_idx
+                if next_patch_idx >= len(all_patches):
+                    return False
                 check_cancel(task_id)
-                region_np = futures[patch_idx].result()
+                xi, yi, x0, y0, px, py_c, is_tissue = all_patches[next_patch_idx]
+                wait_if_viewer_busy()
+                future = pool.submit(_read_patch, slide_path, x0, y0,
+                                     best_level, level_read, ps, icc_tf, None)
+                pending_reads.append((xi, yi, x0, y0, px, py_c, is_tissue, future))
+                next_patch_idx += 1
+                return True
+
+            while len(pending_reads) < int_prefetch_limit and _submit_next_patch_read():
+                pass
+
+            while pending_reads:
+                check_cancel(task_id)
+                xi, yi, x0, y0, px, py_c, is_tissue, future = pending_reads.popleft()
+                region_np = future.result()
+                if len(pending_reads) < int_prefetch_limit:
+                    _submit_next_patch_read()
                 # 메인 스레드에서 inverse chain 적용 (tissue 패치만)
                 if _svs_to_ham is not None and is_tissue:
                     try:
@@ -650,6 +669,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 if not is_tissue:
                     # GAN 불필요 — input=output=region_np 로 바로 splat.
                     streamer.splat(px, py_c, region_np, region_np)
+                    del region_np
                 else:
                     t = torch.from_numpy(region_np).permute(2, 0, 1)
                     t = t / 255.0 * 2.0 - 1.0
