@@ -35,6 +35,7 @@ from app.path_utils import (
     safe_subpath as _safe_subpath,
 )
 from app.project_utils import (
+    clean_ai_tasks as _clean_ai_tasks,
     list_project_dirs as _list_project_dirs,
     parse_ai_tasks_json as _parse_ai_tasks_json,
     project_public_info as _project_public_info,
