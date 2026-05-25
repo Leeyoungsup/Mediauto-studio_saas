@@ -1,6 +1,6 @@
 """
-SlideManager — 열린 슬라이드 객체 관리 (세션 기반)
-OpenSlide 객체를 캐싱하여 매 타일 요청마다 다시 열지 않도록 함
+SlideManager — text text text text (text text)
+OpenSlide text text text text text text text text text
 """
 
 import math
@@ -15,18 +15,18 @@ import openslide
 MAX_OPEN_SLIDES = max(1, int(os.environ.get("MAX_OPEN_SLIDES", "4")))
 IDLE_SLIDE_TTL_SECONDS = max(30, int(os.environ.get("IDLE_SLIDE_TTL_SECONDS", "300")))
 
-# ── Hamamatsu NDP.view2 호환 색 보정 상수 ──
-# NDP.view2 는 표시 gamma = 1.8 고정 + 배경을 Target.White.Intensity 로 맞춘다.
-# ICC 프로파일이 임베드되지 않은 Hamamatsu 슬라이드에 한해
+# ── Hamamatsu NDP.view2 text text text text ──
+# NDP.view2 text text gamma = 1.8 text + text Target.White.Intensity text text.
+# ICC text text text Hamamatsu text text
 #   v_out = 255 * (v_in / Target.White.Intensity) ^ (1/1.8)
-# 를 적용해 raw 를 NDP.view2 와 같은 톤으로 끌어올린다.
-# Target.White.Intensity 는 슬라이드 header 에서 직접 읽음 — .npy 외부 파일 의존 없음.
+# text text raw text NDP.view2 text text text text.
+# Target.White.Intensity text text header text text text — .npy text text text text.
 FLOAT_NDP_GAMMA = 1.8
 FLOAT_NDP_DEFAULT_WHITE = 235.0
 
 
 def _build_ndp_lut(float_raw_white: float) -> np.ndarray:
-    """raw_white → 255, gamma=1.8 매핑의 256-entry uint8 LUT."""
+    """raw_white → 255, gamma=1.8 text 256-entry uint8 LUT."""
     if float_raw_white <= 0:
         float_raw_white = FLOAT_NDP_DEFAULT_WHITE
     np_x = np.clip(np.arange(256, dtype=np.float32) / float_raw_white, 0.0, 1.0)
@@ -35,14 +35,14 @@ def _build_ndp_lut(float_raw_white: float) -> np.ndarray:
 
 
 def build_color_corrector(slide: "openslide.OpenSlide"):
-    """OpenSlide 핸들에 대해 통일된 색 보정 callable 을 구성한다.
+    """OpenSlide text text text text text callable text text.
 
-    우선순위:
-      1) ICC profile 이 있으면 sRGB ImageCms transform 적용
-      2) ICC 가 없고 vendor=hamamatsu 면 Target.White.Intensity + γ=1.8 LUT 적용
-      3) 둘 다 없으면 pass-through
+    text:
+      1) ICC profile text text sRGB ImageCms transform text
+      2) ICC text text vendor=hamamatsu text Target.White.Intensity + γ=1.8 LUT text
+      3) text text text pass-through
 
-    반환: `(apply, dict_meta)`
+    text: `(apply, dict_meta)`
       - apply(img_rgb: PIL.Image) -> PIL.Image
       - dict_meta:
           {
@@ -52,8 +52,8 @@ def build_color_corrector(slide: "openslide.OpenSlide"):
             "str_tag": "icc" | "ndp:<white>" | "raw",
           }
 
-    이 함수 하나로 `SlideInfo`, `tile_generator`, `thumbnail-by-name` 이 모두
-    같은 색 보정 로직을 공유하게 된다.
+    text text text `SlideInfo`, `tile_generator`, `thumbnail-by-name` text text
+    text text text text text text.
     """
     # 1) ICC transform
     icc_transform = None
@@ -66,10 +66,10 @@ def build_color_corrector(slide: "openslide.OpenSlide"):
                 obj_profile, obj_srgb, "RGB", "RGB"
             )
     except Exception as e:
-        print(f"[slide_manager] ICC transform 실패: {e}")
+        print(f"[slide_manager] ICC transform text: {e}")
         icc_transform = None
 
-    # 2) NDP LUT (ICC 없고 vendor=hamamatsu 일 때만)
+    # 2) NDP LUT (ICC text vendor=hamamatsu text text)
     np_lut: Optional[np.ndarray] = None
     float_ndp_white: Optional[float] = None
     if icc_transform is None:
@@ -98,7 +98,7 @@ def build_color_corrector(slide: "openslide.OpenSlide"):
                 np_out = np_lut[np_img]
                 return Image.fromarray(np_out, "RGB")
             except Exception as e:
-                print(f"[slide_manager] NDP LUT 적용 실패: {e}")
+                print(f"[slide_manager] NDP LUT text text: {e}")
                 return img_rgb
         return img_rgb
 
@@ -114,12 +114,12 @@ def build_color_corrector(slide: "openslide.OpenSlide"):
     return _apply, dict_meta
 
 
-# ── 3단계 타일 피라미드 ──
-# 모든 stage 는 level 0 에서 읽어 downsample 팩터만큼 리사이즈하여 1024x1024 로 저장.
-#   stage 0 : level0 에서 1024x1024 그대로 (downsample 1)
-#   stage 1 : level0 에서 4096x4096 읽어 1024x1024 로 리사이즈 (downsample 4)
-#   stage 2 : level0 에서 8192x8192 읽어 1024x1024 로 리사이즈 (downsample 8)
-# TileViewer 의 STAGE_DOWNSAMPLES / STAGE_READ_SIZE 와 반드시 동일해야 한다.
+# ── 3text text text ──
+# text stage text level 0 text text downsample text text 1024x1024 text text.
+#   stage 0 : level0 text 1024x1024 text (downsample 1)
+#   stage 1 : level0 text 4096x4096 text 1024x1024 text text (downsample 4)
+#   stage 2 : level0 text 8192x8192 text 1024x1024 text text (downsample 8)
+# TileViewer text STAGE_DOWNSAMPLES / STAGE_READ_SIZE text text text text.
 STAGE_DOWNSAMPLES = [1, 4, 8]
 TILE_SIZE_OUT = 1024
 STAGE_READ_SIZE = [TILE_SIZE_OUT * ds for ds in STAGE_DOWNSAMPLES]  # [1024, 4096, 8192]
@@ -127,7 +127,7 @@ STAGE_COUNT = len(STAGE_DOWNSAMPLES)
 
 
 class SlideInfo:
-    """열린 슬라이드의 메타 정보"""
+    """text text text text"""
 
     def __init__(self, slide: openslide.OpenSlide, file_path: str):
         self.slide = slide
@@ -135,7 +135,7 @@ class SlideInfo:
         self.opened_at = time.time()
         self.last_accessed = time.time()
 
-        # 메타데이터 캐싱
+        # text text
         self.dimensions = slide.dimensions
         self.level_count = slide.level_count
         self.level_dimensions = list(slide.level_dimensions)
@@ -151,17 +151,17 @@ class SlideInfo:
         else:
             self.mpp_x = 0.25
             self.mpp_y = 0.25
-            self.mpp = 0.25  # 기본값 (40x)
+            self.mpp = 0.25  # text (40x)
 
-        # 추가 메타데이터
+        # text text
         self.objective_power = slide.properties.get("openslide.objective-power", "Unknown")
 
         self.vendor = slide.properties.get("openslide.vendor", "Unknown")
 
-        # 통합 색 보정기 — ICC → NDP LUT → raw 우선순위.
-        # AI 추론 워커들은 여전히 `icc_transform` 을 직접 받아 쓰므로 해당 속성은
-        # 실제 ImageCms transform 을 담아 둔다. 뷰어/타일/썸네일 경로는
-        # `apply_icc()` 를 통해 통합 callable (ICC + NDP LUT) 을 쓴다.
+        # text text text — ICC → NDP LUT → raw text.
+        # AI text text text `icc_transform` text text text text text text
+        # text ImageCms transform text text text. text/text/text text
+        # `apply_icc()` text text text callable (ICC + NDP LUT) text text.
         self._color_apply, self._color_meta = build_color_corrector(slide)
         self.icc_transform = None
         try:
@@ -174,17 +174,17 @@ class SlideInfo:
                 )
         except Exception:
             self.icc_transform = None
-        # NDP LUT 적용 메타는 self._color_meta 에 보존 — 노이즈 방지 위해 별도 로그 X.
+        # NDP LUT text text self._color_meta text text — text text text text text X.
 
-        # 물리적 크기 (mm)
+        # text text (mm)
         w, h = self.dimensions
         self.physical_width_mm = w * self.mpp_x / 1000.0
         self.physical_height_mm = h * self.mpp_y / 1000.0
 
-        # 3단계 stage 타일 피라미드 메타 (level 0 에서 고정 downsample [1,4,8])
+        # 3text stage text text text (level 0 text text downsample [1,4,8])
         self.stage_downsamples = list(STAGE_DOWNSAMPLES)
         self.stage_count = STAGE_COUNT
-        # 각 stage 의 픽셀 해상도 — frontend 에서 nx/ny 계산에 사용
+        # text stage text text text — frontend text nx/ny text text
         w0, h0 = self.dimensions
         self.stage_dimensions = [
             (max(1, math.ceil(w0 / ds)), max(1, math.ceil(h0 / ds)))
@@ -192,7 +192,7 @@ class SlideInfo:
         ]
 
     def get_stage(self, effective_mpp: float) -> int:
-        """effective MPP 기반 stage index (0/1/2) 선택."""
+        """effective MPP text stage index (0/1/2) text."""
         if effective_mpp < 2.0:
             return 0
         elif effective_mpp < 15.0:
@@ -200,7 +200,7 @@ class SlideInfo:
         else:
             return 2
 
-    # 하위 호환 — 기존 /stage-level 엔드포인트용. stage index 를 그대로 반환.
+    # text text — text /stage-level text. stage index text text text.
     def get_stage_level(self, effective_mpp: float) -> int:
         return self.get_stage(effective_mpp)
 
@@ -208,18 +208,18 @@ class SlideInfo:
         self.last_accessed = time.time()
 
     def apply_icc(self, img_rgb):
-        """RGB PIL 이미지에 색 보정 적용 (ICC → NDP LUT → raw 순)."""
+        """RGB PIL text text text text (ICC → NDP LUT → raw text)."""
         return self._color_apply(img_rgb)
 
 
 class SlideManager:
-    """열린 슬라이드 관리자 (thread-safe).
+    """text text text (thread-safe).
 
     Generation counter:
-        각 slide_id 에 대해 단조 증가 generation 을 유지한다. close() 가 호출되면
-        해당 slide_id 의 generation 이 +1 된다. 워커 스레드가 thread-local
-        핸들을 재사용할 때 (app.thread_slide_pool) 이 generation 을 비교해
-        stale 이면 자기 핸들을 닫고 재오픈해 leak 을 방지한다.
+        text slide_id text text text text generation text text. close() text text
+        text slide_id text generation text +1 text. text text thread-local
+        text text text (app.thread_slide_pool) text generation text text
+        stale text text text text text leak text text.
     """
 
     def __init__(self):
@@ -257,7 +257,7 @@ class SlideManager:
             self._close_info_locked(str_evict_id, info_evict)
 
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
-        """슬라이드 열기 (이미 열려있으면 캐시 반환)"""
+        """text text (text text text text)"""
         with self._lock:
             if slide_id in self._slides:
                 info = self._slides[slide_id]
@@ -268,13 +268,13 @@ class SlideManager:
             slide = openslide.OpenSlide(file_path)
             info = SlideInfo(slide, file_path)
             self._slides[slide_id] = info
-            # 최초 open 시 generation 0 부여 (이미 있으면 유지)
+            # text open text generation 0 text (text text text)
             self._generations.setdefault(slide_id, 0)
             self._evict_idle_locked(exclude_slide_id=slide_id)
             return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
-        """열린 슬라이드 가져오기"""
+        """text text text"""
         with self._lock:
             info = self._slides.get(slide_id)
             if info:
@@ -283,19 +283,19 @@ class SlideManager:
             return info
 
     def get_generation(self, slide_id: str) -> int:
-        """주어진 slide_id 의 현재 generation. thread-local 핸들 무효화 판정용."""
+        """text slide_id text text generation. thread-local text text text."""
         with self._lock:
             return self._generations.get(slide_id, 0)
 
     def close(self, slide_id: str):
-        """슬라이드 닫기 — generation 을 bump 하여 모든 thread-local 핸들을 무효화."""
+        """text text — generation text bump text text thread-local text text."""
         with self._lock:
             info = self._slides.pop(slide_id, None)
             if info:
                 self._close_info_locked(slide_id, info)
 
     def close_all(self):
-        """모든 슬라이드 닫기 — 전체 generation bump."""
+        """text text text — text generation bump."""
         with self._lock:
             for str_sid in list(self._slides.keys()):
                 self._generations[str_sid] = self._generations.get(str_sid, 0) + 1
@@ -307,7 +307,7 @@ class SlideManager:
             self._slides.clear()
 
     def list_slides(self):
-        """열린 슬라이드 목록"""
+        """text text text"""
         with self._lock:
             return {
                 sid: {
@@ -320,5 +320,5 @@ class SlideManager:
             }
 
 
-# 싱글톤
+# text
 slide_manager = SlideManager()

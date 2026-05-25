@@ -1,12 +1,12 @@
 """
 AI Module — SaaS Backend
 
-레거시 데스크톱 ai/ 패키지가 PyQt5 (QObject/QThread/pyqtSignal) 에 의존하지만
-헤드리스 SaaS 백엔드에는 PyQt5 를 설치하지 않는다.
-import 시점에 PyQt5 를 no-op 스텁으로 sys.modules 에 주입해 의존성을 우회한다.
+text text ai/ text PyQt5 (QObject/QThread/pyqtSignal) text text
+text SaaS text PyQt5 text text text.
+import text PyQt5 text no-op text sys.modules text text text text.
 
-라우터(app/routers/ai.py)는 함수/클래스를 직접 import 하므로 본 __init__.py
-는 sub-module 을 eager-import 하지 않는다.
+text(app/routers/ai.py)text text/text text import text text __init__.py
+text sub-module text eager-import text text.
 """
 
 import sys

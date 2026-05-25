@@ -1,35 +1,35 @@
-# ── 웹 서버 ──
+# ── text text ──
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 python-multipart==0.0.9
 aiofiles==24.1.0
 
-# ── 이미지/WSI ──
+# ── text/WSI ──
 openslide-python==1.3.1
 Pillow>=10.0.0
 opencv-python-headless>=4.8.0
 
-# ── 과학 계산 (VS IHC tissue mask: skimage morphology + scipy fill_holes) ──
+# ── text text (VS IHC tissue mask: skimage morphology + scipy fill_holes) ──
 numpy>=1.26.0
 scipy>=1.11.0
 scikit-image>=0.22.0
 matplotlib>=3.7.0
 
-# ── 딥러닝 (YOLOv11 detection + VS GAN + tissue segmentation) ──
-# CUDA 빌드는 install.bat 에서 pytorch 공식 index 로 별도 설치
+# ── text (YOLOv11 detection + VS GAN + tissue segmentation) ──
+# CUDA text install.bat text pytorch text index text text text
 torch>=2.0.0
 torchvision>=0.15.0
 segmentation-models-pytorch>=0.3.3
 tqdm>=4.65.0
 
-# ── 인증/보안 / DB ──
+# ── text/text / DB ──
 motor>=3.3.0
 pymongo>=4.6.0
 bcrypt>=4.1.0
 python-jose[cryptography]>=3.3.0
 cryptography>=42.0.0
 
-# ── 주의 ──
-# PyQt5 는 설치하지 않습니다. backend/ai/__init__.py 가 SaaS 환경용
-# no-op 스텁을 sys.modules 에 주입하여 레거시 import(QThread/pyqtSignal)를
-# 무해화합니다. 실제 PyQt5 가 설치되어 있으면 헤드리스 서버에서 충돌 가능.
+# ── text ──
+# PyQt5 text text text. backend/ai/__init__.py text SaaS text
+# no-op text sys.modules text text text import(QThread/pyqtSignal)text
+# text. text PyQt5 text text text text text text text.

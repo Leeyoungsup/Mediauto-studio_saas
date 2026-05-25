@@ -342,7 +342,7 @@
             }
         }
 
-        // 업로드 대상 경로 — 폴더 셀렉터에서 동적으로 결정
+        // text text text — text text text text
         const initialPath = new URLSearchParams(location.search).get('path') || '';
         const $projectSelect = document.getElementById('project-select');
         const $folderSelect = document.getElementById('folder-select');
@@ -361,7 +361,7 @@
             return project ? projectLabel(project) : 'selected project';
         }
 
-        // 폴더 트리 로드
+        // text text text
         function setBlocked(blocked) {
             $uploadBlocked.hidden = !blocked;
             document.getElementById('drop-zone').style.display = blocked ? 'none' : '';
@@ -432,11 +432,11 @@
                     opt.textContent = '/' + f;
                     $folderSelect.appendChild(opt);
                 }
-                // 현재 경로 선택
+                // text text text
                 if (initialPath && [...$folderSelect.options].some(o => o.value === initialPath)) {
                     $folderSelect.value = initialPath;
                 }
-            } catch { /* 로드 실패 시 root 만 표시 */ }
+            } catch { /* text text text root text text */ }
         })();
 
         $projectSelect.addEventListener('change', () => {
@@ -498,7 +498,7 @@
             addFiles(e.dataTransfer.files);
         });
 
-        // ── Opener 에서 파일 전달받기 ──
+        // ── Opener text text text ──
         if (window.opener && window.opener._pendingUploadFiles) {
             const files = window.opener._pendingUploadFiles;
             window.opener._pendingUploadFiles = null;
@@ -514,7 +514,7 @@
             if (!files.length) return;
 
             for (const file of files) {
-                // 중복 체크
+                // text text
                 if (fileQueue.some(q => q.file.name === file.name && q.file.size === file.size)) continue;
 
                 const el = document.createElement('div');
@@ -678,7 +678,7 @@
             errorCount = 0;
             skippedCount = 0;
 
-            // 페이지 이탈 방지
+            // text text text
             window.onbeforeunload = () => '';
             startUploadTokenKeepAlive();
 
@@ -718,7 +718,7 @@
             $btnUpload.textContent = 'Done';
             updateSummary();
 
-            // opener 에 완료 알림
+            // opener text text text
             try {
                 if (window.opener && !window.opener.closed) {
                     window.opener.postMessage({ type: 'upload-complete', count: completedCount }, '*');
@@ -730,7 +730,7 @@
             const file = item.file;
             const overwrite = Boolean(options.overwrite);
 
-            // 1) 이미 존재하는지 확인
+            // 1) text text text
             if (!overwrite) {
                 const checkForm = new FormData();
                 checkForm.append('filename', file.name);
@@ -745,14 +745,14 @@
                 }
             }
 
-            // 2) 업로드 시작
+            // 2) text text
             const startForm = new FormData();
             startForm.append('filename', file.name);
             const startRes = await authFetch('/slides/upload/start', { method: 'POST', body: startForm });
             if (!startRes.ok) throw new Error(await responseErrorMessage(startRes, 'File format is not supported'));
             const { upload_id } = await startRes.json();
 
-            // 3) 청크 전송
+            // 3) text text
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK_SIZE;
@@ -767,7 +767,7 @@
                 setItemStatus(item, 'uploading', `${Math.round(((i + 1) / totalChunks) * 90)}%`);
             }
 
-            // 4) 완료
+            // 4) text
             setItemStatus(item, 'uploading', 'Registering...');
             item.fillEl.style.width = '95%';
             const completeForm = new FormData();

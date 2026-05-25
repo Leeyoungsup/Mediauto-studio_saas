@@ -1,10 +1,10 @@
 """Quanti HE detection worker + epithelial reclassification overlay.
 
-routers/ai.py 의 모놀리스에서 분리. desktop DetectionWorker.run() 과 동일한
-파이프라인 (조직 마스크 → I/O 프리페치 → 배치 GPU 추론 → Epithelial 재분류).
+routers/ai.py text text text. desktop DetectionWorker.run() text text
+text (text text → I/O text → text GPU text → Epithelial text).
 
-Epithelial 재분류는 Breast/Stomach 일 때만 동작하며, 결과의 class 1 (Epithelial)
-세포를 connected-component 의 tumor 비율로 6 (Tumor) / 7 (Benign) 으로 재분류한다.
+Epithelial text Breast/Stomach text text text, text class 1 (Epithelial)
+text connected-component text tumor text 6 (Tumor) / 7 (Benign) text text.
 """
 
 import json
@@ -54,22 +54,22 @@ def _compact_cached_result(result):
     return result, bool_object_cell_cache
 
 
-# ── Stromal cell 압도 방지 후처리 상수 ──
-# Stromal cell (class 5) 위치에 일정 confidence 이상의 다른 클래스가 있으면
-# Stromal 을 제거하고 다른 클래스를 우선시. NMS 가 클래스 무관하게 한 박스만
-# 남기는 게 아니라 클래스별로 작동하는 경우 같은 세포 위치에 Stromal + 다른
-# 클래스가 동시에 잡히는 케이스가 있어, 후처리로 정리.
+# ── Stromal cell text text text text ──
+# Stromal cell (class 5) text text confidence text text text text
+# Stromal text text text text text. NMS text text text text text
+# text text text text text text text text text Stromal + text
+# text text text text text, text text.
 STROMAL_CLASS_ID = 5
-STROMAL_SUPPRESSION_RADIUS_UM = 10.0  # 같은 세포 위치로 간주할 반경 (μm)
-STROMAL_SUPPRESSION_CONF = 0.1        # 다른 클래스 우선 인정 confidence 하한
+STROMAL_SUPPRESSION_RADIUS_UM = 10.0  # text text text text text (μm)
+STROMAL_SUPPRESSION_CONF = 0.1        # text text text text confidence text
 
 
 def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float_mpp):
-    """Stromal cell (class 5) 위치에 conf >= STROMAL_SUPPRESSION_CONF 인 다른 클래스
-    셀이 있으면 해당 Stromal cell 을 제거. KDTree 로 O((n_stromal + n_other) log n) 처리.
+    """Stromal cell (class 5) text conf >= STROMAL_SUPPRESSION_CONF text text text
+    text text text Stromal cell text text. KDTree text O((n_stromal + n_other) log n) text.
 
-    Returns: (new_x, new_y, new_conf, new_cls, int_dropped) — 입력과 같은 형태의 ndarray
-        들 + 제거된 Stromal cell 개수.
+    Returns: (new_x, new_y, new_conf, new_cls, int_dropped) — text text text ndarray
+        text + text Stromal cell text.
     """
     import numpy as np
 
@@ -81,7 +81,7 @@ def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float
     if not np_stromal_mask.any() or not np_other_mask.any():
         return all_x, all_y, all_conf, all_cls, 0
 
-    # mpp 가 0/None 이면 안전 fallback (40x 가정 0.25 μm/px)
+    # mpp text 0/None text text fallback (40x text 0.25 μm/px)
     float_mpp_safe = float(float_mpp) if float_mpp and float_mpp > 0 else 0.25
     float_radius_px = STROMAL_SUPPRESSION_RADIUS_UM / float_mpp_safe
 
@@ -114,10 +114,10 @@ def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float
 
 def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tissue_type: str):
     """
-    백그라운드 검출 — 기존 DetectionWorker.run()과 동일한 파이프라인:
-    1. 조직 마스크 → 배경 패치 스킵
-    2. 멀티스레드 I/O 프리페치 (ThreadPoolExecutor)
-    3. 배치 GPU 추론 (8장씩)
+    text text — text DetectionWorker.run()text text text:
+    1. text text → text text text
+    2. text I/O text (ThreadPoolExecutor)
+    3. text GPU text (8text)
     """
     list_cleanup_on_cancel = []
     try:
@@ -127,10 +127,10 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         info = slide_manager.get(slide_id)
         if not info:
-            update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+            update_task(task_id, status="error", error="text text text text")
             return
 
-        # ── 캐시된 AI 결과 확인 (전체/ROI 무관 — 있으면 가져와서 표시) ──
+        # ── text AI text text (text/ROI text — text text text) ──
         cache_path = get_ai_cache_path(info.file_path, tissue_type)
         list_cleanup_on_cancel.append(cache_path)
         if cache_path.exists():
@@ -146,9 +146,9 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             json.dump(cached, f, separators=(',', ':'))
                     except Exception as e:
                         print(f"Compact cache rewrite failed: {e}")
-                # 캐시 hit 이어도 DB 플래그가 비어 있으면 auto_ai 가 매 사이클 다시 끌어옴.
-                # (과거 추론이 DB 미연결 상태에서 끝났거나 slide doc 이 늦게 생성된 케이스.)
-                # 멱등 — 이미 set 이면 변화 없음.
+                # text hit text DB text text text auto_ai text text text text text.
+                # (text text DB text text text slide doc text text text text.)
+                # text — text set text text text.
                 from app import slide_store
                 slide_store.mark_ai_result_threadsafe(info.file_path, "Quanti HE", tissue_type)
                 update_task(task_id, status="completed", progress=100,
@@ -162,7 +162,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         update_task(task_id, status="running", progress=1,
                     status_msg="Starting detection...")
 
-        # ── 모델 로드 ──
+        # ── text text ──
         from ai.quanti_he import CLASS_NAMES, CLASS_COLORS
         from ai.yolo_postprocess import non_max_suppression
         from ai.nets import nn as yolo_nn
@@ -171,7 +171,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         model_path = Path(settings.MODEL_DIR) / "HnE_detection.pt"
         if not model_path.exists():
-            update_task(task_id, status="error", error=f"모델 파일 없음: {model_path}")
+            update_task(task_id, status="error", error=f"text text text: {model_path}")
             return
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -183,7 +183,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         update_task(task_id, progress=3, status_msg="Detection model loaded")
 
-        # ── 설정 (기존 DetectionWorker와 동일) ──
+        # ── text (text DetectionWorkertext text) ──
         slide = info.slide
         slide_path = info.file_path
         width, height = info.dimensions
@@ -201,12 +201,12 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             3: 0.01, 4: 0.01, 5: 0.01,
         }
 
-        # ── 조직 마스크 (배경 스킵) ──
-        update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
+        # ── text text (text text) ──
+        update_task(task_id, progress=4, status_msg="text text text text...")
         thumb_mask = create_tissue_mask(slide, icc_transform=info.icc_transform)
         update_task(task_id, progress=5)
 
-        # ── Pre-scan: 유효 패치 수집 ──
+        # ── Pre-scan: text text text ──
         valid_patch_list = []
         for pr in range(width // image_size - 1):
             for pc in range(height // image_size - 1):
@@ -216,7 +216,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                                      mx:mx + image_size // 64]) == 0:
                     continue
                 px, py = pr * image_size, pc * image_size
-                # ROI 체크 (간단 바운딩박스)
+                # ROI text (text text)
                 if roi_polygons:
                     cx, cy = px + image_size // 2, py + image_size // 2
                     in_roi = any(
@@ -229,7 +229,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 valid_patch_list.append((px, py))
 
         n_valid = len(valid_patch_list)
-        update_task(task_id, progress=6, status_msg=f"유효 패치 {n_valid}개 발견")
+        update_task(task_id, progress=6, status_msg=f"text text {n_valid}text text")
 
         if n_valid == 0:
             update_task(task_id, status="completed", progress=100, result={
@@ -239,12 +239,12 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             })
             return
 
-        # ── numpy 청크 누적 (기존 방식: list-of-dicts 대신 numpy 배열) ──
+        # ── numpy text text (text text: list-of-dicts text numpy text) ──
         chunks_x, chunks_y, chunks_cls, chunks_conf = [], [], [], []
         detected_count = 0
         processed_valid = 0
 
-        # ── I/O → 텐서 변환 함수 (스레드별 독립 OpenSlide) ──
+        # ── I/O → text text text (text text OpenSlide) ──
         icc_tf = info.icc_transform
         def _read_patch_tensor(patch_x, patch_y):
             patch = None
@@ -275,7 +275,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     except Exception:
                         pass
 
-        # ── 배치 GPU 추론 함수 (기존 _infer_batch와 동일) ──
+        # ── text GPU text text (text _infer_batchtext text) ──
         def _infer_batch(batch_coords, batch_tensors):
             bx, by, bcls, bconf = [], [], [], []
             try:
@@ -318,8 +318,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             return np.concatenate(bx), np.concatenate(by), np.concatenate(bcls), np.concatenate(bconf)
 
         # ══════════════════════════════════════
-        # 파이프라인: I/O 프리페치 → 배치 GPU 추론
-        # (기존 DetectionWorker._io_producer 로직 그대로)
+        # text: I/O text → text GPU text
+        # (text DetectionWorker._io_producer text text)
         # ══════════════════════════════════════
         prefetch_q = queue.Queue(maxsize=PREFETCH_BATCHES)
         producer_done = threading.Event()
@@ -345,7 +345,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                                 prefetch_q.put((coords, tensors, len(pending)), timeout=30)
                             pending.clear()
 
-                    # 남은 패치
+                    # text text
                     if pending and not is_cancel_requested(task_id):
                         coords, tensors = [], []
                         for bpx, bpy, f in pending:
@@ -364,7 +364,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         producer_thread = threading.Thread(target=_io_producer, daemon=True)
         producer_thread.start()
 
-        # ── GPU 추론 루프 ──
+        # ── GPU text text ──
         while True:
             check_cancel(task_id)
             try:
@@ -394,7 +394,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         producer_thread.join(timeout=10)
 
-        # ── 결과 병합 ──
+        # ── text text ──
         if chunks_x:
             all_x = np.concatenate(chunks_x)
             all_y = np.concatenate(chunks_y)
@@ -406,7 +406,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         check_cancel(task_id)
 
-        # ── Stromal cell 압도 방지: 같은 위치에 conf >= 0.1 인 다른 클래스가 있으면 Stromal 제거 ──
+        # ── Stromal cell text text: text text conf >= 0.1 text text text text Stromal text ──
         all_x, all_y, all_conf, all_cls, int_stromal_dropped = (
             _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, info.mpp)
         )
@@ -416,7 +416,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         update_task(task_id, progress=50,
                     status_msg=f"Detection complete: {len(all_x)} cells")
 
-        # ── Epithelial 재분류 (Breast/Stomach만) ──
+        # ── Epithelial text (Breast/Stomachtext) ──
         seg_data = None
         auto_classify = tissue_type in ("Breast", "Stomach")
         if auto_classify and len(all_cls) > 0:
@@ -455,7 +455,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         }
 
         check_cancel(task_id)
-        # ── 전체 추론(폴리곤 없음)인 경우만 캐시 저장 ──
+        # ── text text(text text)text text text text ──
         if roi_polygons is None:
             try:
                 with open(cache_path, 'w', encoding='utf-8') as f:
@@ -482,9 +482,9 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y, all_cls,
                                   tissue_type, roi_polygons, device):
     """
-    Epithelial 재분류: WSI Segmentation → Epithelial(1) → Tumor(6) / Benign(7)
-    데스크톱 DetectionWorker._run_epithelial_classification과 동일 로직
-    all_cls를 in-place로 수정한다.
+    Epithelial text: WSI Segmentation → Epithelial(1) → Tumor(6) / Benign(7)
+    text DetectionWorker._run_epithelial_classificationtext text text
+    all_clstext in-placetext text.
     Returns: seg_data dict (seg_class_names, overlays as base64, thumbnail) or None
     """
     import numpy as np
@@ -493,7 +493,7 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
     try:
         from ai.epithelial_classifier import WSISegmentationModel
 
-        # Segmentation 모델 경로
+        # Segmentation text text
         if tissue_type == "Breast":
             seg_model_path = Path(settings.MODEL_DIR) / "HnE_BR_segmentation.pt"
         elif tissue_type == "Stomach":
@@ -515,7 +515,7 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
             device=device,
         )
 
-        # ROI bounds 계산
+        # ROI bounds text
         roi_bounds = None
         if roi_polygons:
             min_x = min(p[0] for poly in roi_polygons for p in poly)
@@ -528,7 +528,7 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
                     status_msg="Running WSI Segmentation...")
 
         def progress_cb(pct):
-            # 55~90% 구간
+            # 55~90% text
             update_task(task_id, progress=55 + int(pct * 0.35),
                         status_msg=f"WSI Segmentation... {int(pct)}%")
 
@@ -546,7 +546,7 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         update_task(task_id, progress=92,
                     status_msg="Reclassifying Epithelial cells...")
 
-        # ── Epithelial 인덱스 및 mask 좌표 변환 ──
+        # ── Epithelial text text mask text text ──
         wsi_mpp = info.mpp
         output_mpp = seg_model.output_mpp
         scale_factor = wsi_mpp / output_mpp
@@ -566,11 +566,11 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         seg_vals = np.zeros(len(epi_indices), dtype=np.int32)
         seg_vals[valid] = prediction_mask[mys[valid], mxs[valid]]
 
-        # ── Connected component 클러스터링 (현재 비활성) ──
-        # 같은 connected component (8-neighbor) 안에서 tumor 픽셀 비율이 10% 이상이면
-        # 그 component 의 모든 epithelial 세포를 Tumor 로 일괄 분류하던 로직.
-        # benign 세포가 인접한 tumor 영역에 "감염"되어 tumor 로 잘못 분류되는 케이스가 있어
-        # 일시적으로 비활성화하고, 각 세포는 자기 위치 픽셀의 segmentation 클래스로만 판정한다.
+        # ── Connected component text (text text) ──
+        # text connected component (8-neighbor) text tumor text text 10% text
+        # text component text text epithelial text Tumor text text text text.
+        # benign text text tumor text "text"text tumor text text text text text
+        # text text, text text text text text segmentation text text.
         # from scipy import ndimage as ndi
         # TUMOR_RATIO_THRESHOLD = 0.1
         # epi_region = np.isin(prediction_mask, [2, 3]).astype(np.uint8)
@@ -593,14 +593,14 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         # update_mask = comp_ids > 0
         # seg_vals[update_mask] = comp_class_arr[comp_ids[update_mask]]
 
-        # cls_arr in-place 업데이트: 픽셀 단위 직접 판정
-        #   prediction_mask 값 2(Benign) → 7, 그 외(0/1/3, 마스크 밖·other·tumor) → 6(Tumor)
+        # cls_arr in-place text: text text text text
+        #   prediction_mask text 2(Benign) → 7, text text(0/1/3, text text·other·tumor) → 6(Tumor)
         all_cls[epi_indices] = np.where(seg_vals == 2, 7, 6).astype(np.int32)
 
         update_task(task_id, progress=98,
                     status_msg=f"Epithelial reclassification complete ({len(epi_indices)} cells)")
 
-        # ── 썸네일 + 세그멘테이션 오버레이 생성 (프론트엔드 시각화용) ──
+        # ── text + text text text (text text) ──
         seg_data = build_seg_overlays(slide, prediction_mask, metadata,
                                       seg_model.class_names, roi_bounds,
                                       icc_transform=info.icc_transform)
@@ -621,8 +621,8 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
 
 def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds, icc_transform=None):
     """
-    세그멘테이션 확률맵(prob_map)을 썸네일 크기로 리사이즈하여 클래스별 오버레이 base64 생성.
-    데스크톱의 _create_spatial_heatmap_tab과 동일: jet colormap + alpha=0.75 on probability maps.
+    text text(prob_map)text text text text text text base64 text.
+    text _create_spatial_heatmap_tabtext text: jet colormap + alpha=0.75 on probability maps.
     """
     import numpy as np
     import cv2
@@ -631,7 +631,7 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
     from PIL import Image
 
     try:
-        # 썸네일 생성 (ROI 영역이면 해당 영역만)
+        # text text (ROI text text text)
         THUMB_SIZE = 800
         sw, sh = slide.dimensions
         if roi_bounds:
@@ -640,7 +640,7 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
             x0, y0, x1, y1 = 0, 0, sw, sh
         rw, rh = x1 - x0, y1 - y0
 
-        # 썸네일 비율 유지
+        # text text text
         if rw >= rh:
             tw = THUMB_SIZE
             th = max(1, int(THUMB_SIZE * rh / rw))
@@ -648,9 +648,9 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
             th = THUMB_SIZE
             tw = max(1, int(THUMB_SIZE * rw / rh))
 
-        # 썸네일 생성
+        # text text
         if roi_bounds:
-            # ROI: 적절한 레벨에서 직접 read_region → 정확한 영역
+            # ROI: text text text read_region → text text
             best_level = slide.get_best_level_for_downsample(max(rw, rh) / THUMB_SIZE)
             ds = slide.level_downsamples[best_level]
             read_w = int(rw / ds)
@@ -666,25 +666,25 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
         thumb_np = np.array(thumb_rgb)
         thumb_resized = cv2.resize(thumb_np, (tw, th))
 
-        # 썸네일 → base64 JPEG
+        # text → base64 JPEG
         _, thumb_buf = cv2.imencode('.jpeg', cv2.cvtColor(thumb_resized, cv2.COLOR_RGB2BGR),
                                      [cv2.IMWRITE_JPEG_QUALITY, 85])
         thumb_b64 = base64.b64encode(thumb_buf.tobytes()).decode('ascii')
 
-        # ── 확률맵 기반 오버레이 (데스크톱과 동일) ──
+        # ── text text text (text text) ──
         # metadata['prob_map'] = (num_classes, H, W) softmax probabilities
-        # predict_wsi는 roi_bounds에 10% 버퍼를 추가하므로 mask/prob_map 영역 ≠ roi_bounds
-        # → roi_bounds에 해당하는 부분만 crop 필요
+        # predict_wsitext roi_boundstext 10% text text mask/prob_map text ≠ roi_bounds
+        # → roi_boundstext text text crop text
         prob_map = metadata.get('prob_map')
         region_offset = metadata.get('region_offset', (0, 0))
         wsi_mpp = metadata.get('wsi_mpp', 0.25)
         output_mpp = metadata.get('output_mpp', 8.0)
         mpp_ratio = output_mpp / wsi_mpp  # mask 1px = WSI mpp_ratio px
 
-        # mask/prob_map에서 roi_bounds에 해당하는 crop 인덱스 계산
+        # mask/prob_maptext roi_boundstext text crop text text
         mask_h, mask_w = prediction_mask.shape
         if roi_bounds:
-            # roi_bounds(WSI 좌표) → mask 좌표
+            # roi_bounds(WSI text) → mask text
             crop_mx0 = max(0, int((x0 - region_offset[0]) / mpp_ratio))
             crop_my0 = max(0, int((y0 - region_offset[1]) / mpp_ratio))
             crop_mx1 = min(mask_w, int((x1 - region_offset[0]) / mpp_ratio))
@@ -696,26 +696,26 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
         overlays = {}
         num_classes = len(class_names) if class_names else int(prediction_mask.max()) + 1
 
-        for cls_id in range(1, num_classes):  # 0=Background 제외
+        for cls_id in range(1, num_classes):  # 0=Background text
             cls_name = class_names[cls_id] if class_names and cls_id < len(class_names) else f'Class_{cls_id}'
 
             if prob_map is not None and cls_id < prob_map.shape[0]:
-                # roi 영역만 crop 후 썸네일 크기로 bilinear 리사이즈
+                # roi text crop text text text bilinear text
                 cropped = prob_map[cls_id][crop_my0:crop_my1, crop_mx0:crop_mx1].astype(np.float32)
                 prob_resized = cv2.resize(cropped, (tw, th),
                                           interpolation=cv2.INTER_LINEAR)
             else:
-                # fallback: argmax 마스크에서 crop → 이진 + blur
+                # fallback: argmax text crop → text + blur
                 cropped = prediction_mask[crop_my0:crop_my1, crop_mx0:crop_mx1].astype(np.uint8)
                 mask_resized = cv2.resize(cropped, (tw, th),
                                            interpolation=cv2.INTER_NEAREST)
                 prob_resized = cv2.GaussianBlur(
                     (mask_resized == cls_id).astype(np.float32), (7, 7), 2.0)
 
-            # jet colormap 적용 (데스크톱: cmap='jet', alpha=0.75, vmin=0, vmax=1)
+            # jet colormap text (text: cmap='jet', alpha=0.75, vmin=0, vmax=1)
             cls_norm = (np.clip(prob_resized, 0, 1) * 255).astype(np.uint8)
             cls_jet = cv2.applyColorMap(cls_norm, cv2.COLORMAP_JET)
-            # alpha: 확률값에 비례 (0.75 최대)
+            # alpha: text text (0.75 text)
             alpha = (np.clip(prob_resized, 0, 1) * 0.75 * 255).astype(np.uint8)
             cls_rgba = np.dstack([cv2.cvtColor(cls_jet, cv2.COLOR_BGR2RGB), alpha])
 
@@ -727,7 +727,7 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
         return {
             'thumbnail': thumb_b64,
             'overlays': overlays,
-            'class_names': class_names[1:] if class_names else [],  # Background 제외
+            'class_names': class_names[1:] if class_names else [],  # Background text
             'width': tw,
             'height': th,
         }

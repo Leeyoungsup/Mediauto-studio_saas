@@ -1,7 +1,7 @@
-"""TOTP (Time-based One-Time Password) 2차 인증
+"""TOTP (Time-based One-Time Password) 2text text
 
-pyotp 라이브러리 대신 직접 구현 — 외부 의존성 최소화.
-RFC 6238 TOTP (HMAC-SHA1, 6자리, 30초 step).
+pyotp text text text text — text text text.
+RFC 6238 TOTP (HMAC-SHA1, 6text, 30text step).
 """
 
 import base64
@@ -14,12 +14,12 @@ from typing import Optional
 
 
 def generate_totp_secret() -> str:
-    """16바이트 랜덤 시크릿 생성 → base32 인코딩."""
+    """16text text text text → base32 text."""
     return base64.b32encode(os.urandom(16)).decode("ascii").rstrip("=")
 
 
 def _hotp(bytes_secret: bytes, int_counter: int) -> str:
-    """HOTP 계산 (RFC 4226)."""
+    """HOTP text (RFC 4226)."""
     bytes_counter = struct.pack(">Q", int_counter)
     bytes_hmac = hmac.new(bytes_secret, bytes_counter, hashlib.sha1).digest()
     int_offset = bytes_hmac[-1] & 0x0F
@@ -30,10 +30,10 @@ def _hotp(bytes_secret: bytes, int_counter: int) -> str:
 
 
 def get_totp_code(str_secret: str, int_time: Optional[int] = None) -> str:
-    """현재 TOTP 코드 계산."""
+    """text TOTP text text."""
     if int_time is None:
         int_time = int(time.time())
-    # base32 디코딩 (패딩 복원)
+    # base32 text (text text)
     str_padded = str_secret + "=" * (-len(str_secret) % 8)
     bytes_secret = base64.b32decode(str_padded.upper())
     int_counter = int_time // 30
@@ -41,9 +41,9 @@ def get_totp_code(str_secret: str, int_time: Optional[int] = None) -> str:
 
 
 def verify_totp(str_secret: str, str_code: str, int_window: int = 1) -> bool:
-    """TOTP 코드 검증 (±window step 허용).
+    """TOTP text text (±window step text).
 
-    int_window=1 이면 현재 + 전후 30초 = 총 90초 범위 허용.
+    int_window=1 text text + text 30text = text 90text text text.
     """
     int_now = int(time.time())
     str_padded = str_secret + "=" * (-len(str_secret) % 8)
@@ -56,7 +56,7 @@ def verify_totp(str_secret: str, str_code: str, int_window: int = 1) -> bool:
 
 
 def build_totp_uri(str_secret: str, str_account: str, str_issuer: str = "MeDIAuto Studio") -> str:
-    """Google Authenticator 호환 otpauth:// URI."""
+    """Google Authenticator text otpauth:// URI."""
     from urllib.parse import quote
     return (
         f"otpauth://totp/{quote(str_issuer)}:{quote(str_account)}"

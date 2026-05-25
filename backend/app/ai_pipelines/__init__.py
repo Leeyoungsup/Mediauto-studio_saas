@@ -1,6 +1,6 @@
-"""AI 파이프라인 모듈 — routers/ai.py 모놀리스에서 분리된 컴포넌트들.
+"""AI text text — routers/ai.py text text text.
 
-이 패키지는 Detection / Quanti PD-L1 / Quanti IHC / Virtual-Stain 워커 함수와
-공유 헬퍼(task state, cache paths, tissue mask) 를 모은다.
-routers/ai.py 는 라우팅 + 인증/감사로그만 담당한다.
+text text Detection / Quanti PD-L1 / Quanti IHC / Virtual-Stain text text
+text text(task state, cache paths, tissue mask) text text.
+routers/ai.py text text + text/text text.
 """

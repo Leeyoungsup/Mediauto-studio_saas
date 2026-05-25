@@ -1,10 +1,10 @@
 """Virtual Stain (VS IHC) worker + tile streaming/pyramid.
 
-routers/ai.py 의 모놀리스에서 분리. 큰 SVS 에서도 메모리 ~100 MB 수준으로 묶기
-위해 full canvas 누적 대신 타일 단위 streaming 누적을 사용한다 (VSTileStreamer).
+routers/ai.py text text text. text SVS text text ~100 MB text text
+text full canvas text text text text streaming text text (VSTileStreamer).
 
-VS IHC 는 SVS 입력의 경우 svs_to_hamamatsu 역변환을 거쳐 색공간을 학습 데이터와
-정렬 — env `VS_SVS_INVERSE_CHAIN=0` 으로 즉시 비활성화 가능.
+VS IHC text SVS text text svs_to_hamamatsu text text text text text
+text — env `VS_SVS_INVERSE_CHAIN=0` text text text text.
 """
 
 import json
@@ -53,22 +53,22 @@ def attach_vs_tile_keys(dict_meta: dict, path_tile_dir: Path) -> dict:
 
 
 class VSTileStreamer:
-    """VS IHC level-0 타일 스트리밍 누적기.
+    """VS IHC level-0 text text text.
 
-    기존엔 (out_h, out_w) 크기의 output_acc / input_acc / weight_acc float32 를
-    통째로 메모리에 들고 blending 후 PNG 로 저장했다. 큰 SVS 에선 3~5 GB RAM.
-    이 클래스는 patch 가 실제로 덮는 타일만 활성으로 유지하고, 더 이상 덮일 일 없는
-    타일은 즉시 JPEG 로 flush 해서 메모리 상한을 ~100 MB 수준으로 묶는다.
+    text (out_h, out_w) text output_acc / input_acc / weight_acc float32 text
+    text text text blending text PNG text text. text SVS text 3~5 GB RAM.
+    text text patch text text text text text text, text text text text text
+    text text JPEG text flush text text text ~100 MB text text.
 
-    블렌딩 의미는 기존과 동일:
-      - input/output 둘 다 `patch * blend_3ch` 누적
-      - weight 는 patch 하나당 한 번만 누적 (input 기준)
-      - finalize 시 `acc / max(weight, 1e-10)` 로 blend 평균
-      - tissue_pixel_mask 로 픽셀 단위 output ↔ input 치환
-      - roi_mask 로 폴리곤 외부 흰색 처리
+    text text text text:
+      - input/output text text `patch * blend_3ch` text
+      - weight text patch text text text text (input text)
+      - finalize text `acc / max(weight, 1e-10)` text blend text
+      - tissue_pixel_mask text text text output ↔ input text
+      - roi_mask text text text text text
 
-    finalize 트리거: yi-major 로 patch 가 오는 전제 하에, `flush_rows_up_to(done_y)`
-    를 호출하면 타일 하단이 `done_y` 이하인 타일을 모두 disk 에 쓰고 메모리에서 제거.
+    finalize text: yi-major text patch text text text text, `flush_rows_up_to(done_y)`
+    text text text text `done_y` text text text disk text text text text.
     """
 
     def __init__(self, out_w: int, out_h: int, tile_size: int,
@@ -87,11 +87,11 @@ class VSTileStreamer:
         self.active: dict = {}  # (tx, ty) -> {'out', 'inp', 'w'}
         self.finalized_keys: set = set()
         self.int_saved_tiles = 0
-        # level 0 출력 디렉터리 준비
+        # level 0 text text text
         (self.tile_dir / '0').mkdir(parents=True, exist_ok=True)
 
-        # finalize 시점에 pixel-level mask 로 output ↔ input 치환.
-        # tissue_pixel_mask 는 (out_h, out_w) bool, roi_mask_u8 는 (out_h, out_w) uint8.
+        # finalize text pixel-level mask text output ↔ input text.
+        # tissue_pixel_mask text (out_h, out_w) bool, roi_mask_u8 text (out_h, out_w) uint8.
         self._tissue_mask: Optional[np.ndarray] = None
         self._roi_mask_u8: Optional[np.ndarray] = None
 
@@ -105,7 +105,7 @@ class VSTileStreamer:
             return None
         key = (tx, ty)
         if key in self.finalized_keys:
-            # 이미 finalize 된 타일에 뒤늦은 splat → 순서 가정이 깨진 것. raise 해서 버그 드러내기.
+            # text finalize text text text splat → text text text text. raise text text text.
             raise RuntimeError(
                 f"VSTileStreamer: tile {key} already finalized but splat called again"
             )
@@ -121,8 +121,8 @@ class VSTileStreamer:
 
     def splat(self, int_px: int, int_py: int,
               np_input_patch: np.ndarray, np_output_patch: np.ndarray) -> None:
-        """하나의 patch (input + output 쌍) 를 덮는 모든 타일에 blending 누적.
-        weight 는 patch 단 한 번만 누적된다."""
+        """text patch (input + output text) text text text text blending text.
+        weight text patch text text text text."""
         ps = self.ps
         TS = self.TS
         tx0 = max(0, int_px // TS)
@@ -136,7 +136,7 @@ class VSTileStreamer:
                     continue
                 t_left = tx * TS
                 t_top = ty * TS
-                # 글로벌 교집합
+                # text text
                 ix_s = max(int_px, t_left)
                 iy_s = max(int_py, t_top)
                 ix_e = min(int_px + ps, t_left + TS, self.out_w)
@@ -156,14 +156,14 @@ class VSTileStreamer:
                 tile['w']  [tly:trr, tlx:trx] += np_bw
 
     def flush_rows_up_to(self, int_safe_y_max: int) -> None:
-        """타일의 하단(`(ty+1)*TS`) 이 `int_safe_y_max` 이하인 타일을 모두 disk 로 flush.
-        더 이상 patch 가 touch 하지 않을 것이 보장되는 타일만 호출 측이 넘겨야 한다."""
+        """text text(`(ty+1)*TS`) text `int_safe_y_max` text text text disk text flush.
+        text text patch text touch text text text text text text text text text."""
         list_keys = [k for k in self.active if (k[1] + 1) * self.TS <= int_safe_y_max]
         for key in list_keys:
             self._finalize(key)
 
     def flush_all(self) -> None:
-        """남은 모든 타일을 disk 로 flush (처리 종료 시 호출)."""
+        """text text text disk text flush (text text text text)."""
         for key in list(self.active.keys()):
             self._finalize(key)
 
@@ -179,7 +179,7 @@ class VSTileStreamer:
         np_uncov = tile['w'] < 0.01
         np_out[np_uncov] = 255
         np_inp[np_uncov] = 255
-        # tile 이 슬라이드 가장자리에 걸리면 실제 유효 범위 < TS
+        # tile text text text text text text text < TS
         t_left = tx * TS
         t_top = ty * TS
         t_right = min(t_left + TS, self.out_w)
@@ -188,15 +188,15 @@ class VSTileStreamer:
         int_tw = t_right - t_left
         np_out = np_out[:int_th, :int_tw].copy()
         np_inp = np_inp[:int_th, :int_tw]
-        # pixel-level tissue mask: tissue 가 아닌 픽셀은 input pass-through 로 치환
+        # pixel-level tissue mask: tissue text text text input pass-through text text
         if self._tissue_mask is not None:
             np_tmask = self._tissue_mask[t_top:t_bottom, t_left:t_right]
             np_out[~np_tmask] = np_inp[~np_tmask]
-        # ROI 바깥은 흰색 (alpha 대신 JPEG 에선 255 로 칠해 표시)
+        # ROI text text (alpha text JPEG text 255 text text text)
         if self._roi_mask_u8 is not None:
             np_rmask = self._roi_mask_u8[t_top:t_bottom, t_left:t_right]
             np_out[np_rmask == 0] = 255
-        # 전부 흰색이면 저장 스킵 (디스크 + 서빙 비용 절감; 뷰어에서 404 = 흰 타일)
+        # text text text text (text + text text text; text 404 = text text)
         if np_out.size == 0 or np_out.min() >= 248:
             return
         path_out = self.tile_dir / '0' / f'{tx}_{ty}.jpeg'
@@ -207,8 +207,8 @@ class VSTileStreamer:
 def build_vs_pyramid_from_disk(path_tile_dir: Path, int_tile_size: int,
                                  int_n_levels: int, int_level0_w: int, int_level0_h: int,
                                  int_quality: int = 88) -> list:
-    """Level 0 타일은 이미 disk 에 있다고 가정. Level 1..n-1 을 on-disk 2×2 다운샘플로 빌드.
-    메모리 상한: 한 번에 1024×1024 (2×2 타일 merge) RGB = ~3 MB."""
+    """Level 0 text text disk text text text. Level 1..n-1 text on-disk 2×2 text text.
+    text text: text text 1024×1024 (2×2 text merge) RGB = ~3 MB."""
     import cv2 as _cv2
 
     list_meta = []
@@ -219,7 +219,7 @@ def build_vs_pyramid_from_disk(path_tile_dir: Path, int_tile_size: int,
         int_lvl_ny = (int_lvl_h + int_tile_size - 1) // int_tile_size
 
         if int_lv == 0:
-            # level 0 은 스트리머가 이미 다 저장. count 는 실제 파일 수
+            # level 0 text text text text text. count text text text text
             int_count = sum(1 for _ in (path_tile_dir / '0').glob('*.jpeg')) if (path_tile_dir / '0').exists() else 0
         else:
             path_src = path_tile_dir / str(int_lv - 1)
@@ -232,7 +232,7 @@ def build_vs_pyramid_from_disk(path_tile_dir: Path, int_tile_size: int,
             int_count = 0
             for dty in range(int_lvl_ny):
                 for dtx in range(int_lvl_nx):
-                    # merged 2×2 버퍼 (누락된 타일은 흰색)
+                    # merged 2×2 text (text text text)
                     np_merged = np.full(
                         (2 * int_tile_size, 2 * int_tile_size, 3), 255, dtype=np.uint8
                     )
@@ -281,17 +281,17 @@ def generate_vs_tiles(output_canvas, tile_dir: Path,
                       tile_size: int = 512, n_levels: int = 4,
                       quality: int = 88) -> list:
     """
-    output_canvas (uint8 H×W×3 또는 H×W×4) → 4단계 피라미드 JPEG 타일 생성.
-    레벨 0 = 원본 해상도, 각 레벨은 /2 다운샘플.
-    완전히 흰 타일은 스킵 (서빙 시 404 → 프론트에서 무시).
-    반환: [{"level":0,"width":W,"height":H,"nx":..,"ny":..,"tile_count":..}, ...]
+    output_canvas (uint8 H×W×3 text H×W×4) → 4text text JPEG text text.
+    text 0 = text text, text text /2 text.
+    text text text text (text text 404 → text text).
+    text: [{"level":0,"width":W,"height":H,"nx":..,"ny":..,"tile_count":..}, ...]
 
-    레거시 캐시(PNG → 타일 업그레이드) 경로에서만 호출된다 — 신규 추론은
-    VSTileStreamer 가 직접 level-0 타일을 만들고 build_vs_pyramid_from_disk 가
-    상위 레벨을 빌드한다.
+    text text(PNG → text text) text text — text text
+    VSTileStreamer text text level-0 text text build_vs_pyramid_from_disk text
+    text text text.
     """
     if tile_dir.exists():
-        # 기존 타일 제거 (재생성 시 stale 제거)
+        # text text text (text text stale text)
         try:
             import shutil
             shutil.rmtree(tile_dir)
@@ -299,7 +299,7 @@ def generate_vs_tiles(output_canvas, tile_dir: Path,
             pass
     tile_dir.mkdir(parents=True, exist_ok=True)
 
-    # RGBA → RGB (alpha=0 영역은 흰색 배경으로 합성해 JPEG 저장)
+    # RGBA → RGB (alpha=0 text text text text JPEG text)
     if output_canvas.ndim == 3 and output_canvas.shape[2] == 4:
         rgb = output_canvas[:, :, :3].copy()
         a = output_canvas[:, :, 3]
@@ -328,7 +328,7 @@ def generate_vs_tiles(output_canvas, tile_dir: Path,
                 right = min(left + tile_size, w)
                 lower = min(upper + tile_size, h)
                 patch = arr[upper:lower, left:right]
-                # 거의 전부 흰색이면 스킵 (디스크 절약)
+                # text text text text (text text)
                 if patch.size == 0:
                     continue
                 if patch.min() >= 248:
@@ -355,9 +355,9 @@ def run_virtual_stain(task_id: str, slide_id: str,
                       roi_polygons, stain_type: str,
                       target_mpp: float = 2.0):
     """
-    Virtual staining 백그라운드 작업.
-    desktop ai/virtual_stain.py 의 VirtualStainWorker.run() 로직을 그대로 옮김.
-    Qt 시그널 대신 update_task() 사용.
+    Virtual staining text text.
+    desktop ai/virtual_stain.py text VirtualStainWorker.run() text text text.
+    Qt text text update_task() text.
     """
     list_cleanup_on_cancel = []
     slide = None
@@ -370,25 +370,25 @@ def run_virtual_stain(task_id: str, slide_id: str,
             Generator, _make_blend_weight, _read_patch, VirtualStainWorker
         )
 
-        # Pillow의 decompression-bomb 가드 해제 (VS composite 가 수억 px 일 수 있음)
+        # Pillowtext decompression-bomb text text (VS composite text text px text text text)
         Image.MAX_IMAGE_PIXELS = None
 
         info = slide_manager.get(slide_id)
         if not info:
-            update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+            update_task(task_id, status="error", error="text text text text")
             return
 
-        # ── ROI 폴리곤 보관 (표시 클립용; 추론은 항상 전체로 수행) ──
-        # 추론/저장은 ROI 무시하고 전체로 진행해 캐시를 만든다.
-        # 단, 사용자가 ROI를 지정한 경우 그 폴리곤은 결과에 그대로 담아 프론트에서
-        # 오버레이를 ROI 영역으로만 클립해 보여주도록 한다.
+        # ── ROI text text (text text; text text text text) ──
+        # text/text ROI text text text text text.
+        # text, text ROItext text text text text text text text text
+        # text ROI text text text text.
         display_roi_polygons = roi_polygons
-        roi_polygons = None  # 전체 추론 강제
+        roi_polygons = None  # text text text
 
-        # ── 캐시 확인 ──
-        # 새 파이프라인은 PNG 를 만들지 않고 meta.json + 타일 피라미드만 저장한다.
-        # 따라서 캐시 hit 조건은 (meta.json 존재) AND (level-0 타일 디렉터리에 파일 있음).
-        # 레거시 캐시 (PNG + meta 만 있고 타일 X) 는 PNG 에서 한 번 빌드해 업그레이드.
+        # ── text text ──
+        # text text PNG text text text meta.json + text text text.
+        # text text hit text (meta.json text) AND (level-0 text text text text).
+        # text text (PNG + meta text text text X) text PNG text text text text text.
         png_path, meta_path = get_vs_cache_paths(info.file_path, target_mpp)
         tile_dir = get_vs_tile_dir(info.file_path, target_mpp)
         path_lvl0 = tile_dir / '0'
@@ -404,7 +404,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     cached_meta = json.load(f)
 
-                # 레거시: PNG 만 있고 타일 디렉터리가 비어 있으면 PNG → 타일 1회 빌드
+                # text: PNG text text text text text text PNG → text 1text text
                 if not bool_tiles_ok and bool_png_legacy:
                     try:
                         update_task(task_id, progress=30,
@@ -441,9 +441,9 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 attach_vs_tile_keys(cached_meta, tile_dir)
                 if display_roi_polygons is not None:
                     cached_meta['roi_polygons'] = display_roi_polygons
-                # 캐시 hit 이어도 DB 플래그 동기화 — auto_ai 가 매 사이클 다시 안 잡도록.
-                # VS IHC 는 list_slides_in_folder + per-mpp 디스크 캐시 검사로 동작하지만,
-                # bool_has_result / list_variants 플래그가 비어 있으면 다른 UI 가 "결과 없음" 표시한다.
+                # text hit text DB text text — auto_ai text text text text text text.
+                # VS IHC text list_slides_in_folder + per-mpp text text text text,
+                # bool_has_result / list_variants text text text text UI text "text text" text.
                 from app import slide_store
                 slide_store.mark_ai_result_threadsafe(info.file_path, "VS IHC", stain_type)
                 update_task(task_id, status="completed", progress=100,
@@ -453,7 +453,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
             except Exception as e:
                 print(f"VS cache load failed, running fresh: {e}")
 
-        # ── 모델 경로 확인 ──
+        # ── text text text ──
         model_filename = VS_MODEL_FILES.get(stain_type)
         if not model_filename:
             update_task(task_id, status="error",
@@ -500,7 +500,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         W, H = slide.dimensions
 
-        # ROI bounds 계산 (폴리곤 → bounding box)
+        # ROI bounds text (text → bounding box)
         roi_bounds = None
         if roi_polygons:
             xs = [p[0] for poly in roi_polygons for p in poly]
@@ -515,7 +515,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
         else:
             x_min, y_min, x_max, y_max = 0, 0, W, H
 
-        # ROI가 한 패치보다 작으면 read_size로 확장 (슬라이드 경계 안에서 클램프)
+        # ROItext text text text read_sizetext text (text text text text)
         if x_max - x_min < read_size:
             cx = (x_min + x_max) // 2
             x_min = max(0, cx - read_size // 2)
@@ -554,8 +554,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         update_task(task_id, progress=5, status_msg="Creating tissue mask...")
 
-        # tissue grid 빌드는 worker의 메서드를 직접 호출 (인스턴스 불필요한 staticmethod 형태가 아니라
-        # 인스턴스 메서드여서 래핑 필요) — 가장 단순한 방법: dummy worker 인스턴스 생성
+        # tissue grid text workertext text text text (text text staticmethod text text
+        # text text text text) — text text text: dummy worker text text
         dummy_worker = VirtualStainWorker(
             image_path=slide_path,
             model_path=str(model_path),
@@ -574,7 +574,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
         update_task(task_id, progress=8,
                     status_msg=f"Grid {n_px}x{n_py}: {tissue_total} tissue patches")
 
-        # ── 패치 리스트 ──
+        # ── text text ──
         all_patches = []
         for yi in range(n_py):
             for xi in range(n_px):
@@ -585,14 +585,14 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 all_patches.append((xi, yi, x0, y0,
                                     xi * stride, yi * stride, is_tissue))
 
-        # ── 타일 스트리밍 누적기 (full canvas 제거) ──
-        # 예전엔 (out_h, out_w) output/input/weight float32 3개 (~3.3GB) 를 들고 있다가
-        # PNG 저장 → 타일화. 이제는 활성 타일만 메모리에 두고 flush-row 패턴으로 즉시 저장.
+        # ── text text text (full canvas text) ──
+        # text (out_h, out_w) output/input/weight float32 3text (~3.3GB) text text text
+        # PNG text → text. text text text text text flush-row text text text.
         blend_weight = _make_blend_weight(ps, overlap)
         blend_3ch = blend_weight[:, :, None]
         tile_size_px = 512
         tile_dir = get_vs_tile_dir(info.file_path, target_mpp)
-        # 재추론일 때 이전 타일 청소
+        # text text text text text
         if tile_dir.exists():
             try:
                 import shutil as _shutil
@@ -603,7 +603,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
             out_w=out_w, out_h=out_h, tile_size=tile_size_px,
             tile_dir=tile_dir, blend_3ch=blend_3ch, blend_weight=blend_weight,
         )
-        # finalize 시점에 픽셀 단위 조직 마스크 + ROI polygon 마스크 사용
+        # finalize text text text text text + ROI polygon text text
         import cv2
         np_roi_mask_u8 = None
         if roi_polygons:
@@ -625,8 +625,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         icc_tf = info.icc_transform
 
-        # ── SVS → Hamamatsu raw 역변환 ──
-        # env VS_SVS_INVERSE_CHAIN=0 으로 즉시 비활성 가능.
+        # ── SVS → Hamamatsu raw text ──
+        # env VS_SVS_INVERSE_CHAIN=0 text text text text.
         bool_svs_inv = (
             Path(slide_path).suffix.lower() == ".svs"
             and os.environ.get("VS_SVS_INVERSE_CHAIN", "1") != "0"
@@ -637,7 +637,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
             _svs_to_ham = apply_svs_to_hamamatsu_float
 
         def _gan_flush(list_batch):
-            """tissue_batch 를 GPU 로 돌려 GAN output 계산 → streamer.splat."""
+            """tissue_batch text GPU text text GAN output text → streamer.splat."""
             if not list_batch:
                 return 0
             tensors = [item[2] for item in list_batch]
@@ -686,7 +686,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 region_np = future.result()
                 if len(pending_reads) < int_prefetch_limit:
                     _submit_next_patch_read()
-                # 메인 스레드에서 inverse chain 적용 (tissue 패치만)
+                # text text inverse chain text (tissue text)
                 if _svs_to_ham is not None and is_tissue:
                     try:
                         region_np = _svs_to_ham(region_np)
@@ -694,7 +694,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                         print(f"[VS IHC] svs_to_hamamatsu failed at ({x0},{y0}): {e!r}")
 
                 if not is_tissue:
-                    # GAN 불필요 — input=output=region_np 로 바로 splat.
+                    # GAN text — input=output=region_np text text splat.
                     streamer.splat(px, py_c, region_np, region_np)
                     del region_np
                 else:
@@ -709,7 +709,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                     tissue_batch.clear()
 
                 if is_end_of_row:
-                    # 이 yi 행 처리 끝 — 다음 행은 py ≥ (yi+1)*stride 부터라 해당 범위 이전 타일은 안전.
+                    # text yi text text text — text text py ≥ (yi+1)*stride text text text text text text.
                     int_safe_y = (yi + 1) * stride
                     streamer.flush_rows_up_to(int_safe_y)
 
@@ -726,7 +726,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
         update_task(task_id, progress=96, status_msg="Finalizing tiles...")
         streamer.flush_all()
 
-        # ── On-disk 피라미드 빌드 (level 1+) ──
+        # ── On-disk text text (level 1+) ──
         update_task(task_id, progress=98, status_msg="Generating tile pyramid...")
         levels_meta = []
         try:
@@ -748,7 +748,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 "levels": levels_meta,
             }
             attach_vs_tile_keys(meta, tile_dir)
-            # meta 만 기록 (PNG 는 생성하지 않음 — 뷰어는 타일만 사용)
+            # meta text text (PNG text text text — text text text)
             list_cleanup_on_cancel.append(meta_path)
             with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(meta, f)

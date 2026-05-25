@@ -1,33 +1,33 @@
-"""CPU 코어 파티셔닝 — viewer / AI / background tile_worker 분리.
+"""CPU text text — viewer / AI / background tile_worker text.
 
-시작 시 한 번 계산해 세 그룹의 CPU set 을 만들고, 각 그룹의
-ThreadPoolExecutor 는 worker thread 시작 시 `os.sched_setaffinity` 로
-자기 그룹에 핀닝된다.
+text text text text text text text CPU set text text, text text
+ThreadPoolExecutor text worker thread text text `os.sched_setaffinity` text
+text text text.
 
-핵심 트릭: **메인 프로세스 affinity 를 AI cores 로 설정**해 둔다.
-- viewer / bg pool 은 initializer 로 자기 cores 를 override
-- 그 외 모든 thread (uvicorn worker, AI 모듈의 raw threading.Thread 와
-  중첩 ThreadPoolExecutor) 는 자동으로 AI cores 를 상속받음.
+text text: **text text affinity text AI cores text text**text text.
+- viewer / bg pool text initializer text text cores text override
+- text text text thread (uvicorn worker, AI text raw threading.Thread text
+  text ThreadPoolExecutor) text text AI cores text text.
 
-동적 분배 공식 — 사용 가능 코어 수 N 기준 (사용자 체감 우선):
+text text text — text text text text N text (text text text):
     ai     = max(2, round(N / 6))       ~17%
-    bg     = max(2, round(N / 6))       ~17%  (AI와 독립, 비공유)
-    viewer = N - ai - bg                ~67%  (타일 서빙 + HTTP 처리)
+    bg     = max(2, round(N / 6))       ~17%  (AItext text, text)
+    viewer = N - ai - bg                ~67%  (text text + HTTP text)
 
-예시:
+text:
     N=48 → viewer=32 / ai=8  / bg=8
     N=24 → viewer=16 / ai=4  / bg=4
     N=16 → viewer=10 / ai=3  / bg=3
     N=12 → viewer=8  / ai=2  / bg=2
     N=8  → viewer=4  / ai=2  / bg=2
 
-기존 대비 변경점:
-- bg 가 ai 의 부분집합이 아닌 **독립 코어 그룹**. 4명 동시 슬라이드
-  열기 시 타일 프리젠과 AI 추론이 서로 간섭하지 않음.
-- viewer 비율 유지(~67%)하되 남은 1/3 을 ai/bg 균등 분배.
+text text text:
+- bg text ai text text text **text text text**. 4text text text
+  text text text text AI text text text text.
+- viewer text text(~67%)text text 1/3 text ai/bg text text.
 
-Linux 만 지원 (`os.sched_setaffinity`). 다른 OS 면 핀닝은 noop 으로
-fallback 하고 worker count 만 적용.
+Linux text text (`os.sched_setaffinity`). text OS text text noop text
+fallback text worker count text text.
 """
 
 import os
@@ -53,19 +53,19 @@ def _initial_cpus() -> List[int]:
 list_all_cpus: List[int] = _initial_cpus()
 INT_TOTAL: int = len(list_all_cpus)
 
-# ── 분배 공식: 사용자 체감 우선 ──
-# ai/bg 각 ~17%, viewer 나머지 ~67%
-# bg는 ai와 독립 — 타일 프리젠과 AI 추론이 간섭하지 않음
+# ── text text: text text text ──
+# ai/bg text ~17%, viewer text ~67%
+# bgtext aitext text — text text AI text text text
 INT_AI: int = max(2, round(INT_TOTAL / 6))
 INT_BG: int = max(2, round(INT_TOTAL / 6))
 INT_VIEWER: int = max(2, INT_TOTAL - INT_AI - INT_BG)
 
-# 코어 배치: [viewer | bg | ai] — 인접 슬라이스로 NUMA/cache 친화
+# text text: [viewer | bg | ai] — text text NUMA/cache text
 list_viewer_cpus: List[int] = list_all_cpus[:INT_VIEWER]
 list_bg_cpus: List[int] = list_all_cpus[INT_VIEWER:INT_VIEWER + INT_BG]
 list_ai_cpus: List[int] = list_all_cpus[INT_VIEWER + INT_BG:]
 
-# 실제 할당된 개수로 보정 (반올림 오차 방지)
+# text text text text (text text text)
 INT_VIEWER = len(list_viewer_cpus)
 INT_BG = len(list_bg_cpus)
 INT_AI = len(list_ai_cpus)
@@ -91,9 +91,9 @@ def _make_initializer(set_cpus: FrozenSet[int]):
 
 
 def setup_process_affinity() -> None:
-    """프로세스 (메인 thread) affinity 를 AI cores 로 설정.
+    """text (text thread) affinity text AI cores text text.
 
-    이후 생성되는 모든 thread 는 명시적 override 가 없는 한 이 set 을 상속.
+    text text text thread text text override text text text text set text text.
     """
     _pin_to(frozenset_ai_cpus)
     print(
@@ -104,7 +104,7 @@ def setup_process_affinity() -> None:
     )
 
 
-# 전용 executor 들 — 모듈 import 시 1회 생성
+# text executor text — text import text 1text text
 viewer_executor = ThreadPoolExecutor(
     max_workers=INT_VIEWER,
     thread_name_prefix="viewer",

@@ -1,7 +1,7 @@
 /**
  * AI Detection Result Visualization
- * 데스크톱 detection_visualization_dialog.py를 웹 Canvas로 포팅
- * 4개 탭: Class Distribution, Tumor Analysis, Spatial Heatmap, Confidence Distribution
+ * text detection_visualization_dialog.pytext text Canvastext text
+ * 4text text: Class Distribution, Tumor Analysis, Spatial Heatmap, Confidence Distribution
  */
 
 const DEFAULT_CLASS_NAMES = {
@@ -12,7 +12,7 @@ const DEFAULT_CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
-// 모델별 동적 클래스 메타 (showVisualization 호출 시 주입)
+// text text text text (showVisualization text text text)
 let _activeNames = DEFAULT_CLASS_NAMES;
 let _activeColors = DEFAULT_CLASS_COLORS;
 let _activeModelType = 'Quanti HE';  // 'Quanti HE' | 'Quanti PD-L1' | 'Quanti IHC'
@@ -22,7 +22,7 @@ let _activeTissue = null;
 function _getName(id) { return _activeNames[id] || DEFAULT_CLASS_NAMES[id] || `Class ${id}`; }
 function _getColor(id) { return _activeColors[id] || DEFAULT_CLASS_COLORS[id] || '#888'; }
 
-// 레거시 참조 호환 (일부 오래된 로직이 남아있을 경우를 위함)
+// text text text (text text text text text text)
 const CLASS_NAMES = new Proxy({}, { get: (_, k) => _getName(k) });
 const CLASS_COLORS = new Proxy({}, { get: (_, k) => _getColor(k) });
 
@@ -40,18 +40,18 @@ $vizDialog?.querySelectorAll('.viz-tab').forEach(tab => {
 });
 $closeViz?.addEventListener('click', () => $vizDialog.close());
 
-// 가장 최근에 시각화된 데이터 (PDF export용)
+// text text text text (PDF exporttext)
 let _vizState = null;
 
 /**
- * 시각화 다이얼로그 열기
+ * text text text
  * @param {Array} cells - [{x, y, class_id, confidence}, ...]
  * @param {Object|null} segData - {thumbnail, overlays, class_names, width, height}
  */
 export function showVisualization(cells, segData = null, thumbnailUrl = null, meta = {}) {
     if (!$vizDialog || !cells || cells.length === 0) return;
 
-    // 모델별 메타 주입 (클래스명/색상/점수타입)
+    // text text text (text/text/text)
     _activeNames = (meta.classNames && Object.keys(meta.classNames).length > 0)
         ? _normalizeKeys(meta.classNames) : DEFAULT_CLASS_NAMES;
     _activeColors = (meta.classColors && Object.keys(meta.classColors).length > 0)
@@ -60,7 +60,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     _activeScoreType = meta.scoreType || null;
     _activeTissue = meta.tissue || 'Stomach';
 
-    // 클래스별 데이터 수집
+    // text text text
     const countsByClass = {};
     const confsByClass = {};
     for (const c of cells) {
@@ -81,7 +81,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         classColors: _activeColors,
     };
 
-    // 썸네일 비동기 프리로드 (PDF용) — same-origin이므로 crossOrigin 불필요
+    // text text text (PDFtext) — same-origintext crossOrigin text
     if (thumbnailUrl) {
         const img = new Image();
         img.onload = () => { if (_vizState) _vizState.thumbnailImg = img; };
@@ -89,7 +89,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         img.src = thumbnailUrl;
     }
 
-    // 모델 타입에 따라 탭 구성 조정
+    // text text text text text text
     _configureTabs(_activeModelType);
 
     _renderClassDistribution(cells, countsByClass);
@@ -111,7 +111,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     }
     _renderConfidenceDistribution(confsByClass);
 
-    // 첫 번째 활성 탭으로 리셋
+    // text text text text text
     const tabs = Array.from($vizDialog.querySelectorAll('.viz-tab')).filter(t => !t.hidden);
     const panels = Array.from($vizDialog.querySelectorAll('.viz-panel'));
     $vizDialog.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
@@ -156,7 +156,7 @@ function _configureTabs(modelType) {
     }
 }
 
-// Export PDF 버튼
+// Export PDF text
 const $btnExportPdf = document.querySelector('#btn-export-pdf');
 $btnExportPdf?.addEventListener('click', async () => {
     if (!_vizState) return;
@@ -174,7 +174,7 @@ $btnExportPdf?.addEventListener('click', async () => {
     }
 });
 
-// ── 애니메이션 유틸리티 ──
+// ── text text ──
 function _easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 function _easeOutElastic(t) {
     if (t === 0 || t === 1) return t;
@@ -192,7 +192,7 @@ function _animate(duration, drawFn, onDone) {
     requestAnimationFrame(step);
 }
 
-/** HiDPI 캔버스 생성: CSS 크기와 실제 픽셀 분리하여 선명하게 렌더링 */
+/** HiDPI text text: CSS text text text text text text */
 function _createHiDPICanvas(cssW, cssH) {
     const dpr = window.devicePixelRatio || 1;
     const canvas = document.createElement('canvas');
@@ -202,13 +202,13 @@ function _createHiDPICanvas(cssW, cssH) {
     canvas.style.height = cssH + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-    // 논리 크기 저장 (draw 시 참조)
+    // text text text (draw text text)
     canvas._cssW = cssW;
     canvas._cssH = cssH;
     return canvas;
 }
 
-// ── Class Distribution 탭 ──
+// ── Class Distribution text ──
 function _renderClassDistribution(cells, countsByClass) {
     const panel = document.getElementById('viz-class-dist');
     panel.innerHTML = '';
@@ -220,7 +220,7 @@ function _renderClassDistribution(cells, countsByClass) {
     row.className = 'viz-chart-row';
     panel.appendChild(row);
 
-    // 패널 실제 폭 기반 동적 크기
+    // text text text text text text
     const panelW = panel.clientWidth || 780;
     const gap = 16;
     const barW_canvas = Math.floor((panelW - gap) * 0.52);
@@ -334,7 +334,7 @@ function _renderClassDistribution(cells, countsByClass) {
             startAngle += sliceAngle;
         }
 
-        // 레전드 — 파이 아래
+        // text — text text
         if (t > 0.5) {
             const la = Math.min(1, (t - 0.5) / 0.3);
             pctx.globalAlpha = la;
@@ -354,7 +354,7 @@ function _renderClassDistribution(cells, countsByClass) {
     });
 }
 
-// ── Tumor Analysis 탭 ──
+// ── Tumor Analysis text ──
 function _renderTumorAnalysis(countsByClass) {
     const panel = document.getElementById('viz-tumor');
     panel.innerHTML = '';
@@ -372,7 +372,7 @@ function _renderTumorAnalysis(countsByClass) {
     summary.className = 'viz-summary';
     panel.appendChild(summary);
 
-    // 패널 폭 기반 동적 크기
+    // text text text text text
     const panelW = panel.clientWidth || 780;
     const gap = 16;
     const pieW = Math.floor((panelW - gap) * 0.45);
@@ -555,7 +555,7 @@ function _renderTumorAnalysis(countsByClass) {
     });
 }
 
-// ── CPS / TPS Analysis 탭 (PD-L1 전용) ──
+// ── CPS / TPS Analysis text (PD-L1 text) ──
 function _renderPdScoreAnalysis(countsByClass) {
     const panel = document.getElementById('viz-tumor');
     panel.innerHTML = '';
@@ -579,7 +579,7 @@ function _renderPdScoreAnalysis(countsByClass) {
                 { name: 'Viable Tumor', value: viableTumor, color: _getColor(0) },
             ],
         });
-        // Stomach TPS: 양성 상피 / (양성 + 음성 상피) × 100
+        // Stomach TPS: text text / (text + text text) × 100
         const negEpi = countsByClass[0] || 0;
         const tpsStomach = (negEpi + posTumor) === 0 ? 0 : posTumor / (negEpi + posTumor) * 100;
         scores.push({
@@ -644,7 +644,7 @@ function _scoreColor(v) {
     return v >= 50 ? '#E84040' : v >= 20 ? '#FF8C00' : '#2E7D32';
 }
 
-// ── HER2 Analysis 탭 (Quanti IHC 전용) ──
+// ── HER2 Analysis text (Quanti IHC text) ──
 function _renderHer2Analysis(countsByClass) {
     const panel = document.getElementById('viz-tumor');
     panel.innerHTML = '';
@@ -656,7 +656,7 @@ function _renderHer2Analysis(countsByClass) {
     const total = n0 + n1 + n2 + n3;
     const weighted = total === 0 ? 0 : (0 * n0 + 1 * n1 + 2 * n2 + 3 * n3) / total;
     const dominant = total === 0 ? 0 : [n0, n1, n2, n3].indexOf(Math.max(n0, n1, n2, n3));
-    // 0~3 범위를 0~100 게이지로 매핑
+    // 0~3 text 0~100 text text
     const gaugePct = (weighted / 3) * 100;
     const barColor = _getColor(Math.round(weighted));
 
@@ -671,12 +671,12 @@ function _renderHer2Analysis(countsByClass) {
     const panelW = panel.clientWidth || 780;
     const cardH = 320;
 
-    // 1) 가중 평균 반원 게이지
+    // 1) text text text text
     const cardW1 = Math.floor(panelW * 0.5 - 8);
     const cv1 = _createHiDPICanvas(cardW1, cardH);
     row.appendChild(cv1);
 
-    // 2) intensity 분포 바
+    // 2) intensity text text
     const cardW2 = Math.floor(panelW * 0.5 - 8);
     const cv2 = _createHiDPICanvas(cardW2, cardH);
     row.appendChild(cv2);
@@ -685,11 +685,11 @@ function _renderHer2Analysis(countsByClass) {
         const ease = _easeOutCubic(t);
         const elastic = t < 0.5 ? _easeOutCubic(t * 2) : _easeOutElastic((t - 0.5) * 2) * 0.5 + 0.5;
 
-        // 게이지: 라벨을 HER2로, 값은 weighted(0~3)를 표시하되 내부 elastic은 gaugePct 사용
+        // text: text HER2text, text weighted(0~3)text text text elastictext gaugePct text
         const ctx1 = cv1.getContext('2d');
         _drawHer2Gauge(ctx1, cardW1, cardH, weighted, dominant, gaugePct, barColor, ease, elastic);
 
-        // 분포 바
+        // text text
         const ctx2 = cv2.getContext('2d');
         _drawHer2Bars(ctx2, cardW2, cardH, [n0, n1, n2, n3], ease);
     }, () => {
@@ -745,7 +745,7 @@ function _drawHer2Gauge(ctx, w, h, weighted, dominant, gaugePct, barColor, ease,
     ctx.fillText(`Dominant: ${dominant}+`, cx, gaugeCy + 28);
 }
 
-// ── Allred Analysis 탭 (Quanti IHC ER/PR 전용) ──
+// ── Allred Analysis text (Quanti IHC ER/PR text) ──
 function _allredFromCounts(counts) {
     const n0 = counts[0] || 0, n1 = counts[1] || 0, n2 = counts[2] || 0, n3 = counts[3] || 0;
     const total = n0 + n1 + n2 + n3;
@@ -830,7 +830,7 @@ function _drawAllredCard(ctx, w, h, a, tsColor, elastic) {
     ctx.font = '11px sans-serif';
     ctx.fillText('Proportion (0-5) + Intensity (0-3) = Total (0-8)', cx, 42);
 
-    // 큰 TS 숫자
+    // text TS text
     const cyTs = 130;
     const animTs = a.ts * elastic;
     ctx.fillStyle = tsColor;
@@ -841,7 +841,7 @@ function _drawAllredCard(ctx, w, h, a, tsColor, elastic) {
     ctx.font = 'bold 13px sans-serif';
     ctx.fillText(a.interpretation, cx, cyTs + 24);
 
-    // 하단 PS / IS / Pos%
+    // text PS / IS / Pos%
     ctx.fillStyle = '#333';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'left';
@@ -862,7 +862,7 @@ function _drawAllredCard(ctx, w, h, a, tsColor, elastic) {
     }
 }
 
-// ── KI-67 Analysis 탭 ──
+// ── KI-67 Analysis text ──
 function _renderKi67Analysis(countsByClass) {
     const panel = document.getElementById('viz-tumor');
     panel.innerHTML = '';
@@ -1048,7 +1048,7 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
 
     const cx = w / 2;
 
-    // 타이틀
+    // text
     ctx.fillStyle = '#000';
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
@@ -1058,7 +1058,7 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
     ctx.font = '11px sans-serif';
     ctx.fillText(score.formula, cx, 42);
 
-    // 메인 원형 게이지 (반원)
+    // text text text (text)
     const gaugeCy = 140;
     const radius = Math.min(w * 0.35, 95);
     const barColor = _scoreColor(score.value);
@@ -1066,13 +1066,13 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
     ctx.lineWidth = 14;
     ctx.lineCap = 'round';
 
-    // 배경 트랙
+    // text text
     ctx.strokeStyle = '#eee';
     ctx.beginPath();
     ctx.arc(cx, gaugeCy, radius, Math.PI, Math.PI * 2);
     ctx.stroke();
 
-    // 값
+    // text
     const animVal = score.value * elastic;
     const angle = Math.PI + Math.PI * (animVal / 100);
     const grad = ctx.createLinearGradient(cx - radius, gaugeCy, cx + radius, gaugeCy);
@@ -1083,7 +1083,7 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
     ctx.arc(cx, gaugeCy, radius, Math.PI, angle);
     ctx.stroke();
 
-    // 중앙 숫자
+    // text text
     ctx.fillStyle = barColor;
     ctx.font = 'bold 40px sans-serif';
     ctx.textAlign = 'center';
@@ -1093,7 +1093,7 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
     ctx.font = 'bold 11px sans-serif';
     ctx.fillText(score.label, cx, gaugeCy + 26);
 
-    // 디테일 (하단)
+    // text (text)
     if (ease > 0.4) {
         const la = Math.min(1, (ease - 0.4) / 0.4);
         ctx.globalAlpha = la;
@@ -1116,12 +1116,12 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
 }
 
 
-// ── Spatial Heatmap 탭 ──
+// ── Spatial Heatmap text ──
 function _renderSpatialHeatmap(cells, countsByClass, segData) {
     const panel = document.getElementById('viz-heatmap');
     panel.innerHTML = '';
 
-    // segmentation 데이터가 있으면 썸네일 + seg overlay 표시 (데스크톱과 동일)
+    // segmentation text text text + seg overlay text (text text)
     if (segData && segData.overlays && segData.thumbnail) {
         _renderSegHeatmap(panel, segData);
         return;
@@ -1168,7 +1168,7 @@ function _renderSpatialHeatmap(cells, countsByClass, segData) {
     panel.appendChild(scroll);
 }
 
-/** Segmentation 히트맵: 썸네일 위에 클래스별 오버레이 (데스크톱 동일) */
+/** Segmentation text: text text text text (text text) */
 function _renderSegHeatmap(panel, segData) {
     const scroll = document.createElement('div');
     scroll.className = 'viz-heatmap-scroll';
@@ -1263,7 +1263,7 @@ function _drawHeatmap(canvas, cells, xMin, yMin, rangeW, rangeH, binsX, binsY, b
     ctx.drawImage(offscreen, 0, 0, w, h);
 }
 
-// ── Confidence Distribution 탭 ──
+// ── Confidence Distribution text ──
 function _renderConfidenceDistribution(confsByClass) {
     const panel = document.getElementById('viz-confidence');
     panel.innerHTML = '';
@@ -1409,11 +1409,11 @@ function _roundRect(ctx, x, y, w, h, r) {
 }
 
 // ─────────────────────────── PDF EXPORT ───────────────────────────
-// 데스크톱 detection_visualization_dialog.py의 PDF 레이아웃을 웹 Canvas로 포팅
-// jsPDF는 동적 import (CDN ESM)
+// text detection_visualization_dialog.pytext PDF text text Canvastext text
+// jsPDFtext text import (CDN ESM)
 
-const PDF_W = 2100, PDF_H = 1485;  // 논리 좌표 (모든 draw 함수가 사용)
-const PDF_SCALE = 2;               // 물리 픽셀 배율 — 출력 선명도 향상
+const PDF_W = 2100, PDF_H = 1485;  // text text (text draw text text)
+const PDF_SCALE = 2;               // text text text — text text text
 const PDF_COL = {
     bg: '#FFFFFF', panel: '#F3F4F6', panelBorder: '#E5E7EB',
     text: '#111827', subtext: '#6B7280', accent: '#1E3A8A',
@@ -1423,12 +1423,12 @@ const PDF_COL = {
 async function _exportPDF(state) {
     const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm');
 
-    // 썸네일이 아직 로드 중이면 잠시 대기
+    // text text text text text text
     if (state.thumbnailUrl && !state.thumbnailImg) {
         try {
             const img = await _loadImage(state.thumbnailUrl);
             state.thumbnailImg = img;
-        } catch (e) { /* 실패 시 흰 배경 fallback */ }
+        } catch (e) { /* text text text text fallback */ }
     }
 
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -1475,7 +1475,7 @@ async function _exportPDF(state) {
         ? `${safeName}_${str_model_part}_${str_variant_part}_report.pdf`
         : `${safeName}_${str_model_part}_report.pdf`;
 
-    // File System Access API 사용 가능 시 저장 위치 선택창
+    // File System Access API text text text text text text
     const blob = pdf.output('blob');
     if (window.showSaveFilePicker) {
         try {
@@ -1488,11 +1488,11 @@ async function _exportPDF(state) {
             await writable.close();
             return;
         } catch (e) {
-            if (e.name === 'AbortError') return;  // 사용자 취소
-            // 그 외 오류는 다운로드로 fallback
+            if (e.name === 'AbortError') return;  // text text
+            // text text text text fallback
         }
     }
-    // Fallback: 브라우저 다운로드
+    // Fallback: text text
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -2414,14 +2414,14 @@ function _pdfDrawSpatialHeatmap(state) {
 
     if (cells.length === 0) return c;
 
-    // 셀 좌표는 WSI level-0 픽셀. 슬라이드 level-0 크기를 좌표계로 사용해
-    // 썸네일/프리뷰 위에 정확히 매핑한다.
+    // text text WSI level-0 text. text level-0 text text text
+    // text/text text text text.
     let originX = 0, originY = 0, slideW, slideH;
     if (slideDims && slideDims[0] && slideDims[1]) {
         slideW = slideDims[0];
         slideH = slideDims[1];
     } else {
-        // 폴백: 셀 bbox
+        // text: text bbox
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const cell of cells) {
             if (cell.x < minX) minX = cell.x;
@@ -2447,7 +2447,7 @@ function _pdfDrawSpatialHeatmap(state) {
     const ox = px + (pw - drawW) / 2;
     const oy = py + (ph - drawH) / 2;
 
-    // 썸네일을 배경으로 그리기 (있으면)
+    // text text text (text)
     if (thumbnailImg) {
         ctx.drawImage(thumbnailImg, ox, oy, drawW, drawH);
     } else {
@@ -2458,13 +2458,13 @@ function _pdfDrawSpatialHeatmap(state) {
     ctx.lineWidth = 2;
     ctx.strokeRect(ox, oy, drawW, drawH);
 
-    // 옅은 반투명 마스크로 셀 가시성 강화 (썸네일 위에 그릴 때)
+    // text text text text text text (text text text text)
     if (thumbnailImg) {
         ctx.fillStyle = 'rgba(255,255,255,0.20)';
         ctx.fillRect(ox, oy, drawW, drawH);
     }
 
-    // 셀 오버레이 (서브샘플링) — 점 크기는 그리는 면적에 비례
+    // text text (text) — text text text text text
     const MAX_PTS = 80000;
     const step = cells.length > MAX_PTS ? Math.ceil(cells.length / MAX_PTS) : 1;
     const dotR = Math.max(1.5, Math.min(drawW, drawH) / 600);

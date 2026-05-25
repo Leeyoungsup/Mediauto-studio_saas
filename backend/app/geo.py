@@ -1,11 +1,11 @@
-"""IP 주소 → 국가/도시 역조회 (ip-api.com 무료 API + MongoDB 캐시).
+"""IP text → text/text text (ip-api.com text API + MongoDB text).
 
-- 외부 API: http://ip-api.com/json/{ip}  (키 불필요, rate limit 45 req/min)
-- 캐시: ip_geo_cache 컬렉션 (30 일 TTL)
-- 로컬/사설망 IP 는 외부 조회 없이 즉시 None
-- 네트워크/파싱 실패 시 조용히 None — 호출부는 위치 없이 동작
+- text API: http://ip-api.com/json/{ip}  (text text, rate limit 45 req/min)
+- text: ip_geo_cache text (30 text TTL)
+- text/text IP text text text text text None
+- text/text text text text None — text text text text
 
-urllib 로 처리하여 외부 의존성 추가 없음. asyncio.to_thread 로 event loop 블록 방지.
+urllib text text text text text text. asyncio.to_thread text event loop text text.
 """
 
 import asyncio
@@ -52,7 +52,7 @@ def _is_private_ip(str_ip: str) -> bool:
 
 
 def _fetch_geo_sync(str_ip: str) -> Optional[dict]:
-    """동기 HTTP GET — asyncio.to_thread 에서 실행."""
+    """text HTTP GET — asyncio.to_thread text text."""
     try:
         str_url = _STR_GEO_URL.format(ip=urllib.parse.quote(str_ip, safe=""))
         str_url += "?fields=status,country,countryCode,regionName,city"
@@ -77,7 +77,7 @@ async def lookup_geo(str_ip: str) -> Optional[dict]:
     if _is_private_ip(str_ip):
         return None
     if not is_db_connected():
-        # DB 없으면 캐시 없이 즉시 외부 조회
+        # DB text text text text text text
         return await asyncio.to_thread(_fetch_geo_sync, str_ip)
 
     db = get_db()
@@ -122,10 +122,10 @@ async def lookup_geo(str_ip: str) -> Optional[dict]:
 
 
 async def enrich_audit_with_geo(str_audit_log_id: Optional[str], str_ip: str) -> None:
-    """감사 로그에 geo 정보 비동기 추가 — fire-and-forget 용.
+    """text text geo text text text — fire-and-forget text.
 
-    log_audit_event 가 반환한 _id 를 받아 동일 document 에 country/city 를 채운다.
-    실패해도 조용히 넘어감.
+    log_audit_event text text _id text text text document text country/city text text.
+    text text text.
     """
     if not str_audit_log_id or not str_ip:
         return

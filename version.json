@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.92",
+  "version": "1.1.93",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Loads VS IHC tile manifests before requesting overlay tiles."
+  "description": "Removes Korean and replacement characters from backend and frontend source files."
 }

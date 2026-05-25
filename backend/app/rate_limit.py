@@ -1,11 +1,11 @@
-"""IP 기반 Rate Limiting 미들웨어 (순수 ASGI — BaseHTTPMiddleware 사용 안 함)
+"""IP text Rate Limiting text (text ASGI — BaseHTTPMiddleware text text text)
 
-외부 라이브러리(slowapi) 없이 in-memory 고정 윈도우 카운터로 구현.
-- 로그인 엔드포인트: 10회/5분 (브루트포스 방지)
-- 일반 API: 200회/분
-- 타일/미디어: rate limit 면제 (인증으로 보호, 뷰어 체감 우선)
+text text(slowapi) text in-memory text text text text.
+- text text: 10text/5text (text text)
+- text API: 200text/text
+- text/text: rate limit text (text text, text text text)
 
-On-Premise 단일 프로세스 전제이므로 메모리 기반으로 충분.
+On-Premise text text text text text text.
 """
 
 import json
@@ -13,10 +13,10 @@ import time
 
 
 class _FixedWindowCounter:
-    """고정 윈도우 카운터 — O(1) 판정, 메모리 최소.
+    """text text text — O(1) text, text text.
 
-    슬라이딩 윈도우(리스트 필터링 O(n))에서 교체.
-    윈도우 경계에 burst 가능하나 보안용으론 충분.
+    text text(text text O(n))text text.
+    text text burst text text text.
     """
 
     __slots__ = ("int_window", "int_max", "_dict_buckets")
@@ -31,7 +31,7 @@ class _FixedWindowCounter:
         float_now = time.monotonic()
         entry = self._dict_buckets.get(str_key)
         if entry is None or float_now - entry[0] >= self.int_window:
-            # 새 윈도우 시작
+            # text text text
             self._dict_buckets[str_key] = (float_now, 1)
             return True
         if entry[1] >= self.int_max:
@@ -40,7 +40,7 @@ class _FixedWindowCounter:
         return True
 
     def cleanup(self):
-        """주기적 메모리 정리 — 만료된 윈도우 제거."""
+        """text text text — text text text."""
         float_now = time.monotonic()
         float_cutoff = float_now - self.int_window * 2
         list_stale = [
@@ -50,28 +50,28 @@ class _FixedWindowCounter:
             del self._dict_buckets[k]
 
 
-# ── 경로별 윈도우 설정 ──
+# ── text text text ──
 _LOGIN_LIMITER = _FixedWindowCounter(int_window_seconds=300, int_max_requests=10)
 _API_LIMITER = _FixedWindowCounter(int_window_seconds=60, int_max_requests=200)
 
-# 주기적 정리 카운터
+# text text text
 _int_request_count = 0
 _CLEANUP_INTERVAL = 5000
 
 
 import os as _os
 
-# X-Forwarded-For / X-Real-IP 는 신뢰된 프록시 뒤에서만 의미가 있다.
-# 직접 노출된 서버에선 임의 클라이언트가 위조해 rate_limit 을 우회할 수 있어
-# 기본은 헤더 무시. TRUSTED_PROXIES env 에 prox y peer IP 를 적어둔 경우만 신뢰.
+# X-Forwarded-For / X-Real-IP text text text text text text.
+# text text text text text text rate_limit text text text text
+# text text text. TRUSTED_PROXIES env text prox y peer IP text text text text.
 _SET_RL_TRUSTED_PROXIES = {
     s.strip() for s in _os.environ.get("TRUSTED_PROXIES", "").split(",") if s.strip()
 }
 
 
 def _get_client_ip(headers: list[tuple[bytes, bytes]], scope: dict) -> str:
-    """ASGI scope/headers 에서 클라이언트 IP 추출. TCP peer 가 TRUSTED_PROXIES
-    에 들어 있어야만 X-Forwarded-For / X-Real-IP 헤더를 신뢰한다."""
+    """ASGI scope/headers text text IP text. TCP peer text TRUSTED_PROXIES
+    text text text X-Forwarded-For / X-Real-IP text text."""
     str_peer = "unknown"
     client = scope.get("client")
     if client:
@@ -86,7 +86,7 @@ def _get_client_ip(headers: list[tuple[bytes, bytes]], scope: dict) -> str:
 
 
 def _send_429(retry_after: str):
-    """429 응답을 보내는 코루틴 팩토리."""
+    """429 text text text text."""
     body = json.dumps(
         {"detail": "Too many requests. Please try again later."}
     ).encode()
@@ -110,11 +110,11 @@ def _send_429(retry_after: str):
 
 
 class RateLimitMiddleware:
-    """순수 ASGI 미들웨어 — IP별 요청 제한.
+    """text ASGI text — IPtext text text.
 
-    타일/미디어/정적 파일은 rate limit 면제:
-    - 인증(media ticket)으로 이미 보호됨
-    - 뷰어 체감에 직결되므로 오버헤드 0 이 중요
+    text/text/text text rate limit text:
+    - text(media ticket)text text text
+    - text text text text 0 text text
     """
 
     def __init__(self, app):
@@ -127,8 +127,8 @@ class RateLimitMiddleware:
 
         str_path = scope.get("path", "")
 
-        # ── 정적 파일 / 타일 / 미디어: rate limit 면제 ──
-        # 타일은 인증(media ticket)으로 보호. 여기서 오버헤드를 0으로.
+        # ── text text / text / text: rate limit text ──
+        # text text(media ticket)text text. text text 0text.
         if not str_path.startswith("/api/"):
             await self.app(scope, receive, send)
             return
@@ -139,7 +139,7 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # ── 주기적 메모리 정리 ──
+        # ── text text text ──
         global _int_request_count
         _int_request_count += 1
         if _int_request_count % _CLEANUP_INTERVAL == 0:
@@ -149,7 +149,7 @@ class RateLimitMiddleware:
         headers = scope.get("headers", [])
         str_ip = _get_client_ip(headers, scope)
 
-        # 로그인 엔드포인트 — 엄격한 제한
+        # text text — text text
         if str_path.rstrip("/") in ("/api/auth/login", "/api/auth/register"):
             if not _LOGIN_LIMITER.is_allowed(str_ip):
                 await _send_429("300")(send)
@@ -157,7 +157,7 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # 일반 API
+        # text API
         if not _API_LIMITER.is_allowed(str_ip):
             await _send_429("60")(send)
             return

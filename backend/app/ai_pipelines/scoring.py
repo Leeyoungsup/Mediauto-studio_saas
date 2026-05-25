@@ -1,8 +1,8 @@
-"""마커별 점수 계산 — PD-L1 (CPS/TPS), HER2, Allred (ER/PR), KI-67.
+"""text text text — PD-L1 (CPS/TPS), HER2, Allred (ER/PR), KI-67.
 
-routers/ai.py 의 _run_pd_score / _run_precise_ihc 가 추론 결과(class array)
-를 받아 호출. 설정 dict (PD_SCORE_CONFIG / PRECISE_IHC_CONFIG) 도 함께 두어
-score_type 분기와 클래스 메타데이터를 한 곳에 모은다.
+routers/ai.py text _run_pd_score / _run_precise_ihc text text text(class array)
+text text text. text dict (PD_SCORE_CONFIG / PRECISE_IHC_CONFIG) text text text
+score_type text text text text text text.
 """
 
 # ═══════════════════════════════════════════════════════════════════
@@ -48,9 +48,9 @@ PD_SCORE_CONFIG = {
             2: "#95a5a6",
         },
         "score_type": "TPS",
-        # Non-Tumor (cls 2) 는 TPS 공식에 포함되지 않으니 표시도 생략한다.
-        # marker_pipeline 에서 keep_mask 로 추론 결과에서 제거 + class_names/colors
-        # 에서도 빠져 프론트 범례·시각화에 안 나온다.
+        # Non-Tumor (cls 2) text TPS text text text text text.
+        # marker_pipeline text keep_mask text text text text + class_names/colors
+        # text text text text·text text text.
         "exclude_classes": [2],
     },
 }
@@ -118,7 +118,7 @@ PRECISE_IHC_CONFIG = {
             3: "HER2 3+",
             4: "Other",
         },
-        # class0 (0+) 초록 → class3 (3+) 새빨강. class 숫자 ↑ → red ↑
+        # class0 (0+) text → class3 (3+) text. class text ↑ → red ↑
         "class_colors": {
             0: "#27ae60",  # green (0+)
             1: "#f1c40f",  # yellow (1+)
@@ -129,8 +129,8 @@ PRECISE_IHC_CONFIG = {
         "score_type": "HER2",
         "exclude_classes": [4],
     },
-    # ER/PR: HER2 와 동일한 5-class 모델 구조 (intensity 0+~3+ + Other).
-    # ER 과 PR 은 동일 .pt 를 공유하고 추론 결과도 동일하므로 단일 marker("ER_PR") 로 통합.
+    # ER/PR: HER2 text text 5-class text text (intensity 0+~3+ + Other).
+    # ER text PR text text .pt text text text text text text marker("ER_PR") text text.
     "ER_PR": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
         "num_classes": 5,
@@ -151,7 +151,7 @@ PRECISE_IHC_CONFIG = {
         "score_type": "Allred",
         "exclude_classes": [4],
     },
-    # KI-67: ER/PR 모델을 임시 사용. class 0 = Negative, class 1/2/3 = Positive.
+    # KI-67: ER/PR text text text. class 0 = Negative, class 1/2/3 = Positive.
     # KI-67 Index = Positive / Total × 100 (%).
     "KI_67": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
@@ -179,9 +179,9 @@ PRECISE_IHC_CONFIG = {
 def compute_her2_score(all_cls) -> dict:
     """
     HER2 score:
-      - 클래스 0~3 은 intensity 0+/1+/2+/3+
-      - 가중 평균 = Σ(i * n_i) / Σ(n_i)  (i = 0..3)
-      - dominant_class = 가장 많은 intensity
+      - text 0~3 text intensity 0+/1+/2+/3+
+      - text text = Σ(i * n_i) / Σ(n_i)  (i = 0..3)
+      - dominant_class = text text intensity
     """
     int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
     int_total = sum(int_counts.values())
@@ -207,12 +207,12 @@ def compute_her2_score(all_cls) -> dict:
 def compute_allred_score(all_cls) -> dict:
     """
     Allred score (ER/PR):
-      - intensity 클래스 0~3 (none / weak / intermediate / strong)
-      - Proportion Score (PS): 양성 비율 (positive / total tumor)
+      - intensity text 0~3 (none / weak / intermediate / strong)
+      - Proportion Score (PS): text text (positive / total tumor)
           0=0%, 1=<1%, 2=1-10%, 3=10-33%, 4=33-66%, 5=>66%
-      - Intensity Score (IS): 양성 세포 평균 강도 → bin 0/1/2/3
+      - Intensity Score (IS): text text text text → bin 0/1/2/3
           (avg < 0.5: 0, 0.5–1.5: 1, 1.5–2.5: 2, ≥2.5: 3)
-      - Total Score (TS) = PS + IS (0~8). 3 이상 → Positive.
+      - Total Score (TS) = PS + IS (0~8). 3 text → Positive.
     """
     int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
     n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]
@@ -281,7 +281,7 @@ def compute_ki67_score(all_cls) -> dict:
     KI-67 Labeling Index:
       - class 0 = Negative, class 1/2/3 = Positive
       - KI-67 Index = Positive / Total × 100 (%)
-      - 해석: ≥14% → High, <14% → Low (St Gallen 2013 기준)
+      - text: ≥14% → High, <14% → Low (St Gallen 2013 text)
     """
     int_counts = {int(c): int((all_cls == c).sum()) for c in range(4)}
     n0, n1, n2, n3 = int_counts[0], int_counts[1], int_counts[2], int_counts[3]

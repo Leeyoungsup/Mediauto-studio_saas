@@ -1,10 +1,10 @@
-// MeDIAuto Studio — 관리자 페이지 로직
-// 단일 파일 스크립트 (모듈 X). localStorage access_token 사용.
+// MeDIAuto Studio — text text text
+// text text text (text X). localStorage access_token text.
 
 const API_BASE = '/api';
 const PAGE_LIMIT = 20;
 
-// ─── 토큰/사용자 ───
+// ─── text/text ───
 const accessToken = localStorage.getItem('access_token');
 const userRaw = localStorage.getItem('user');
 
@@ -21,14 +21,14 @@ window.MediautoHeader?.render({
 });
 
 if (!currentUser || currentUser.str_role !== 'admin') {
-    alert('관리자 권한이 필요합니다.');
+    alert('Administrator permission is required.');
     location.href = '/ai';
 }
 
 document.getElementById('current-user-name').textContent = currentUser.str_name || currentUser.str_login_id;
 document.getElementById('current-user-role').textContent = currentUser.str_role;
 
-// ─── fetch 래퍼 ───
+// ─── fetch text ───
 async function authFetch(path, options = {}) {
     const headers = { ...(options.headers || {}) };
     headers['Authorization'] = `Bearer ${accessToken}`;
@@ -38,14 +38,14 @@ async function authFetch(path, options = {}) {
     }
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
     if (res.status === 401) {
-        alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
+        alert('Your session has expired. Please sign in again.');
         localStorage.clear();
         location.href = '/login';
         return null;
     }
     if (res.status === 403) {
         const d = await res.json().catch(() => ({}));
-        alert(d.detail || '권한이 없습니다.');
+        alert(d.detail || 'Permission denied.');
         location.href = '/ai';
         return null;
     }
@@ -76,7 +76,7 @@ async function apiDelete(path) {
     return data;
 }
 
-// ─── 알림 ───
+// ─── text ───
 const $alert = document.getElementById('admin-alert');
 function showAlert(msg, type = 'success') {
     if (typeof msg === 'object') msg = JSON.stringify(msg);
@@ -86,7 +86,7 @@ function showAlert(msg, type = 'success') {
     setTimeout(() => { $alert.hidden = true; }, 4000);
 }
 
-// ─── 탭 ───
+// ─── text ───
 document.querySelectorAll('.admin-tab').forEach(tab => {
     tab.addEventListener('click', () => {
         document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
@@ -100,18 +100,18 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
     });
 });
 
-// ─── 로그아웃 ───
+// ─── text ───
 document.getElementById('btn-logout').addEventListener('click', async () => {
     try { await authFetch('/auth/logout', { method: 'POST' }); } catch {}
     localStorage.clear();
     location.href = '/login';
 });
 
-// ─── 유틸 ───
+// ─── text ───
 function fmtDate(iso) {
     if (!iso) return '—';
-    // 백엔드에서 naive datetime (timezone suffix 없음) 으로 올 수 있음 —
-    // DB 는 UTC 로 저장되므로 suffix 없으면 Z(UTC)로 간주해 파싱.
+    // text naive datetime (timezone suffix text) text text text text —
+    // DB text UTC text text suffix text Z(UTC)No search results found.
     let str_iso = String(iso);
     if (typeof iso === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(str_iso)) {
         str_iso += 'Z';
@@ -127,18 +127,18 @@ function esc(s) {
 }
 
 // ═══════════════════════════════════════
-// 승인 대기
+// text text
 // ═══════════════════════════════════════
 async function loadPending() {
     const $tbody = document.getElementById('pending-tbody');
-    $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">로딩 중...</td></tr>';
+    $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Loading...</td></tr>';
     try {
         const data = await apiGet('/users/pending');
         if (!data) return;
         const list = data.list_pending || [];
         updatePendingBadge(list.length);
         if (list.length === 0) {
-            $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">승인 대기 중인 사용자가 없습니다.</td></tr>';
+            $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No users are waiting for approval.</td></tr>';
             return;
         }
         $tbody.innerHTML = '';
@@ -157,15 +157,15 @@ async function loadPending() {
                     </select>
                 </td>
                 <td class="row-actions">
-                    <button class="admin-btn-approve" data-approve="${u._id}">승인</button>
-                    <button class="admin-btn-reject" data-reject="${u._id}">거부</button>
+                    <button class="admin-btn-approve" data-approve="${u._id}">Previous</button>
+                    <button class="admin-btn-reject" data-reject="${u._id}">Previous</button>
                 </td>
             `;
             $tbody.appendChild(tr);
         }
     } catch (err) {
         showAlert(err.message, 'error');
-        $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">로드 실패</td></tr>';
+        $tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Load failed</td></tr>';
     }
 }
 
@@ -175,20 +175,20 @@ document.getElementById('pending-tbody').addEventListener('click', async (e) => 
     if (btn.dataset.approve) {
         const userId = btn.dataset.approve;
         const role = document.querySelector(`[data-role-for="${userId}"]`).value;
-        if (!confirm(`이 사용자를 ${role} 역할로 승인하시겠습니까?`)) return;
+        if (!confirm(`Approve this user as ${role}?`)) return;
         try {
             await apiJson('/users/approve', 'POST', { str_user_id: userId, str_new_role: role });
-            showAlert('승인 완료', 'success');
+            showAlert('Completed successfully.', 'success');
             loadPending();
         } catch (err) { showAlert(err.message, 'error'); }
     } else if (btn.dataset.reject) {
         const userId = btn.dataset.reject;
-        const reason = prompt('거부 사유를 입력하세요 (선택):', '') || '';
+        const reason = prompt('Enter a rejection reason (optional):', '') || '';
         if (reason === null) return;
-        if (!confirm('정말 이 가입 요청을 거부하시겠습니까?')) return;
+        if (!confirm('Reject this signup request?')) return;
         try {
             await apiJson('/users/reject', 'POST', { str_user_id: userId, str_reason: reason });
-            showAlert('거부 처리 완료', 'success');
+            showAlert('Updated successfully.', 'success');
             loadPending();
         } catch (err) { showAlert(err.message, 'error'); }
     }
@@ -203,7 +203,7 @@ function updatePendingBadge(count) {
 }
 
 // ═══════════════════════════════════════
-// 사용자 관리
+// text text
 // ═══════════════════════════════════════
 let currentPage = 0;
 let totalUsers = 0;
@@ -211,7 +211,7 @@ const userCache = new Map(); // id → user doc
 
 async function loadUsers() {
     const $tbody = document.getElementById('users-tbody');
-    $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">로딩 중...</td></tr>';
+    $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">Loading...</td></tr>';
     try {
         const params = new URLSearchParams({
             int_skip: currentPage * PAGE_LIMIT,
@@ -229,7 +229,7 @@ async function loadUsers() {
 
         const list = data.list_users || [];
         if (list.length === 0) {
-            $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">사용자가 없습니다.</td></tr>';
+            $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">text text.</td></tr>';
             updatePager();
             return;
         }
@@ -240,7 +240,7 @@ async function loadUsers() {
             const isSelf = u._id === currentUser.str_id;
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${esc(u.str_login_id)}</strong>${isSelf ? ' <small>(나)</small>' : ''}</td>
+                <td><strong>${esc(u.str_login_id)}</strong>${isSelf ? ' <small>(me)</small>' : ''}</td>
                 <td>${esc(u.str_name)}</td>
                 <td>${esc(u.str_department || '—')}</td>
                 <td>
@@ -257,10 +257,10 @@ async function loadUsers() {
                 </td>
                 <td>${fmtDate(u.dt_last_login)}</td>
                 <td class="row-actions">
-                    <button class="admin-btn-secondary" data-edit="${u._id}">수정</button>
-                    ${u.bool_is_locked ? `<button class="admin-btn-secondary" data-unlock="${u._id}">잠금해제</button>` : ''}
-                    ${!isSelf ? `<button class="admin-btn-secondary" data-toggle-active="${u._id}" data-active="${u.bool_is_active ? '1' : '0'}">${u.bool_is_active ? '비활성화' : '활성화'}</button>` : ''}
-                    ${!isSelf ? `<button class="admin-btn-danger" data-delete="${u._id}" data-login="${esc(u.str_login_id)}">삭제</button>` : ''}
+                    <button class="admin-btn-secondary" data-edit="${u._id}">Previous</button>
+                    ${u.bool_is_locked ? `<button class="admin-btn-secondary" data-unlock="${u._id}">Previous</button>` : ''}
+                    ${!isSelf ? `<button class="admin-btn-secondary" data-toggle-active="${u._id}" data-active="${u.bool_is_active ? '1' : '0'}">${u.bool_is_active ? 'Deactivate' : 'Activate'}</button>` : ''}
+                    ${!isSelf ? `<button class="admin-btn-danger" data-delete="${u._id}" data-login="${esc(u.str_login_id)}">Previous</button>` : ''}
                 </td>
             `;
             $tbody.appendChild(tr);
@@ -268,13 +268,13 @@ async function loadUsers() {
         updatePager();
     } catch (err) {
         showAlert(err.message, 'error');
-        $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">로드 실패</td></tr>';
+        $tbody.innerHTML = '<tr><td colspan="8" class="empty-row">Load failed</td></tr>';
     }
 }
 
 function updatePager() {
     const totalPages = Math.max(1, Math.ceil(totalUsers / PAGE_LIMIT));
-    document.getElementById('page-info').textContent = `${currentPage + 1} / ${totalPages} (총 ${totalUsers}명)`;
+    document.getElementById('page-info').textContent = `${currentPage + 1} / ${totalPages} (total ${totalUsers})`;
     document.getElementById('btn-prev-page').disabled = currentPage === 0;
     document.getElementById('btn-next-page').disabled = currentPage + 1 >= totalPages;
 }
@@ -295,17 +295,17 @@ document.getElementById('users-tbody').addEventListener('click', async (e) => {
 
     if (btn.dataset.delete) {
         const login = btn.dataset.login;
-        if (!confirm(`정말 사용자 '${login}' 을(를) 삭제하시겠습니까?`)) return;
+        if (!confirm(`Delete user '${login}'?`)) return;
         try {
             await apiDelete(`/users/delete/${btn.dataset.delete}`);
-            showAlert('삭제 완료', 'success');
+            showAlert('Completed successfully.', 'success');
             loadUsers();
         } catch (err) { showAlert(err.message, 'error'); }
     } else if (btn.dataset.unlock) {
         try {
             const res = await authFetch(`/users/unlock/${btn.dataset.unlock}`, { method: 'POST' });
-            if (res && res.ok) { showAlert('잠금 해제 완료', 'success'); loadUsers(); }
-            else { const d = await res.json().catch(() => ({})); throw new Error(d.detail || '실패'); }
+            if (res && res.ok) { showAlert('Updated successfully.', 'success'); loadUsers(); }
+            else { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'Failed'); }
         } catch (err) { showAlert(err.message, 'error'); }
     } else if (btn.dataset.toggleActive !== undefined) {
         const nowActive = btn.dataset.active === '1';
@@ -314,7 +314,7 @@ document.getElementById('users-tbody').addEventListener('click', async (e) => {
                 str_user_id: btn.dataset.toggleActive,
                 bool_is_active: !nowActive,
             });
-            showAlert(nowActive ? '계정 비활성화' : '계정 활성화', 'success');
+            showAlert(nowActive ? 'Account deactivated.' : 'Account activated.', 'success');
             loadUsers();
         } catch (err) { showAlert(err.message, 'error'); }
     } else if (btn.dataset.edit) {
@@ -333,13 +333,13 @@ document.getElementById('users-tbody').addEventListener('change', async (e) => {
     if (!select.matches('[data-role-change]')) return;
     const userId = select.dataset.roleChange;
     const newRole = select.value;
-    if (!confirm(`역할을 ${newRole} 로 변경하시겠습니까?`)) {
+    if (!confirm(`Change role to ${newRole}?`)) {
         loadUsers();
         return;
     }
     try {
         await apiJson('/users/role', 'POST', { str_user_id: userId, str_new_role: newRole });
-        showAlert('역할 변경 완료', 'success');
+        showAlert('Updated successfully.', 'success');
         loadUsers();
     } catch (err) {
         showAlert(err.message, 'error');
@@ -347,7 +347,7 @@ document.getElementById('users-tbody').addEventListener('change', async (e) => {
     }
 });
 
-// ─── 수정 다이얼로그 ───
+// ─── text text ───
 const $editDialog = document.getElementById('edit-dialog');
 function openEditDialog(u) {
     document.getElementById('edit-user-id').value = u.id;
@@ -368,7 +368,7 @@ document.getElementById('btn-edit-save').addEventListener('click', async () => {
     if (pw) body.str_password = pw;
     try {
         await apiJson('/users/update', 'POST', body);
-        showAlert('수정 완료', 'success');
+        showAlert('Completed successfully.', 'success');
         $editDialog.close();
         loadUsers();
     } catch (err) {
@@ -377,7 +377,7 @@ document.getElementById('btn-edit-save').addEventListener('click', async () => {
 });
 
 // ═══════════════════════════════════════
-// 사용자 생성
+// text text
 // ═══════════════════════════════════════
 document.getElementById('create-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -390,7 +390,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
     };
     try {
         const data = await apiJson('/users/create', 'POST', body);
-        showAlert(`생성 완료: ${data.str_login_id}`, 'success');
+        showAlert(`Created: ${data.str_login_id}`, 'success');
         e.target.reset();
     } catch (err) {
         showAlert(err.message, 'error');
@@ -398,7 +398,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
 });
 
 // ═══════════════════════════════════════
-// 활동 로그
+// text text
 // ═══════════════════════════════════════
 const ACTIVITY_PAGE_LIMIT = 50;
 let _int_activity_skip = 0;
@@ -427,7 +427,7 @@ function _fmtLocation(log) {
 
 async function loadActivity() {
     const $tbody = document.getElementById('activity-tbody');
-    $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">로딩 중...</td></tr>';
+    $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">Loading...</td></tr>';
     try {
         const params = new URLSearchParams({
             int_skip: String(_int_activity_skip),
@@ -438,7 +438,7 @@ async function loadActivity() {
         const list = data.list_logs || [];
         _int_activity_total = data.int_total || 0;
         if (list.length === 0) {
-            $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">로그인 기록이 없습니다.</td></tr>';
+            $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No search results found.</td></tr>';
         } else {
             let list_filtered = list;
             if (_str_activity_user_filter) {
@@ -450,7 +450,7 @@ async function loadActivity() {
                 });
             }
             if (list_filtered.length === 0) {
-                $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">검색 결과가 없습니다.</td></tr>';
+                $tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No search results found.</td></tr>';
             } else {
                 $tbody.innerHTML = '';
                 for (const log of list_filtered) {
@@ -465,7 +465,7 @@ async function loadActivity() {
                         <td><code>${esc(log.str_ip_address || '—')}</code></td>
                         <td>${_fmtLocation(log)}</td>
                         <td>${esc(_parseDevice(log.str_user_agent))}</td>
-                        <td><button class="admin-btn-secondary btn-view-activity" data-user-id="${esc(log.str_user_id || '')}">상세 보기</button></td>
+                        <td><button class="admin-btn-secondary btn-view-activity" data-user-id="${esc(log.str_user_id || '')}">Details</button></td>
                     `;
                     $tbody.appendChild(tr);
                 }
@@ -473,7 +473,7 @@ async function loadActivity() {
         }
         _updateActivityPager();
     } catch (err) {
-        $tbody.innerHTML = `<tr><td colspan="7" class="empty-row">오류: ${esc(err.message)}</td></tr>`;
+        $tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Error: ${esc(err.message)}</td></tr>`;
     }
 }
 
@@ -505,7 +505,7 @@ document.getElementById('btn-activity-next').addEventListener('click', () => {
     loadActivity();
 });
 
-// 행 클릭 / 버튼 클릭으로 사용자 활동 상세
+// text text / text text text text text
 document.getElementById('activity-tbody').addEventListener('click', (e) => {
     const $btn = e.target.closest('.btn-view-activity');
     const $row = e.target.closest('.activity-row');
@@ -514,7 +514,7 @@ document.getElementById('activity-tbody').addEventListener('click', (e) => {
 });
 
 // ═══════════════════════════════════════
-// 사용자별 활동 상세 다이얼로그
+// text text text text
 // ═══════════════════════════════════════
 const $userActivityDialog = document.getElementById('user-activity-dialog');
 const $userActivityTbody = document.getElementById('user-activity-tbody');
@@ -541,11 +541,11 @@ function _ensureUserActivityPager() {
     `);
     $body.insertAdjacentHTML('afterend', `
         <div class="pager user-activity-pager">
-            <button id="btn-user-activity-prev" class="admin-btn-secondary" type="button">이전</button>
+            <button id="btn-user-activity-prev" class="admin-btn-secondary" type="button">Previous</button>
             <span id="user-activity-page-info">1 / 1</span>
             <label class="page-jump">Page <input id="user-activity-page-input" type="number" min="1" value="1"></label>
             <button id="btn-user-activity-page-go" class="admin-btn-secondary" type="button">Go</button>
-            <button id="btn-user-activity-next" class="admin-btn-secondary" type="button">다음</button>
+            <button id="btn-user-activity-next" class="admin-btn-secondary" type="button">Next</button>
         </div>
         <div id="user-activity-range" class="activity-range"></div>
     `);
@@ -628,7 +628,7 @@ async function openUserActivityDialog(strUserId) {
 
 async function _loadUserActivity() {
     _ensureUserActivityPager();
-    $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">로딩 중...</td></tr>';
+    $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">Loading...</td></tr>';
     try {
         const params = new URLSearchParams({
             int_limit: String(USER_ACTIVITY_PAGE_LIMIT),
@@ -643,7 +643,7 @@ async function _loadUserActivity() {
         $userActivityTitle.textContent =
             `${u.str_name || '—'} (${u.str_login_id || '—'}) · ${u.str_role || '—'}`;
 
-        // 뱃지 업데이트
+        // text text
         const dict_counts = data.dict_counts || {};
         const int_all = (dict_counts.login || 0) + (dict_counts.slide || 0) +
             (dict_counts.ai || 0) + (dict_counts.project || 0) + (dict_counts.file || 0);
@@ -658,7 +658,7 @@ async function _loadUserActivity() {
         _int_user_activity_total = data.int_total || 0;
         _updateUserActivityPager(list.length);
         if (list.length === 0) {
-            $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">해당 카테고리의 활동이 없습니다.</td></tr>';
+            $userActivityTbody.innerHTML = '<tr><td colspan="4" class="empty-row">text No search results found.</td></tr>';
             return;
         }
         $userActivityTbody.innerHTML = '';
@@ -673,31 +673,31 @@ async function _loadUserActivity() {
             $userActivityTbody.appendChild(tr);
         }
     } catch (err) {
-        $userActivityTbody.innerHTML = `<tr><td colspan="4" class="empty-row">오류: ${esc(err.message)}</td></tr>`;
+        $userActivityTbody.innerHTML = `<tr><td colspan="4" class="empty-row">Error: ${esc(err.message)}</td></tr>`;
     }
 }
 
 function _fmtActionPill(strAction) {
     const dict_label = {
-        'project.create':     ['프로젝트 생성', 'success'],
-        'project.update':     ['프로젝트 수정', 'info'],
-        'project.rename':     ['프로젝트 이름변경', 'accent'],
-        'project.move_folder':['프로젝트 이동', 'accent'],
-        'project.delete':     ['프로젝트 삭제', 'error'],
-        'folder.create':      ['폴더 생성', 'success'],
-        'folder.rename':      ['폴더 이름변경', 'accent'],
-        'folder.delete':      ['폴더 삭제', 'error'],
-        'folder.ai_config_update': ['자동분석 설정', 'info'],
-        'folder.ai_config_delete': ['자동분석 설정 삭제', 'error'],
-        'file.delete':        ['파일 삭제', 'error'],
-        'file.move':          ['파일 이동', 'accent'],
-        'slide.upload':       ['슬라이드 업로드', 'success'],
-        'slide.status_update':['슬라이드 상태', 'info'],
-        'user.login_success': ['로그인', 'success'],
-        'user.login_failed':  ['로그인 실패', 'error'],
-        'user.logout':        ['로그아웃', 'neutral'],
-        'slide.view':         ['슬라이드 조회', 'info'],
-        'ai.analyze':         ['AI 분석', 'accent'],
+        'project.create':     ['Project created', 'success'],
+        'project.update':     ['Project updated', 'info'],
+        'project.rename':     ['Project renamed', 'accent'],
+        'project.move_folder':['Project moved', 'accent'],
+        'project.delete':     ['Project deleted', 'error'],
+        'folder.create':      ['Folder created', 'success'],
+        'folder.rename':      ['Folder renamed', 'accent'],
+        'folder.delete':      ['Folder deleted', 'error'],
+        'folder.ai_config_update': ['Auto analysis settings', 'info'],
+        'folder.ai_config_delete': ['Auto analysis settings deleted', 'error'],
+        'file.delete':        ['File deleted', 'error'],
+        'file.move':          ['File moved', 'accent'],
+        'slide.upload':       ['Slide uploaded', 'success'],
+        'slide.status_update':['Slide status', 'info'],
+        'user.login_success': ['Sign in', 'success'],
+        'user.login_failed':  ['Login failed', 'error'],
+        'user.logout':        ['Logout', 'neutral'],
+        'slide.view':         ['Slide viewed', 'info'],
+        'ai.analyze':         ['AI analysis', 'accent'],
     };
     const pair = dict_label[strAction] || [strAction, 'neutral'];
     return `<span class="action-pill ${pair[1]}">${esc(pair[0])}</span>`;
@@ -729,8 +729,8 @@ function _fmtActivityDetail(log) {
 const $activityTabs = document.querySelector('.activity-tabs');
 if ($activityTabs && !$activityTabs.querySelector('[data-cat="project"]')) {
     $activityTabs.insertAdjacentHTML('beforeend', `
-        <button class="activity-cat-tab" data-cat="project">프로젝트 <span class="cat-badge" data-badge="project">0</span></button>
-        <button class="activity-cat-tab" data-cat="file">파일 <span class="cat-badge" data-badge="file">0</span></button>
+        <button class="activity-cat-tab" data-cat="project">Projects <span class="cat-badge" data-badge="project">0</span></button>
+        <button class="activity-cat-tab" data-cat="file">Files <span class="cat-badge" data-badge="file">0</span></button>
     `);
 }
 
@@ -748,5 +748,5 @@ document.getElementById('btn-user-activity-close').addEventListener('click', () 
     $userActivityDialog.close();
 });
 
-// ─── 초기 로드 ───
+// ─── text text ───
 loadPending();

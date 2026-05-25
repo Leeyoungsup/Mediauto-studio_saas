@@ -1,11 +1,11 @@
-"""사용자 관리 API 라우터 (Admin 전용)
+"""text text API text (Admin text)
 
-기능:
-- 사용자 목록 조회
-- 역할 변경
-- 계정 활성화/비활성화
-- 계정 잠금 해제
-- 감사 로그 조회
+text:
+- text text text
+- text text
+- text text/text
+- text text text
+- text text text
 """
 
 import re
@@ -28,11 +28,11 @@ PASSWORD_PATTERN = re.compile(
 router = APIRouter()
 
 
-# 관리자 목록/조회에 노출할 사용자 필드 화이트리스트.
-# 과거엔 `str_hashed_password` 만 제외하고 나머지는 다 내려보냈는데, 그 결과
-# `str_totp_secret_enc` (TOTP 시드, 암호화돼 있긴 하지만 노출 자체가 부담),
-# `int_failed_login_attempts` 같은 내부 카운터까지 admin UI 응답에 들어갔다.
-# 화이트리스트로 명시적으로만 노출되도록 변경.
+# text text/text text text text text.
+# text `str_hashed_password` text text text text text, text text
+# `str_totp_secret_enc` (TOTP text, text text text text text text),
+# `int_failed_login_attempts` text text text admin UI text text.
+# text text text text.
 _DICT_USER_PROJECTION_ADMIN = {
     "str_login_id": 1,
     "str_name": 1,
@@ -51,7 +51,7 @@ _DICT_USER_PROJECTION_ADMIN = {
 }
 
 
-# ── 사용자 목록 (Admin만) ──
+# ── text text (Admintext) ──
 @router.get("/list")
 async def list_users(
     int_skip: int = Query(0, ge=0),
@@ -60,7 +60,7 @@ async def list_users(
     str_search: str = Query(None),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """전체 사용자 목록 (페이지네이션, 승인상태/검색 필터)"""
+    """text text text (text, text/text text)"""
     db = get_db()
     dict_filter = {}
     if str_approval_status:
@@ -95,12 +95,12 @@ async def list_users(
     }
 
 
-# ── 승인 대기 목록 (Admin만) ──
+# ── text text text (Admintext) ──
 @router.get("/pending")
 async def list_pending_users(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """승인 대기 사용자 목록"""
+    """text text text text"""
     db = get_db()
     list_pending = []
     cursor = db.users.find(
@@ -113,7 +113,7 @@ async def list_pending_users(
     return {"list_pending": list_pending, "int_total": len(list_pending)}
 
 
-# ── 승인 / 거부 (Admin만) ──
+# ── text / text (Admintext) ──
 class ApprovalRequest(BaseModel):
     str_user_id: str
     str_new_role: str = Field(default="viewer", pattern="^(admin|doctor|viewer)$")
@@ -125,7 +125,7 @@ async def approve_user(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """승인 대기 사용자 승인 → 활성화 + 역할 지정"""
+    """text text text text → text + text text"""
     db = get_db()
     dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
     if not dict_target:
@@ -186,7 +186,7 @@ async def reject_user(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """가입 요청 거부"""
+    """text text text"""
     db = get_db()
     dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
     if not dict_target:
@@ -229,7 +229,7 @@ async def reject_user(
     return {"str_message": "User rejected"}
 
 
-# ── 사용자 직접 생성 (Admin만) ──
+# ── text text text (Admintext) ──
 class CreateUserRequest(BaseModel):
     str_login_id: str = Field(..., min_length=4, max_length=30)
     str_password: str = Field(..., min_length=8, max_length=128)
@@ -244,13 +244,13 @@ async def create_user(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """관리자가 직접 사용자 생성 (즉시 승인 + 활성화)"""
+    """text text text text (text text + text)"""
     if not LOGIN_ID_PATTERN.match(body.str_login_id):
-        raise HTTPException(400, "아이디는 4~30자 영문/숫자/언더스코어만 가능합니다.")
+        raise HTTPException(400, "text 4~30text text/text/text text.")
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             400,
-            "비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
+            "text text text/text + text + text text 8text text text.",
         )
 
     db = get_db()
@@ -258,7 +258,7 @@ async def create_user(
         {"str_login_id": body.str_login_id.strip().lower()}
     )
     if dict_existing:
-        raise HTTPException(409, "이미 사용 중인 아이디입니다.")
+        raise HTTPException(409, "text text text text.")
 
     dict_doc = create_user_document(
         str_login_id=body.str_login_id,
@@ -291,7 +291,7 @@ async def create_user(
     }
 
 
-# ── 사용자 정보 수정 (Admin만) ──
+# ── text text text (Admintext) ──
 class UpdateUserRequest(BaseModel):
     str_user_id: str
     str_name: str = Field(None, max_length=100)
@@ -314,7 +314,7 @@ async def update_my_profile(
     request: Request,
     dict_current_user: dict = Depends(get_current_user),
 ):
-    """현재 로그인 사용자의 표시 이름/부서 수정."""
+    """text text text text text/text text."""
     db = get_db()
     str_user_id = dict_current_user["_id"]
     str_name = body.str_name.strip()
@@ -387,7 +387,7 @@ async def update_my_preferences(
     request: Request,
     dict_current_user: dict = Depends(get_current_user),
 ):
-    """현재 사용자의 UI preference를 저장한다."""
+    """text text UI preferencetext text."""
     db = get_db()
     str_user_id = dict_current_user["_id"]
     dict_current = dict_current_user.get("dict_preferences", {}) or {}
@@ -429,7 +429,7 @@ async def update_user(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """사용자 프로필 / 비밀번호 업데이트 (역할 변경은 /role 사용)"""
+    """text text / text text (text text /role text)"""
     db = get_db()
     dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
     if not dict_target:
@@ -454,20 +454,20 @@ async def update_user(
         if not PASSWORD_PATTERN.match(body.str_password):
             raise HTTPException(
                 400,
-                "비밀번호는 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상이어야 합니다.",
+                "text text text/text + text + text text 8text text text.",
             )
         dict_updates["str_hashed_password"] = hash_password(body.str_password)
         dict_before["str_password"] = "********"
         dict_after["str_password"] = "********(changed)"
         list_changed.append("password")
-        # 비밀번호 변경 시 해당 사용자 세션 전부 폐기
+        # text text text text text text text text
         await db.sessions.update_many(
             {"str_user_id": body.str_user_id, "bool_is_revoked": False},
             {"$set": {"bool_is_revoked": True}},
         )
 
     if len(dict_updates) <= 1:
-        raise HTTPException(400, "변경할 내용이 없습니다.")
+        raise HTTPException(400, "text text text.")
 
     result = await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
@@ -490,29 +490,29 @@ async def update_user(
     return {"str_message": "User updated", "list_changed": list_changed}
 
 
-# ── 사용자 삭제 (Admin만) ──
+# ── text text (Admintext) ──
 @router.delete("/delete/{str_user_id}")
 async def delete_user(
     str_user_id: str,
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """사용자 삭제 + 해당 사용자 세션 폐기"""
+    """text text + text text text text"""
     if str_user_id == dict_current_user["_id"]:
-        raise HTTPException(400, "자기 자신의 계정은 삭제할 수 없습니다.")
+        raise HTTPException(400, "text text text text text text.")
 
     db = get_db()
     dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
     if not dict_target:
         raise HTTPException(404, "User not found")
 
-    # 마지막 admin 이면 삭제 금지
+    # text admin text text text
     if dict_target.get("str_role") == UserRole.ADMIN:
         int_admin_count = await db.users.count_documents(
             {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
         )
         if int_admin_count <= 1:
-            raise HTTPException(400, "마지막 관리자 계정은 삭제할 수 없습니다.")
+            raise HTTPException(400, "text text text text text text.")
 
     dict_before = {
         "str_login_id": dict_target.get("str_login_id"),
@@ -544,7 +544,7 @@ async def delete_user(
     return {"str_message": "User deleted"}
 
 
-# ── 역할 변경 (Admin만) ──
+# ── text text (Admintext) ──
 class UpdateRoleRequest(BaseModel):
     str_user_id: str
     str_new_role: str = Field(..., pattern="^(admin|doctor|viewer)$")
@@ -556,10 +556,10 @@ async def update_user_role(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """사용자 역할 변경"""
+    """text text text"""
     db = get_db()
 
-    # 자기 자신의 역할은 변경 불가
+    # text text text text text
     if body.str_user_id == dict_current_user["_id"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -575,13 +575,13 @@ async def update_user_role(
 
     str_old_role = dict_target.get("str_role", "")
 
-    # 마지막 admin 을 demote 하지 못하도록 방어
+    # text admin text demote text text text
     if body.str_new_role != UserRole.ADMIN and str_old_role == UserRole.ADMIN:
         int_admin_count = await db.users.count_documents(
             {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
         )
         if int_admin_count <= 1:
-            raise HTTPException(400, "마지막 관리자의 역할은 변경할 수 없습니다.")
+            raise HTTPException(400, "text text text text text text.")
 
     await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
@@ -611,7 +611,7 @@ async def update_user_role(
     return {"str_message": f"Role updated to {body.str_new_role}"}
 
 
-# ── 계정 활성화/비활성화 (Admin만) ──
+# ── text text/text (Admintext) ──
 class ToggleActiveRequest(BaseModel):
     str_user_id: str
     bool_is_active: bool
@@ -623,7 +623,7 @@ async def toggle_user_active(
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """계정 활성/비활성"""
+    """text text/text"""
     db = get_db()
 
     if body.str_user_id == dict_current_user["_id"]:
@@ -670,14 +670,14 @@ async def toggle_user_active(
     return {"str_message": f"Account {str_action}"}
 
 
-# ── 계정 잠금 해제 (Admin만) ──
+# ── text text text (Admintext) ──
 @router.post("/unlock/{str_user_id}")
 async def unlock_user(
     str_user_id: str,
     request: Request,
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """계정 잠금 해제"""
+    """text text text"""
     db = get_db()
 
     dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
@@ -725,7 +725,7 @@ async def unlock_user(
     return {"str_message": "Account unlocked"}
 
 
-# ── 감사 로그 조회 (Admin만) ──
+# ── text text text (Admintext) ──
 @router.get("/audit-logs")
 async def get_audit_logs(
     int_skip: int = Query(0, ge=0),
@@ -734,7 +734,7 @@ async def get_audit_logs(
     str_user_id: str = Query(None),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """감사 로그 조회"""
+    """text text text"""
     db = get_db()
     dict_filter = {}
     if str_action:
@@ -760,20 +760,20 @@ async def get_audit_logs(
 
 
 # ═══════════════════════════════════════════════════════════════
-# 활동 로그 (Admin) — 로그인 기록 + 사용자별 활동 내역
+# text text (Admin) — text text + text text text
 # ═══════════════════════════════════════════════════════════════
 
 @router.get("/activity/logins")
 async def get_recent_logins(
     int_limit: int = Query(100, ge=1, le=500),
     int_skip: int = Query(0, ge=0),
-    str_user_id: str = Query(None, description="특정 사용자로 필터"),
+    str_user_id: str = Query(None, description="text text text"),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """최근 로그인 이벤트 조회 — 활동 로그 관리 UI 메인 목록.
+    """text text text text — text text text UI text text.
 
-    audit_logs 중 str_action='user.login_success' 를 시간 역순으로 반환.
-    각 항목에 사용자 정보 (이름/역할) 를 함께 붙여서 반환.
+    audit_logs text str_action='user.login_success' text text text text.
+    text text text text (text/text) text text text text.
     """
     db = get_db()
     dict_filter = {"str_action": "user.login_success"}
@@ -789,7 +789,7 @@ async def get_recent_logins(
             set_user_ids.add(dict_log["str_user_id"])
         list_logs.append(dict_log)
 
-    # 사용자 정보 조인 — 1 query 로 한꺼번에
+    # text text text — 1 query text text
     dict_user_map: dict[str, dict] = {}
     if set_user_ids:
         list_object_ids = []
@@ -834,20 +834,20 @@ async def get_user_activity(
     str_category: str = Query(
         "all",
         pattern="^(all|login|slide|ai|project|file)$",
-        description="활동 카테고리 필터",
+        description="text text text",
     ),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """특정 사용자의 활동 내역 — 로그인/슬라이드 조회/AI 분석.
+    """text text text text — text/text text/AI text.
 
-    - all: 모든 이벤트
+    - all: text text
     - login: user.login_success / user.login_failed / user.logout
     - slide: slide.view
     - ai:    ai.analyze
     """
     db = get_db()
 
-    # 사용자 존재 여부 확인 (잘못된 user_id 에 대해 403 이 아닌 404 를 주기 위해)
+    # text text text text (text user_id text text 403 text text 404 text text text)
     try:
         dict_target = await db.users.find_one(
             {"_id": ObjectId(user_id)},
@@ -904,7 +904,7 @@ async def get_user_activity(
 
     int_total = await db.audit_logs.count_documents(dict_filter)
 
-    # 카테고리별 총 카운트 — 뱃지 표시용
+    # text text text — text text
     dict_counts = {
         "login": await db.audit_logs.count_documents(
             _with_action({"$in": [
@@ -951,9 +951,9 @@ async def verify_audit_chain(
     int_limit: int = Query(1000, ge=100, le=10000),
     dict_admin: dict = Depends(require_role(UserRole.ADMIN)),
 ):
-    """감사 로그 HMAC 체인 무결성 검증.
+    """text text HMAC text text text.
 
-    최근 int_limit 건의 로그를 순회하며 HMAC 체인이 끊어지지 않았는지 확인.
+    text int_limit text text text HMAC text text text text.
     """
     from app.audit import _compute_log_hmac
 

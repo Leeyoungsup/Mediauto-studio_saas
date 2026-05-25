@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.93] - 2026-05-26
+
+### Changed
+
+- Removed Korean and replacement characters from backend and frontend source files to avoid PowerShell encoding corruption.
+- Kept runtime syntax intact by using direct Unicode-range replacement instead of shell-encoded Korean replacement maps.
+
 ## [1.1.92] - 2026-05-26
 
 ### Fixed

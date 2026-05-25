@@ -1,9 +1,9 @@
-"""JWT 토큰 생성/검증 및 인증 의존성
+"""JWT text text/text text text text
 
-보안 요구사항:
-- Access Token: 15분 만료
-- Refresh Token: 7일 만료, DB 저장, 재사용 탐지
-- 계정 잠금: 5회 실패 → 30분 잠금
+text text:
+- Access Token: 15text text
+- Refresh Token: 7text text, DB text, text text
+- text text: 5text text → 30text text
 """
 
 import secrets
@@ -18,13 +18,13 @@ from app.config import settings
 from app.database import get_db, is_db_connected
 from app.models import UserRole
 
-# ── 상수 ──
+# ── text ──
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_REFRESH = "refresh"
 
-# ── 사용자 정보 단기 캐시 (타일 등 대량 요청 시 DB 부하 방지) ──
+# ── text text text text (text text text text text DB text text) ──
 _USER_CACHE: dict[str, tuple[dict, float]] = {}
-_USER_CACHE_TTL = 30.0  # 30초 — 비활성화/잠금 반영 지연 허용 범위
+_USER_CACHE_TTL = 30.0  # 30text — text/text text text text text
 
 
 def _get_cached_user(str_user_id: str) -> dict | None:
@@ -45,16 +45,16 @@ def _set_cached_user(str_user_id: str, dict_user: dict):
 
 
 def invalidate_user_cache(str_user_id: str = ""):
-    """사용자 정보 변경 시 캐시 무효화. 빈 문자열이면 전체 클리어."""
+    """text text text text text text. text text text text."""
     if str_user_id:
         _USER_CACHE.pop(str_user_id, None)
     else:
         _USER_CACHE.clear()
 
 
-# ── 토큰 생성 ──
+# ── text text ──
 def create_access_token(str_user_id: str, str_role: str) -> str:
-    """Access Token 생성 (짧은 수명)"""
+    """Access Token text (text text)"""
     dt_expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
@@ -74,7 +74,7 @@ def create_access_token(str_user_id: str, str_role: str) -> str:
 
 
 def create_refresh_token(str_user_id: str) -> tuple:
-    """Refresh Token 생성 (긴 수명) → (token, expires_at)"""
+    """Refresh Token text (text text) → (token, expires_at)"""
     dt_expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
@@ -94,7 +94,7 @@ def create_refresh_token(str_user_id: str) -> tuple:
 
 
 def decode_token(str_token: str) -> dict:
-    """토큰 디코딩 (만료/서명 검증 포함)"""
+    """text text (text/text text text)"""
     try:
         dict_payload = jwt.decode(
             str_token,
@@ -106,14 +106,14 @@ def decode_token(str_token: str) -> dict:
         return None
 
 
-# ── Bearer 토큰 추출 ──
+# ── Bearer text text ──
 def _extract_bearer_token(request: Request) -> str:
-    """Authorization 헤더에서만 Bearer JWT 추출.
+    """Authorization text Bearer JWT text.
 
-    과거엔 `?token=` query parameter fallback 을 허용했으나, 이는 JWT 를
-    URL 에 노출시켜(브라우저 히스토리·프록시 로그·리퍼러) 계정 탈취 위험이
-    있었다. img.src 로 로드되는 미디어는 별도의 단기 HMAC 티켓
-    (app.url_signer) 을 사용하며, JWT 는 오직 Authorization 헤더로만 전달된다.
+    text `?token=` query parameter fallback text text, text JWT text
+    URL text text(text text·text text·text) text text text
+    text. img.src text text text text text HMAC text
+    (app.url_signer) text text, JWT text text Authorization text text.
     """
     str_auth_header = request.headers.get("Authorization", "")
     if str_auth_header.startswith("Bearer "):
@@ -126,11 +126,11 @@ def _extract_bearer_token(request: Request) -> str:
     )
 
 
-# ── FastAPI 의존성: 현재 사용자 ──
+# ── FastAPI text: text text ──
 async def get_current_user(request: Request) -> dict:
-    """Access Token에서 현재 사용자 정보를 추출하는 의존성
+    """Access Tokentext text text text text text
 
-    MongoDB 미연결 시 인증을 건너뛰고 익명 사용자 반환 (개발/뷰어 전용 모드)
+    MongoDB text text text text text text text (text/text text text)
     """
     if not is_db_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
@@ -152,7 +152,7 @@ async def get_current_user(request: Request) -> dict:
             detail="Invalid token payload",
         )
 
-    # 캐시 확인 — 타일 등 대량 요청 시 DB 부하 방지
+    # text text — text text text text text DB text text
     dict_cached = _get_cached_user(str_user_id)
     if dict_cached is not None:
         return dict_cached
@@ -160,7 +160,7 @@ async def get_current_user(request: Request) -> dict:
     db = get_db()
     dict_user = await db.users.find_one(
         {"_id": ObjectId(str_user_id)},
-        {"str_hashed_password": 0},  # 비밀번호는 절대 반환하지 않음
+        {"str_hashed_password": 0},  # text text text text
     )
 
     if dict_user is None:
@@ -183,29 +183,29 @@ async def get_current_user(request: Request) -> dict:
                 detail="Account is locked due to too many failed login attempts",
             )
 
-    # _id를 문자열로 변환
+    # _idtext text text
     dict_user["_id"] = str(dict_user["_id"])
     _set_cached_user(str_user_id, dict_user)
     return dict_user
 
 
-# ── 미디어 엔드포인트 전용 인증 (타일/썸네일/프리뷰) ──
+# ── text text text text (text/text/text) ──
 async def get_media_user(request: Request) -> dict:
-    """미디어(<img src>) 엔드포인트용 의존성.
+    """text(<img src>) text text.
 
-    - Bearer JWT 가 있으면 get_current_user 와 동일하게 처리한다.
-    - 없으면 query parameter `?mt=<token>` 의 단기 HMAC 티켓 (url_signer)
-      으로 인증한다.
+    - Bearer JWT text text get_current_user text text text.
+    - text query parameter `?mt=<token>` text text HMAC text (url_signer)
+      text text.
 
-    일반 API 에는 이 의존성을 달지 않는다 — 미디어 티켓이 누출되어도
-    API 호출(슬라이드 삭제/업로드/AI 시작 등) 은 막히도록 스코프를 분리.
+    text API text text text text text — text text text
+    API text(text text/text/AI text text) text text text text.
     """
-    # 1) Bearer 헤더 우선
+    # 1) Bearer text text
     str_auth_header = request.headers.get("Authorization", "")
     if str_auth_header.startswith("Bearer "):
         return await get_current_user(request)
 
-    # 2) 미디어 티켓 fallback
+    # 2) text text fallback
     from app.url_signer import verify_media_ticket
 
     str_ticket = request.query_params.get("mt", "")
@@ -217,11 +217,11 @@ async def get_media_user(request: Request) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # DB 미연결 시 익명 모드
+    # DB text text text text
     if not is_db_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
 
-    # 캐시 확인 — 타일 대량 요청 시 DB 부하 방지
+    # text text — text text text text DB text text
     dict_cached = _get_cached_user(str_user_id)
     if dict_cached is not None:
         return dict_cached
@@ -249,13 +249,13 @@ async def get_media_user(request: Request) -> dict:
     return dict_user
 
 
-# ── 역할 기반 접근 제어 (RBAC) 의존성 팩토리 ──
+# ── text text text text (RBAC) text text ──
 def require_not_viewer(
     dict_current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Viewer 역할은 거부 — AI 분석 / annotation 등 읽기 전용 초과 기능 차단.
+    """Viewer text text — AI text / annotation text text text text text text.
 
-    Admin, Doctor 만 통과. Viewer 는 로그인은 되어 있지만 결과 쓰기/트리거 불가.
+    Admin, Doctor text text. Viewer text text text text text text/text text.
     """
     str_user_role = dict_current_user.get("str_role", "")
     if str_user_role == UserRole.VIEWER.value:
@@ -267,9 +267,9 @@ def require_not_viewer(
 
 
 def require_role(*list_allowed_roles: UserRole):
-    """특정 역할만 접근 가능한 의존성 팩토리
+    """text text text text text text
 
-    사용 예: Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))
+    text text: Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))
     """
     async def _role_checker(
         dict_current_user: dict = Depends(get_current_user),

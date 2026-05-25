@@ -1,12 +1,12 @@
-"""사용자별 AI 편집본 저장/조회/삭제 라우트.
+"""text AI text text/text/text text.
 
-routers/ai.py 의 모놀리스에서 분리된 서브 라우터.
-인증 의존성(get_current_user, require_not_viewer) 은 부모 라우터에서 상속.
+routers/ai.py text text text text text.
+text text(get_current_user, require_not_viewer) text text text text.
 
-저장 모델:
-- 디스크: AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
-- DB: slide_store 의 user_ai_edits 컬렉션 (메타만 — 경로/셀 수/시간)
-원본 디스크 캐시(ai_results/...) 는 절대 건드리지 않는다.
+text text:
+- text: AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
+- DB: slide_store text user_ai_edits text (text — text/text text/text)
+text text text(ai_results/...) text text text text.
 """
 
 import asyncio
@@ -34,7 +34,7 @@ def _normalize_ai_mode(ai_mode: str) -> str:
 
 
 def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: str) -> Path:
-    """사용자별 편집본 JSON 저장 경로:
+    """text text JSON text text:
        AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
     """
     safe_user = "".join(c for c in (user_id or "anon") if c.isalnum() or c in "-_")
@@ -54,19 +54,19 @@ async def save_detection_result(
     dict_user: dict = Depends(get_current_user),
 ):
     """
-    세포 편집본을 **현재 로그인한 사용자 전용**으로 DB 에 저장한다.
-    원본 디스크 캐시 (ai_results/...) 는 건드리지 않는다.
+    text text **text text text text**text DB text text.
+    text text text (ai_results/...) text text text.
     """
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
-        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+        raise HTTPException(400, f"text text AI text: {ai_mode}")
 
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
 
-    # 대용량 AI 결과(수십~수백 MB) — JSON 파싱/쓰기를 스레드풀로 오프로드해
-    # 이벤트 루프가 타일 서빙 등 다른 요청을 블로킹하지 않게 한다.
+    # text AI text(text~text MB) — JSON text/text text text
+    # text text text text text text text text text text.
     loop = asyncio.get_running_loop()
     try:
         result_obj = await loop.run_in_executor(None, json.loads, result)
@@ -78,9 +78,9 @@ async def save_detection_result(
     str_user_name = str(dict_user.get("str_name") or "")
     str_login_id = str(dict_user.get("str_login_id") or "")
     if not str_user_id:
-        raise HTTPException(401, "사용자 식별 실패")
+        raise HTTPException(401, "text text text")
 
-    # 1) 디스크에 사용자별 JSON 저장 (스레드풀에서)
+    # 1) text text JSON text (text)
     file_path = _get_user_edit_path(info.file_path, ai_mode, tissue_type or "", str_user_id)
     list_visible_cells = result_obj.get("cells") if isinstance(result_obj, dict) else None
     int_total_cells = (
@@ -101,7 +101,7 @@ async def save_detection_result(
         print(f"[ai/save-result] disk write failed: {e}")
         raise HTTPException(500, f"Save failed (disk): {e}")
 
-    # 2) DB 에는 메타만 기록 (유무/경로/셀 수/시간)
+    # 2) DB text text text (text/text/text text/text)
     try:
         await slide_store.upsert_user_ai_edit(
             str_slide_id=slide_id,
@@ -137,10 +137,10 @@ async def list_user_edits(
     ai_mode: str,
     variant: str = "",
 ):
-    """해당 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    """text text+text+variant text text text text text text."""
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
-        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+        raise HTTPException(400, f"text text AI text: {ai_mode}")
     from app import slide_store
     list_users = await slide_store.list_user_ai_edits(slide_id, ai_mode, variant)
     return {"users": list_users}
@@ -153,20 +153,20 @@ async def delete_user_edit(
     variant: str = "",
     dict_user: dict = Depends(get_current_user),
 ):
-    """현재 로그인한 **본인** 의 편집본만 삭제 (타인 것은 절대 불가)."""
+    """text text **text** text text text (text text text text)."""
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
-        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+        raise HTTPException(400, f"text text AI text: {ai_mode}")
     str_user_id = str(dict_user.get("_id") or "")
     if not str_user_id:
-        raise HTTPException(401, "사용자 식별 실패")
+        raise HTTPException(401, "text text text")
     from app import slide_store
     dict_doc = await slide_store.delete_user_ai_edit(
         slide_id, ai_mode, variant, str_user_id,
     )
     if not dict_doc:
-        raise HTTPException(404, "저장본이 없습니다")
-    # 디스크 파일도 제거
+        raise HTTPException(404, "text text")
+    # text text text
     str_file_path = dict_doc.get("str_file_path") or ""
     if str_file_path:
         try:
@@ -185,21 +185,21 @@ async def load_user_edit(
     user_id: str,
     variant: str = "",
 ):
-    """특정 사용자의 저장본 전체 결과 — DB 메타에서 경로 조회 후 디스크 JSON 반환."""
+    """text text text text text — DB text text text text text JSON text."""
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
-        raise HTTPException(400, f"지원하지 않는 AI 모드: {ai_mode}")
+        raise HTTPException(400, f"text text AI text: {ai_mode}")
     from app import slide_store
     dict_doc = await slide_store.get_user_ai_edit(slide_id, ai_mode, variant, user_id)
     if not dict_doc:
-        raise HTTPException(404, "저장본이 없습니다")
+        raise HTTPException(404, "text text")
 
     str_file_path = dict_doc.get("str_file_path") or ""
     if not str_file_path or not Path(str_file_path).exists():
-        raise HTTPException(404, "저장 파일이 누락되었습니다")
+        raise HTTPException(404, "text text text")
 
-    # 대용량 AI 결과 JSON — 스레드풀로 오프로드해 이벤트 루프 블로킹 방지.
-    # 수백 MB 결과도 타일 서빙과 병렬로 처리된다.
+    # text AI text JSON — text text text text text text.
+    # text MB text text text text text.
     def _read_json_from_disk():
         with open(str_file_path, "r", encoding="utf-8") as f:
             return json.load(f)

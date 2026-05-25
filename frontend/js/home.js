@@ -8,7 +8,7 @@
     const accessToken = localStorage.getItem('access_token');
     const userRaw = localStorage.getItem('user');
 
-    // 미로그인 → 로그인 페이지
+    // text → text text
     if (!accessToken) {
         location.href = '/login';
         return;
@@ -108,14 +108,14 @@
         $userName.textContent = currentUser.str_name || currentUser.str_login_id || '—';
         $userRole.textContent = currentUser.str_role || '—';
     }
-    // admin 전용 UI
+    // admin text UI
     if (currentUser && currentUser.str_role === 'admin') {
         $btnAdmin.hidden = false;
     } else {
         if ($quickAdmin) $quickAdmin.style.display = 'none';
     }
 
-    // viewer 역할은 업로드 버튼 숨기기
+    // viewer text text text text
     if (currentUser && currentUser.str_role === 'viewer') {
         const $quickUpload = document.getElementById('quick-upload');
         if ($quickUpload) $quickUpload.style.display = 'none';
@@ -138,7 +138,7 @@
         return res;
     }
 
-    // ── Media ticket (썸네일용) ──
+    // ── Media ticket (text) ──
     let _mediaTicket = null;
     async function getMediaTicket() {
         if (_mediaTicket && _mediaTicket.int_exp - Math.floor(Date.now() / 1000) > 30) {
@@ -203,7 +203,7 @@
         return `<span class="badge-status badge-status-${status}">${labels[status]}</span>`;
     }
 
-    // HTML 이스케이프 — innerHTML 에 들어갈 신뢰 불가능한 문자열 (filename, rel_path 등)
+    // HTML text — innerHTML text text text text text (filename, rel_path text)
     function _esc(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -237,7 +237,7 @@
 
         const thumbUrl = _buildThumbUrl(slide.filename, slide.rel_path, mediaToken);
 
-        // 사용자가 업로드한 파일명/폴더명은 신뢰 불가 — 항상 _esc 통과시킨다.
+        // text text text/text text text — text _esc text.
         card.innerHTML = `
             <div class="recent-card-thumb">
                 <img src="${thumbUrl}" alt="" loading="lazy">
@@ -253,8 +253,8 @@
             </div>
         `;
 
-        // 페이지를 오래 열어두면 mediaToken 이 만료(10분)되어 lazy-load / 캐시 미스 fetch 가
-        // 401 로 떨어진다. 첫 error 에서 새 티켓으로 1회 재시도.
+        // text text text mediaToken text text(10text)text lazy-load / text text fetch text
+        // 401 text text. text error text text text 1text text.
         const img = card.querySelector('img');
         if (img) {
             let bool_retried = false;
@@ -839,7 +839,7 @@
         }
     }
 
-    // ── 업로드 팝업 완료 시 대시보드 새로고침 ──
+    // ── text text text text text text ──
     window.addEventListener('message', (e) => {
         if (e.data && e.data.type === 'upload-complete') {
             loadDashboard();

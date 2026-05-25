@@ -1,10 +1,10 @@
-"""사용자 모델 및 비밀번호 해싱 유틸리티
+"""text text text text text text
 
-Claude.md 규칙 준수:
-- 변수 접두어: str_, int_, bool_, dict_, list_, dt_ 등
-- 클래스: PascalCase
-- 상수: SCREAMING_SNAKE_CASE
-- 가변 기본 인자 금지 (None 사용)
+Claude.md text text:
+- text text: str_, int_, bool_, dict_, list_, dt_ text
+- text: PascalCase
+- text: SCREAMING_SNAKE_CASE
+- text text text text (None text)
 """
 
 from datetime import datetime, timezone
@@ -14,10 +14,10 @@ import bcrypt
 
 from app.config import settings
 
-# ── 상수 ──
+# ── text ──
 BCRYPT_COST = 12
-# Pepper 는 더 이상 소스에 하드코딩하지 않는다. 환경변수 AUTH_PEPPER 또는
-# backend/.secrets.json 의 'pepper' 키에서 로드된다 (app.config 참조).
+# Pepper text text text text text text. text AUTH_PEPPER text
+# backend/.secrets.json text 'pepper' text text (app.config text).
 _STR_PEPPER = settings.AUTH_PEPPER
 
 
@@ -33,9 +33,9 @@ class ApprovalStatus(str, Enum):
     REJECTED = "rejected"
 
 
-# ── 비밀번호 해싱 ──
+# ── text text ──
 def hash_password(str_plain_password: str) -> str:
-    """bcrypt + pepper 해싱"""
+    """bcrypt + pepper text"""
     str_peppered = str_plain_password + _STR_PEPPER
     bytes_hashed = bcrypt.hashpw(
         str_peppered.encode("utf-8"),
@@ -45,7 +45,7 @@ def hash_password(str_plain_password: str) -> str:
 
 
 def verify_password(str_plain_password: str, str_hashed_password: str) -> bool:
-    """bcrypt + pepper 검증"""
+    """bcrypt + pepper text"""
     str_peppered = str_plain_password + _STR_PEPPER
     return bcrypt.checkpw(
         str_peppered.encode("utf-8"),
@@ -53,7 +53,7 @@ def verify_password(str_plain_password: str, str_hashed_password: str) -> bool:
     )
 
 
-# ── 사용자 문서 생성 ──
+# ── text text text ──
 def create_user_document(
     str_login_id: str,
     str_hashed_password: str,
@@ -64,11 +64,11 @@ def create_user_document(
     bool_is_active: bool = False,
     str_approved_by: str = "",
 ) -> dict:
-    """MongoDB에 삽입할 사용자 문서 생성
+    """MongoDBtext text text text text
 
-    기본값은 `pending` + `is_active=False` — 관리자 승인 후 활성화.
-    첫 admin 가입이나 admin 이 직접 생성한 계정은 호출 측에서
-    `str_approval_status=ApprovalStatus.APPROVED`, `bool_is_active=True` 로 지정.
+    text `pending` + `is_active=False` — text text text text.
+    text admin text admin text text text text text text
+    `str_approval_status=ApprovalStatus.APPROVED`, `bool_is_active=True` text text.
     """
     dt_now = datetime.now(timezone.utc)
     return {

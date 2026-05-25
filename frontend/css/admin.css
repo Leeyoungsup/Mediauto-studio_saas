@@ -351,7 +351,7 @@ html, body {
     color: var(--admin-text);
 }
 
-/* ═══ 활동 로그 ═══ */
+/* ═══ text text ═══ */
 .activity-row { cursor: pointer; }
 .activity-row:hover { background: rgba(108, 92, 231, 0.06); }
 
@@ -383,7 +383,7 @@ html, body {
 .action-pill.info    { background: #dbeafe; color: #1e40af; }
 .action-pill.accent  { background: rgba(108,92,231,0.15); color: #6c5ce7; }
 
-/* 사용자 활동 상세 다이얼로그 — wide 버전 */
+/* text text text text — wide text */
 .admin-dialog-wide {
     max-width: 880px !important;
     width: 90%;

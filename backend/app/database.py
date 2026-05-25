@@ -1,11 +1,11 @@
-"""MongoDB 비동기 연결 관리"""
+"""MongoDB text text text"""
 
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
 
-# ── 모듈 레벨 싱글톤 (lifespan에서 connect/disconnect) ──
+# ── text text text (lifespantext connect/disconnect) ──
 _client: AsyncIOMotorClient = None
 _db = None
 _connected: bool = False
@@ -13,21 +13,21 @@ _main_loop: asyncio.AbstractEventLoop = None
 
 
 async def connect_db():
-    """앱 시작 시 MongoDB 연결 (실패해도 앱은 계속 동작)"""
+    """text text text MongoDB text (text text text text)"""
     global _client, _db, _connected, _main_loop
     try:
         _main_loop = asyncio.get_running_loop()
         _client = AsyncIOMotorClient(
             settings.MONGO_URI,
             serverSelectionTimeoutMS=5000,
-            tls=False,  # On-Premise 환경에서 TLS 설정 시 True + 인증서 경로
+            tls=False,  # On-Premise text TLS text text True + text text
         )
         _db = _client[settings.MONGO_DB_NAME]
 
-        # 연결 테스트 (ping)
+        # text text (ping)
         await _client.admin.command("ping")
 
-        # ── 인덱스 생성 (멱등) ──
+        # ── text text (text) ──
         await _db.users.create_index("str_login_id", unique=True)
         await _db.users.create_index("str_approval_status")
         await _db.sessions.create_index("str_refresh_token", unique=True)
@@ -40,18 +40,18 @@ async def connect_db():
         )
         await _db.audit_logs.create_index("str_hmac")
 
-        # ── ip_geo_cache: MongoDB TTL 인덱스 (dt_expires_at 지난 문서 자동 제거) ──
+        # ── ip_geo_cache: MongoDB TTL text (dt_expires_at text text text text) ──
         await _db.ip_geo_cache.create_index("str_ip", unique=True)
         await _db.ip_geo_cache.create_index("dt_expires_at", expireAfterSeconds=0)
 
-        # ── slides 컬렉션 인덱스 ──
+        # ── slides text text ──
         await _db.slides.create_index(
             [("str_rel_path", 1), ("str_filename", 1)], unique=True
         )
         await _db.slides.create_index("str_slide_id")
         await _db.slides.create_index("dt_last_opened_at")
 
-        # ── folder_ai_configs 컬렉션 ──
+        # ── folder_ai_configs text ──
         await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
         await _db.folder_ai_configs.create_index("bool_enabled")
 
@@ -60,7 +60,7 @@ async def connect_db():
         await _db.project_infos.create_index("bool_project_ai_enabled")
         await _db.project_infos.create_index("dt_updated_at")
 
-        # ── user_ai_edits 컬렉션 (사용자별 세포 편집본 — 최신본만 유지) ──
+        # ── user_ai_edits text (text text text — text text) ──
         await _db.user_ai_edits.create_index(
             [
                 ("str_slide_id", 1),
@@ -74,10 +74,10 @@ async def connect_db():
             [("str_slide_id", 1), ("str_ai_mode", 1), ("str_variant", 1)]
         )
 
-        # ── 승인 상태 마이그레이션 ──
-        # str_approval_status 필드 없는 기존 사용자 처리:
-        #   - admin → approved + is_active=True 유지
-        #   - 그 외 → pending + is_active=False (재승인 필요)
+        # ── text text text ──
+        # str_approval_status text text text text text:
+        #   - admin → approved + is_active=True text
+        #   - text text → pending + is_active=False (text text)
         int_migrated_admin = (await _db.users.update_many(
             {
                 "str_approval_status": {"$exists": False},
@@ -110,9 +110,9 @@ async def connect_db():
                 f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
             )
 
-        # ── technician 역할 제거 마이그레이션 ──
-        # 제품 정책 변경: technician 역할 폐지. 기존 technician 사용자는
-        # viewer 로 downgrade (권한 확대 방지를 위해 doctor 가 아닌 viewer 로).
+        # ── technician text text text ──
+        # text text text: technician text text. text technician text
+        # viewer text downgrade (text text text text doctor text text viewer text).
         int_migrated_tech = (await _db.users.update_many(
             {"str_role": "technician"},
             {"$set": {"str_role": "viewer"}},
@@ -133,7 +133,7 @@ async def connect_db():
 
 
 async def disconnect_db():
-    """앱 종료 시 MongoDB 연결 해제"""
+    """text text text MongoDB text text"""
     global _client, _db, _connected
     if _client:
         _client.close()
@@ -144,17 +144,17 @@ async def disconnect_db():
 
 
 def is_db_connected() -> bool:
-    """MongoDB 연결 여부 확인"""
+    """MongoDB text text text"""
     return _connected
 
 
 def get_main_loop() -> asyncio.AbstractEventLoop:
-    """메인 이벤트 루프 반환 — 백그라운드 스레드에서 async DB 호출 스케줄용."""
+    """text text text text — text text async DB text text."""
     return _main_loop
 
 
 def get_db():
-    """현재 DB 인스턴스 반환"""
+    """text DB text text"""
     if _db is None:
         raise RuntimeError("Database not connected. MongoDB is required for auth features.")
     return _db

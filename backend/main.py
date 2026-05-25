@@ -1,6 +1,6 @@
 """
 MeDIAuto Studio SaaS — FastAPI Backend
-WSI 타일 서빙 + AI 분석 API
+WSI text text + AI text API
 """
 
 import asyncio
@@ -11,25 +11,25 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 
-# ── 불필요한 액세스 로그 숨기기 ──
-# 401 은 거의 다 "토큰/티켓 만료 → 재발급 → 재시도" 정상 흐름이라 디폴트로 숨긴다.
-# 진짜 인증 실패(잘못된 자격증명) 는 router 안에서 audit_logs (user.login_failed,
-# security.token_reuse_detected 등) 로 별도 기록되므로 access log 에서 빠져도
-# 추적성에 영향 없음. 필요 시 환경변수 LOG_AUTH_401=1 로 다시 켤 수 있다.
+# ── text text text text ──
+# 401 text text text "text/text text → text → text" text text text text.
+# text text text(text text) text router text audit_logs (user.login_failed,
+# security.token_reuse_detected text) text text text access log text text
+# text text text. text text text LOG_AUTH_401=1 text text text text text.
 _BOOL_LOG_AUTH_401 = os.environ.get("LOG_AUTH_401", "").lower() in ("1", "true", "yes")
 
-# 만료된 미디어 티켓·access 토큰으로 들어오는 정상 흐름 401 — 한 화면당 수십 건씩
-# 찍혀 access log 를 도배하므로 화이트리스트로 일괄 침묵.
+# text text text·access text text text text 401 — text text text text
+# text access log text text text text text.
 _TUPLE_AUTH_401_SILENT_PATHS = (
     "/api/auth/refresh",
     "/api/auth/media-ticket",
     "/api/ai/active-tasks",
-    "/api/slides/thumbnail",        # /thumbnail-by-name + /{slide_id}/thumbnail 모두 매칭
+    "/api/slides/thumbnail",        # /thumbnail-by-name + /{slide_id}/thumbnail text text
     "/api/slides/preview",
     "/thumbnail",
     "/preview",
-    "/api/tiles/",                  # 타일·NDP 변형 타일 전체
-    "/api/ai/virtual-stain/",       # VS 결과 PNG·피라미드 타일
+    "/api/tiles/",                  # text·NDP text text text
+    "/api/ai/virtual-stain/",       # VS text PNG·text text
 )
 
 
@@ -38,11 +38,11 @@ class _SuccessFilter(logging.Filter):
         msg = record.getMessage()
         if "HTTP/1.1" not in msg:
             return True
-        # 정상 응답(2xx, 3xx)은 숨김
+        # text text(2xx, 3xx)text text
         for code in ("200", "204", "304"):
             if f'" {code}' in msg:
                 return False
-        # 토큰/티켓 만료 흐름의 401 은 정상 동작 — 숨김 (LOG_AUTH_401=1 로 강제 표시)
+        # text/text text text 401 text text text — text (LOG_AUTH_401=1 text text text)
         if not _BOOL_LOG_AUTH_401 and '" 401' in msg:
             for str_path in _TUPLE_AUTH_401_SILENT_PATHS:
                 if str_path in msg:
@@ -52,7 +52,7 @@ class _SuccessFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuccessFilter())
 
-# ── OpenSlide DLL 경로 설정 (import 전에 실행해야 함) ──
+# ── OpenSlide DLL text text (import text text text) ──
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 _dll_paths = [
     PROJECT_ROOT / "libs" / "openslide_lib" / "bin",
@@ -75,7 +75,7 @@ for _dp in _dll_paths:
         except (AttributeError, OSError):
             pass
 
-# AI 모듈 경로 추가 (기존 ai/ 코드 재사용)
+# AI text text text (text ai/ text text)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -88,7 +88,7 @@ from app.config import settings
 from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
-from app import cpu_layout  # CPU 파티셔닝 — import 시 executor 생성, startup 에서 affinity 적용
+from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
 from app.routers import slides, slide_media, annotation_storage, projects, file_operations, tiles, ai, auth, users
 from app import auto_ai
 from app import tile_worker
@@ -114,49 +114,49 @@ def _install_asyncio_noise_filter():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 시작/종료 시 리소스 관리"""
+    """text text/text text text text"""
     _install_asyncio_noise_filter()
 
-    # CPU 파티셔닝 적용 — 메인 프로세스 affinity 를 AI cores 로 설정.
-    # viewer / bg pool 은 자체 initializer 로 자기 cores 를 override.
+    # CPU text text — text text affinity text AI cores text text.
+    # viewer / bg pool text text initializer text text cores text override.
     cpu_layout.setup_process_affinity()
 
-    # MongoDB 연결
+    # MongoDB text
     await connect_db()
 
-    # 디렉토리 생성
+    # text text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.TILES_DIR, exist_ok=True)
     print(f"[MeDIAuto SaaS] Upload dir: {settings.UPLOAD_DIR}")
     print(f"[MeDIAuto SaaS] Tiles dir:  {settings.TILES_DIR}")
     print(f"[MeDIAuto SaaS] Server ready")
 
-    # 뷰어 타일 생성 워커 시작 (사용자 활동 무관, 최우선 백그라운드)
+    # text text text text text (text text text, text text)
     await tile_worker.start_tile_worker()
-    # AI 자동 추론 워커 시작 (1분 스캔, 10분 idle)
+    # AI text text text text (1text text, 10text idle)
     await auto_ai.start_auto_worker()
 
     yield
-    # 종료 시 워커 중단
+    # text text text text
     await auto_ai.stop_auto_worker()
     await tile_worker.stop_tile_worker()
-    # 종료 시 열린 슬라이드 정리
+    # text text text text text
     from app.slide_manager import slide_manager
     slide_manager.close_all()
-    # MongoDB 연결 해제
+    # MongoDB text text
     await disconnect_db()
     print("[MeDIAuto SaaS] Shutdown complete")
 
 
 app = FastAPI(
     title="MeDIAuto Studio SaaS",
-    description="병리 AI 분석 SaaS API",
+    description="text AI text SaaS API",
     version=APP_VERSION,
     lifespan=lifespan,
 )
 
-# CORS 설정 — 환경변수 CORS_ORIGINS 로 허용 origin 지정
-# 비어 있으면 same-origin 전용 (StaticFiles 서빙이므로 CORS 불필요)
+# CORS text — text CORS_ORIGINS text text origin text
+# text text same-origin text (StaticFiles text CORS text)
 _cors_origins = [
     o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
 ] if settings.CORS_ORIGINS else []
@@ -169,13 +169,13 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
-# CSRF 방어 — 상태 변경 요청에 X-Requested-With 헤더 필수
-# Rate Limiting — IP별 요청 제한 (로그인: 10회/5분, API: 200회/분)
-# 순수 ASGI 미들웨어 — BaseHTTPMiddleware 의 body 버퍼링 오버헤드 제거
+# CSRF text — text text text X-Requested-With text text
+# Rate Limiting — IPtext text text (text: 10text/5text, API: 200text/text)
+# text ASGI text — BaseHTTPMiddleware text body text text text
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
-# 라우터 등록
+# text text
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(projects.router, prefix="/api/slides", tags=["slide-projects"])
@@ -187,11 +187,11 @@ app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])
 
-# 프론트엔드 정적 파일 서빙
-# 주의: .js/.html/.css 는 Cache-Control: no-cache 로 강제 재검증.
-# ETag/Last-Modified 기반 304 는 유지되므로 실제 바이트 재전송은 파일이 바뀐 경우에만.
-# 이 설정이 없으면 브라우저가 오래된 JS 를 붙잡고 있어 api 계약이 바뀐 뒤에도
-# 사용자가 "하드 리프레시 해도 안 먹는" 상황이 발생한다.
+# text text text text
+# text: .js/.html/.css text Cache-Control: no-cache text text text.
+# ETag/Last-Modified text 304 text text text text text text text text.
+# text text text text text JS text text text api text text text
+# text "text text text text text" text text.
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 

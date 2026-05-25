@@ -1,4 +1,4 @@
-"""앱 설정"""
+"""text text"""
 
 import json
 import os
@@ -7,12 +7,12 @@ from pathlib import Path
 
 
 # ══════════════════════════════════════════════════════════════════
-# 시크릿 영속화
+# text text
 # ──
-# 환경변수(JWT_SECRET_KEY / FIELD_ENCRYPTION_KEY) 가 설정돼 있으면 그대로 사용.
-# 없으면 `backend/.secrets.json` 에 자동 생성/로드 — 서버 재시작 시에도
-# 같은 키가 유지되어 기존 토큰/암호화 필드가 깨지지 않음.
-# On-Premise 전제이므로 파일 권한 외 별도 보호 안함.
+# text(JWT_SECRET_KEY / FIELD_ENCRYPTION_KEY) text text text text text.
+# text `backend/.secrets.json` text text text/text — text text text
+# text text text text text/text text text text.
+# On-Premise text text text text text text text.
 # ══════════════════════════════════════════════════════════════════
 _SECRETS_FILE = Path(__file__).parent.parent / ".secrets.json"
 
@@ -35,14 +35,14 @@ def _load_or_create_secrets() -> dict:
         dict_loaded["field_encryption_key"] = secrets.token_urlsafe(32)
         bool_changed = True
     # Pepper:
-    # - 새 설치(.secrets.json 이 존재하지 않던 경우)는 무작위 pepper 를 생성한다.
-    # - 이전 설치(파일은 있지만 pepper 키가 없는 경우)는 기존 유저 해시와의 호환을
-    #   위해 legacy 하드코딩 값을 그대로 파일로 이관한다 — 소스에서는 지우고
-    #   .secrets.json(0600) 으로만 존재하게 된다.
-    # - 환경변수 AUTH_PEPPER 가 있으면 항상 우선.
+    # - text text(.secrets.json text text text text)text text pepper text text.
+    # - text text(text text pepper text text text)text text text text text
+    #   text legacy text text text text text — text text
+    #   .secrets.json(0600) text text text.
+    # - text AUTH_PEPPER text text text text.
     if not dict_loaded.get("pepper"):
         if bool_existed:
-            dict_loaded["pepper"] = "MeDICus_2024_P3pp3r"  # legacy 호환
+            dict_loaded["pepper"] = "MeDICus_2024_P3pp3r"  # legacy text
         else:
             dict_loaded["pepper"] = secrets.token_urlsafe(32)
         bool_changed = True
@@ -67,99 +67,99 @@ _dict_persistent_secrets = _load_or_create_secrets()
 
 
 class Settings:
-    # 업로드 디렉토리 (서버 로컬 디스크 — 원본 WSI 저장)
+    # text text (text text text — text WSI text)
     UPLOAD_DIR: str = os.environ.get(
         "UPLOAD_DIR",
         str(Path(__file__).parent.parent / "uploads")
     )
 
-    # 프리타일 디렉토리 (뷰어용 JPEG 타일 캐시)
+    # text text (text JPEG text text)
     TILES_DIR: str = os.environ.get(
         "TILES_DIR",
         str(Path(__file__).parent.parent / "tiles")
     )
 
-    # AI 결과 캐시 디렉토리 (uploads와 분리)
+    # AI text text text (uploadstext text)
     AI_RESULTS_DIR: str = os.environ.get(
         "AI_RESULTS_DIR",
         str(Path(__file__).parent.parent / "ai_results")
     )
 
-    # 타일 설정
+    # text text
     ANNOTATIONS_DIR: str = os.environ.get(
         "ANNOTATIONS_DIR",
         str(Path(__file__).parent.parent / "annotations")
     )
 
     TILE_SIZE: int = 1024
-    TILE_FORMAT: str = "JPEG"  # JPEG이 PNG보다 빠르고 작음
+    TILE_FORMAT: str = "JPEG"  # JPEGtext PNGtext text text
     TILE_QUALITY: int = 85
 
-    # 타일 디스크 캐시 쿼터 (바이트, 기본 50 GB). 0 이하이면 janitor 비활성화.
-    # janitor 는 주기적으로 TILES_DIR 총량을 검사하고, 쿼터를 초과하면 LRU
-    # 기준으로 오래된 슬라이드 타일 디렉토리를 삭제 + DB 플래그 리셋한다.
-    # 현재 slide_manager 에 열려 있는 (활성) 슬라이드는 보호된다.
+    # text text text text (text, text 50 GB). 0 text janitor text.
+    # janitor text text TILES_DIR text text, text text LRU
+    # text text text text text text + DB text text.
+    # text slide_manager text text text (text) text text.
     TILE_CACHE_QUOTA_BYTES: int = int(os.environ.get(
         "TILE_CACHE_QUOTA_BYTES",
         str(50 * 1024 * 1024 * 1024),
     ))
 
-    # 청크 업로드 설정
+    # text text text
     CHUNK_SIZE: int = 5 * 1024 * 1024  # 5MB
 
-    # AI 모델 경로 (backend/model/)
+    # AI text text (backend/model/)
     MODEL_DIR: str = str(Path(__file__).parent.parent / "model")
 
-    # 지원 확장자
+    # text text
     SUPPORTED_EXTENSIONS: set = {
         ".svs", ".ndpi", ".vms", ".vmu", ".scn",
         ".mrxs", ".tiff", ".tif", ".png", ".jpg", ".jpeg",
     }
 
-    # ── MongoDB 설정 (On-Premise) ──
+    # ── MongoDB text (On-Premise) ──
     MONGO_URI: str = os.environ.get(
         "MONGO_URI",
         "mongodb://localhost:27017"
     )
     MONGO_DB_NAME: str = os.environ.get("MONGO_DB_NAME", "medicus_studio")
 
-    # ── JWT 설정 ──
+    # ── JWT text ──
     JWT_SECRET_KEY: str = os.environ.get(
         "JWT_SECRET_KEY",
         _dict_persistent_secrets["jwt_secret_key"],
     )
     JWT_ALGORITHM: str = "HS256"
-    # 외부망 배포 기본값 = main 과 동일한 15분/7일.
-    # on-premise 편의를 위해 길게 쓰려면 env 로 오버라이드: 예) ACCESS_TOKEN_EXPIRE_MINUTES=360
+    # text text text = main text text 15text/7text.
+    # on-premise text text text text env text text: text) ACCESS_TOKEN_EXPIRE_MINUTES=360
     # Default access token lifetime is 6 hours for on-premise workstation use.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 360))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", 7))
 
-    # ── 보안 설정 ──
+    # ── text text ──
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCK_MINUTES: int = 30
     SESSION_INACTIVE_MINUTES: int = 30
 
-    # CORS 허용 origin 목록 (쉼표 구분). 비어 있으면 same-origin 만 허용.
-    # 개발 시: CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+    # CORS text origin text (text text). text text same-origin text text.
+    # text text: CORS_ORIGINS=http://localhost:3000,http://localhost:8000
     CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "")
 
-    # 업로드 크기 상한 (기본 20 GB — WSI 파일 고려). 환경변수 `MAX_UPLOAD_BYTES` 로 오버라이드.
+    # text text text (text 20 GB — WSI text text). text `MAX_UPLOAD_BYTES` text text.
     MAX_UPLOAD_BYTES: int = int(os.environ.get(
         "MAX_UPLOAD_BYTES",
         str(20 * 1024 * 1024 * 1024),
     ))
 
-    # ── 민감 필드 암호화 키 (AES-256-GCM) ──
+    # ── text text text text (AES-256-GCM) ──
     FIELD_ENCRYPTION_KEY: str = os.environ.get(
         "FIELD_ENCRYPTION_KEY",
         _dict_persistent_secrets["field_encryption_key"],
     )
 
-    # ── 비밀번호 해시용 pepper (bcrypt 입력에 사전 연결) ──
-    # 과거엔 models.py 에 하드코딩 — 소스 노출 위험. 이제는 환경변수 또는
-    # .secrets.json(0600) 에서 읽는다. 기존 배포에서는 legacy 값이 파일로
-    # 이관되어 기존 해시와의 호환이 유지된다.
+    # ── text text pepper (bcrypt text text text) ──
+    # text models.py text text — text text text. text text text
+    # .secrets.json(0600) text text. text text legacy text text
+    # text text text text text.
     AUTH_PEPPER: str = os.environ.get(
         "AUTH_PEPPER",
         _dict_persistent_secrets["pepper"],

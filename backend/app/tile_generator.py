@@ -1,20 +1,20 @@
 """
-타일 프리제네레이터 — 3단계 stage 피라미드를 level 0 에서 읽어 생성.
+text text — 3text stage text level 0 text text text.
 
-구조:
+text:
   tiles/{slide_id}/
-    ├── 0/{tx}_{ty}.jpeg    ← stage 0 (downsample 1, 원본 해상도)
-    ├── 1/{tx}_{ty}.jpeg    ← stage 1 (downsample 4, level0→4096px 읽어 1024 리사이즈)
-    ├── 2/{tx}_{ty}.jpeg    ← stage 2 (downsample 8, level0→8192px 읽어 1024 리사이즈)
+    ├── 0/{tx}_{ty}.jpeg    ← stage 0 (downsample 1, text text)
+    ├── 1/{tx}_{ty}.jpeg    ← stage 1 (downsample 4, level0→4096px text 1024 text)
+    ├── 2/{tx}_{ty}.jpeg    ← stage 2 (downsample 8, level0→8192px text 1024 text)
     ├── thumbnail.jpeg
-    └── .complete           ← 생성 완료 마커 (JSON: 버전/ICC 해시/적용 여부)
+    └── .complete           ← text text text (JSON: text/ICC text/text text)
 
-생성 최적화:
-  stage 2 타일 영역(8192x8192 at level 0) 한 번 읽으면 동일 버퍼에서
-    - stage 2 tile 1개 (전체 8192→1024 리사이즈)
-    - stage 1 tile 4개 (4개 4096 크롭 → 각각 1024 리사이즈)
-    - stage 0 tile 64개 (8x8 그리드, 1024 크롭)
-  총 69개 타일을 한 번의 read_region 으로 생성. I/O 최소화.
+text text:
+  stage 2 text text(8192x8192 at level 0) text text text text text
+    - stage 2 tile 1text (text 8192→1024 text)
+    - stage 1 tile 4text (4text 4096 text → text 1024 text)
+    - stage 0 tile 64text (8x8 text, 1024 text)
+  text 69text text text text read_region text text. I/O text.
 """
 
 import hashlib
@@ -45,9 +45,9 @@ TILE_SIZE = TILE_SIZE_OUT
 
 # .complete marker schema version. Bump when the on-disk tile format changes
 # in a way that requires regeneration.
-# v2: 3단계 stage 피라미드 (level 0 리샘플링) — 이전 level-index 기반 타일 무효화
-# v3: Hamamatsu NDP.view2 호환 gamma=1.8 + Target.White.Intensity LUT 도입 —
-#     이전 raw-pass-through 타일은 색감이 달라 자동 재생성 필요.
+# v2: 3text stage text (level 0 text) — text level-index text text text
+# v3: Hamamatsu NDP.view2 text gamma=1.8 + Target.White.Intensity LUT text —
+#     text raw-pass-through text text text text text text.
 COMPLETE_MARKER_VERSION = 4
 COMPLETE_MARKER_NAME = ".complete"
 
@@ -81,24 +81,24 @@ def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
 
 
 def _slide_icc_hash(slide) -> Optional[str]:
-    """슬라이드의 ICC 프로파일 바이트 md5 해시. 프로파일이 없거나 읽기 실패 시 None."""
+    """text ICC text text md5 text. text text text text text None."""
     try:
         obj_profile = getattr(slide, "color_profile", None)
         if obj_profile is None:
             return None
         if hasattr(obj_profile, "tobytes"):
             return hashlib.md5(obj_profile.tobytes()).hexdigest()
-        # Fallback: description 기반 (재현 가능성 보장은 약하지만 없는 것보단 낫다)
+        # Fallback: description text (text text text text text text text)
         from PIL import ImageCms
         str_desc = ImageCms.getProfileDescription(obj_profile) or ""
         return hashlib.md5(("desc:" + str_desc).encode("utf-8")).hexdigest()
     except Exception as e:
-        print(f"[tile_generator] icc hash 계산 실패: {e}")
+        print(f"[tile_generator] icc hash text text: {e}")
         return None
 
 
 def read_complete_marker(filename: str) -> Optional[dict]:
-    """마커 JSON 을 파싱해 반환. 파일 없음/비JSON(legacy touch)/파싱 실패 시 None."""
+    """text JSON text text text. text text/textJSON(legacy touch)/text text text None."""
     path = get_tiles_dir(filename) / COMPLETE_MARKER_NAME
     if not path.exists():
         return None
@@ -116,7 +116,7 @@ def _write_complete_marker(
     str_icc_hash: Optional[str],
     bool_icc_applied: bool,
 ) -> None:
-    """마커 JSON 작성. _generate_tiles 완료 시점에서만 호출."""
+    """text JSON text. _generate_tiles text text text."""
     dict_marker = {
         "version": COMPLETE_MARKER_VERSION,
         "icc_hash": str_icc_hash,
@@ -130,15 +130,15 @@ def _write_complete_marker(
 
 
 def tiles_are_valid(filename: str, file_path: str) -> bool:
-    """디스크 타일이 현재 슬라이드 상태와 일치하는지 판정.
+    """text text text text text text text.
 
-    - 마커 없음 / 레거시 touch 파일 / 버전 불일치 → False (재생성 필요)
-    - 마커의 icc_hash 가 현재 슬라이드의 ICC 해시와 다름 → False
-    - 마커 icc_applied=False 인데 현재 슬라이드에 ICC 프로파일이 있음 → False
-    - 슬라이드 열기 실패 → True (기존 타일 보존; 호출측이 판단)
+    - text text / text touch text / text text → False (text text)
+    - text icc_hash text text text ICC text text → False
+    - text icc_applied=False text text text ICC text text → False
+    - text text text → True (text text text; text text)
 
-    주의: 개별 타일 파일 존재 여부는 검사하지 않음. 마커가 있으면 _generate_tiles 가
-    완주했다는 뜻이고, 개별 파일 무결성은 외부에서 챙겨야 함.
+    text: text text text text text text text. text text _generate_tiles text
+    text text, text text text text text text.
     """
     tiles_dir = get_tiles_dir(filename)
     if not tiles_dir.exists():
@@ -151,8 +151,8 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     try:
         slide = openslide.OpenSlide(file_path)
     except Exception as e:
-        print(f"[tile_generator] tiles_are_valid: OpenSlide 실패 ({filename}): {e}")
-        return True  # 판단 불가 — 기존 타일 유지
+        print(f"[tile_generator] tiles_are_valid: OpenSlide text ({filename}): {e}")
+        return True  # text text — text text text
     try:
         str_current_hash = _slide_icc_hash(slide)
     finally:
@@ -164,20 +164,20 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     str_marker_hash = dict_marker.get("icc_hash")
     if str_marker_hash != str_current_hash:
         return False
-    # 해시는 같은데 이전 생성 시 ICC 적용이 실패했던 경우: 재시도해도 같은 환경이라
-    # 보통 똑같이 실패한다. 무한 재생성 루프 방지를 위해 valid 로 간주한다.
-    # 환경(PIL/openslide)을 바꾼 뒤 수동 재생성을 원하면 tile dir 를 지우면 된다.
+    # text text text text text ICC text text text: text text text
+    # text text text. text text text text text valid text text.
+    # text(PIL/openslide)text text text text text text tile dir text text text.
     return True
 
 
 def invalidate_tiles(filename: str) -> None:
-    """타일 디렉토리 통째 삭제 — 재생성 전 호출."""
+    """text text text text — text text text."""
     tiles_dir = get_tiles_dir(filename)
     if tiles_dir.exists():
         shutil.rmtree(tiles_dir, ignore_errors=True)
 
 
-# ── 진행 상태 ──
+# ── text text ──
 
 class TileGenProgress:
     __slots__ = ("total_tiles", "generated_tiles", "current_level", "status", "error")
@@ -211,23 +211,23 @@ _progress_lock = threading.Lock()
 
 
 def get_tiles_dir(filename: str) -> Path:
-    """원본 파일명 기반 타일 디렉토리 (확장자 제외)"""
+    """text text text text text (text text)"""
     stem = Path(filename).stem
     return Path(settings.TILES_DIR) / stem
 
 
 def tiles_ready(filename: str) -> bool:
-    """타일 생성이 완료되었는지 확인"""
+    """text text text text"""
     return (get_tiles_dir(filename) / ".complete").exists()
 
 
 def get_progress(filename: str) -> Optional[dict]:
-    """진행 상태 반환 (없으면 None)"""
+    """text text text (text None)"""
     with _progress_lock:
         p = _progress.get(filename)
         if p:
             return p.to_dict()
-    # 이미 완료된 경우
+    # text text text
     if tiles_ready(filename):
         return {"status": "completed", "progress": 100,
                 "total_tiles": 0, "generated_tiles": 0,
@@ -236,13 +236,13 @@ def get_progress(filename: str) -> Optional[dict]:
 
 
 def start_generation(filename: str, file_path: str):
-    """백그라운드 스레드에서 타일 생성 시작 (이미 완료/진행 중이면 무시)"""
+    """text text text text text (text text/text text text)"""
     if tiles_ready(filename):
         return
 
     with _progress_lock:
         if filename in _progress and _progress[filename].status == "generating":
-            return  # 이미 진행 중
+            return  # text text text
 
     thread = threading.Thread(
         target=_generate_tiles,
@@ -253,7 +253,7 @@ def start_generation(filename: str, file_path: str):
 
 
 def _generate_tiles(filename: str, file_path: str):
-    """타일 생성 워커 — 낮은 해상도(높은 레벨)부터 생성하여 뷰어가 빠르게 볼 수 있도록"""
+    """text text text — text text(text text)text text text text text text text"""
     progress = TileGenProgress()
     with _progress_lock:
         _progress[filename] = progress
@@ -264,20 +264,20 @@ def _generate_tiles(filename: str, file_path: str):
     try:
         slide = openslide.OpenSlide(file_path)
 
-        # 통합 색 보정 callable (ICC → NDP LUT → raw 우선순위).
-        # 마커에 기록할 ICC 해시는 "소스에 존재한 프로파일" 기준 — transform 빌드
-        # 실패와 무관하게 환경 변경 감지가 되도록.
+        # text text text callable (ICC → NDP LUT → raw text).
+        # text text ICC text "text text text" text — transform text
+        # text text text text text text.
         str_icc_hash = _slide_icc_hash(slide)
         _to_srgb, dict_color_meta = build_color_corrector(slide)
         bool_icc_applied = bool(dict_color_meta.get("icc_applied"))
         if str_icc_hash is not None and not bool_icc_applied:
-            print(f"[tile_generator] WARN {filename}: ICC 프로파일 존재하지만 transform 빌드 실패 — ICC 미적용")
-        # NDP LUT 적용 정보 로그는 슬라이드마다 찍혀 노이즈만 됨 — 제거.
+            print(f"[tile_generator] WARN {filename}: ICC text text transform text text — ICC text")
+        # NDP LUT text text text text text text text — text.
 
-        # 3단계 stage 피라미드 — 모두 level 0 에서 읽어 downsample [1, 4, 8] 로 생성
+        # 3text stage text — text level 0 text text downsample [1, 4, 8] text text
         int_w0, int_h0 = slide.dimensions
 
-        # 각 stage 의 타일 그리드 (nx, ny) 계산
+        # text stage text text text (nx, ny) text
         list_stage_nx = []
         list_stage_ny = []
         int_total_tiles = 0
@@ -292,7 +292,7 @@ def _generate_tiles(filename: str, file_path: str):
         progress.total_tiles = int_total_tiles
         progress.status = "generating"
 
-        # 썸네일 먼저 생성
+        # text text text
         thumb_path = tiles_dir / "thumbnail.jpeg"
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumb_path.exists():
@@ -310,7 +310,7 @@ def _generate_tiles(filename: str, file_path: str):
                 except Exception:
                     pass
 
-        # stage 디렉토리 준비
+        # stage text text
         for int_stage in range(STAGE_COUNT):
             (tiles_dir / str(int_stage)).mkdir(parents=True, exist_ok=True)
         stage0_dir = tiles_dir / "0"
@@ -327,8 +327,8 @@ def _generate_tiles(filename: str, file_path: str):
         int_nx0 = list_stage_nx[0]
         int_ny0 = list_stage_ny[0]
 
-        # stage 2 그리드 순회 — 각 스텝마다 level 0 에서 8192x8192 한 번 읽어
-        # stage 2/1/0 타일을 모두 파생 저장한다 (69 tile / 1 read).
+        # stage 2 text text — text text level 0 text 8192x8192 text text text
+        # stage 2/1/0 text text text text (69 tile / 1 read).
         for ty2 in range(int_ny2):
             for tx2 in range(int_nx2):
                 progress.current_level = 2
@@ -352,7 +352,7 @@ def _generate_tiles(filename: str, file_path: str):
                     obj_tile2.close()
                 progress.generated_tiles += 1
 
-                # ── stage 1 sub-tiles (2x2, 각 4096 → 1024) ──
+                # ── stage 1 sub-tiles (2x2, text 4096 → 1024) ──
                 progress.current_level = 1
                 for sub_ty in range(2):
                     for sub_tx in range(2):
@@ -379,7 +379,7 @@ def _generate_tiles(filename: str, file_path: str):
                             obj_sub.close()
                         progress.generated_tiles += 1
 
-                # ── stage 0 sub-tiles (8x8, 각 1024 그대로) ──
+                # ── stage 0 sub-tiles (8x8, text 1024 text) ──
                 progress.current_level = 0
                 for sub_ty in range(8):
                     for sub_tx in range(8):
@@ -402,7 +402,7 @@ def _generate_tiles(filename: str, file_path: str):
                             obj_tile0.close()
                         progress.generated_tiles += 1
 
-                # 큰 버퍼 즉시 해제 — 다음 스텝 전 메모리 확보
+                # text text text text — text text text text text
                 obj_region.close()
                 try:
                     obj_rgb.close()
@@ -410,7 +410,7 @@ def _generate_tiles(filename: str, file_path: str):
                     pass
                 del obj_region, obj_rgb
 
-        # 완료 마커 — 현재 슬라이드의 ICC 해시 + 실제 적용 여부 기록
+        # text text — text text ICC text + text text text text
         _write_complete_marker(
             tiles_dir,
             str_icc_hash=str_icc_hash,
@@ -420,7 +420,7 @@ def _generate_tiles(filename: str, file_path: str):
         progress.status = "completed"
         slide.close()
 
-        # DB 플래그 마킹 (백그라운드 스레드 → 메인 루프로 스케줄)
+        # DB text text (text text → text text text)
         try:
             from app import slide_store
             slide_store.mark_tiles_ready_threadsafe(file_path)
@@ -431,19 +431,19 @@ def _generate_tiles(filename: str, file_path: str):
         progress.status = "error"
         progress.error = str(e)
     finally:
-        # 부분 실패 정리 — 마커가 쓰이기 전에 예외가 발생했다면 .complete 없는
-        # 불완전 타일 디렉토리가 남는다. 다음 실행에서 tiles_are_valid 가
-        # False 를 내리고 invalidate_tiles 가 불릴 테지만, 혼재 상태에서
-        # 뷰어가 404/깨진 타일을 보는 윈도우를 줄이기 위해 여기서 바로 지운다.
-        # thumbnail 은 유용하지만 이후 재생성 시 어차피 overwrite 되므로 함께 삭제.
+        # text text text — text text text text text .complete text
+        # text text text text. text text tiles_are_valid text
+        # False text text invalidate_tiles text text text, text text
+        # text 404/text text text text text text text text text.
+        # thumbnail text text text text text text overwrite text text text.
         if not bool_completed and tiles_dir.exists():
             try:
                 shutil.rmtree(tiles_dir, ignore_errors=True)
-                print(f"[tile_generator] 부분 실패 → {tiles_dir} 정리됨")
+                print(f"[tile_generator] text text → {tiles_dir} text")
             except Exception as exc_cleanup:
-                print(f"[tile_generator] cleanup 실패 ({filename}): {exc_cleanup}")
+                print(f"[tile_generator] cleanup text ({filename}): {exc_cleanup}")
 
-        # 완료 후 일정 시간 뒤 progress 정리
+        # text text text text text progress text
         def _cleanup():
             time.sleep(60)
             with _progress_lock:

@@ -1,10 +1,10 @@
-"""슬라이드 DB 관리 — MongoDB `slides` 컬렉션 helper
+"""text DB text — MongoDB `slides` text helper
 
-Claude.md 규칙 준수 (str_/int_/bool_/dict_/list_/dt_ 접두어).
+Claude.md text text (str_/int_/bool_/dict_/list_/dt_ text).
 
-- `slides` 컬렉션은 업로드된 WSI 파일의 메타데이터 + AI 결과 플래그를 저장.
-- DB 미연결 시 모든 helper 는 no-op (None 리턴) — 파일 시스템 기반 동작은 유지.
-- (str_rel_path, str_filename) 쌍이 unique — 같은 폴더에 같은 파일명 중복 금지.
+- `slides` text text WSI text text + AI text text text.
+- DB text text text helper text no-op (None text) — text text text text text.
+- (str_rel_path, str_filename) text unique — text text text text text text.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from typing import Optional
 from app.database import get_db, is_db_connected, get_main_loop
 
 
-# AI 모델 종류 (dict_ai_results 의 key)
+# AI text text (dict_ai_results text key)
 LIST_AI_MODEL_KEYS = ["Quanti HE", "Quanti PD-L1", "Quanti IHC", "VS IHC"]
 DICT_LEGACY_AI_MODEL_KEYS = {
     "HE-Fit": "Quanti HE",
@@ -30,7 +30,7 @@ DICT_CURRENT_TO_LEGACY_AI_MODEL_KEYS = {
     for str_legacy, str_current in DICT_LEGACY_AI_MODEL_KEYS.items()
 }
 
-# 슬라이드 리뷰 상태 (str_status). "" = none.
+# text text text (str_status). "" = none.
 SET_SLIDE_STATUSES = {
     "",
     "pending", "in_progress", "done", "flagged",
@@ -39,7 +39,7 @@ SET_SLIDE_STATUSES = {
 
 
 def _empty_ai_results() -> dict:
-    """dict_ai_results 기본값 — 모델별 bool/list/dt 플레이스홀더."""
+    """dict_ai_results text — text bool/list/dt text."""
     return {
         str_key: {
             "bool_has_result": False,
@@ -63,7 +63,7 @@ def _safe_ai_facet_key(str_model: str) -> str:
 
 
 def _norm_rel_path(str_rel_path: str) -> str:
-    """rel_path 정규화 — 앞뒤 슬래시 제거, 역슬래시 → 슬래시."""
+    """rel_path text — text text text, text → text."""
     if not str_rel_path:
         return ""
     return str_rel_path.replace("\\", "/").strip("/")
@@ -89,10 +89,10 @@ async def upsert_slide(
     str_uploaded_by: str = "",
     str_last_opened_page: str = "ai",
 ) -> Optional[dict]:
-    """슬라이드 업로드/열기 시 DB 업서트.
+    """text text/text text DB text.
 
-    - 신규: dict_ai_results 기본값 + 업로드 정보 세팅
-    - 기존: 파일 경로/메타 갱신 + dt_last_opened_at 터치 (ai_results 유지)
+    - text: dict_ai_results text + text text text
+    - text: text text/text text + dt_last_opened_at text (ai_results text)
     """
     if not is_db_connected():
         return None
@@ -137,7 +137,7 @@ async def upsert_slide(
 
 
 async def touch_last_opened(str_rel_path: str, str_filename: str, str_open_page: str = "ai") -> None:
-    """슬라이드 열기 시 dt_last_opened_at 갱신."""
+    """text text text dt_last_opened_at text."""
     if not is_db_connected():
         return
     db = get_db()
@@ -157,10 +157,10 @@ async def mark_ai_result(
     str_model: str,
     str_variant: str = "",
 ) -> None:
-    """AI 결과 캐시 생성 직후 호출 — 해당 모델 플래그 true + variant 추가.
+    """AI text text text text text — text text text true + variant text.
 
-    str_model: LIST_AI_MODEL_KEYS 중 하나 ("Quanti HE"/"Quanti PD-L1"/"Quanti IHC"/"VS IHC")
-    str_variant: tissue_type/marker/stain_type 등 — 중복 없이 list_variants 에 추가.
+    str_model: LIST_AI_MODEL_KEYS text text ("Quanti HE"/"Quanti PD-L1"/"Quanti IHC"/"VS IHC")
+    str_variant: tissue_type/marker/stain_type text — text text list_variants text text.
     """
     if not is_db_connected():
         return
@@ -189,19 +189,19 @@ async def mark_ai_result(
             dict_update,
         )
     except Exception as e:
-        # MongoDB write error (예: dict_ai_results.Quanti HE 가 array 가 아니라 다른 타입)
-        # 가 코루틴에서 발생하면 main loop 의 unhandled exception 으로 묻혀버린다.
-        # 여기서 잡아 명시적으로 출력 → auto_ai 가 같은 슬라이드를 매 사이클 다시
-        # 추론하는 원인을 즉시 알 수 있다.
+        # MongoDB write error (text: dict_ai_results.Quanti HE text array text text text text)
+        # text text text main loop text unhandled exception text text.
+        # text text text text → auto_ai text text text text text text
+        # text text text text text text.
         print(f"[slide_store] mark_ai_result update failed "
               f"rel='{str_rel_path}' name='{str_filename}' model={str_model} "
               f"variant={str_variant}: {e!r}")
         return
 
     if result.matched_count == 0:
-        # auto_ai 가 list_slides_missing_variant 로 슬라이드를 찾았는데 mark_ai_result
-        # 의 동일 path 검색이 매칭되지 않으면 다음 사이클에서 같은 슬라이드를 또 추론한다.
-        # 보통 rel_path 정규화 차이 때문 — 진단 위해 출력.
+        # auto_ai text list_slides_missing_variant text text text mark_ai_result
+        # text text path text text text text text text text text text.
+        # text rel_path text text text — text text text.
         print(f"[slide_store] mark_ai_result NO MATCH "
               f"rel='{str_rel_path}' name='{str_filename}' model={str_model} "
               f"variant={str_variant} — slide doc not found, AI flag NOT persisted")
@@ -212,11 +212,11 @@ def mark_ai_result_threadsafe(
     str_model: str,
     str_variant: str = "",
 ) -> None:
-    """백그라운드 스레드 (AI 추론 워커) 에서 호출하는 sync wrapper.
+    """text text (AI text text) text text sync wrapper.
 
-    `str_full_slide_path` 로부터 uploads/ 기준 상대 경로 + 파일명을 계산해
-    메인 이벤트 루프에 `mark_ai_result` 코루틴을 스케줄링한다.
-    DB 미연결 / 루프 없음 / 경로 계산 실패 시 조용히 no-op.
+    `str_full_slide_path` text uploads/ text text text + text text
+    text text text `mark_ai_result` text text.
+    DB text / text text / text text text text text no-op.
     """
     if not is_db_connected():
         return
@@ -250,7 +250,7 @@ async def mark_tiles_ready(
     str_filename: str,
     bool_ready: bool = True,
 ) -> None:
-    """뷰어 타일 생성 완료 플래그 설정."""
+    """text text text text text text."""
     if not is_db_connected():
         return
     db = get_db()
@@ -269,7 +269,7 @@ async def mark_tiles_ready(
 
 
 def mark_tiles_ready_threadsafe(str_full_slide_path: str) -> None:
-    """tile_generator 백그라운드 스레드에서 호출 — 메인 이벤트 루프에 스케줄."""
+    """tile_generator text text text — text text text text."""
     if not is_db_connected():
         return
     loop = get_main_loop()
@@ -296,7 +296,7 @@ def mark_tiles_ready_threadsafe(str_full_slide_path: str) -> None:
 
 
 async def list_slides_missing_tiles() -> list:
-    """뷰어 타일이 아직 준비 안 된 슬라이드 — 오래된 업로드부터."""
+    """text text text text text text text — text text."""
     if not is_db_connected():
         return []
     db = get_db()
@@ -309,7 +309,7 @@ async def list_slides_missing_tiles() -> list:
 
 
 async def has_any_pending_tiles() -> bool:
-    """타일 생성이 끝나지 않은 슬라이드가 하나라도 있는지."""
+    """text text text text text text text."""
     if not is_db_connected():
         return False
     db = get_db()
@@ -317,7 +317,7 @@ async def has_any_pending_tiles() -> bool:
 
 
 async def delete_slide(str_rel_path: str, str_filename: str) -> None:
-    """슬라이드 파일 삭제 시 DB 문서 제거."""
+    """text text text text DB text text."""
     if not is_db_connected():
         return
     db = get_db()
@@ -333,7 +333,7 @@ async def set_slide_status(
     str_status: str,
     str_scope: str = "",
 ) -> None:
-    """슬라이드 리뷰 상태 설정 — "" 는 상태 제거."""
+    """text text text text — "" text text text."""
     if not is_db_connected():
         return
     if str_status not in SET_SLIDE_STATUSES:
@@ -364,7 +364,7 @@ async def move_slide(
     str_dst_path: str,
     str_new_full_path: str,
 ) -> None:
-    """파일 이동 시 DB 의 rel_path / full_path 갱신."""
+    """text text text DB text rel_path / full_path text."""
     if not is_db_connected():
         return
     db = get_db()
@@ -383,7 +383,7 @@ async def move_slide(
 
 
 async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
-    """폴더 이름 변경 시 해당 폴더 아래의 모든 슬라이드의 rel_path 재작성."""
+    """text text text text text text text text text rel_path text."""
     if not is_db_connected():
         return
     db = get_db()
@@ -391,7 +391,7 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
     str_new_path = _norm_rel_path(str_new_path)
     dt_now = datetime.now(timezone.utc)
 
-    # 정확 일치 + 하위 경로 모두 변경
+    # text text + text text text text
     str_child_regex = f"^{re.escape(str_old_path)}/"
     async for dict_doc in db.slides.find({
         "$or": [
@@ -493,7 +493,7 @@ async def repair_folder_ai_config_paths() -> int:
 
 
 async def list_slides_in_folder(str_rel_path: str) -> dict:
-    """특정 폴더 내 모든 슬라이드 문서 — {filename: doc} 딕셔너리로 반환."""
+    """text text text text text text — {filename: doc} text text."""
     if not is_db_connected():
         return {}
     db = get_db()
@@ -509,12 +509,12 @@ async def list_slides_missing_variant(
     str_model: str,
     str_variant: str,
 ) -> list:
-    """폴더 내에서 (model, variant) 결과가 아직 없는 슬라이드만 DB 질의로 반환.
+    """text text (model, variant) text text text text DB text text.
 
-    `dict_ai_results.{model}.list_variants` 배열에 해당 variant 가 없는 도큐먼트만
-    골라 오므로 auto_ai 가 폴더 전체를 순회할 필요가 없다. VS IHC 는 DB 에 target_mpp
-    를 기록하지 않으므로 이 함수로는 "base model 단계" 필터링만 하고, per-mpp 캐시
-    존재 확인은 호출자가 따로 수행해야 한다.
+    `dict_ai_results.{model}.list_variants` text text variant text text text
+    text text auto_ai text text text text text text. VS IHC text DB text target_mpp
+    text text text text text "base model text" text text, per-mpp text
+    text text text text text text.
     """
     if not is_db_connected():
         return []
@@ -547,13 +547,13 @@ async def get_slide(str_rel_path: str, str_filename: str) -> Optional[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 대시보드 — 최근 슬라이드 / AI 통계 집계
+# text — text text / AI text text
 # ═══════════════════════════════════════════════════════════════════
 
 async def get_recent_slides(int_limit: int = 12) -> list:
-    """최근 열어본 슬라이드 (dt_last_opened_at 내림차순).
+    """text text text (dt_last_opened_at text).
 
-    실제 파일이 디스크에 존재하는 슬라이드만 반환.
+    text text text text text text.
     """
     if not is_db_connected():
         return []
@@ -562,7 +562,7 @@ async def get_recent_slides(int_limit: int = 12) -> list:
     db = get_db()
     upload_dir = Path(settings.UPLOAD_DIR).resolve()
     list_out = []
-    # 삭제된 파일이 섞여 있을 수 있으므로 여유 있게 조회
+    # text text text text text text text text text
     async for dict_doc in db.slides.find(
         {"dt_last_opened_at": {"$ne": None}},
     ).sort("dt_last_opened_at", -1).limit(int_limit * 3):
@@ -577,11 +577,11 @@ async def get_recent_slides(int_limit: int = 12) -> list:
 
 _disk_cache: dict = {}
 _disk_cache_ts: float = 0.0
-_DISK_CACHE_TTL = 60.0  # 60초 캐시
+_DISK_CACHE_TTL = 60.0  # 60text text
 
 
 def _compute_disk_stats_sync() -> dict:
-    """디스크 통계 (동기) — 스레드풀에서 실행."""
+    """text text (text) — text text."""
     from app.config import settings
     import os
     import shutil
@@ -619,7 +619,7 @@ def _compute_disk_stats_sync() -> dict:
 
 
 async def _get_disk_stats_cached() -> dict:
-    """디스크 통계를 캐시 + 스레드풀로 논블로킹 제공."""
+    """text text text + text text text."""
     import asyncio
     import time
     global _disk_cache, _disk_cache_ts
@@ -636,7 +636,7 @@ async def _get_disk_stats_cached() -> dict:
 
 
 async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
-    """대시보드 통계: 슬라이드 수, AI 결과 수, 폴더 수, 디스크 사용량."""
+    """text text: text text, AI text text, text text, text text."""
     dict_result = {
         "int_total_slides": 0,
         "dict_ai_counts": {},
@@ -646,7 +646,7 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
         "int_storage_total_bytes": 0,
     }
 
-    # 디스크 통계 — 캐시 + 스레드풀 (이벤트 루프 블로킹 방지)
+    # text text — text + text (text text text text)
     if bool_include_disk:
         dict_disk = await _get_disk_stats_cached()
         dict_result.update(dict_disk)
@@ -656,7 +656,7 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
 
     db = get_db()
 
-    # 단일 aggregation 파이프라인으로 총 슬라이드 수 + 상태별 + AI별 카운트 한 번에 조회
+    # text aggregation text text text text + text + AItext text text text text
     pipeline = [
         {"$facet": {
             "total": [{"$count": "n"}],
@@ -682,11 +682,11 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
     dict_facet = await cursor.to_list(length=1)
     if dict_facet:
         facet = dict_facet[0]
-        # 총 슬라이드 수
+        # text text text
         total_list = facet.get("total", [])
         dict_result["int_total_slides"] = total_list[0]["n"] if total_list else 0
 
-        # 상태별 카운트
+        # text text
         for doc in facet.get("by_status", []):
             str_s = doc["_id"]
             if str_s == "" or str_s is None:
@@ -694,7 +694,7 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
             else:
                 dict_result["dict_status_counts"][str_s] = doc["n"]
 
-        # AI 모델별 카운트
+        # AI text text
         for str_k in LIST_AI_MODEL_KEYS:
             safe_key = _safe_ai_facet_key(str_k)
             ai_list = facet.get(safe_key, [])
@@ -704,7 +704,7 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# user_ai_edits — 사용자별 세포 편집본 (원본 추론 캐시는 유지)
+# user_ai_edits — text text text (text text text text)
 # ═══════════════════════════════════════════════════════════════════
 
 async def upsert_user_ai_edit(
@@ -718,10 +718,10 @@ async def upsert_user_ai_edit(
     str_file_path: str,
     int_total_cells: int,
 ) -> None:
-    """현재 로그인한 사용자의 편집본 **메타** 를 `user_ai_edits` 에 upsert (최신본만 유지).
+    """text text text text **text** text `user_ai_edits` text upsert (text text).
 
-    실제 셀 결과 JSON 은 디스크(str_file_path) 에 저장되고, 여기서는 경로/총 셀 수/
-    사용자/시각만 DB 에 기록한다.
+    text text text JSON text text(str_file_path) text text, text text/text text text/
+    text/text DB text text.
     """
     if not is_db_connected():
         return
@@ -774,7 +774,7 @@ async def list_user_ai_edits(
     str_ai_mode: str,
     str_variant: str,
 ) -> list:
-    """특정 슬라이드+모드+variant 에 대해 저장본을 가진 사용자 목록."""
+    """text text+text+variant text text text text text text."""
     if not is_db_connected():
         return []
     str_ai_mode = _norm_ai_model_key(str_ai_mode)
@@ -818,7 +818,7 @@ async def delete_user_ai_edit(
     str_variant: str,
     str_user_id: str,
 ) -> Optional[dict]:
-    """사용자 편집본 메타 삭제. 삭제된 문서(특히 str_file_path) 반환 — 호출자가 파일도 지움."""
+    """text text text text. text text(text str_file_path) text — text text text."""
     if not is_db_connected():
         return None
     str_ai_mode = _norm_ai_model_key(str_ai_mode)
@@ -838,7 +838,7 @@ async def get_user_ai_edit(
     str_variant: str,
     str_user_id: str,
 ) -> Optional[dict]:
-    """특정 사용자의 편집본 전체 결과."""
+    """text text text text text."""
     if not is_db_connected():
         return None
     str_ai_mode = _norm_ai_model_key(str_ai_mode)
@@ -853,7 +853,7 @@ async def get_user_ai_edit(
 
 
 def serialize_slide_doc(dict_doc: dict) -> dict:
-    """MongoDB 문서 → JSON-friendly dict (ObjectId/datetime 제거)."""
+    """MongoDB text → JSON-friendly dict (ObjectId/datetime text)."""
     if not dict_doc:
         return {}
     dict_out = {}

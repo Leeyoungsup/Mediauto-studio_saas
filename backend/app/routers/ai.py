@@ -1,9 +1,9 @@
 """
-AI 분석 API — Detection / Quanti PD-L1 / Quanti IHC / Virtual Stain 라우팅 레이어.
+AI text API — Detection / Quanti PD-L1 / Quanti IHC / Virtual Stain text text.
 
-워커/모델 로직은 app/ai_pipelines/ 패키지로 분리되어 있고, 사용자 편집본
-라우트는 app/routers/ai_user_edits.py 의 서브 라우터에서 처리한다. 이 모듈은
-요청을 받아 task_id 를 발급하고 백그라운드 스레드를 띄우는 얇은 라우팅 레이어다.
+text/text text app/ai_pipelines/ text text text, text text
+text app/routers/ai_user_edits.py text text text text. text text
+text text task_id text text text text text text text text.
 """
 import asyncio
 import json
@@ -22,12 +22,12 @@ from app.config import settings
 from app.database import get_db, is_db_connected
 from app.slide_manager import slide_manager
 
-# 기존 AI 코드 경로 추가 — ai_pipelines 의 워커들이 ai/ 모듈을 import 할 수 있게 한다.
+# text AI text text text — ai_pipelines text text ai/ text import text text text text.
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# 공유 task 상태 — 라우트가 새 task 등록 / 조회 시 직접 사용한다.
+# text task text — text text task text / text text text text.
 from app.ai_pipelines.task_state import (
     _tasks,
     _tasks_lock,
@@ -35,13 +35,13 @@ from app.ai_pipelines.task_state import (
     release_task_result,
 )
 
-# 캐시 경로 — VS 결과 PNG/타일 서빙 라우트에서 사용.
+# text text — VS text PNG/text text text text.
 from app.ai_pipelines.cache_paths import (
     get_vs_cache_paths as _get_vs_cache_paths,
     get_vs_tile_dir as _get_vs_tile_dir,
 )
 
-# 백그라운드 워커 — threading.Thread(target=...) 로 호출.
+# text text — threading.Thread(target=...) text text.
 from app.ai_pipelines.detection import run_detection as _run_detection
 from app.ai_pipelines.marker_pipeline import (
     run_pd_score as _run_pd_score,
@@ -55,11 +55,11 @@ from ai.quanti_ihc import PRECISE_IHC_CONFIG
 from ai.quanti_pd_l1 import PD_SCORE_CONFIG
 
 
-# Viewer 는 AI 기능 전면 차단 — 트리거/조회/결과 저장 모두 거부.
+# Viewer text AI text text text — text/text/text text text text.
 router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_viewer)])
 
-# Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
-# main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
+# Virtual stain text text text text — <img src> text ?mt= text text.
+# main.py text text prefix("/api/ai") text text include text.
 media_router = APIRouter(dependencies=[Depends(get_media_user)])
 
 def _read_vs_tile_size(path_meta: Path) -> int:
@@ -190,7 +190,7 @@ async def _log_ai_analyze(
     str_filename: str,
     str_task_id: str,
 ) -> None:
-    """AI 분석 트리거 감사 로그 — 관리자 활동 추적용."""
+    """AI text text text text — text text text."""
     try:
         await log_audit_event(
             str_action="ai.analyze",
@@ -212,7 +212,7 @@ async def _log_ai_analyze(
         pass
 
 
-# ═══ API 엔드포인트 ═══
+# ═══ API text ═══
 
 @router.post("/detect")
 async def start_detection(
@@ -222,10 +222,10 @@ async def start_detection(
     tissue_type: str = Form("Stomach"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """검출 작업 시작 (비동기)"""
+    """text text text (text)"""
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
@@ -258,12 +258,12 @@ async def start_pd_score(
     tissue_type: str = Form("Stomach"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Quanti PD-L1 추론 시작 (Stomach → CPS, Lung → TPS)"""
+    """Quanti PD-L1 text text (Stomach → CPS, Lung → TPS)"""
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
     if tissue_type not in PD_SCORE_CONFIG:
-        raise HTTPException(400, f"지원하지 않는 조직 타입: {tissue_type}")
+        raise HTTPException(400, f"text text text text: {tissue_type}")
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
@@ -296,12 +296,12 @@ async def start_precise_ihc(
     marker: str = Form("HER2"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Quanti IHC 추론 시작 (marker: HER2 / ER_PR / KI_67)"""
+    """Quanti IHC text text (marker: HER2 / ER_PR / KI_67)"""
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
     if marker not in PRECISE_IHC_CONFIG:
-        raise HTTPException(400, f"지원하지 않는 marker: {marker}")
+        raise HTTPException(400, f"text text marker: {marker}")
 
     task_id = uuid.uuid4().hex[:12]
     polygons = json.loads(roi_polygons) if roi_polygons else None
@@ -328,9 +328,9 @@ async def start_precise_ihc(
 
 @router.get("/active-tasks")
 async def get_active_tasks():
-    """현재 queued/running 상태인 AI 작업을 슬라이드 파일명 기준으로 그룹화하여 반환.
+    """text queued/running text AI text text text text text text.
 
-    응답 형식:
+    text text:
         {"active": {filename: [{"model": ..., "variant": ..., "status": ...}, ...], ...}}
     """
     dict_active: dict[str, list] = {}
@@ -352,17 +352,17 @@ async def get_active_tasks():
 
 @router.get("/task/{task_id}")
 async def get_task_status(task_id: str):
-    """AI 작업 상태 조회.
+    """AI text text text.
 
-    완료된 작업의 `result` 는 수백 MB dict 가 될 수 있으므로 JSON 직렬화를
-    스레드풀로 오프로드한다. 이벤트 루프에서 직렬화하면 같은 시간 동안
-    타일 서빙이 밀린다.
+    text text `result` text text MB dict text text text text JSON text
+    text text. text text text text text text
+    text text text.
     """
     cleanup_old_tasks()
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
-        raise HTTPException(404, "작업을 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
 
     response = {
         "task_id": task_id,
@@ -380,15 +380,15 @@ async def get_task_status(task_id: str):
 
 @router.post("/task/{task_id}/cancel")
 async def cancel_task(task_id: str):
-    """실행 중인 AI 작업 취소 요청.
+    """text text AI text text text.
 
-    - queued/running 이면 cancel_requested 플래그 세팅 → 워커가 다음 체크포인트에서 중단
-    - 워커는 부분 저장된 캐시(JSON/PNG/타일 폴더)를 삭제해 다음 실행 시 충돌 방지
+    - queued/running text cancel_requested text text → text text text text
+    - text text text text(JSON/PNG/text text)text text text text text text text
     """
     with _tasks_lock:
         task = _tasks.get(task_id)
         if not task:
-            raise HTTPException(404, "작업을 찾을 수 없습니다")
+            raise HTTPException(404, "text text text text")
         str_status = task.get("status")
         if str_status in ("completed", "error", "cancelled"):
             return {"task_id": task_id, "status": str_status, "msg": "already finished"}
@@ -400,13 +400,13 @@ async def cancel_task(task_id: str):
 
 @router.get("/task/{task_id}/result")
 async def get_task_result(task_id: str):
-    """AI 작업 결과 조회. 대용량 result dict 는 스레드풀에서 직렬화."""
+    """AI text text text. text result dict text text text."""
     with _tasks_lock:
         task = _tasks.get(task_id)
     if not task:
-        raise HTTPException(404, "작업을 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
     if task["status"] != "completed":
-        raise HTTPException(400, f"작업 미완료 (status: {task['status']})")
+        raise HTTPException(400, f"text text (status: {task['status']})")
 
     obj_result = task.get("result")
     if obj_result is None:
@@ -419,8 +419,8 @@ async def get_task_result(task_id: str):
     return Response(content=bytes_body, media_type="application/json")
 
 
-# 사용자 편집본 라우트(/save-result, /user-edits/*) — ai_user_edits 서브 라우터로 분리.
-# 부모 router 의 인증 의존성(get_current_user, require_not_viewer) 을 그대로 상속한다.
+# text text text(/save-result, /user-edits/*) — ai_user_edits text text text.
+# text router text text text(get_current_user, require_not_viewer) text text text.
 from app.routers.ai_user_edits import router as _user_edits_router
 router.include_router(_user_edits_router)
 
@@ -434,10 +434,10 @@ async def start_virtual_stain(
     roi_polygons: Optional[str] = Form(None),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Virtual stain (VS IHC) 작업 시작 (비동기)"""
+    """Virtual stain (VS IHC) text text (text)"""
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
     if stain_type not in VS_MODEL_FILES:
         raise HTTPException(400, f"Unknown stain type: {stain_type}")
 
@@ -480,10 +480,10 @@ async def get_virtual_stain_tile_manifest(
 @router.get("/virtual-stain/{slide_id}/{stain_type}.png")
 async def get_virtual_stain_image(slide_id: str, stain_type: str,
                                   target_mpp: float = Query(2.0)):
-    """Virtual stain 캐시 PNG 서빙 (전체 추론 결과, PDF/리포트용)"""
+    """Virtual stain text PNG text (text text text, PDF/text)"""
     info = slide_manager.get(slide_id)
     if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
+        raise HTTPException(404, "text text text text")
     png_path, _ = _get_vs_cache_paths(info.file_path, target_mpp)
     if not png_path.exists():
         raise HTTPException(404, "Virtual stain image not found")
@@ -500,8 +500,8 @@ async def get_virtual_stain_tile(
     target_mpp: float = Query(2.0),
 ):
     """
-    Virtual stain 피라미드 타일 서빙.
-    디스크에 있으면 정적 서빙, 없으면 404 (빈/흰 타일은 생성 안 함).
+    Virtual stain text text text.
+    text text text text, text 404 (text/text text text text text).
     """
     str_slide_path = await _resolve_vs_slide_path(slide_id)
     if not str_slide_path:

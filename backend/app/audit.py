@@ -1,10 +1,10 @@
-"""감사 로그 (Audit Trail) 미들웨어 및 유틸리티
+"""text text (Audit Trail) text text text
 
-병원 환경 필수: 모든 접근 기록을 최소 5년 보관
-- 누가, 언제, 어디서, 어떤 작업을 했는지 기록
-- 불변 로그 (수정/삭제 불가)
-- 로그인/슬라이드 열람/AI 분석 등 행위별 action 분류
-- HMAC 서명 체인: 각 로그에 이전 로그의 HMAC을 포함해 변조 감지
+text text text: text text text text 5text text
+- text, text, text, text text text text
+- text text (text/text text)
+- text/text text/AI text text text action text
+- HMAC text text: text text text text HMACtext text text text
 """
 
 import hashlib
@@ -16,10 +16,10 @@ from fastapi import Request
 
 from app.database import get_db
 
-# ── HMAC 체인 서명키 (JWT 시크릿에서 파생) ──
+# ── HMAC text text (JWT text text) ──
 _AUDIT_HMAC_KEY: bytes = b""
 
-# ── 마지막 HMAC 메모리 캐시 (매번 DB 조회 제거) ──
+# ── text HMAC text text (text DB text text) ──
 _last_hmac: str = ""
 _last_hmac_loaded: bool = False
 
@@ -35,12 +35,12 @@ def _get_hmac_key() -> bytes:
 
 
 def _compute_log_hmac(dict_log: dict, str_prev_hmac: str = "") -> str:
-    """로그 내용 + 이전 HMAC → 현재 HMAC 계산.
+    """text text + text HMAC → text HMAC text.
 
-    체인 구조: 각 HMAC 에 이전 로그의 HMAC 이 포함되어
-    중간 로그 삭제/수정 시 체인이 끊어짐.
+    text text: text HMAC text text text HMAC text text
+    text text text/text text text text.
     """
-    # 서명 대상 필드만 추출 (순서 보장)
+    # text text text text (text text)
     list_fields = [
         str(dict_log.get("str_action", "")),
         str(dict_log.get("str_user_id", "")),
@@ -59,7 +59,7 @@ def _compute_log_hmac(dict_log: dict, str_prev_hmac: str = "") -> str:
 
 
 async def _ensure_last_hmac_loaded():
-    """앱 시작 후 첫 호출 시 DB에서 마지막 HMAC을 한 번만 로드."""
+    """text text text text text text DBtext text HMACtext text text text."""
     global _last_hmac, _last_hmac_loaded
     if _last_hmac_loaded:
         return
@@ -76,7 +76,7 @@ async def _ensure_last_hmac_loaded():
     _last_hmac_loaded = True
 
 
-# ── 감사 로그 기록 ──
+# ── text text text ──
 async def log_audit_event(
     str_action: str,
     str_user_id: Optional[str] = None,
@@ -90,19 +90,19 @@ async def log_audit_event(
     dict_before: Optional[dict] = None,
     dict_after: Optional[dict] = None,
 ) -> Optional[str]:
-    """감사 이벤트를 audit_logs 컬렉션에 기록.
+    """text text audit_logs text text.
 
-    HMAC 체인: 이전 로그의 HMAC 을 참조하여 변조 감지 가능.
-    dict_before / dict_after: 변경 전/후 값 (21 CFR Part 11 요건).
+    HMAC text: text text HMAC text text text text text.
+    dict_before / dict_after: text text/text text (21 CFR Part 11 text).
 
     Returns:
-        삽입된 로그의 _id 문자열 (후처리 업데이트용). DB 미연결 시 None.
+        text text _id text (text text). DB text text None.
     """
     global _last_hmac
 
     db = get_db()
 
-    # 이전 HMAC — 메모리 캐시에서 가져옴 (첫 호출 시만 DB 조회)
+    # text HMAC — text text text (text text text DB text)
     await _ensure_last_hmac_loaded()
     str_prev_hmac = _last_hmac
 
@@ -119,7 +119,7 @@ async def log_audit_event(
         "str_prev_hmac": str_prev_hmac,
     }
 
-    # 변경 전/후 값
+    # text text/text text
     if dict_before is not None:
         dict_log["dict_before"] = dict_before
     if dict_after is not None:
@@ -130,23 +130,23 @@ async def log_audit_event(
             if str_k not in dict_log:
                 dict_log[str_k] = v
 
-    # HMAC 서명
+    # HMAC text
     str_new_hmac = _compute_log_hmac(dict_log, str_prev_hmac)
     dict_log["str_hmac"] = str_new_hmac
 
     result = await db.audit_logs.insert_one(dict_log)
 
-    # 캐시 갱신 — 다음 로그는 DB 조회 없이 이 값 사용
+    # text text — text text DB text text text text text
     _last_hmac = str_new_hmac
 
     return str(result.inserted_id)
 
 
 def _get_trusted_proxies() -> set:
-    """env TRUSTED_PROXIES 에 적힌 IP/CIDR 들 — 이 목록에 들어 있는 peer 만
-    X-Forwarded-For / X-Real-IP 헤더의 값을 신뢰한다. 빈 값(기본) 이면 헤더 무시.
+    """env TRUSTED_PROXIES text text IP/CIDR text — text text text text peer text
+    X-Forwarded-For / X-Real-IP text text text. text text(text) text text text.
 
-    예: TRUSTED_PROXIES=127.0.0.1,10.0.0.5
+    text: TRUSTED_PROXIES=127.0.0.1,10.0.0.5
     """
     import os as _os
     raw = _os.environ.get("TRUSTED_PROXIES", "")
@@ -157,13 +157,13 @@ _SET_TRUSTED_PROXIES_CACHE: set = _get_trusted_proxies()
 
 
 def get_client_ip(request: Request) -> str:
-    """클라이언트 IP 추출.
+    """text IP text.
 
-    리버스 프록시 뒤에서 동작할 수 있도록 X-Forwarded-For / X-Real-IP 를 지원하되,
-    **TCP peer (`request.client.host`) 가 TRUSTED_PROXIES env 에 등록된 경우에만**
-    신뢰한다. 그 외엔 헤더는 무시하고 peer 주소만 반환 — 직접 노출된 환경에서
-    임의 클라이언트가 헤더 위조로 rate_limit 을 우회하거나 audit log 에 가짜
-    IP 를 남기는 것을 막는다.
+    text text text text text text X-Forwarded-For / X-Real-IP text text,
+    **TCP peer (`request.client.host`) text TRUSTED_PROXIES env text text text**
+    text. text text text text peer text text — text text text
+    text text text text rate_limit text text audit log text text
+    IP text text text text.
     """
     str_peer = request.client.host if request.client else "unknown"
     if _SET_TRUSTED_PROXIES_CACHE and str_peer in _SET_TRUSTED_PROXIES_CACHE:

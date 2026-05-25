@@ -1,12 +1,12 @@
 """
 Epithelial Cell Reclassification using WSI Segmentation
 
-조직 분할(segmentation) 결과와 세포 검출을 조합하여
-Epithelial cell을 조직 영역별로 재분류하는 모듈
+text text(segmentation) text text text text
+Epithelial celltext text text text text
 
-- Tumor-epithelial: Tumor 영역의 상피세포
-- NT-epithelial: Non_Tumor 영역의 상피세포
-- Stroma-epithelial: Stroma/Background 영역의 상피세포
+- Tumor-epithelial: Tumor text text
+- NT-epithelial: Non_Tumor text text
+- Stroma-epithelial: Stroma/Background text text
 """
 
 import os
@@ -252,8 +252,8 @@ class WSISegmentationModel:
 
         print(f"Reading from level {read_level} (downsample: {level_downsample:.2f})")
 
-        # 패치를 output 해상도로 직접 리사이즈하여 누산 → 메모리 output_scale² 배 절약
-        # (model_res 크기 대신 output_res 크기로 누산: 예) 8GB → 500MB)
+        # text output text text text text → text output_scale² text text
+        # (model_res text text output_res text text: text) 8GB → 500MB)
         patch_output_size = max(1, int(patch_size / output_scale))
 
         prediction_sum = np.zeros((self.num_classes, output_h, output_w), dtype=np.float32)
@@ -285,9 +285,9 @@ class WSISegmentationModel:
                 
                 patch_coords.append((x_abs, y_abs, x_rel, y_rel))  # (abs_x, abs_y, rel_x, rel_y)
 
-        # ── Pre-scan: tissue mask 기반 유효 패치 필터링 (Detection과 동일 방식) ──
+        # ── Pre-scan: tissue mask text text text text (Detectiontext text text) ──
         try:
-            # 축소 썸네일로 tissue mask 생성
+            # text text tissue mask text
             thumb_downsample = 128
             thumb_w = max(1, int(region_w / thumb_downsample))
             thumb_h = max(1, int(region_h / thumb_downsample))
@@ -296,25 +296,25 @@ class WSISegmentationModel:
                                      max(1, wsi_h // thumb_downsample)))
             )[:, :, :3]
 
-            # Otsu threshold 기반 조직 마스크 (Detection과 동일)
+            # Otsu threshold text text text (Detectiontext text)
             gray = cv2.cvtColor(thumbnail, cv2.COLOR_RGB2GRAY)
             tissue_mask = cv2.threshold(255 - gray, 30, 255, cv2.THRESH_BINARY)[1]
             tissue_mask = cv2.morphologyEx(tissue_mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
             tissue_mask = cv2.morphologyEx(tissue_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
-            # 패치 크기를 썸네일 좌표로 변환
+            # text text text text text
             thumb_patch_w = max(1, int(patch_size_level0 / thumb_downsample))
             thumb_patch_h = max(1, int(patch_size_level0 / thumb_downsample))
 
             valid_patch_coords = []
             for (x_abs, y_abs, x_rel, y_rel) in patch_coords:
-                # region 오프셋 포함한 절대 좌표 → 썸네일 좌표
+                # region text text text text → text text
                 tx = int(x_abs / thumb_downsample)
                 ty = int(y_abs / thumb_downsample)
                 tx2 = min(tx + thumb_patch_w, tissue_mask.shape[1])
                 ty2 = min(ty + thumb_patch_h, tissue_mask.shape[0])
                 if tx < tissue_mask.shape[1] and ty < tissue_mask.shape[0] and tx2 > tx and ty2 > ty:
-                    # 해당 패치 영역에 조직이 있는지 확인 (mask 합 > 0)
+                    # text text text text text text (mask text > 0)
                     if np.sum(tissue_mask[ty:ty2, tx:tx2]) > 0:
                         valid_patch_coords.append((x_abs, y_abs, x_rel, y_rel))
             del thumbnail, tissue_mask
@@ -326,14 +326,14 @@ class WSISegmentationModel:
         if status_callback:
             status_callback(f"Valid patches {n_valid} confirmed, starting inference...")
 
-        # level-0 좌표 → output 해상도 변환 비율 (루프 밖에서 1회 계산)
+        # level-0 text → output text text text (text text 1text text)
         combined_scale = read_scale * output_scale
 
-        # ── 병렬 I/O: 연속 submit + 프리페치 큐 + GPU 추론 오버랩 ─────────
+        # ── text I/O: text submit + text text + GPU text text ─────────
         import time
 
         read_size = int(patch_size_level0 / level_downsample)
-        IO_WORKERS = min(max(2, os.cpu_count() or 4), 8) if image_path else 1  # CPU 코어 기반 (2~8)
+        IO_WORKERS = min(max(2, os.cpu_count() or 4), 8) if image_path else 1  # CPU text text (2~8)
         PREFETCH_BATCHES = 3
 
         # Pre-build flat LUT for PIL Image.point() (C-optimized, avoids NumPy roundtrip)
@@ -346,7 +346,7 @@ class WSISegmentationModel:
         def _read_patch(coord):
             x_abs, y_abs, x_rel, y_rel = coord
             try:
-                # 뷰어 타일 로딩 우선 양보 — SaaS 백엔드에서 no-op
+                # text text text text text — SaaS text no-op
 
                 if image_path:
                     if getattr(_seg_thread_local, 'path', None) != image_path:
@@ -360,7 +360,7 @@ class WSISegmentationModel:
                 # RGBA → RGB
                 rgb = region.convert('RGB')
 
-                # ICC color profile 적용 (slide → sRGB) — C-optimized via Little CMS
+                # ICC color profile text (slide → sRGB) — C-optimized via Little CMS
                 if icc_transform:
                     from PIL import ImageCms
                     ImageCms.applyTransform(rgb, icc_transform, inPlace=True)
@@ -382,7 +382,7 @@ class WSISegmentationModel:
         producer_done = threading.Event()
 
         def _io_producer():
-            """연속 submit 방식: 패치를 개별 제출하고 배치 단위로 큐에 push"""
+            """text submit text: text text text text text text push"""
             try:
                 with ThreadPoolExecutor(max_workers=IO_WORKERS) as io_pool:
                     pending = []
@@ -410,7 +410,7 @@ class WSISegmentationModel:
                                     pass
                             pending.clear()
 
-                    # 남은 패치 처리
+                    # text text text
                     if pending:
                         batch_imgs, batch_coords = [], []
                         for f in pending:
@@ -434,9 +434,9 @@ class WSISegmentationModel:
                 producer_done.set()
                 prefetch_q.put(None)  # sentinel
 
-        # ── 3-스레드 파이프라인: I/O → GPU 추론 → CPU 누산 ──
+        # ── 3-text text: I/O → GPU text → CPU text ──
         infer_q = queue.Queue(maxsize=PREFETCH_BATCHES)   # I/O → GPU
-        accum_q = queue.Queue(maxsize=PREFETCH_BATCHES)   # GPU → 누산
+        accum_q = queue.Queue(maxsize=PREFETCH_BATCHES)   # GPU → text
         infer_done = threading.Event()
         accum_done = threading.Event()
 
@@ -444,7 +444,7 @@ class WSISegmentationModel:
         prod_thread.start()
 
         def _gpu_inference():
-            """GPU 추론 스레드: prefetch_q → 추론 → accum_q"""
+            """GPU text text: prefetch_q → text → accum_q"""
             try:
                 while True:
                     try:
@@ -493,7 +493,7 @@ class WSISegmentationModel:
         infer_thread.start()
 
         def _accumulator():
-            """CPU 누산 스레드: accum_q → prediction_sum/weight_sum에 누산"""
+            """CPU text text: accum_q → prediction_sum/weight_sumtext text"""
             nonlocal processed_valid
             try:
                 while True:
@@ -535,7 +535,7 @@ class WSISegmentationModel:
         accum_thread = threading.Thread(target=_accumulator, daemon=True)
         accum_thread.start()
 
-        # 메인 스레드: 진행률 보고만 담당
+        # text text: text text text
         while not accum_done.is_set():
             accum_done.wait(timeout=1.0)
             current_time = time.time()
@@ -567,8 +567,8 @@ class WSISegmentationModel:
             prediction_sum[c] /= weight_sum
         del weight_sum
 
-        # prediction_sum이 이미 output 해상도 → prob_map 및 prediction_mask 바로 생성
-        prob_map_output = prediction_sum  # (num_classes, output_h, output_w) — 추가 resize 불필요
+        # prediction_sumtext text output text → prob_map text prediction_mask text text
+        prob_map_output = prediction_sum  # (num_classes, output_h, output_w) — text resize text
         prediction_mask = np.argmax(prediction_sum, axis=0).astype(np.uint8)
 
         # Metadata
@@ -679,8 +679,8 @@ class EpithelialClassificationWorker(QThread):
         """
         Reclassify epithelial cells based on segmentation mask + DBSCAN clustering
 
-        DBSCAN으로 인접 epithelial 세포를 관(gland) 단위로 묶은 뒤,
-        클러스터 내 segmentation 결과의 다수결로 통일하여 관 내 일관성 보장.
+        DBSCANtext text epithelial text text(gland) text text text,
+        text text segmentation text text text text text text text.
         """
         import numpy as np
         from sklearn.cluster import DBSCAN
@@ -689,11 +689,11 @@ class EpithelialClassificationWorker(QThread):
         scale_factor = wsi_mpp / output_mpp
         mask_h, mask_w = prediction_mask.shape
 
-        # 1단계: 모든 셀 복사 + epithelial 세포별 seg_class 수집
+        # 1text: text text text + epithelial text seg_class text
         reclassified = []
-        epi_indices = []     # reclassified 리스트 내 인덱스
+        epi_indices = []     # reclassified text text text
         epi_coords = []      # [[x, y], ...]
-        epi_seg_classes = []  # 각 세포의 원본 seg_class
+        epi_seg_classes = []  # text text text seg_class
 
         for cell in cells:
             cell_copy = cell.copy()
@@ -703,21 +703,21 @@ class EpithelialClassificationWorker(QThread):
                 mask_x = int(cell['x'] * scale_factor)
                 mask_y = int(cell['y'] * scale_factor)
 
-                # 단일 픽셀 대신 주변 3×3 영역의 다수결로 seg_class 판정
-                # output_mpp=4.0에서 경계 부근 오분류 완화
-                NEIGHBORHOOD = 1  # 3×3 (중심 ± 1)
+                # text text text text 3×3 text text seg_class text
+                # output_mpp=4.0text text text text text
+                NEIGHBORHOOD = 1  # 3×3 (text ± 1)
                 if 0 <= mask_x < mask_w and 0 <= mask_y < mask_h:
                     y1 = max(0, mask_y - NEIGHBORHOOD)
                     y2 = min(mask_h, mask_y + NEIGHBORHOOD + 1)
                     x1 = max(0, mask_x - NEIGHBORHOOD)
                     x2 = min(mask_w, mask_x + NEIGHBORHOOD + 1)
                     patch = prediction_mask[y1:y2, x1:x2].flatten()
-                    # 다수결 (Background=0 제외, 유효 클래스만 투표)
+                    # text (Background=0 text, text text text)
                     non_bg = patch[patch > 0]
                     if len(non_bg) > 0:
                         seg_class = int(np.bincount(non_bg).argmax())
                     else:
-                        seg_class = int(patch[len(patch) // 2])  # 전부 Background면 중심값
+                        seg_class = int(patch[len(patch) // 2])  # text Backgroundtext text
                 else:
                     seg_class = 0  # Out of bounds → Background
 
@@ -730,14 +730,14 @@ class EpithelialClassificationWorker(QThread):
         epithelial_count = len(epi_indices)
         print(f"Epithelial cells to reclassify: {epithelial_count}")
 
-        # 2단계: DBSCAN 클러스터링 (관 단위 그룹핑)
-        # seg_class를 피처에 포함하여 segmentation 영역이 다른 세포는 클러스터링되지 않도록 함
+        # 2text: DBSCAN text (text text text)
+        # seg_classtext text text segmentation text text text text text text
         if epithelial_count > 0:
             coords_arr = np.array(epi_coords)
             seg_arr_for_cluster = np.array(epi_seg_classes, dtype=np.float64)
 
-            # seg_class에 큰 가중치를 부여하여 다른 영역 세포가 같은 클러스터에 포함되지 않도록 함
-            # seg_penalty > eps 이므로 seg_class가 다르면 절대 같은 클러스터 불가
+            # seg_classtext text text text text text text text text text text text
+            # seg_penalty > eps text seg_classtext text text text text text
             DBSCAN_EPS = 50
             SEG_PENALTY = 200
             feature_arr = np.column_stack([
@@ -747,11 +747,11 @@ class EpithelialClassificationWorker(QThread):
             clustering = DBSCAN(eps=DBSCAN_EPS, min_samples=3).fit(feature_arr)
             labels = clustering.labels_
 
-            # 3단계: 클러스터별 Tumor 비율 판정 — numpy 벡터화
-            # 같은 seg 영역 내에서만 클러스터가 형성되므로 다수결이 안전하게 적용됨
+            # 3text: text Tumor text text — numpy text
+            # text seg text text text text text text text
             TUMOR_RATIO_THRESHOLD = 0.5
             epi_seg_arr = np.array(epi_seg_classes, dtype=np.int32)
-            valid_mask = labels >= 0  # DBSCAN noise(-1) 제외
+            valid_mask = labels >= 0  # DBSCAN noise(-1) text
             if valid_mask.any():
                 valid_labels = labels[valid_mask]
                 valid_segs   = epi_seg_arr[valid_mask]
@@ -764,7 +764,7 @@ class EpithelialClassificationWorker(QThread):
                 epi_seg_arr[valid_mask] = cluster_assign[valid_labels]
                 epi_seg_classes = epi_seg_arr.tolist()
 
-        # 4단계: 최종 cls_id 할당
+        # 4text: text cls_id text
         for k, idx in enumerate(epi_indices):
             seg_class = epi_seg_classes[k]
             if seg_class == 3:  # Tumor region
@@ -915,8 +915,8 @@ class EpithelialClassifier(QObject):
 
 class TumorSegmentationWorker(QThread):
     """
-    Tumor Segmentation을 백그라운드에서 실행하는 워커 스레드
-    UI 블로킹 없이 WSISegmentationModel.predict_wsi()를 실행
+    Tumor Segmentationtext text text text text
+    UI text text WSISegmentationModel.predict_wsi()text text
     """
 
     finished = pyqtSignal(dict)  # {'mask', 'metadata', 'class_names', 'roi_bounds', 'roi_polygons'}
@@ -927,10 +927,10 @@ class TumorSegmentationWorker(QThread):
     def __init__(self, image_path, tissue_type, roi_bounds=None, roi_polygons=None, icc_transform=None, calibration_lut=None):
         """
         Args:
-            image_path: WSI 파일 경로 (str)
-            tissue_type: 'Breast' 또는 'Stomach'
-            roi_bounds: (x_min, y_min, x_max, y_max) 또는 None
-            roi_polygons: [[좌표, ...], ...] 또는 None
+            image_path: WSI text text (str)
+            tissue_type: 'Breast' text 'Stomach'
+            roi_bounds: (x_min, y_min, x_max, y_max) text None
+            roi_polygons: [[text, ...], ...] text None
             icc_transform: ICC color profile transform (slide→sRGB)
             calibration_lut: Aperio calibration LUT (3, 256) numpy array
         """
@@ -944,12 +944,12 @@ class TumorSegmentationWorker(QThread):
         self.calibration_lut = calibration_lut
 
     def run(self):
-        """백그라운드 Segmentation 실행"""
+        """text Segmentation text"""
         import openslide
         slide = None
         seg_model = None
         try:
-            # 모델 경로 결정
+            # text text text
             project_root = Path(__file__).parent.parent
             if self.tissue_type == "Breast":
                 model_path = project_root / "model" / "HnE_BR_segmentation.pt"
@@ -1011,7 +1011,7 @@ class TumorSegmentationWorker(QThread):
             self.error.emit(f"Segmentation failed: {str(e)}\n{traceback.format_exc()}")
 
         finally:
-            # GPU 메모리 및 슬라이드 정리
+            # GPU text text text text
             if seg_model is not None:
                 del seg_model
             if torch.cuda.is_available():
@@ -1023,5 +1023,5 @@ class TumorSegmentationWorker(QThread):
                     pass
 
     def cancel(self):
-        """작업 취소 요청"""
+        """text text text"""
         self.is_cancelled = True

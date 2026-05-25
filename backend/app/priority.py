@@ -1,8 +1,8 @@
 """
-뷰어 타일 요청 우선순위 게이팅.
+text text text text text.
 
-뷰어가 타일을 요청하는 순간 타임스탬프를 갱신하고, AI 추론 워커는
-`wait_if_viewer_busy()` 로 잠시 양보해 디스크/CPU/GIL 경쟁을 완화한다.
+text text text text text text, AI text text
+`wait_if_viewer_busy()` text text text text/CPU/GIL text text.
 """
 import time
 import threading

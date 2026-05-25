@@ -18,12 +18,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 _vs_thread_local = threading.local()
 
-# skimage.morphology / scipy.ndimage.binary_fill_holes 는 VS-IHC tissue grid 에서
-# 쓰이던 closing/opening/fill-holes 후처리 의존이었으나, γ 전처리 도입 후 제거됨.
+# skimage.morphology / scipy.ndimage.binary_fill_holes text VS-IHC tissue grid text
+# text closing/opening/fill-holes text text, γ text text text text.
 
-# ── Tissue grid 감마 전처리 ──
-# VS-IHC tissue grid (색 분리 전에 적용) — γ=4.0 으로 배경 피크를 내려 definite_bg
-# 제외를 덜 공격적으로. app/routers/ai.py 의 _create_tissue_mask 와 동일 값.
+# ── Tissue grid text text ──
+# VS-IHC tissue grid (text text text text) — γ=4.0 text text text text definite_bg
+# text text text. app/routers/ai.py text _create_tissue_mask text text text.
 FLOAT_VS_TISSUE_GAMMA = 4.0
 _NP_VS_TISSUE_GAMMA_LUT = np.clip(
     np.power(np.arange(256, dtype=np.float32) / 255.0,
@@ -104,7 +104,7 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
     Uses thread-local OpenSlide for safe parallel I/O.
     Out-of-bounds pixels are composited onto a white background.
     Applies ICC color profile and Aperio calibration if provided."""
-    # 뷰어 타일 로딩 우선 양보 — 데스크톱 전용 메커니즘, SaaS 백엔드에선 no-op
+    # text text text text text — text text text, SaaS text no-op
 
     import openslide as _openslide
     if (not hasattr(_vs_thread_local, 'slide') or
@@ -114,11 +114,11 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
     slide = _vs_thread_local.slide
 
     region = slide.read_region((x0, y0), best_level, (level_read, level_read))
-    # RGBA → 흰색 배경 합성 (경계 밖 투명 픽셀이 검정이 되는 것 방지)
+    # RGBA → text text text (text text text text text text text text)
     white_bg = Image.new('RGB', region.size, (255, 255, 255))
     white_bg.paste(region, mask=region.split()[3])
 
-    # ICC color profile 적용 (slide → sRGB) — C-optimized via Little CMS
+    # ICC color profile text (slide → sRGB) — C-optimized via Little CMS
     if icc_transform:
         from PIL import ImageCms
         ImageCms.applyTransform(white_bg, icc_transform, inPlace=True)
@@ -259,7 +259,7 @@ class VirtualStainWorker(QThread):
                 return
 
             # ── 4. Build flat list of all patches with tissue flag ──
-            # 경계를 넘는 패치는 추론 스킵 (is_tissue=False)
+            # text text text text text (is_tissue=False)
             all_patches = []
             for yi in range(n_py):
                 for xi in range(n_px):
@@ -293,7 +293,7 @@ class VirtualStainWorker(QThread):
             processed = 0
 
             with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
-                # 전체 패치를 미리 submit하고 future 리스트 구성
+                # text text text submittext future text text
                 futures = []
                 for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:
                     f = pool.submit(_read_patch, self.image_path, x0, y0, best_level, level_read, ps,
@@ -362,7 +362,7 @@ class VirtualStainWorker(QThread):
             output_canvas[uncovered] = 255
             input_canvas[uncovered] = 255
 
-            # 비조직 픽셀은 원본 입력값으로 덮어씌움 (픽셀 단위 정밀 마스킹)
+            # text text text text text (text text text text)
             output_canvas[~tissue_pixel_mask] = input_canvas[~tissue_pixel_mask]
 
             # ── 7. Polygon ROI masking → RGBA ──
@@ -438,11 +438,11 @@ class VirtualStainWorker(QThread):
                            n_px, n_py, stride, ps, out_w, out_h):
         """Build a (n_py, n_px) boolean grid and pixel-level tissue mask.
 
-        Color Deconvolution + 텍스처 기반 조직 검출:
+        Color Deconvolution + text text text text:
         1) RGB → OD → H-DAB color deconvolution (Ruifrok & Johnston 2001)
-        2) Hematoxylin OD + DAB OD 각각 Otsu → union = 염색 영역
-        3) 텍스처(국소 std) → 염색 안 되었지만 구조 있는 조직 추가 검출
-        4) 밝기 peak → 확실한 유리 배경 제거
+        2) Hematoxylin OD + DAB OD text Otsu → union = text text
+        3) text(text std) → text text text text text text text text
+        4) text peak → text text text text
 
         Returns:
             grid: (n_py, n_px) bool — True if patch contains tissue.
@@ -450,10 +450,10 @@ class VirtualStainWorker(QThread):
         """
         import cv2 as _cv2
 
-        # ── 고정 downsample 기반 mask 읽기 (target_mpp 무관) ──
-        # patch-level (is_tissue 판정) 에는 /64 해상도면 충분. 예전엔 out_w 에 연동돼
-        # target_mpp 에 따라 mask 가 달라졌는데, 고정으로 바꿔 일관성 확보 + 고배율 target
-        # 에서 과도하게 큰 mask 를 만드는 비용도 제거. canvas_l0_w/h 는 ROI 크롭 그대로 유지.
+        # ── text downsample text mask text (target_mpp text) ──
+        # patch-level (is_tissue text) text /64 text text. text out_w text text
+        # target_mpp text text mask text text, text text text text + text target
+        # text text text mask text text text text. canvas_l0_w/h text ROI text text text.
         INT_MASK_DS = 64
         mask_level = slide.get_best_level_for_downsample(INT_MASK_DS)
         mask_ds = slide.level_downsamples[mask_level]
@@ -463,8 +463,8 @@ class VirtualStainWorker(QThread):
         mask_region = slide.read_region((x_min, y_min), mask_level, (mask_rw, mask_rh))
         mask_np = np.array(mask_region.convert('RGB'), dtype=np.uint8)
 
-        # ── γ 전처리 (γ=4.0) ──
-        # 색 분리 전에 적용. 배경 피크가 아래로 당겨져 옅은 조직까지 union 에 포함된다.
+        # ── γ text (γ=4.0) ──
+        # text text text text. text text text text text text union text text.
         mask_np = _NP_VS_TISSUE_GAMMA_LUT[mask_np]
 
         # ── Color Deconvolution (H-DAB) ──
@@ -506,7 +506,7 @@ class VirtualStainWorker(QThread):
         _, hem_mask = _cv2.threshold(hem_u8, 0, 255, _cv2.THRESH_BINARY + _cv2.THRESH_OTSU)
         _, dab_mask = _cv2.threshold(dab_u8, 0, 255, _cv2.THRESH_BINARY + _cv2.THRESH_OTSU)
 
-        # ── 텍스처 (국소 std) — 무염색이지만 구조 있는 조직 보완 ──
+        # ── text (text std) — text text text text text ──
         gray = _cv2.cvtColor(mask_np, _cv2.COLOR_RGB2GRAY)
         gray_f = gray.astype(np.float32)
         ksize = (15, 15)
@@ -518,18 +518,18 @@ class VirtualStainWorker(QThread):
             std_scaled, 0, 255, _cv2.THRESH_BINARY + _cv2.THRESH_OTSU
         )
 
-        # ── 확실한 유리 배경 제거 ──
+        # ── text text text text ──
         hist = _cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
         bg_peak = int(np.argmax(hist[128:]) + 128)
-        definite_bg = (gray >= int(bg_peak * 0.95))  # 거의 흰색인 영역만
+        definite_bg = (gray >= int(bg_peak * 0.95))  # text text text
 
-        # 조직 = (Hematoxylin OR DAB OR 텍스처) AND NOT 확실한_배경
+        # text = (Hematoxylin OR DAB OR text) AND NOT text_text
         pixel_tissue = ((hem_mask > 0) | (dab_mask > 0) | (texture_mask > 0)) & (~definite_bg)
 
-        # ── 모폴로지 (최소) ──
-        # /64 mask 기준 5×5 kernel = level-0 환산 ~320 px (~80 µm).
-        # closing 만 적용 — 얇게 끊긴 조직을 연결해 놓침 방지. opening 은 tissue 경계를
-        # erode 하는 부작용 때문에 제외. fill_holes 도 luminal 영역까지 과잉 팽창시키므로 제외.
+        # ── text (text) ──
+        # /64 mask text 5×5 kernel = level-0 text ~320 px (~80 µm).
+        # closing text text — text text text text text text. opening text tissue text
+        # erode text text text text. fill_holes text luminal text text text text.
         np_u8 = pixel_tissue.astype(np.uint8) * 255
         np_u8 = _cv2.morphologyEx(np_u8, _cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         pixel_tissue = np_u8 > 0

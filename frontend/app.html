@@ -17,10 +17,10 @@
     <link rel="stylesheet" href="css/style.css?v=20260520-17">
 </head>
 <body>
-    <!-- ═══ 메뉴바 ═══ -->
+    <!-- ═══ text ═══ -->
     <header id="menubar">
         <div class="menu-left">
-            <button id="btn-toggle-left" class="mobile-toggle" type="button" aria-label="슬라이드 목록 열기">
+            <button id="btn-toggle-left" class="mobile-toggle" type="button" aria-label="text text text">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
                     <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
                 </svg>
@@ -34,9 +34,9 @@
             <span id="status-text" class="status-text">Ready</span>
             <span class="toolbar-separator" style="height:20px;"></span>
             <span id="user-name" class="user-name-text"></span>
-            <a id="link-admin" class="btn-admin" href="/admin" title="관리자 페이지" hidden>관리자</a>
+            <a id="link-admin" class="btn-admin" href="/admin" title="text text" hidden>text</a>
             <button id="btn-logout" class="btn-logout" title="Logout">Logout</button>
-            <button id="btn-toggle-right" class="mobile-toggle" type="button" aria-label="도구/AI 패널 열기">
+            <button id="btn-toggle-right" class="mobile-toggle" type="button" aria-label="text/AI text text">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/>
                 </svg>
@@ -71,16 +71,16 @@
         </div>
     </header>
 
-    <!-- ═══ 툴바 ═══ -->
+    <!-- ═══ text ═══ -->
     <nav id="toolbar">
-        <!-- 파일 -->
+        <!-- text -->
         <div class="toolbar-group">
             <button id="btn-info" class="toolbar-btn" title="Slide Info" disabled>
                 <img src="assets/Info.png" alt="Info">
             </button>
         </div>
         <div class="toolbar-separator"></div>
-        <!-- 뷰 -->
+        <!-- text -->
         <div class="toolbar-group">
             <button id="btn-fit" class="toolbar-btn" title="Fit to Window">
                 <img src="assets/ScreenFill.png" alt="Fit">
@@ -101,7 +101,7 @@
             </button>
         </div>
         <div class="toolbar-separator"></div>
-        <!-- 자유 드로잉 -->
+        <!-- text text -->
         <div class="toolbar-group">
             <button id="btn-draw-polygon" class="toolbar-btn toggle-btn" title="Draw Polygon" disabled>
                 <img src="assets/Polygon.png" alt="Polygon">
@@ -111,7 +111,7 @@
             </button>
         </div>
         <div class="toolbar-separator"></div>
-        <!-- 고정 크기 드로잉 (1mm²) -->
+        <!-- text text text (1mm²) -->
         <div class="toolbar-group">
             <button id="btn-draw-rect-1mm2" class="toolbar-btn toggle-btn fixed-area-btn"
                     title="Draw 1mm² Rectangle (1mm × 1mm)" aria-label="Draw 1mm² Rectangle" disabled>
@@ -130,10 +130,10 @@
                 </svg>
             </button>
             <button id="btn-ruler" class="toolbar-btn toggle-btn"
-                    title="Ruler — 두 점 클릭으로 거리 측정 (일회성)" aria-label="Ruler" disabled>
+                    title="Ruler — text text text text text (text)" aria-label="Ruler" disabled>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"
                      stroke-linecap="round" stroke-linejoin="round">
-                    <!-- 비스듬한 자: 외곽 + 눈금 5개 -->
+                    <!-- text text: text + text 5text -->
                     <path d="M3.2 12.3l9.1-9.1 4.6 4.6-9.1 9.1z"/>
                     <path d="M5.7 9.8l1.4 1.4M8 7.5l2 2M10.3 5.2l1.4 1.4M12.6 2.9l2 2M3.4 12.1l2 2"/>
                 </svg>
@@ -150,13 +150,13 @@
             </button>
         </div>
         <div class="toolbar-spacer"></div>
-        <!-- 상태 -->
+        <!-- text -->
         <div class="toolbar-group">
             <span id="slide-scanner" class="slide-scanner" hidden></span>
             <span id="zoom-info" class="zoom-info-text"></span>
         </div>
         <div class="toolbar-separator toolbar-legacy-help"></div>
-        <!-- 헬프 -->
+        <!-- text -->
         <div class="toolbar-group toolbar-legacy-help">
             <button id="btn-ux-help-legacy" class="toolbar-btn" title="Shortcuts" aria-label="Shortcuts" hidden>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -168,7 +168,7 @@
         </div>
     </nav>
 
-    <!-- ═══ 메인 레이아웃 (뷰어 + 우측 패널) ═══ -->
+    <!-- ═══ text text (text + text text) ═══ -->
     <div id="app-body">
         <section id="project-gate" class="project-gate" hidden>
             <script>
@@ -275,7 +275,7 @@
                 <div id="project-gate-pager" class="project-gate-pager"></div>
             </div>
         </section>
-        <!-- 좌측: 슬라이드 리스트 -->
+        <!-- text: text text -->
         <aside id="left-panel">
             <div class="panel-header">
                 <span>Slides</span>
@@ -285,7 +285,7 @@
                     <button id="btn-view-grid" class="view-toggle-btn" title="Grid view">⊞</button>
                 </div>
             </div>
-            <!-- 경로 표시 -->
+            <!-- text text -->
             <div class="project-bar">
                 <select id="project-select" class="project-select" title="Project">
                     <option value="">Select Project</option>
@@ -306,37 +306,37 @@
         </aside>
         <div id="left-panel-resizer" class="panel-resizer"></div>
 
-        <!-- 중앙: WSI 뷰어 -->
+        <!-- text: WSI text -->
         <main id="viewer-container">
-            <!-- 드래그앤드롭 오버레이 -->
+            <!-- text text -->
             <div id="drop-overlay">
                 <div class="drop-message">
                     <img src="assets/Open.png" class="drop-icon" alt="">
-                    <p>WSI 파일을 여기에 드롭하거나<br>Open 버튼을 클릭하세요</p>
+                    <p>WSI text text text<br>Open text text</p>
                 </div>
             </div>
 
             <canvas id="wsi-canvas"></canvas>
             <canvas id="overlay-canvas"></canvas>
 
-            <!-- Hamamatsu NDP 색보정 toggle (왼쪽 위) — Hamamatsu 슬라이드에서만 표시.
-                 기본값 ON: app.js 의 _updateNdpColorToggleVisibility 가 활성화하지만,
-                 hidden 해제와 active 클래스 부착 사이의 짧은 깜빡임 방지를 위해 정적 상태도 ON. -->
+            <!-- Hamamatsu NDP text toggle (text text) — Hamamatsu text text.
+                 text ON: app.js text _updateNdpColorToggleVisibility text text,
+                 hidden text active text text text text text text text text text ON. -->
             <button id="btn-ndp-color" class="ndp-color-toggle active" type="button" hidden
-                    title="NDP.view2 색감으로 보정 (Hamamatsu 전용)">
+                    title="NDP.view2 text text (Hamamatsu text)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="9"/>
                     <path d="M12 3 A9 9 0 0 1 12 21 Z" fill="currentColor" stroke="none"/>
                 </svg>
-                <span class="ndp-color-label">NDP 색보정</span>
+                <span class="ndp-color-label">NDP text</span>
                 <span class="ndp-color-state">ON</span>
             </button>
 
-            <!-- 슬라이드 초기 3-stage 프리로드 오버레이 -->
+            <!-- text text 3-stage text text -->
             <div id="slide-loading-overlay" hidden>
                 <div class="slide-loading-box">
                     <div class="slide-loading-spinner"></div>
-                    <div class="slide-loading-title">슬라이드 불러오는 중...</div>
+                    <div class="slide-loading-title">text text text...</div>
                     <div class="slide-loading-progress">
                         <div class="slide-loading-bar">
                             <div id="slide-loading-bar-fill" class="slide-loading-bar-fill"></div>
@@ -346,10 +346,10 @@
                 </div>
             </div>
 
-            <!-- 마우스 좌표 오버레이 -->
+            <!-- text text text -->
             <div id="mouse-pos-overlay" class="mouse-pos-overlay" hidden>x: 0px, y: 0px</div>
 
-            <!-- 미니맵 -->
+            <!-- text -->
             <div id="minimap-container" hidden>
                 <button id="minimap-toggle" class="minimap-toggle" type="button" title="Minimize">
                     <svg viewBox="0 0 14 14" width="14" height="14"><path id="minimap-toggle-icon" d="M3 7h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
@@ -362,17 +362,17 @@
             </div>
         </main>
 
-        <!-- 우측: AI 패널 -->
+        <!-- text: AI text -->
         <div id="right-panel-resizer" class="panel-resizer"></div>
         <aside id="right-panel">
-            <!-- AI Analysis 그룹 -->
+            <!-- AI Analysis text -->
             <div class="panel-group ai-analysis-group">
                 <div class="panel-header">
                     <span>AI Analysis</span>
                     <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="AI analysis help">?</span>
                 </div>
 
-                <!-- 탭 바 -->
+                <!-- text text -->
                 <div class="tab-bar">
                     <button class="tab-btn active" data-tab="hne-tab">Quanti HE</button>
                     <button class="tab-btn" data-tab="vs-tab">VS IHC</button>
@@ -380,7 +380,7 @@
                     <button class="tab-btn" data-tab="ihc-tab">Quanti IHC</button>
                 </div>
 
-                <!-- Quanti HE 탭 -->
+                <!-- Quanti HE text -->
                 <div id="hne-tab" class="tab-content active">
                     <div class="sub-group">
                         <div class="sub-header">Tissue Type</div>
@@ -391,7 +391,7 @@
                     <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
                 </div>
 
-                <!-- VS IHC 탭 -->
+                <!-- VS IHC text -->
                 <div id="vs-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">
@@ -418,7 +418,7 @@
                     </button>
                 </div>
 
-                <!-- Quanti PD-L1 탭 -->
+                <!-- Quanti PD-L1 text -->
                 <div id="pd-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">Tissue Type</div>
@@ -436,7 +436,7 @@
                     </div>
                 </div>
 
-                <!-- Quanti IHC 탭 -->
+                <!-- Quanti IHC text -->
                 <div id="ihc-tab" class="tab-content">
                     <div class="sub-group">
                         <div class="sub-header">Marker</div>
@@ -457,7 +457,7 @@
                 </div>
             </div>
 
-            <!-- Annotation 패널 -->
+            <!-- Annotation text -->
             <div class="panel-group annotation-group">
                 <div class="panel-header">Annotations</div>
                 <div id="annotation-list" class="annotation-list"></div>
@@ -468,7 +468,7 @@
                 </div>
             </div>
 
-            <!-- 프로그레스 -->
+            <!-- text -->
             <div class="panel-section">
                 <label id="progress-label" class="progress-label">AI Progress</label>
                 <div id="progress-bar" class="progress-bar">
@@ -477,7 +477,7 @@
                 </div>
             </div>
 
-            <!-- Detection Results 그룹 -->
+            <!-- Detection Results text -->
             <div class="panel-group results-group">
                 <div class="panel-header">Detection Results</div>
                 <div id="result-list" class="result-list"></div>
@@ -495,10 +495,10 @@
         </aside>
     </div>
 
-    <!-- 숨겨진 파일 입력 -->
+    <!-- text text text -->
     <input type="file" id="file-input" accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn" multiple hidden>
 
-    <!-- 슬라이드 정보 다이얼로그 -->
+    <!-- text text text -->
     <dialog id="slide-info-dialog">
         <div class="dialog-header">
             <span>Slide Information</span>
@@ -507,7 +507,7 @@
         <div id="slide-info-content" class="dialog-body"></div>
     </dialog>
 
-    <!-- 사용자별 AI 편집본 로드 다이얼로그 -->
+    <!-- text AI text text text -->
     <dialog id="load-user-edit-dialog">
         <div class="dialog-header">
             <span>Load Saved Analysis</span>
@@ -519,7 +519,7 @@
         </div>
     </dialog>
 
-    <!-- AI 결과 시각화 다이얼로그 -->
+    <!-- AI text text text -->
     <dialog id="viz-dialog">
         <div class="dialog-header">
             <span>AI Detection Result Visualization</span>
@@ -542,7 +542,7 @@
         </div>
     </dialog>
 
-    <!-- UX 기능 설명 모달 -->
+    <!-- UX text text text -->
     <div id="ux-help-modal" class="ux-help-modal" role="dialog" aria-modal="true" aria-labelledby="ux-help-title">
         <div class="ux-help-card">
             <div class="ux-help-header">

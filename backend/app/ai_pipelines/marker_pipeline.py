@@ -1,10 +1,10 @@
-"""Quanti PD-L1 / Quanti IHC 공용 marker detection 파이프라인 + wrapper.
+"""Quanti PD-L1 / Quanti IHC text marker detection text + wrapper.
 
-routers/ai.py 의 모놀리스에서 분리. Quanti PD-L1 와 Quanti IHC 가 동일한 YOLOv11m
-검출 + 스코어 계산 흐름을 공유하므로 한 함수에서 처리하고 wrapper 두 개가
-모델/스코어 함수만 다르게 주입한다.
+routers/ai.py text text text. Quanti PD-L1 text Quanti IHC text text YOLOv11m
+text + text text text text text text text wrapper text text
+text/text text text text.
 
-임계값은 SaMD 인허가 재현성을 위해 모델별 고정 — 사용자 조절 금지.
+text SaMD text text text text text — text text text.
 - Quanti PD-L1: 0.1
 - Quanti IHC HER2: 0.5
 - Quanti IHC ER_PR / KI_67: 0.3
@@ -93,12 +93,12 @@ def run_marker_detection_pipeline(
     float_score_conf_threshold: float = 0.5,
 ):
     """
-    YOLOv11m 기반 marker detection 공용 파이프라인.
-    Quanti PD-L1 / Quanti IHC 가 공유.
-    임계값은 모델별로 고정 — 인허가(SaMD) 재현성을 위해 사용자 조절 금지.
+    YOLOv11m text marker detection text text.
+    Quanti PD-L1 / Quanti IHC text text.
+    text text text — text(SaMD) text text text text text.
       - Quanti PD-L1 (Stomach/Lung): 0.1
       - Quanti IHC (HER2/ER_PR): 0.5
-    각 wrapper 에서 명시적으로 전달한다.
+    text wrapper text text text.
     """
     list_cleanup_on_cancel = [cache_path]
     try:
@@ -108,7 +108,7 @@ def run_marker_detection_pipeline(
 
         info = slide_manager.get(slide_id)
         if not info:
-            update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+            update_task(task_id, status="error", error="text text text text")
             return
 
         dict_class_names = dict_config["class_names"]
@@ -116,7 +116,7 @@ def run_marker_detection_pipeline(
         int_num_classes = dict_config["num_classes"]
         list_exclude = dict_config.get("exclude_classes") or []
 
-        # ── 캐시 확인 ──
+        # ── text text ──
         if cache_path.exists():
             try:
                 update_task(task_id, status="running", progress=10,
@@ -134,8 +134,8 @@ def run_marker_detection_pipeline(
                 cached = _compact_result_payload(cached)
                 bool_rewrite_compact_cache = bool_object_cell_cache
 
-                # 레거시 캐시(score_conf_threshold 필드 없음 또는 값이 다른 경우)는
-                # cells 로부터 현재 임계값으로 score 재계산.
+                # text text(score_conf_threshold text text text text text text)text
+                # cells text text text score text.
                 float_cached_thr = cached.get("score_conf_threshold")
                 if float_cached_thr != float_score_conf_threshold:
                     list_cached_cells = cached.get("cells") or []
@@ -163,8 +163,8 @@ def run_marker_detection_pipeline(
                     except Exception as e:
                         print(f"{log_label} cache rewrite failed: {e}")
 
-                # 캐시 hit 이어도 DB 플래그가 비어 있으면 auto_ai 가 매 사이클 다시 끌어옴.
-                # 멱등 ($addToSet) 이라 중복 호출 안전.
+                # text hit text DB text text text auto_ai text text text text text.
+                # text ($addToSet) text text text text.
                 from app import slide_store
                 str_model_key_cache = log_label.split("/")[0]
                 slide_store.mark_ai_result_threadsafe(info.file_path, str_model_key_cache, str_variant)
@@ -181,20 +181,20 @@ def run_marker_detection_pipeline(
         update_task(task_id, status="running", progress=1,
                     status_msg=f"Starting {log_label} detection...")
 
-        # ── 모델 로드 ──
+        # ── text text ──
         from ai.yolo_postprocess import non_max_suppression
         from ai.nets import nn as yolo_nn
 
         model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
         if not model_path.exists():
-            update_task(task_id, status="error", error=f"모델 파일 없음: {model_path}")
+            update_task(task_id, status="error", error=f"text text text: {model_path}")
             return
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = yolo_nn.yolo_v11_m(int_num_classes).to(device)
         checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
 
-        # PDL1 체크포인트는 DFL 채널수가 4 (기본 16 대신). head 를 재구성하여 shape 맞춤.
+        # PDL1 text DFL text 4 (text 16 text). head text text shape text.
         state_dict = checkpoint['model_state_dict']
         dfl_weight = state_dict.get('head.dfl.conv.weight')
         if dfl_weight is not None and dfl_weight.shape[1] != model.head.ch:
@@ -204,7 +204,7 @@ def run_marker_detection_pipeline(
             head.ch = int_ch_ckpt
             head.no = head.nc + head.ch * 4
             head.dfl = yolo_nn.DFL(head.ch).to(device)
-            # box 브랜치의 마지막 Conv2d 만 out_channels 교체
+            # box text text Conv2d text out_channels text
             for seq in head.box:
                 old = seq[-1]
                 new_conv = torch.nn.Conv2d(
@@ -234,12 +234,12 @@ def run_marker_detection_pipeline(
 
         class_thresholds = {i: 0.01 for i in range(int_num_classes)}
 
-        # ── 조직 마스크 ──
-        update_task(task_id, progress=4, status_msg="조직 마스크 생성 중...")
+        # ── text text ──
+        update_task(task_id, progress=4, status_msg="text text text text...")
         thumb_mask = create_tissue_mask(slide, icc_transform=info.icc_transform)
         update_task(task_id, progress=5)
 
-        # ── 유효 패치 수집 ──
+        # ── text text text ──
         valid_patch_list = []
         for pr in range(width // image_size - 1):
             for pc in range(height // image_size - 1):
@@ -261,7 +261,7 @@ def run_marker_detection_pipeline(
                 valid_patch_list.append((px, py))
 
         n_valid = len(valid_patch_list)
-        update_task(task_id, progress=6, status_msg=f"유효 패치 {n_valid}개 발견")
+        update_task(task_id, progress=6, status_msg=f"text text {n_valid}text text")
 
         if n_valid == 0:
             empty_score = score_fn(np.empty(0, dtype=np.int32))
@@ -432,7 +432,7 @@ def run_marker_detection_pipeline(
             all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
-        # ── 표시 제외 클래스 필터링 (e.g. 'Other' 클래스) ──
+        # ── text text text text (e.g. 'Other' text) ──
         excluded_cells = []
         if list_exclude and len(all_cls) > 0:
             exclude_mask = np.isin(all_cls, list_exclude)
@@ -467,8 +467,8 @@ def run_marker_detection_pipeline(
             for i in range(n_cells)
         ]
 
-        # Score 는 모델별 고정 confidence 임계값으로 계산 (PD=0.1, Quanti IHC=0.5).
-        # SaMD 인허가 재현성을 위해 사용자 조절 불가.
+        # Score text text text confidence text text (PD=0.1, Quanti IHC=0.5).
+        # SaMD text text text text text text.
         if len(all_conf) > 0:
             mask_score = all_conf >= float_score_conf_threshold
             cls_for_score = all_cls[mask_score]
@@ -514,11 +514,11 @@ def run_marker_detection_pipeline(
 
 
 def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
-    """Quanti PD-L1 파이프라인 wrapper (공용 marker pipeline 호출)."""
+    """Quanti PD-L1 text wrapper (text marker pipeline text)."""
     dict_config = PD_SCORE_CONFIG[tissue_type]
     info = slide_manager.get(slide_id)
     if not info:
-        update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+        update_task(task_id, status="error", error="text text text text")
         return
     cache_path = get_pd_score_cache_path(info.file_path, tissue_type)
     run_marker_detection_pipeline(
@@ -532,19 +532,19 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         extra_fields={"tissue_type": tissue_type},
         log_label="Quanti PD-L1",
         str_variant=tissue_type,
-        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung 고정 (SaMD 재현성)
+        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung text (SaMD text)
     )
 
 
 def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Quanti IHC 파이프라인 wrapper — HER2 / ER_PR / KI_67 지원."""
+    """Quanti IHC text wrapper — HER2 / ER_PR / KI_67 text."""
     if marker not in PRECISE_IHC_CONFIG:
-        update_task(task_id, status="error", error=f"지원하지 않는 marker: {marker}")
+        update_task(task_id, status="error", error=f"text text marker: {marker}")
         return
     dict_config = PRECISE_IHC_CONFIG[marker]
     info = slide_manager.get(slide_id)
     if not info:
-        update_task(task_id, status="error", error="슬라이드를 찾을 수 없습니다")
+        update_task(task_id, status="error", error="text text text text")
         return
     cache_path = get_precise_ihc_cache_path(info.file_path, marker)
 
@@ -561,7 +561,7 @@ def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
         score_fn = lambda all_cls: {"score_type": marker, "score": 0.0}
         score_key = f"{marker.lower()}_score"
 
-    # Quanti IHC 고정 임계값 (SaMD 재현성): HER2=0.5, ER_PR/KI_67=0.3
+    # Quanti IHC text text (SaMD text): HER2=0.5, ER_PR/KI_67=0.3
     float_conf = 0.3 if marker in ("ER_PR", "KI_67") else 0.5
 
     run_marker_detection_pipeline(

@@ -103,7 +103,7 @@
         <div class="login-card">
             <img src="assets/logo.png" alt="MeDIAuto Studio" class="login-logo">
             <h1 class="login-title" id="page-title">Sign In</h1>
-            <p class="login-subtitle" id="page-subtitle">병리 AI 분석 플랫폼에 로그인하세요</p>
+            <p class="login-subtitle" id="page-subtitle">Sign in to the pathology AI analysis platform</p>
 
             <div id="alert-box" class="alert-box"></div>
 
@@ -111,41 +111,41 @@
                 <!-- Register only fields -->
                 <div class="register-fields" id="register-fields">
                     <div class="form-group">
-                        <label for="name">이름 <span style="color:#d93025">*</span></label>
-                        <input type="text" id="name" placeholder="홍길동" maxlength="100" autocomplete="name">
+                        <label for="name">Name <span style="color:#d93025">*</span></label>
+                        <input type="text" id="name" placeholder="Full name" maxlength="100" autocomplete="name">
                     </div>
                     <div class="form-group">
-                        <label for="department">부서</label>
-                        <input type="text" id="department" placeholder="병리과" maxlength="100" autocomplete="organization">
+                        <label for="department">Department</label>
+                        <input type="text" id="department" placeholder="Pathology" maxlength="100" autocomplete="organization">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="login-id">아이디</label>
+                    <label for="login-id">Login ID</label>
                     <input type="text" id="login-id" placeholder="hong1234" required minlength="4" maxlength="30" autocomplete="username" pattern="[a-zA-Z0-9_]{4,30}">
                     <div class="password-rules" id="id-rules" style="display:none;">
-                        4~30자, 영문/숫자/언더스코어만 가능
+                        4-30 characters, letters, numbers, and underscores only
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="password">비밀번호</label>
+                    <label for="password">Password</label>
                     <input type="password" id="password" placeholder="••••••••" required minlength="8" autocomplete="current-password">
                     <div class="password-rules" id="password-rules" style="display:none;">
-                        영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상
+                        At least 8 characters with uppercase, lowercase, number, and special character
                     </div>
                 </div>
 
-                <!-- MFA TOTP 입력 (MFA 활성화 사용자만 표시) -->
+                <!-- MFA TOTP input, visible only when required. -->
                 <div class="form-group" id="mfa-group" style="display:none;">
-                    <label for="totp-code">2차 인증 코드 (6자리)</label>
+                    <label for="totp-code">Two-factor authentication code (6 digits)</label>
                     <input type="text" id="totp-code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code">
                 </div>
 
-                <button type="submit" class="btn-primary" id="btn-submit">로그인</button>
+                <button type="submit" class="btn-primary" id="btn-submit">Sign in</button>
             </form>
 
             <div class="mode-toggle" id="mode-toggle">
-                계정이 없으신가요? <a id="toggle-link" href="#">회원가입</a>
+                Need an account? <a id="toggle-link" href="#">Sign up</a>
             </div>
         </div>
     </div>
@@ -169,13 +169,13 @@
         const $pageSubtitle = document.getElementById('page-subtitle');
         const $passwordRules = document.getElementById('password-rules');
 
-        // 이미 로그인 되어있으면 메인으로
+        // text text text text
         if (localStorage.getItem('access_token')) {
             window.location.href = '/home';
         }
 
         function showAlert(message, type = 'error') {
-            // FastAPI validation error detail은 배열일 수 있음
+            // FastAPI validation error detailtext text text text
             if (typeof message === 'object') {
                 if (Array.isArray(message)) {
                     message = message.map(e => e.msg || JSON.stringify(e)).join(', ');
@@ -198,20 +198,20 @@
 
             if (isRegisterMode) {
                 $pageTitle.textContent = 'Sign Up';
-                $pageSubtitle.textContent = '새 계정을 생성하세요';
-                $btnSubmit.textContent = '회원가입';
+                $pageSubtitle.textContent = 'Create a new account';
+                $btnSubmit.textContent = 'Sign up';
                 document.getElementById('mode-toggle').innerHTML =
-                    '이미 계정이 있으신가요? <a id="toggle-link" href="#">로그인</a>';
+                    'Already have an account? <a id="toggle-link" href="#">Sign in</a>';
                 $registerFields.classList.add('visible');
                 $passwordRules.style.display = 'block';
                 $idRules.style.display = 'block';
                 $password.autocomplete = 'new-password';
             } else {
                 $pageTitle.textContent = 'Sign In';
-                $pageSubtitle.textContent = '병리 AI 분석 플랫폼에 로그인하세요';
-                $btnSubmit.textContent = '로그인';
+                $pageSubtitle.textContent = 'Sign in to the pathology AI analysis platform';
+                $btnSubmit.textContent = 'Sign in';
                 document.getElementById('mode-toggle').innerHTML =
-                    '계정이 없으신가요? <a id="toggle-link" href="#">회원가입</a>';
+                    'Need an account? <a id="toggle-link" href="#">Sign up</a>';
                 $registerFields.classList.remove('visible');
                 $passwordRules.style.display = 'none';
                 $idRules.style.display = 'none';
@@ -258,7 +258,7 @@
                 str_login_id: $loginId.value.trim(),
                 str_password: $password.value,
             };
-            // MFA 코드가 표시되어 있으면 함께 전송
+            // MFA text text text text text
             if (mfaPending && $totpCode.value.trim()) {
                 body.str_totp_code = $totpCode.value.trim();
             }
@@ -279,16 +279,16 @@
                 throw new Error(msg);
             }
 
-            // MFA 필요 응답
+            // MFA text text
             if (data.bool_mfa_required) {
                 mfaPending = true;
                 $mfaGroup.style.display = 'block';
                 $totpCode.focus();
-                showAlert(data.str_message || '2차 인증 코드를 입력해 주세요.', 'success');
+                showAlert(data.str_message || 'Enter the two-factor authentication code.', 'success');
                 return;
             }
 
-            // 토큰 저장
+            // text text
             localStorage.setItem('access_token', data.str_access_token);
             localStorage.setItem('refresh_token', data.str_refresh_token);
             localStorage.setItem('user', JSON.stringify(data.dict_user));
@@ -300,10 +300,10 @@
 
         async function doRegister() {
             if (!$name.value.trim()) {
-                throw new Error('이름을 입력해주세요.');
+                throw new Error('Enter your name.');
             }
             if (!PASSWORD_PATTERN.test($password.value)) {
-                throw new Error('비밀번호: 영문 대/소문자 + 숫자 + 특수문자 포함 8자 이상');
+                throw new Error('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
             }
             const res = await fetch(`${API_BASE}/register`, {
                 method: 'POST',
@@ -328,10 +328,10 @@
 
             const msg = data.str_message
                 || (data.bool_requires_approval
-                    ? '회원가입이 완료되었습니다. 관리자 승인 후 로그인 가능합니다.'
-                    : '회원가입 성공! 로그인해주세요.');
+                    ? 'Signup completed. You can sign in after administrator approval.'
+                    : 'Signup completed. Please sign in.');
             showAlert(msg, 'success');
-            // 로그인 모드로 전환
+            // text text text
             setTimeout(() => {
                 isRegisterMode = true; // toggleMode will flip it
                 toggleMode();

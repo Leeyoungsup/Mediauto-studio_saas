@@ -1,13 +1,13 @@
-"""AI 자동 추론 워커 — 폴더별 설정 기반 백그라운드 스케줄러
+"""AI text text text — text text text text text
 
-정책:
-- 1분마다 `folder_ai_configs` 를 스캔 (SCAN_INTERVAL_SECONDS)
-- 시스템이 idle 일 때만 실행 (IDLE_THRESHOLD_SECONDS 동안 사용자 AI 활동 없음)
-- 업로드 중일 때는 실행하지 않음 (upload counter 로 확인)
-- 슬라이드마다 결과 유무를 확인 후 누락된 (model, variant) 만 추론
-- 한 슬라이드 처리 후 다시 idle 확인 — 사용자가 끼어들면 이번 사이클 중단
+text:
+- 1text `folder_ai_configs` text text (SCAN_INTERVAL_SECONDS)
+- text idle text text text (IDLE_THRESHOLD_SECONDS text text AI text text)
+- text text text text text (upload counter text text)
+- text text text text text text (model, variant) text text
+- text text text text text idle text — text text text text text
 
-Claude.md 규칙 준수 (str_/int_/bool_/list_/dict_/dt_ 접두어).
+Claude.md text text (str_/int_/bool_/list_/dict_/dt_ text).
 """
 
 import asyncio
@@ -20,23 +20,23 @@ from pathlib import Path
 from typing import Optional
 
 
-# ── 설정 상수 ──
-IDLE_THRESHOLD_SECONDS = 600   # 10분간 사용자 AI 활동 없음 → idle
-SCAN_INTERVAL_SECONDS = 60     # 1분마다 스캔
+# ── text text ──
+IDLE_THRESHOLD_SECONDS = 600   # 10text text AI text text → idle
+SCAN_INTERVAL_SECONDS = 60     # 1text text
 
-# ── 전역 활동 추적 상태 ──
+# ── text text text text ──
 _activity_lock = threading.Lock()
-_last_ai_activity_ts: float = 0.0   # 0 → "idle" 로 간주되지 않도록 startup 직후 now 로 세팅됨
+_last_ai_activity_ts: float = 0.0   # 0 → "idle" text text text startup text now text text
 _upload_in_progress: int = 0
 _worker_task: Optional[asyncio.Task] = None
 
 
 # ═══════════════════════════
-# 활동 추적 API
+# text text API
 # ═══════════════════════════
 
 def ping_ai_activity() -> None:
-    """사용자 AI 엔드포인트 호출 / 진행 업데이트 시 호출 — idle 타이머 리셋."""
+    """text AI text text / text text text text — idle text text."""
     global _last_ai_activity_ts
     with _activity_lock:
         _last_ai_activity_ts = time.monotonic()
@@ -55,7 +55,7 @@ def upload_exit() -> None:
 
 
 def _is_activity_idle_nolock() -> bool:
-    """_activity_lock 이 이미 잡힌 상태에서만 호출 — 업로드/사용자활동 조건만 검사."""
+    """_activity_lock text text text text text — text/text text text."""
     if _upload_in_progress > 0:
         return False
     if (time.monotonic() - _last_ai_activity_ts) < IDLE_THRESHOLD_SECONDS:
@@ -64,15 +64,15 @@ def _is_activity_idle_nolock() -> bool:
 
 
 def is_system_idle() -> bool:
-    """시스템이 자동 추론을 시작해도 되는지 판단 (비원자적 pre-check).
+    """text text text text text text (text pre-check).
 
-    조건 (모두 만족해야 idle):
-      1. 진행 중인 업로드 없음
-      2. 마지막 사용자 AI 활동 이후 IDLE_THRESHOLD_SECONDS 경과
-      3. 현재 실행 중(queued/running) 인 AI task 없음
+    text (text text idle):
+      1. text text text text
+      2. text text AI text text IDLE_THRESHOLD_SECONDS text
+      3. text text text(queued/running) text AI task text
 
-    주의: 이 함수는 스냅샷 체크일 뿐, 체크와 실제 task 등록 사이에 사용자 task 가
-    끼어들 수 있다. 실제 reservation 은 check_idle_and_reserve() 로 원자적으로 수행.
+    text: text text text text text, text text task text text text task text
+    text text text. text reservation text check_idle_and_reserve() text text text.
     """
     with _activity_lock:
         if not _is_activity_idle_nolock():
@@ -91,15 +91,15 @@ def is_system_idle() -> bool:
 
 
 def check_idle_and_reserve(str_task_id: str, dict_task_initial: dict) -> bool:
-    """원자적 "idle 확인 + task slot 예약".
+    """text "idle text + task slot text".
 
-    _tasks_lock 과 _activity_lock 을 동시에 잡은 상태에서 모든 idle 조건을 검사하고
-    성공 시 즉시 _tasks 에 예약 레코드를 삽입한다. 이렇게 해야 사용자 엔드포인트가
-    같은 _tasks_lock 으로 task 를 insert 하기 전/후로 race 가 발생하지 않는다.
+    _tasks_lock text _activity_lock text text text text text idle text text
+    text text text _tasks text text text text. text text text text
+    text _tasks_lock text task text insert text text/text race text text text.
 
-    Lock 순서: _tasks_lock → _activity_lock (사용자 경로는 _tasks_lock 만 잡으므로
-    데드락 위험 없음; _activity_lock 쪽에서 _tasks_lock 을 역순으로 잡는 경로가
-    존재하지 않는다).
+    Lock text: _tasks_lock → _activity_lock (text text _tasks_lock text text
+    text text text; _activity_lock text _tasks_lock text text text text
+    text text).
     """
     try:
         from app.routers import ai as ai_router
@@ -118,7 +118,7 @@ def check_idle_and_reserve(str_task_id: str, dict_task_initial: dict) -> bool:
 
 
 # ═══════════════════════════
-# 워커 로직
+# text text
 # ═══════════════════════════
 
 async def _run_auto_inference(
@@ -127,14 +127,14 @@ async def _run_auto_inference(
     str_variant: str,
     float_target_mpp: float = 2.0,
 ) -> None:
-    """한 슬라이드/모델/variant 에 대한 추론을 스레드풀에서 실행."""
+    """text text/text/variant text text text text text."""
     from app.slide_manager import slide_manager
     from app.routers import ai as ai_router
 
     str_filename = Path(str_full_path).name
     str_slide_id = hashlib.md5(str_filename.encode()).hexdigest()[:12]
 
-    # slide_manager 에 없으면 open (기존 _open_and_generate 와 동일 로직의 subset)
+    # slide_manager text text open (text _open_and_generate text text text subset)
     if slide_manager.get(str_slide_id) is None:
         try:
             slide_manager.open(str_slide_id, str_full_path)
@@ -153,7 +153,7 @@ async def _run_auto_inference(
         "model": str_model,
         "variant": str_variant,
     }
-    # 원자적 idle 재확인 + 예약. 사용자 task 가 끼어들었으면 이 사이클 즉시 abort.
+    # text idle text + text. text task text text text text text abort.
     if not check_idle_and_reserve(str_task_id, dict_initial):
         print(f"[auto_ai] reserve aborted (activity detected) — skip {str_filename}")
         return
@@ -166,7 +166,7 @@ async def _run_auto_inference(
         elif str_model in ("Quanti IHC", "Precise-IHC"):
             ai_router._run_precise_ihc(str_task_id, str_slide_id, None, str_variant)
         elif str_model in ("VS IHC", "VS-IHC"):
-            # variant = stain_type (e.g. "ihc_membrane"), target_mpp 는 task 설정값
+            # variant = stain_type (e.g. "ihc_membrane"), target_mpp text task text
             ai_router._run_virtual_stain(str_task_id, str_slide_id, None, str_variant, float_target_mpp)
         else:
             print(f"[auto_ai] unsupported model: {str_model}")
@@ -178,10 +178,10 @@ async def _run_auto_inference(
 
 
 def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
-    """_run_virtual_stain 의 캐시 hit 조건과 동일 — meta.json + (level-0 타일 OR 레거시 PNG).
+    """_run_virtual_stain text text hit text text — meta.json + (level-0 text OR text PNG).
 
-    auto_ai 가 사이클마다 슬라이드를 검사할 때 이 조건을 미리 보고 hit 면 스킵해야
-    "inferring/done" 로그가 캐시 검증 때문에 매번 찍히는 것을 방지한다.
+    auto_ai text text text text text text text text text hit text text
+    "inferring/done" text text text text text text text text.
     """
     from app.routers.ai import _get_vs_cache_paths, _get_vs_tile_dir
     png_path, meta_path = _get_vs_cache_paths(str_full_path, float_target_mpp)
@@ -194,12 +194,12 @@ def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
 
 
 async def _scan_and_infer_once() -> None:
-    """1 사이클 — 모든 활성 folder config 를 돌며 누락된 추론을 순차 수행.
+    """1 text — text text folder config text text text text text text.
 
-    조용한 정책:
-      - 캐시 hit 슬라이드는 로그 없이 스킵
-      - 실제 추론이 발생한 슬라이드만 inferring/done 로그
-      - 사이클 끝(또는 중단) 시 1 줄 요약 (실제 추론이 있었던 경우만)
+    text text:
+      - text hit text text text text
+      - text text text text inferring/done text
+      - text text(text text) text 1 text text (text text text text)
     """
     from app.database import is_db_connected, get_db
     from app import slide_store
@@ -209,7 +209,7 @@ async def _scan_and_infer_once() -> None:
     if not is_system_idle():
         return
 
-    # 뷰어 타일링이 우선 — 미완료 슬라이드가 있으면 이번 사이클 skip
+    # text text text — text text text text text skip
     if await slide_store.has_any_pending_tiles():
         print("[auto_ai] tile generation pending — deferring AI inference")
         return
@@ -251,8 +251,8 @@ async def _scan_and_infer_once() -> None:
                 "str_inherited_from_project": str_project_path,
             })
 
-    int_scanned = 0    # 이번 사이클에 검사한 슬라이드 수 (캐시 hit + 추론 + 스킵 포함)
-    int_inferred = 0   # 실제로 추론을 돌린 슬라이드 수
+    int_scanned = 0    # text text text text text (text hit + text + text text)
+    int_inferred = 0   # text text text text text
 
     for dict_cfg in list_configs:
         str_rel_path = dict_cfg.get("str_rel_path", "")
@@ -260,7 +260,7 @@ async def _scan_and_infer_once() -> None:
         if not list_tasks:
             continue
 
-        # task 단위로 "누락된 슬라이드"를 DB 에 직접 질의 → 폴더 전체 순회 X
+        # task text "text text"text DB text text text → text text text X
         for dict_task in list_tasks:
             str_model = dict_task.get("model") or ""
             str_variant = dict_task.get("variant") or ""
@@ -273,7 +273,7 @@ async def _scan_and_infer_once() -> None:
                     float_target_mpp = float(dict_task.get("target_mpp", 2.0))
                 except (TypeError, ValueError):
                     float_target_mpp = 2.0
-                # VS IHC 는 per-mpp 캐시라 DB 로 base 필터만 하고 폴더 전체를 후보로 봄
+                # VS IHC text per-mpp text DB text base text text text text text text
                 dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
                 list_candidates = list(dict_slides.values())
             else:
@@ -289,15 +289,15 @@ async def _scan_and_infer_once() -> None:
                 int_scanned += 1
 
                 if str_model in ("VS IHC", "VS-IHC") and _vs_cache_exists(str_full_path, float_target_mpp):
-                    # 캐시 있음 → 조용히 스킵 (로그 X)
+                    # text text → text text (text X)
                     continue
 
-                # 매 추론 전 idle 재확인 — 사용자 활동 / 업로드 끼어들면 중단
+                # text text text idle text — text text / text text text
                 if not is_system_idle():
                     if int_inferred > 0:
                         print(f"[auto_ai] activity detected — paused after {int_inferred}/{int_scanned} inferred")
                     return
-                # 새로 업로드된 슬라이드 타일링이 끼어들면 양보
+                # text text text text text text
                 if await slide_store.has_any_pending_tiles():
                     if int_inferred > 0:
                         print(f"[auto_ai] new tile job — yielded after {int_inferred}/{int_scanned} inferred")
@@ -309,17 +309,17 @@ async def _scan_and_infer_once() -> None:
                 except Exception as e:
                     print(f"[auto_ai] inference error: {e}")
 
-                # DB 갱신 대기 (mark_ai_result_threadsafe 는 다른 루프에 스케줄)
+                # DB text text (mark_ai_result_threadsafe text text text text)
                 await asyncio.sleep(0.5)
 
-    # 사이클 종료 요약 — 실제 추론이 발생했을 때만. 매 분 0/N 로그를 띄우지 않음.
+    # text text text — text text text text. text text 0/N text text text.
     if int_inferred > 0:
         print(f"[auto_ai] cycle done — {int_inferred}/{int_scanned} inferred")
 
 
 async def _worker_loop() -> None:
-    """메인 워커 루프 — 앱 생명주기 동안 계속 돔."""
-    # 스타트업 직후 바로 돌지 않도록 timer 초기화
+    """text text text — text text text text text."""
+    # text text text text text timer text
     ping_ai_activity()
     print(f"[auto_ai] worker loop started (scan every {SCAN_INTERVAL_SECONDS}s, idle threshold {IDLE_THRESHOLD_SECONDS}s)")
     while True:
