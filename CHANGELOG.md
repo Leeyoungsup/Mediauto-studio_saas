@@ -2,6 +2,44 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.92] - 2026-05-26
+
+### Fixed
+
+- Added a VS IHC tile manifest endpoint so the viewer can check the actual cached tile coordinates before requesting overlay tiles.
+- Blocked VS IHC overlay tile loading until the manifest is available, preventing low-zoom requests for nonexistent sparse pyramid tiles.
+- Bumped frontend module cache keys so the manifest-based tile filtering is loaded immediately.
+
+## [1.1.91] - 2026-05-26
+
+### Fixed
+
+- VS IHC cached results now include the actual tile keys present on disk.
+- The viewer skips VS IHC tile URLs that are not present in the cached pyramid, avoiding noisy 404 requests.
+- Bumped frontend module cache keys so the updated VS tile filtering is loaded immediately.
+
+## [1.1.90] - 2026-05-26
+
+### Fixed
+
+- Restored sparse VS IHC overlay behavior from 1.1.78 by not returning blank JPEGs for missing overlay tiles.
+- Missing VS IHC tiles now remain undrawn instead of covering the slide with white fallback tiles.
+
+## [1.1.89] - 2026-05-26
+
+### Fixed
+
+- VS IHC tile serving now resolves slide paths from the slide database when the in-memory slide handle is missing.
+- Cached VS IHC tiles and blank-tile fallbacks no longer depend on the slide staying open in `slide_manager`.
+
+## [1.1.88] - 2026-05-22
+
+### Fixed
+
+- Added backend fallback for missing VS IHC pyramid tiles.
+- Missing VS IHC parent tiles are rebuilt from child tiles when possible.
+- Empty VS IHC areas now return a cached blank JPEG instead of noisy 404 responses.
+
 ## [1.1.87] - 2026-05-22
 
 ### Fixed

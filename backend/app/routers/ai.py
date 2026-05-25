@@ -18,6 +18,8 @@ from fastapi.responses import FileResponse, Response
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
+from app.config import settings
+from app.database import get_db, is_db_connected
 from app.slide_manager import slide_manager
 
 # 기존 AI 코드 경로 추가 — ai_pipelines 의 워커들이 ai/ 모듈을 import 할 수 있게 한다.
@@ -59,6 +61,124 @@ router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_
 # Virtual stain 타일 전용 서브 라우터 — <img src> 용 ?mt= 티켓 허용.
 # main.py 에서 같은 prefix("/api/ai") 로 별도 include 된다.
 media_router = APIRouter(dependencies=[Depends(get_media_user)])
+
+def _read_vs_tile_size(path_meta: Path) -> int:
+    try:
+        if path_meta.exists():
+            with open(path_meta, "r", encoding="utf-8") as f:
+                dict_meta = json.load(f)
+            return max(1, int(dict_meta.get("tile_size") or 512))
+    except Exception:
+        pass
+    return 512
+
+
+def _try_build_vs_parent_tile(path_tile_dir: Path, int_level: int, int_tx: int,
+                              int_ty: int, int_tile_size: int) -> Optional[Path]:
+    if int_level <= 0:
+        return None
+    from PIL import Image
+
+    path_dst = path_tile_dir / str(int_level) / f"{int_tx}_{int_ty}.jpeg"
+    path_dst.parent.mkdir(parents=True, exist_ok=True)
+    path_src_dir = path_tile_dir / str(int_level - 1)
+    if not path_src_dir.exists():
+        return None
+
+    img_merged = Image.new("RGB", (int_tile_size * 2, int_tile_size * 2), (255, 255, 255))
+    bool_any = False
+    for dy in range(2):
+        for dx in range(2):
+            path_src = path_src_dir / f"{int_tx * 2 + dx}_{int_ty * 2 + dy}.jpeg"
+            if not path_src.exists():
+                continue
+            try:
+                with Image.open(path_src) as img_src:
+                    img_merged.paste(img_src.convert("RGB"), (dx * int_tile_size, dy * int_tile_size))
+                bool_any = True
+            except Exception:
+                continue
+
+    if not bool_any:
+        return None
+
+    resample_box = getattr(getattr(Image, "Resampling", Image), "BOX", Image.BOX)
+    img_out = img_merged.resize((int_tile_size, int_tile_size), resample_box)
+    img_out.save(str(path_dst), "JPEG", quality=88)
+    return path_dst
+
+
+async def _resolve_vs_slide_path(str_slide_id: str) -> str:
+    info = slide_manager.get(str_slide_id)
+    if info:
+        return info.file_path
+
+    if is_db_connected():
+        try:
+            db = get_db()
+            dict_doc = await db.slides.find_one({"str_slide_id": str_slide_id})
+            if dict_doc:
+                str_full_path = str(dict_doc.get("str_full_path") or "")
+                if str_full_path and Path(str_full_path).exists():
+                    return str_full_path
+                str_filename = str(dict_doc.get("str_filename") or "")
+                str_rel_path = str(dict_doc.get("str_rel_path") or "").strip("/\\")
+                if str_filename:
+                    path_candidate = Path(settings.UPLOAD_DIR) / str_rel_path / str_filename
+                    if path_candidate.exists():
+                        return str(path_candidate)
+        except Exception:
+            pass
+
+    return ""
+
+
+def _build_vs_tile_manifest(path_tile_dir: Path, path_meta: Path) -> dict:
+    dict_manifest = {
+        "tile_size": _read_vs_tile_size(path_meta),
+        "levels": [],
+        "tile_keys": {},
+    }
+    try:
+        if path_meta.exists():
+            with open(path_meta, "r", encoding="utf-8") as f:
+                dict_meta = json.load(f)
+            dict_manifest["tile_size"] = max(1, int(dict_meta.get("tile_size") or dict_manifest["tile_size"]))
+            dict_manifest["levels"] = dict_meta.get("levels") or []
+    except Exception:
+        pass
+
+    dict_level_sets = {}
+    list_levels = []
+    for dict_level in dict_manifest["levels"]:
+        try:
+            list_levels.append((int(dict_level.get("level")), dict_level))
+        except Exception:
+            continue
+
+    for int_level, _dict_level in sorted(list_levels, key=lambda item: item[0]):
+        set_keys = set()
+        path_level = path_tile_dir / str(int_level)
+        if path_level.exists():
+            set_keys.update(path_tile.stem for path_tile in path_level.glob("*.jpeg"))
+        if int_level > 0 and (int_level - 1) in dict_level_sets:
+            for str_key in dict_level_sets[int_level - 1]:
+                try:
+                    str_tx, str_ty = str_key.split("_", 1)
+                    set_keys.add(f"{int(str_tx) // 2}_{int(str_ty) // 2}")
+                except Exception:
+                    continue
+        dict_level_sets[int_level] = set_keys
+        dict_manifest["tile_keys"][str(int_level)] = sorted(set_keys)
+
+    for dict_level in dict_manifest["levels"]:
+        try:
+            int_level = int(dict_level.get("level"))
+        except Exception:
+            continue
+        if str(int_level) not in dict_manifest["tile_keys"]:
+            dict_manifest["tile_keys"][str(int_level)] = []
+    return dict_manifest
 
 
 async def _log_ai_analyze(
@@ -343,6 +463,20 @@ async def start_virtual_stain(
     return {"task_id": task_id, "status": "queued"}
 
 
+@router.get("/virtual-stain/{slide_id}/{stain_type}/tile-manifest")
+async def get_virtual_stain_tile_manifest(
+    slide_id: str,
+    stain_type: str,
+    target_mpp: float = Query(2.0),
+):
+    str_slide_path = await _resolve_vs_slide_path(slide_id)
+    if not str_slide_path:
+        return {"tile_size": 512, "levels": [], "tile_keys": {}}
+    _, meta_path = _get_vs_cache_paths(str_slide_path, target_mpp)
+    tile_dir = _get_vs_tile_dir(str_slide_path, target_mpp)
+    return _build_vs_tile_manifest(tile_dir, meta_path)
+
+
 @router.get("/virtual-stain/{slide_id}/{stain_type}.png")
 async def get_virtual_stain_image(slide_id: str, stain_type: str,
                                   target_mpp: float = Query(2.0)):
@@ -369,12 +503,16 @@ async def get_virtual_stain_tile(
     Virtual stain 피라미드 타일 서빙.
     디스크에 있으면 정적 서빙, 없으면 404 (빈/흰 타일은 생성 안 함).
     """
-    info = slide_manager.get(slide_id)
-    if not info:
-        raise HTTPException(404, "슬라이드를 찾을 수 없습니다")
-    tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
+    str_slide_path = await _resolve_vs_slide_path(slide_id)
+    if not str_slide_path:
+        raise HTTPException(404, "slide path not found")
+    _, meta_path = _get_vs_cache_paths(str_slide_path, target_mpp)
+    tile_dir = _get_vs_tile_dir(str_slide_path, target_mpp)
+    int_tile_size = _read_vs_tile_size(meta_path)
     tile_path = tile_dir / str(level) / f"{tx}_{ty}.jpeg"
     if not tile_path.exists():
+        tile_path = _try_build_vs_parent_tile(tile_dir, level, tx, ty, int_tile_size)
+    if not tile_path or not tile_path.exists():
         raise HTTPException(404, "tile not found")
     return FileResponse(
         str(tile_path),

@@ -1,5 +1,5 @@
-import { TileViewer } from './tile-viewer.js?v=20260522-14';
-import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260522-14';
+import { TileViewer } from './tile-viewer.js?v=20260522-16';
+import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260522-16';
 
 export class CellAnnotationViewer extends TileViewer {
     constructor(canvas, overlayCanvas) {

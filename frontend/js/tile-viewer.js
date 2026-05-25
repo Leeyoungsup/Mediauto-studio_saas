@@ -4,7 +4,7 @@
  * then loading visible tiles before background overview tiles.
  */
 
-import { api } from './api.js?v=20260522-14';
+import { api } from './api.js?v=20260522-16';
 
 const TILE_SIZE = 1024;
 const MAX_FOREGROUND_LOADS = 6;
@@ -143,6 +143,7 @@ export class TileViewer {
         this._vsLoadQueue = [];
         this._vsActiveLoads = 0;
         this._vsMaxTiles = 512;
+        this._vsManifestRequestId = 0;
 
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
         this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
@@ -1528,12 +1529,28 @@ export class TileViewer {
         return null;
     }
 
+    _vsTileExists(level, tx, ty) {
+        const ov = this._vsOverlay;
+        if (!ov) return false;
+        if (ov.tileManifestPending) return false;
+        if (ov.tileManifestFailed) return false;
+        if (ov.tileManifestLoaded && ov.tileKeySets) {
+            const setLevel = ov.tileKeySets[String(level)];
+            return !!setLevel && setLevel.has(`${tx}_${ty}`);
+        }
+        if (!ov.tileKeySets) return true;
+        const setLevel = ov.tileKeySets[String(level)];
+        if (!setLevel) return false;
+        return setLevel.has(`${tx}_${ty}`);
+    }
+
     /**
       *
       *
      */
     _getVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
+        if (!this._vsTileExists(level, tx, ty)) return null;
         // LRU touch
         if (this._vsTileCache.has(key)) {
             const img = this._vsTileCache.get(key);
@@ -2433,12 +2450,47 @@ export class TileViewer {
       *
      * }
      */
+    _buildVsTileKeySets(tileKeys) {
+        const tileKeySets = {};
+        if (tileKeys && typeof tileKeys === 'object') {
+            for (const [level, keys] of Object.entries(tileKeys)) {
+                if (Array.isArray(keys)) tileKeySets[String(level)] = new Set(keys);
+            }
+        }
+        return tileKeySets;
+    }
+
+    async _loadVsTileManifest(meta, requestId) {
+        try {
+            const manifest = await api.getVirtualStainTileManifest(
+                meta.slide_id,
+                meta.stain_type || 'ihc_membrane',
+                meta.target_mpp || 2.0
+            );
+            if (requestId !== this._vsManifestRequestId || !this._vsOverlay) return;
+            this._vsOverlay.tileKeySets = this._buildVsTileKeySets(manifest.tile_keys);
+            this._vsOverlay.tileManifestPending = false;
+            this._vsOverlay.tileManifestLoaded = true;
+            this._vsOverlay.tileManifestFailed = false;
+            this.requestRender();
+        } catch (err) {
+            if (requestId !== this._vsManifestRequestId || !this._vsOverlay) return;
+            console.warn('[viewer] VS tile manifest failed', err);
+            this._vsOverlay.tileKeySets = {};
+            this._vsOverlay.tileManifestPending = false;
+            this._vsOverlay.tileManifestLoaded = false;
+            this._vsOverlay.tileManifestFailed = true;
+            this.requestRender();
+        }
+    }
+
     setVirtualStainOverlay(meta) {
         this._vsTileCache.clear();
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
         this._vsLoadQueue.length = 0;
         this._vsActiveLoads = 0;
+        this._vsManifestRequestId++;
 
         if (!meta || !meta.levels || meta.levels.length === 0) {
             console.warn('[viewer] VS overlay: missing tile levels metadata');
@@ -2448,6 +2500,9 @@ export class TileViewer {
         }
 
         const [ox, oy] = meta.roi_origin || [0, 0];
+        const tileKeySets = this._buildVsTileKeySets(meta.tile_keys);
+        const hasTileManifest = Object.keys(tileKeySets).length > 0;
+        const manifestRequestId = this._vsManifestRequestId;
         this._vsOverlay = {
             slideId: meta.slide_id,
             stainType: meta.stain_type || 'ihc_membrane',
@@ -2458,9 +2513,14 @@ export class TileViewer {
             sceneH: meta.canvas_l0_h,
             tileSize: meta.tile_size || 512,
             levels: meta.levels,
+            tileKeySets,
+            tileManifestPending: !hasTileManifest,
+            tileManifestLoaded: hasTileManifest,
+            tileManifestFailed: false,
             roiPolygons: meta.roi_polygons || null,
         };
         this._vsVisible = true;
+        if (!hasTileManifest) this._loadVsTileManifest(meta, manifestRequestId);
         this.requestRender();
     }
 
@@ -2470,6 +2530,7 @@ export class TileViewer {
     }
 
     clearVirtualStainOverlay() {
+        this._vsManifestRequestId++;
         this._vsOverlay = null;
         this._vsVisible = true;
         this._vsSplitMode = false;

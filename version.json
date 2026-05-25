@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.87",
+  "version": "1.1.92",
   "channel": "production",
-  "release_date": "2026-05-22",
-  "description": "Restores tile URL generation and initial visible tile loading in the viewer."
+  "release_date": "2026-05-26",
+  "description": "Loads VS IHC tile manifests before requesting overlay tiles."
 }

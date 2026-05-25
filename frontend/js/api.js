@@ -864,6 +864,13 @@ export const api = {
         return `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile/${level}/${tx}_${ty}.jpeg?target_mpp=${targetMpp}&mt=${encodeURIComponent(_getMediaTicketSync())}`;
     },
 
+    async getVirtualStainTileManifest(slideId, stainType, targetMpp = 2.0) {
+        const url = `${API_BASE}/ai/virtual-stain/${slideId}/${stainType}/tile-manifest?target_mpp=${encodeURIComponent(targetMpp)}`;
+        const res = await _authFetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
 
     /**  (   +   ) */
     async logout() {
