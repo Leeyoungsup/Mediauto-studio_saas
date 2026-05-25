@@ -1,21 +1,34 @@
 /**
- * WSI Tile Viewer - canvas-based tiled slide renderer.
- * Keeps viewer startup lightweight by sharing the minimap thumbnail as fallback,
- * then loading visible tiles before background overview tiles.
+ * WSI Tile Viewer — Canvas text text text text
+ * PyQt5 wsi_view_widget.py + wsi_tile_manager.py text JStext text
+ *
+ * text: WSI level-0 text text (scene text)
+ * text: text zoomtext text OpenSlide leveltext text text text canvastext text
+ *
+ * text text (PyQt5 text text):
+ *  - text text text text text text text text text (fallback)
+ *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20260522-16';
+import { api } from './api.js?v=20260526-01';
 
 const TILE_SIZE = 1024;
-const MAX_FOREGROUND_LOADS = 6;
-const MAX_BACKGROUND_LOADS = 2;
-const OVERVIEW_PRELOAD_DELAY_MS = 900;
+const VIEWER_FAST_THUMBNAIL_SIZE = 300;
+// text text text text — text HTTP/1.1 per-origin text(6)text text.
+// text text text text text text text text abort text text text,
+// text/text text text text text text text _activeLoads text text text
+// text text text text stall text text.
+const MAX_CONCURRENT_LOADS = 6;
 
+// 3text stage text — text backend slide_manager.STAGE_DOWNSAMPLES text text
+//   stage 0: level0 1024x1024 text   (downsample 1)
+//   stage 1: level0 4096x4096 → 1024   (downsample 4)
+//   stage 2: level0 8192x8192 → 1024   (downsample 8)
 const STAGE_DOWNSAMPLES = [1, 4, 8];
 
 /**
-  *
-  *
+ * text text text — text SpatialGridtext text
+ * text grid_size text text text text text text O(1)text text
  */
 class SpatialGrid {
     constructor(gridSize = 2048) {
@@ -65,59 +78,73 @@ export class TileViewer {
         this.overlayCanvas = overlayCanvas;
         this.overlayCtx = overlayCanvas.getContext('2d');
 
+        // text text
         this.slideId = null;
         this.slideInfo = null;
 
+        // text text (scene text = level-0 px)
         this.viewCenterX = 0;
         this.viewCenterY = 0;
         this.zoom = 1.0;
         this.minZoom = 0.001;
         this.maxZoom = 40.0;
 
+        // text text — text text text text (fallbacktext). NDP text text text text.
         this._tileCache = new Map();  // "level/tx/ty" -> HTMLImageElement
         this._tileLoading = new Set();
+        // text text — key → fade start timestamp (ms). text text current-level
+        // child text alpha 0 → 1 text text OSD text text text text text text.
         this._tileFadeStart = new Map();
         this._fadeDurationMs = 250;
-        this._thumbnailBitmap = null;
+        this._thumbnailBitmap = null;  // text text text text (slide text text 1text text)
+        // ── NDP text toggle (Hamamatsu text) ──
+        // app.js text setColorCorrectionEnabled() text text. text OFF.
+        // ON text text/text URL text ?ndp=true text /ndp/ text text — text
+        // ndpmatch text JPEG text text text text text. text CPU text text.
         this._colorCorrectionEnabled = false;
         this._maxCacheTiles = 3000;
-        this._loadQueue = [];
+        this._loadQueue = [];         // text text text
         this._loadQueuedKeys = new Set();
         this._activeLoads = 0;
-        this._activeForegroundLoads = 0;
-        this._activeBackgroundLoads = 0;
+        // text Image text — text text text abort text
         this._inflightImages = new Set();
+        // text generation — onload text text generation text text stale text
         this._loadGeneration = 0;
-        this._overviewPreloadTimer = null;
 
+        // 3-stage text text — text text text 3text stage level text text text text
+        // text text text text text.
         this._preloadKeys = null;   // Set<string> of tile keys that belong to initial preload
         this._preloadTotal = 0;
         this._preloadDone = 0;
         this._isPreloading = false;
 
+        // text text
         this._isPanning = false;
         this._lastPanX = 0;
         this._lastPanY = 0;
 
+        // text text
         this.detectionCells = [];
         this.hiddenDetectionCells = [];
         this.classVisibility = {};   // {class_id: bool}
-        this.classColorOverride = null;
-        this.classConfidence = {};
-        this.defaultConfidence = 0.01;
+        this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
+        this.classConfidence = {};   // {class_id: float} text threshold (text defaultConfidence)
+        this.defaultConfidence = 0.01;  // text text text text text (PD-L1/HER2 text 0.1)
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._hiddenSpatialGrid = null;
-        this._highlightedCellIdx = -1;
-        this._highlightedCellIdxSet = null;
+        this._highlightedCellIdx = -1; // Alt+Click text text text
+        this._highlightedCellIdxSet = null; // Alt+Drag text text text Set
         this._highlightedHiddenCellIdxSet = null;
         this.onCellEditRequested = null; // (idx, cell, screenX, screenY) callback
         this.onCellsMultiEditRequested = null; // (indices, cells, screenX, screenY) callback
         this.onHiddenCellsMultiEditRequested = null; // (indices, hidden cells, screenX, screenY) callback
         this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback for Alt+right-click
-        this.onCellEdited = null;
+        this.onCellEdited = null;        // text text text
+        // Alt+Drag text text
         this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
         this._lassoActive = false;
-        this._lassoPoints = [];
+        this._lassoPoints = [];    // [[sx, sy], ...] scene text
+        // Undo/Redo (text text)
         this._undoStack = [];
         this._redoStack = [];
         this._maxUndo = 200;
@@ -125,54 +152,60 @@ export class TileViewer {
         this._annotationRedoStack = [];
         this._maxAnnotationUndo = 100;
 
+        // Segmentation text
         this._segOverlay = null;     // {image, sceneX, sceneY, sceneW, sceneH}
         this.segClassVisibility = {}; // {cls_id: bool}
 
+        // Virtual Stain (VS IHC) text — text text text
         // meta: {slideId, stainType, targetMpp, originX, originY, sceneW, sceneH,
         //        tileSize, levels: [{level,width,height,nx,ny}...], roiPolygons}
         this._vsOverlay = null;
         this._vsVisible = true;
-        this._vsSplitMode = false;
-        this._vsSplitFrac = 0.5;
+        this._vsSplitMode = false;   // true: text text text VS text (text: text IHC)
+        this._vsSplitFrac = 0.5;     // text text (0..1, text text text)
         this._vsSplitDragging = false;
-        this._vsSplitHandleW = 10;
+        this._vsSplitHandleW = 10;   // text hit-area (±px)
 
-        this._vsTileCache = new Map();
+        // VS text text (level/tx/ty text)
+        this._vsTileCache = new Map();    // key → HTMLImageElement (LRU: Map insertion order)
         this._vsTileLoading = new Set();  // in-flight keys
-        this._vsTileMissing = new Set();
-        this._vsLoadQueue = [];
-        this._vsActiveLoads = 0;
+        this._vsTileMissing = new Set();  // 404 text (text text text text)
+        this._vsLoadQueue = [];           // VS text text text
+        this._vsActiveLoads = 0;          // text text text VS text text text
         this._vsMaxTiles = 512;
-        this._vsManifestRequestId = 0;
 
+        // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
         this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
-        this._drawingPoints = [];
-        this._drawingStart = null;
-        this._drawingCurrent = null;
+        this._drawingPoints = [];     // text text text text (scene)
+        this._drawingStart = null;    // text text (scene)
+        this._drawingCurrent = null;  // text/text text text (scene)
         this._brushSizePx = Number(localStorage.getItem('annotationBrushSizePx') || 28);
         this._brushSizePx = Math.max(4, Math.min(120, this._brushSizePx));
         this.annotationStrokeWidth = 2;
         this.annotationFillOpacity = 0.1;
         this.annotationDrawColor = [0, 255, 0];
         this.hiddenAnnotationClassIds = new Set();
+        // Ruler — text text. annotation text text text text text.
+        // mode text / text text text text text.
         this._rulerStart = null;      // [sx, sy]
-        this._rulerEnd = null;
-        this._rulerFinalized = false;
+        this._rulerEnd = null;        // [sx, sy] — text text text text text text text
+        this._rulerFinalized = false; // true text text text text text text text text
         this._isDrawing = false;
         this._annotationCounter = 0;
         this.selectedAnnotationId = null;
         this._insertVertexPreview = null; // {annId, insertIndex, point:[sx,sy]} Ctrl+polygon edge insert preview
         this._mergeHover = null;       // {annIds:[id,id], scenePoint:[sx,sy]} same-class polygon merge affordance
-        this._dragControlPoint = null;
-        this._dragAnnotation = null;
-        this._lastDrawDragScene = null;
+        this._dragControlPoint = null;  // {annId, pointIndex} text text text
+        this._dragAnnotation = null;    // {annId, startScene} text text text
+        this._lastDrawDragScene = null; // text text text text
 
+        // text
         this.onZoomChange = null;
         this.onViewChange = null;
-        this.onPreloadStart = null;
+        this.onPreloadStart = null;     // () => {}  3-stage text text
         this.onPreloadProgress = null;  // (done, total) => {}
-        this.onPreloadComplete = null;
+        this.onPreloadComplete = null;  // () => {}  3-stage text text
         this.onAnnotationCreated = null;   // (annotation) => {}
         this.onAnnotationSelected = null;  // (annotation|null) => {}
         this.onAnnotationDeleted = null;   // (annotation) => {}
@@ -180,6 +213,7 @@ export class TileViewer {
         this.onAnnotationContextMenu = null; // (annotation, event) => {}
         this.onDrawModeChange = null;      // (mode) => {}
 
+        // text text text
         this._renderPending = false;
 
         this._setupEvents();
@@ -187,10 +221,11 @@ export class TileViewer {
         window.addEventListener('resize', () => this._resizeCanvas());
     }
 
+    // ── text text ──
 
     loadSlide(slideId, slideInfo) {
+        // text Image text abort — onload text text text cache text text text text text text
         this._loadGeneration++;
-        this._clearOverviewPreloadTimer();
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
         }
@@ -205,8 +240,6 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
-        this._activeForegroundLoads = 0;
-        this._activeBackgroundLoads = 0;
         this._thumbnailBitmap = null;
         this.detectionCells = [];
         this.annotations = [];
@@ -216,32 +249,54 @@ export class TileViewer {
         this._annotationRedoStack = [];
         this._thumbnailBitmap = null;
 
+        // text text text text text
         this._preloadKeys = null;
         this._preloadTotal = 0;
         this._preloadDone = 0;
         this._isPreloading = false;
 
+        const str_preload_slide_id = this.slideId;
+        this._loadThumbnailFallbackImmediate().finally(() => {
+            if (this.slideId !== str_preload_slide_id) return;
+            this._preloadAllStageLevels();
+        });
         this.fitToWindow();
-        this._loadThumbnailFallbackImmediate();
-        this._queueVisibleTilesForCurrentView();
-        this._scheduleOverviewPreload();
+        // 3 stage level text text — text text text text
+        // Overview preload starts after the thumbnail gets first chance to paint.
+        // text text text text 1text text — text/text text miss text text text text text
     }
 
-    _clearOverviewPreloadTimer() {
-        if (!this._overviewPreloadTimer) return;
-        clearTimeout(this._overviewPreloadTimer);
-        this._overviewPreloadTimer = null;
-    }
-
-    _scheduleOverviewPreload(delayMs = OVERVIEW_PRELOAD_DELAY_MS) {
-        this._clearOverviewPreloadTimer();
+    async _loadThumbnailFallback() {
+        if (!this.slideId) return;
         const str_slide_id = this.slideId;
         const int_gen = this._loadGeneration;
-        this._overviewPreloadTimer = setTimeout(() => {
-            this._overviewPreloadTimer = null;
-            if (int_gen !== this._loadGeneration || this.slideId !== str_slide_id) return;
-            this._preloadAllStageLevels();
-        }, delayMs);
+        await api.ensureMediaReady();
+        if (this.slideId !== str_slide_id) return;
+
+        // ndpMatch text URL text text — text ndpmatch text text
+        const bool_auto_ndp = api.shouldUseNdpMatch?.(this.slideInfo) || false;
+        const bool_ndp = !!this._colorCorrectionEnabled || bool_auto_ndp;
+
+        // 0text — text text text text DOM <img> text (text 0ms).
+        // Use only the fast matched thumbnail for viewer startup.
+        const img_small = new Image();
+        this._inflightImages.add(img_small);
+        img_small.onload = () => {
+            this._inflightImages.delete(img_small);
+            if (int_gen !== this._loadGeneration) return;
+            if (this.slideId !== str_slide_id) return;
+            this._thumbnailBitmap = img_small;
+            this.requestRender();
+        };
+        img_small.onerror = (e) => {
+            this._inflightImages.delete(img_small);
+            if (int_gen !== this._loadGeneration) return;
+            console.warn('[tile-viewer] small thumb load failed', img_small.src, e);
+        };
+        const str_small_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
+        if (str_small_url) img_small.src = str_small_url;
+
+
     }
 
     _loadThumbnailFallbackImmediate() {
@@ -257,6 +312,9 @@ export class TileViewer {
                 bool_done = true;
                 resolve(ok);
             };
+            // Start tile preload after the fast matched thumbnail gets a chance to paint.
+            setTimeout(() => finish(false), 1500);
+
             const el_sidebar_thumb = document.querySelector(
                 `.slide-list-item[data-slide-id="${str_slide_id}"] .slide-thumb`
             );
@@ -274,20 +332,46 @@ export class TileViewer {
                 el_sidebar_thumb.addEventListener('load', paintSidebarThumb, { once: true });
             }
 
-            finish(false);
-        });
-    }
+            api.ensureMediaReady().then(() => {
+                if (this.slideId !== str_slide_id) return finish(false);
 
-    setThumbnailFallbackImage(slideId, img) {
-        if (!img || img.naturalWidth <= 0) return false;
-        if (slideId && this.slideId !== slideId) return false;
-        this._thumbnailBitmap = img;
-        this.requestRender();
-        return true;
+                const loadImage = (url, label, applyImage, onError, resolveOnLoad = false) => {
+                    if (!url) return false;
+                    const img = new Image();
+                    this._inflightImages.add(img);
+                    img.onload = () => {
+                        this._inflightImages.delete(img);
+                        if (int_gen !== this._loadGeneration) return;
+                        if (this.slideId !== str_slide_id) return;
+                        applyImage(img);
+                        this.requestRender();
+                        if (resolveOnLoad) finish(true);
+                    };
+                    img.onerror = (e) => {
+                        this._inflightImages.delete(img);
+                        if (int_gen !== this._loadGeneration) return;
+                        console.warn(`[tile-viewer] ${label} load failed`, img.src, e);
+                        if (typeof onError === 'function') onError();
+                    };
+                    img.src = url;
+                    return true;
+                };
+
+                const applyThumb = (img) => { this._thumbnailBitmap = img; };
+
+                const str_match_thumb_url = api.thumbnailUrl(str_slide_id, VIEWER_FAST_THUMBNAIL_SIZE, bool_ndp, this.slideInfo);
+
+                let bool_started = false;
+                bool_started = loadImage(str_match_thumb_url, 'thumbnail', applyThumb, null, true) || bool_started;
+                if (!bool_started) finish(false);
+            }).catch(() => finish(false));
+        });
     }
 
     _preloadAllStageLevels() {
         if (!this.slideInfo) return;
+        // text stage 2 (text text) text text text.
+        // stage 0, 1 text text zoom in text text on-demand text text.
         const int_level = 2;
         const [levelW, levelH] = this._stageDimensions(int_level);
         const nx = Math.ceil(levelW / TILE_SIZE);
@@ -298,20 +382,10 @@ export class TileViewer {
         for (let ty = 0; ty < ny; ty++) {
             for (let tx = 0; tx < nx; tx++) {
                 const key = `${int_level}/${tx}/${ty}`;
-                if (this._tileCache.has(key)) continue;
                 set_keys.add(key);
-                if (this._tileLoading.has(key)) continue;
-                list_tasks.push({ level: int_level, tx, ty, priority: 2, source: 'overview' });
+                list_tasks.push({ level: int_level, tx, ty });
             }
         }
-
-        const float_center_tx = Math.max(0, Math.min(nx - 1, this.viewCenterX / (TILE_SIZE * this._stageDownsample(int_level))));
-        const float_center_ty = Math.max(0, Math.min(ny - 1, this.viewCenterY / (TILE_SIZE * this._stageDownsample(int_level))));
-        list_tasks.sort((a, b) => {
-            const da = (a.tx - float_center_tx) ** 2 + (a.ty - float_center_ty) ** 2;
-            const db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
-            return da - db;
-        });
 
         this._preloadKeys = set_keys;
         this._preloadTotal = set_keys.size;
@@ -327,7 +401,7 @@ export class TileViewer {
         }
 
         for (const t of list_tasks) {
-            this._queueTileTask(t, false);
+            this._queueTileTask(t);
         }
         this._processLoadQueue();
     }
@@ -343,93 +417,6 @@ export class TileViewer {
             this._isPreloading = false;
             if (this.onPreloadComplete) this.onPreloadComplete();
         }
-    }
-
-    _collectVisibleTileTasks() {
-        if (!this.slideInfo || this.zoom <= 0 || !this._viewW || !this._viewH) {
-            return { parentTasks: [], childTasks: [] };
-        }
-
-        const effectiveMpp = this.getEffectiveMpp();
-        const level = this._getStageLevel(effectiveMpp);
-        const downsample = this._stageDownsample(level);
-        const [levelW, levelH] = this._stageDimensions(level);
-        const nx = Math.max(1, Math.ceil(levelW / TILE_SIZE));
-        const ny = Math.max(1, Math.ceil(levelH / TILE_SIZE));
-
-        const halfVW = this._viewW / this.zoom / 2;
-        const halfVH = this._viewH / this.zoom / 2;
-        const viewLeft = this.viewCenterX - halfVW;
-        const viewTop = this.viewCenterY - halfVH;
-        const viewRight = this.viewCenterX + halfVW;
-        const viewBottom = this.viewCenterY + halfVH;
-
-        const tileSceneSize = TILE_SIZE * downsample;
-        const txMin = Math.max(0, Math.floor(viewLeft / tileSceneSize));
-        const tyMin = Math.max(0, Math.floor(viewTop / tileSceneSize));
-        const txMax = Math.min(nx - 1, Math.ceil(viewRight / tileSceneSize));
-        const tyMax = Math.min(ny - 1, Math.ceil(viewBottom / tileSceneSize));
-
-        if (txMin > txMax || tyMin > tyMax) {
-            return { parentTasks: [], childTasks: [] };
-        }
-
-        const parentTasks = [];
-        const childTasks = [];
-        const parentKeys = new Set();
-        const list_stage_unique = Array.from(new Set(this._getLevelStages())).sort((a, b) => a - b);
-        const int_cur_stage_idx = list_stage_unique.indexOf(level);
-        const int_parent_stage_level = (int_cur_stage_idx >= 0 && int_cur_stage_idx + 1 < list_stage_unique.length)
-            ? list_stage_unique[int_cur_stage_idx + 1]
-            : -1;
-
-        for (let ty = tyMin; ty <= tyMax; ty++) {
-            for (let tx = txMin; tx <= txMax; tx++) {
-                const key = `${level}/${tx}/${ty}`;
-                if (!this._tileCache.has(key) && !this._tileLoading.has(key)) {
-                    childTasks.push({ level, tx, ty, key });
-                }
-
-                if (int_parent_stage_level < 0) continue;
-                const parentDs = this._stageDownsample(int_parent_stage_level);
-                const parentTileScene = TILE_SIZE * parentDs;
-                const sceneX = tx * tileSceneSize;
-                const sceneY = ty * tileSceneSize;
-                const int_ptx = Math.floor((sceneX + tileSceneSize / 2) / parentTileScene);
-                const int_pty = Math.floor((sceneY + tileSceneSize / 2) / parentTileScene);
-                const parentKey = `${int_parent_stage_level}/${int_ptx}/${int_pty}`;
-                if (
-                    !parentKeys.has(parentKey) &&
-                    !this._tileCache.has(parentKey) &&
-                    !this._tileLoading.has(parentKey)
-                ) {
-                    parentKeys.add(parentKey);
-                    parentTasks.push({
-                        level: int_parent_stage_level,
-                        tx: int_ptx,
-                        ty: int_pty,
-                        key: parentKey,
-                    });
-                }
-            }
-        }
-
-        const float_center_tx = (txMin + txMax) / 2;
-        const float_center_ty = (tyMin + tyMax) / 2;
-        childTasks.sort((a, b) => {
-            const da = (a.tx - float_center_tx) ** 2 + (a.ty - float_center_ty) ** 2;
-            const db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
-            return da - db;
-        });
-
-        return { parentTasks, childTasks };
-    }
-
-    _queueVisibleTilesForCurrentView() {
-        const { parentTasks, childTasks } = this._collectVisibleTileTasks();
-        if (parentTasks.length === 0 && childTasks.length === 0) return;
-        this._queueTileTasksFront([...parentTasks, ...childTasks]);
-        this._processLoadQueue();
     }
 
     fitToWindow() {
@@ -449,6 +436,7 @@ export class TileViewer {
         this.requestRender();
     }
 
+    // ── text text ──
 
     sceneToCanvas(sx, sy) {
         const cx = (sx - this.viewCenterX) * this.zoom + this._viewW / 2;
@@ -474,12 +462,14 @@ export class TileViewer {
     }
 
     _getStageLevel(effectiveMpp) {
+        // stage index text (0/1/2). level text text stage text text text.
         if (effectiveMpp < 2.0) return 0;
         if (effectiveMpp < 15.0) return 1;
         return 2;
     }
 
     _getLevelStages() {
+        // 3text stage text text [0, 1, 2] — stage index text text level text text
         return [0, 1, 2];
     }
 
@@ -488,21 +478,18 @@ export class TileViewer {
     }
 
     _stageDimensions(stage) {
+        // backend text stage_dimensions text text text, text level 0 text text
         if (this.slideInfo &&
             Array.isArray(this.slideInfo.stage_dimensions) &&
             this.slideInfo.stage_dimensions[stage]) {
-            const dims = this.slideInfo.stage_dimensions[stage];
-            const w = Number(dims?.[0]);
-            const h = Number(dims?.[1]);
-            if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-                return [w, h];
-            }
+            return this.slideInfo.stage_dimensions[stage];
         }
         const [w0, h0] = this.slideInfo.dimensions;
         const ds = STAGE_DOWNSAMPLES[stage];
         return [Math.max(1, Math.ceil(w0 / ds)), Math.max(1, Math.ceil(h0 / ds))];
     }
 
+    // ── text ──
 
     setZoom(newZoom, anchorCanvasX = null, anchorCanvasY = null) {
         newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
@@ -556,8 +543,10 @@ export class TileViewer {
         }
     }
 
+    // ── text ──
 
     _setupEvents() {
+        // ── text ──
         this.canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             if (e.altKey && this.drawMode === 'brush') {
@@ -597,12 +586,14 @@ export class TileViewer {
             this.overlayCanvas.addEventListener('contextmenu', suppressAltContextMenu, true);
         }
 
+        // ── text ──
         this.canvas.addEventListener('mousedown', (e) => {
             const rect = this.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
             const cy = e.clientY - rect.top;
             const [sx, sy] = this.canvasToScene(cx, cy);
 
+            // VS Split mode: text text hit-test (text)
             if (e.button === 0 && this._vsSplitMode && this._vsOverlay && this._vsVisible) {
                 const splitX = this._viewW * this._vsSplitFrac;
                 if (Math.abs(cx - splitX) <= this._vsSplitHandleW) {
@@ -613,6 +604,8 @@ export class TileViewer {
                 }
             }
 
+            // Alt + text/text: text text (text=text, text=text text text)
+            // mousedown text text text — mousemovetext text text text
             if (e.altKey && e.button === 2 && !this.drawMode) {
                 suppressContextMenuUntil = Date.now() + 2000;
                 this._altPending = {
@@ -669,6 +662,9 @@ export class TileViewer {
                 return;
             }
 
+            // Shift + text: text text text (drawMode text text text — drawMode text text click text).
+            // detection text text text text — class_names text text text text text text.
+            // text text Shift+A text text text (Ctrl text text text — Ctrl text text modifier).
             if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey) {
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
@@ -685,11 +681,14 @@ export class TileViewer {
                 }
             }
 
+            // text text
             if (this.drawMode && e.button === 0 && !e.ctrlKey) {
                 this._onDrawMouseDown(sx, sy, cx, cy, e);
                 return;
             }
 
+            // text text text (text annotationtext text)
+            // Ctrl text text annotation text pan text (text text text)
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
                 const cp = this._hitControlPoint(cx, cy);
                 if (cp) {
@@ -699,17 +698,20 @@ export class TileViewer {
                     return;
                 }
 
+                // annotation text text / text
                 const hitAnn = this._hitAnnotation(sx, sy);
                 if (hitAnn) {
                     this.selectAnnotation(hitAnn.id);
                     this.canvas.style.cursor = 'grabbing';
                 }
 
+                // text text text → text text
                 if (!hitAnn && !e.ctrlKey && this.selectedAnnotationId) {
                     this.selectAnnotation(null);
                 }
             }
 
+            // Ctrl+text text text text
             if (e.button === 0 || e.button === 1) {
                 this._isPanning = true;
                 this._lastPanX = e.clientX;
@@ -729,6 +731,7 @@ export class TileViewer {
                 this.canvas.style.cursor = 'crosshair';
             }
 
+            // Alt+text text text
             if (this._altPending) {
                 if (!this._lassoActive) {
                     const dx = cx - this._altPending.cx;
@@ -745,9 +748,11 @@ export class TileViewer {
                 return;
             }
 
+            // VS Split text text
             if (this._vsSplitDragging) {
                 const w = this._viewW;
                 let frac = cx / w;
+                // text text text (text 5%)
                 frac = Math.max(0.05, Math.min(0.95, frac));
                 this._vsSplitFrac = frac;
                 this.requestRender();
@@ -767,6 +772,7 @@ export class TileViewer {
                     return;
                 }
             }
+            // hover text cursor text (text/text/text text text text)
             if (this._vsSplitMode && this._vsOverlay && this._vsVisible &&
                 !this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
                 const insideCanvas = cx >= 0 && cy >= 0 &&
@@ -789,6 +795,7 @@ export class TileViewer {
                 }
             }
 
+            // text text
             if (this._dragControlPoint) {
                 const ann = this.annotations.find(a => a.id === this._dragControlPoint.annId);
                 if (ann) {
@@ -803,6 +810,7 @@ export class TileViewer {
                 return;
             }
 
+            // annotation text text
             if (this._dragAnnotation) {
                 const ann = this.annotations.find(a => a.id === this._dragAnnotation.annId);
                 if (ann) {
@@ -815,10 +823,12 @@ export class TileViewer {
                 return;
             }
 
+            // text text
             if (this.drawMode && this._isDrawing) {
                 this._onDrawMouseMove(sx, sy, cx, cy);
                 return;
             }
+            // 1mm² text text text text text text text text text
             if (this.drawMode === 'brush') {
                 this._drawingCurrent = [sx, sy];
                 this.requestRender();
@@ -827,12 +837,15 @@ export class TileViewer {
                 this._drawingCurrent = [sx, sy];
                 this.requestRender();
             }
+            // Ruler — text text text text text text (text text text).
+            // text/text ±2° text preview text text text text text text text.
             if (this.drawMode === 'ruler' && this._rulerStart && !this._rulerFinalized) {
                 this._rulerEnd = this._snapRulerEnd(
                     this._rulerStart[0], this._rulerStart[1], sx, sy);
                 this.requestRender();
             }
 
+            // text
             if (!this._isPanning) return;
             const dx = e.clientX - this._lastPanX;
             const dy = e.clientY - this._lastPanY;
@@ -846,6 +859,7 @@ export class TileViewer {
         });
 
         window.addEventListener('mouseup', (e) => {
+            // Alt+text/text text text
             if (this._altPending) {
                 const pending = this._altPending;
                 this._altPending = null;
@@ -858,6 +872,8 @@ export class TileViewer {
                             ? this._findHiddenCellsInPolygon(pts)
                             : this._findCellsInPolygon(pts);
                         if (list_indices.length > 0) {
+                            // text text text text closetext highlighttext text
+                            // text text text text text highlight Settext text
                             if (pending.hiddenOther) {
                                 if (this.onHiddenCellsMultiEditRequested) {
                                     const list_cells = list_indices.map(i => this.hiddenDetectionCells[i]);
@@ -886,6 +902,7 @@ export class TileViewer {
                         this.requestRender();
                         return;
                     }
+                    // text Alt+text: text text text text
                     const hit = this._findNearestCell(pending.sx, pending.sy, 30);
                     if (hit) {
                         if (this.onCellEditRequested) {
@@ -899,6 +916,7 @@ export class TileViewer {
                 return;
             }
 
+            // Shift+click text — text text text text text text (text text).
             if (this._vsSplitDragging) {
                 this._vsSplitDragging = false;
                 this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
@@ -928,6 +946,7 @@ export class TileViewer {
             }
         });
 
+        // ── text: text text text + text text text ──
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             suppressContextMenuUntil = Date.now() + 500;
@@ -947,6 +966,7 @@ export class TileViewer {
             }
         });
 
+        // ── text: annotation text ──
         this.canvas.addEventListener('dblclick', (e) => {
             if (!this.drawMode) {
                 const rect = this.canvas.getBoundingClientRect();
@@ -956,6 +976,7 @@ export class TileViewer {
             }
         });
 
+        // ── text ──
         window.addEventListener('keydown', (e) => {
             if ((e.key === 'Control' || e.key === 'Alt') &&
                     !this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
@@ -972,12 +993,14 @@ export class TileViewer {
                     this.requestRender();
                 }
                 if (this.drawMode) {
-                    this.setDrawMode(null);
+                    this.setDrawMode(null); // text text
                 }
             }
             if (e.key === 'Delete' && this.selectedAnnotationId) {
                 this.deleteAnnotation(this.selectedAnnotationId);
             }
+            // Shift text text text text — text text text text text text text.
+            // (drawMode/text text text text text text, text detectionCells text text text.)
         });
         window.addEventListener('keyup', (e) => {
             if (e.key === 'Alt') {
@@ -988,12 +1011,14 @@ export class TileViewer {
                 this._setMergeHover(null);
             }
             if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
+                // text cursor text (drawMode/text/text) text text grab text text.
                 if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation &&
                         !this._vsSplitDragging) {
                     this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
                 }
             }
         });
+        // text text text text Shift text text keyup text text text text text blur text text.
         window.addEventListener('blur', () => {
             document.body.classList.remove('viewer-alt-held');
             this._setInsertVertexPreview(null);
@@ -1003,6 +1028,7 @@ export class TileViewer {
             }
         });
 
+        // ── text ──
         let lastTouchDist = 0;
         let lastTouchCenter = null;
         this.canvas.addEventListener('touchstart', (e) => {
@@ -1062,6 +1088,7 @@ export class TileViewer {
         this._dpr = float_dpr;
         this._viewW = w;
         this._viewH = h;
+        // text text text text — text text text 1:1 text text
         this.canvas.width = Math.round(w * float_dpr);
         this.canvas.height = Math.round(h * float_dpr);
         this.canvas.style.width = w + 'px';
@@ -1076,6 +1103,7 @@ export class TileViewer {
         }
     }
 
+    // ── text ──
 
     requestRender() {
         if (this._renderPending) return;
@@ -1087,13 +1115,13 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
+     * child scene text **text text fallback text** text text text text text.
+     * child text parent text text text parent text text 2x2 = 4 text text.
+     * text parent text child text text text text text clamp text.
      *
-      *
-      *
-      *
+     * text: **text level text** text (text stage text), text level text child text
+     * text parent text text. text cache text text text level text text.
+     * (text text text text level text text text text text text level text text)
      */
     _findFallbackTiles(sceneX, sceneY, sceneSize, currentLevel) {
         const list_stages = this._getLevelStages();
@@ -1110,8 +1138,10 @@ export class TileViewer {
         for (const l of levels) {
             const ds = this._stageDownsample(l);
             const tileScene = TILE_SIZE * ds;
+            // child text text parent text text text (text ~ text)
             const int_ptx_min = Math.floor(sceneX / tileScene);
             const int_pty_min = Math.floor(sceneY / tileScene);
+            // child text text (1e-6) text text text text text text text text text text
             const int_ptx_max = Math.floor((sceneX + sceneSize - 1e-6) / tileScene);
             const int_pty_max = Math.floor((sceneY + sceneSize - 1e-6) / tileScene);
             const list_hits = [];
@@ -1136,6 +1166,9 @@ export class TileViewer {
     }
 
     _render() {
+        // text draw text identity transform text device pixel text text
+        // (text scale+drawImage text rounding text text text).
+        // VS overlay text text CSS text text text dpr transform text text text text.
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (!this.slideInfo) {
             this.ctx.fillStyle = '#fff';
@@ -1153,6 +1186,7 @@ export class TileViewer {
         const downsample = this._stageDownsample(level);
         const [levelW, levelH] = this._stageDimensions(level);
 
+        // text text (scene text)
         const halfVW = this._viewW / this.zoom / 2;
         const halfVH = this._viewH / this.zoom / 2;
         const viewLeft = this.viewCenterX - halfVW;
@@ -1160,23 +1194,32 @@ export class TileViewer {
         const viewRight = this.viewCenterX + halfVW;
         const viewBottom = this.viewCenterY + halfVH;
 
+        // text text
         const tileSceneSize = TILE_SIZE * downsample;
         const txMin = Math.max(0, Math.floor(viewLeft / tileSceneSize));
         const tyMin = Math.max(0, Math.floor(viewTop / tileSceneSize));
         const txMax = Math.min(Math.ceil(levelW / TILE_SIZE) - 1, Math.ceil(viewRight / tileSceneSize));
         const tyMax = Math.min(Math.ceil(levelH / TILE_SIZE) - 1, Math.ceil(viewBottom / tileSceneSize));
 
+        // text text text (text text text text text text)
+        // parent / child text — parent text strictly text text text text child text.
+        // FIFO + MAX_CONCURRENT_LOADS text parent text text text text text
+        // child text text text text text.
         const list_parent_tasks = [];
         const list_child_tasks = [];
         const set_parent_enqueued = new Set();
 
+        // text stage text "text text stage level" — fallback prefetch text
         const list_stage_unique = Array.from(new Set(this._getLevelStages())).sort((a, b) => a - b);
         const int_cur_stage_idx = list_stage_unique.indexOf(level);
         const int_parent_stage_level = (int_cur_stage_idx >= 0 && int_cur_stage_idx + 1 < list_stage_unique.length)
             ? list_stage_unique[int_cur_stage_idx + 1]
             : -1;
 
-        const map_fallback_parents = new Map();
+        // ── Pass 1: text child text text text text text parent text text ──
+        // child text parent text text text sub-pixel text text artifact text text.
+        // text parent text text text text **text text** text, text/text draw text text.
+        const map_fallback_parents = new Map(); // key → {img, srcSceneX, srcSceneY, srcSceneSize, srcPixelSize}
         const list_missing_children = []; // {tx, ty, sceneX, sceneY, canvasX, canvasY, canvasSize}
         const list_present_children = []; // {img, canvasX, canvasY, canvasSize, key}
         let bool_any_missing_without_fallback = false;
@@ -1193,6 +1236,7 @@ export class TileViewer {
 
                 if (img && img.complete && img.naturalWidth > 0) {
                     list_present_children.push({ img, canvasX, canvasY, canvasSize, key, sceneX, sceneY });
+                    // text text text text text text text→text text text text
                     const float_fs = this._tileFadeStart.get(key);
                     if (float_fs !== undefined && (performance.now() - float_fs) < this._fadeDurationMs) {
                         const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
@@ -1205,6 +1249,7 @@ export class TileViewer {
                     }
                 } else {
                     list_missing_children.push({ tx, ty, sceneX, sceneY, canvasX, canvasY, canvasSize });
+                    // text child text text parent text text (text map text dedup)
                     const list_fbs = this._findFallbackTiles(sceneX, sceneY, tileSceneSize, level);
                     if (list_fbs.length === 0) {
                         bool_any_missing_without_fallback = true;
@@ -1216,6 +1261,7 @@ export class TileViewer {
                         }
                     }
 
+                    // text text stage level text text text (parent text text).
                     const int_parent_level = int_parent_stage_level;
                     if (int_parent_level >= 0) {
                         const float_parent_ds = this._stageDownsample(int_parent_level);
@@ -1240,6 +1286,7 @@ export class TileViewer {
                         }
                     }
 
+                    // text text child text text text text — text parent text text
                     if (!this._tileLoading.has(key)) {
                         list_child_tasks.push({ level, tx, ty, key });
                     }
@@ -1247,6 +1294,9 @@ export class TileViewer {
             }
         }
 
+        // ── device pixel text text drawImage (transform text) ──
+        // CSS px text device px text snap. floor(left) + ceil(right) text text text
+        // text text text text text. ceil text text floor text gap text.
         const float_dpr = this._dpr;
         const _drawAligned = (img, sx, sy, sw, sh, dx, dy, dw, dh) => {
             const int_l = Math.floor(dx * float_dpr);
@@ -1263,6 +1313,7 @@ export class TileViewer {
             }
         };
 
+        // ── Pass 2a: text (text text) text text text text text ──
         const bool_should_draw_thumbnail = !!this._thumbnailBitmap
             && (bool_any_missing_without_fallback || list_missing_children.length > 0);
         if (bool_should_draw_thumbnail) {
@@ -1274,6 +1325,7 @@ export class TileViewer {
                 int_scene_w * this.zoom, int_scene_h * this.zoom);
         }
 
+        // ── Pass 2b: fallback parent text text text text text text ──
         for (const fb of map_fallback_parents.values()) {
             const [float_px, float_py] = this.sceneToCanvas(fb.srcSceneX, fb.srcSceneY);
             _drawAligned(fb.img, 0, 0, fb.srcPixelSize, fb.srcPixelSize,
@@ -1281,6 +1333,9 @@ export class TileViewer {
                 fb.srcSceneSize * this.zoom, fb.srcSceneSize * this.zoom);
         }
 
+        // ── Pass 3: text text child text (fade-in) ──
+        // text text text alpha 0 → 1 text text OSD text text text text
+        // text text. text parent/text text text text text text text text.
         const float_now_ms = performance.now();
         const float_fade_dur = this._fadeDurationMs;
         let bool_any_fading = false;
@@ -1312,6 +1367,10 @@ export class TileViewer {
             this.requestRender();
         }
 
+        // text stage text text, text text text text child text text text.
+        // parent text text text text child text text text,
+        // fallback text text text text.
+        // child text text text text text text — text text text text text.
         const float_center_tx = (txMin + txMax) / 2;
         const float_center_ty = (tyMin + tyMax) / 2;
         list_child_tasks.sort((a, b) => {
@@ -1321,14 +1380,19 @@ export class TileViewer {
         });
         this._queueTileTasksFront([...list_parent_tasks, ...list_child_tasks]);
 
+        // text text text text text
         this._processLoadQueue();
 
+        // text CSS text text text — dpr transform text
         ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
 
+        // Virtual Stain text (text text text text text — text text)
         this._renderVirtualStainOverlay(ctx);
 
+        // text text — device pixel text, dpr scale text annotation text
         this.overlayCtx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
         this.overlayCtx.clearRect(0, 0, this._viewW, this._viewH);
+        // text: annotation/detection text CSS text text text.
         this._renderDetectionOverlay();
         this._renderAnnotations(this.overlayCtx);
     }
@@ -1341,10 +1405,12 @@ export class TileViewer {
         const canvasW = this._viewW;
         const canvasH = this._viewH;
 
+        // text text → text text
         const [cx, cy] = this.sceneToCanvas(ov.originX, ov.originY);
         const cw = ov.sceneW * this.zoom;
         const ch = ov.sceneH * this.zoom;
 
+        // text text
         const dx0 = Math.max(0, cx);
         const dy0 = Math.max(0, cy);
         const dx1 = Math.min(canvasW, cx + cw);
@@ -1352,6 +1418,8 @@ export class TileViewer {
         const overlayVisible = (dx1 > dx0 && dy1 > dy0);
         if (!overlayVisible && !this._vsSplitMode) return;
 
+        // ── text text: level width text text text text text text text text text text text text text ──
+        // text text VS text(text)text text text text text text
         let chosenL = 0;
         for (let L = 0; L < ov.levels.length; L++) {
             if (ov.levels[L].width >= cw * 0.8) chosenL = L;
@@ -1360,6 +1428,7 @@ export class TileViewer {
         const lvl = ov.levels[chosenL];
         const scaleX = ov.sceneW / lvl.width;    // scene px per level-pixel
 
+        // text(zoom text text)text text off, text low text
         const screenPerLvlPx = this.zoom * scaleX;
         if (screenPerLvlPx > 1) {
             ctx.imageSmoothingEnabled = false;
@@ -1368,6 +1437,7 @@ export class TileViewer {
             ctx.imageSmoothingQuality = 'low';
         }
 
+        // text scene text
         const [vsx0, vsy0] = this.canvasToScene(0, 0);
         const [vsx1, vsy1] = this.canvasToScene(canvasW, canvasH);
         const xlo = Math.max(ov.originX, vsx0);
@@ -1375,11 +1445,15 @@ export class TileViewer {
         const xhi = Math.min(ov.originX + ov.sceneW, vsx1);
         const yhi = Math.min(ov.originY + ov.sceneH, vsy1);
         if (xhi <= xlo || yhi <= ylo) {
+            // text text text — split text text text (text text)
             if (!this._vsSplitMode) return;
         }
 
         const TS = ov.tileSize || 512;
 
+        // text text text text draw (text/text text text text)
+        // requestMissing: true text text miss text _getVsTile text text text text
+        //                 false text text text text text (fallback text)
         const drawLevel = (L, requestMissing) => {
             const lv = ov.levels[L];
             const sX = ov.sceneW / lv.width;
@@ -1408,6 +1482,7 @@ export class TileViewer {
             }
         };
 
+        // ROI text text
         const roiPolys = ov.roiPolygons;
         const drawWithRoiClip = (drawFn) => {
             if (!roiPolys || roiPolys.length === 0) {
@@ -1431,14 +1506,19 @@ export class TileViewer {
             ctx.restore();
         };
 
+        // drawTiles: text text → text text → text text (text text) text text
+        //   1) text text text(text)text text text text text text (blur pad)
+        //   2) text text text (text text)
+        //   3) text text text text (L-1, L-2...) text text text text text text
+        //      (text text text text text text text text)
         const drawTiles = () => {
             const bgL = ov.levels.length - 1;
             if (bgL !== chosenL) {
-                drawLevel(bgL, true);
+                drawLevel(bgL, true);  // text text text → text text text
             }
             drawLevel(chosenL, true);
             for (let L = chosenL - 1; L >= 0; L--) {
-                drawLevel(L, false);
+                drawLevel(L, false);  // text text text text text text
             }
         };
 
@@ -1453,13 +1533,16 @@ export class TileViewer {
                 ctx.restore();
             }
 
+            // text + text + text
             ctx.save();
+            // text text (text)
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.lineWidth = 4;
             ctx.beginPath();
             ctx.moveTo(splitX, 0);
             ctx.lineTo(splitX, canvasH);
             ctx.stroke();
+            // text text
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -1467,6 +1550,7 @@ export class TileViewer {
             ctx.lineTo(splitX, canvasH);
             ctx.stroke();
 
+            // text text text (text + text text)
             const handleY = canvasH / 2;
             const handleR = 14;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
@@ -1476,6 +1560,7 @@ export class TileViewer {
             ctx.arc(splitX, handleY, handleR, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
+            // text text
             ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
             ctx.beginPath();
             ctx.moveTo(splitX - 7, handleY);
@@ -1498,10 +1583,12 @@ export class TileViewer {
             const mL = ctx.measureText(labelL);
             const mR = ctx.measureText(labelR);
             const bh = 18;
+            // text text
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(padX, padY, mL.width + 12, bh);
             ctx.fillStyle = '#fff';
             ctx.fillText(labelL, padX + 6, padY + 3);
+            // text text
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(canvasW - mR.width - padX - 12, padY, mR.width + 12, bh);
             ctx.fillStyle = '#fff';
@@ -1515,7 +1602,7 @@ export class TileViewer {
     }
 
     /**
-      *
+     * VS text text text (text text text). text text.
      */
     _peekVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
@@ -1529,28 +1616,12 @@ export class TileViewer {
         return null;
     }
 
-    _vsTileExists(level, tx, ty) {
-        const ov = this._vsOverlay;
-        if (!ov) return false;
-        if (ov.tileManifestPending) return false;
-        if (ov.tileManifestFailed) return false;
-        if (ov.tileManifestLoaded && ov.tileKeySets) {
-            const setLevel = ov.tileKeySets[String(level)];
-            return !!setLevel && setLevel.has(`${tx}_${ty}`);
-        }
-        if (!ov.tileKeySets) return true;
-        const setLevel = ov.tileKeySets[String(level)];
-        if (!setLevel) return false;
-        return setLevel.has(`${tx}_${ty}`);
-    }
-
     /**
-      *
-      *
+     * VS text text (LRU text + text text text text).
+     * text null text text text text text text text.
      */
     _getVsTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
-        if (!this._vsTileExists(level, tx, ty)) return null;
         // LRU touch
         if (this._vsTileCache.has(key)) {
             const img = this._vsTileCache.get(key);
@@ -1564,6 +1635,7 @@ export class TileViewer {
         const ov = this._vsOverlay;
         if (!ov) return null;
 
+        // text text text text text
         this._vsTileLoading.add(key);
         this._vsLoadQueue.push({ key, level, tx, ty, ov });
         this._processVsLoadQueue();
@@ -1579,7 +1651,9 @@ export class TileViewer {
             img.onload = () => {
                 this._vsActiveLoads--;
                 this._vsTileLoading.delete(task.key);
+                // text text overlay text text text
                 if (this._vsOverlay !== task.ov) return;
+                // LRU text
                 if (this._vsTileCache.size >= this._vsMaxTiles) {
                     const oldest = this._vsTileCache.keys().next().value;
                     this._vsTileCache.delete(oldest);
@@ -1601,6 +1675,7 @@ export class TileViewer {
 
     setVirtualStainSplitMode(enabled) {
         this._vsSplitMode = !!enabled;
+        // split modetext text overlaytext text text text
         if (this._vsSplitMode) this._vsVisible = true;
         if (!this._vsSplitMode) {
             this._vsSplitDragging = false;
@@ -1609,6 +1684,7 @@ export class TileViewer {
         this.requestRender();
     }
 
+    // ── text text (text, text text) ──
 
     _tileTaskKey(task) {
         return task?.key || `${task.level}/${task.tx}/${task.ty}`;
@@ -1619,11 +1695,8 @@ export class TileViewer {
         const key = this._tileTaskKey(task);
         if (!key || this._tileCache.has(key) || this._tileLoading.has(key)) return;
         task.key = key;
-        task.priority = front ? 0 : (Number.isFinite(task.priority) ? task.priority : 1);
         if (this._loadQueuedKeys.has(key)) {
-            const existing = this._loadQueue.find(item => this._tileTaskKey(item) === key);
-            const existingPriority = Number.isFinite(existing?.priority) ? existing.priority : 1;
-            if (existingPriority <= task.priority && !front) return;
+            if (!front) return;
             this._loadQueue = this._loadQueue.filter(item => this._tileTaskKey(item) !== key);
             this._loadQueuedKeys.delete(key);
         }
@@ -1639,52 +1712,30 @@ export class TileViewer {
     }
 
     _processLoadQueue() {
-        while (this._loadQueue.length > 0 && this._activeLoads < MAX_FOREGROUND_LOADS) {
-            const int_index = this._nextLoadTaskIndex();
-            if (int_index < 0) break;
-            const task = this._loadQueue.splice(int_index, 1)[0];
+        while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
+            const task = this._loadQueue.shift();
             this._loadQueuedKeys.delete(this._tileTaskKey(task));
-            this._loadTile(task);
+            this._loadTile(task.level, task.tx, task.ty);
         }
     }
 
-    _nextLoadTaskIndex() {
-        let int_background_index = -1;
-        for (let i = 0; i < this._loadQueue.length; i++) {
-            const task = this._loadQueue[i];
-            const int_priority = Number.isFinite(task?.priority) ? task.priority : 1;
-            if (int_priority < 2) return i;
-            if (int_background_index < 0) int_background_index = i;
-        }
-        if (int_background_index >= 0 && this._activeBackgroundLoads < MAX_BACKGROUND_LOADS) {
-            return int_background_index;
-        }
-        return -1;
-    }
-
-    _loadTile(task) {
-        const { level, tx, ty } = task;
+    _loadTile(level, tx, ty) {
         const key = `${level}/${tx}/${ty}`;
         if (this._tileLoading.has(key) || this._tileCache.has(key)) return;
-        const bool_background = (Number.isFinite(task.priority) ? task.priority : 1) >= 2;
 
         this._tileLoading.add(key);
         this._activeLoads++;
-        if (bool_background) this._activeBackgroundLoads++;
-        else this._activeForegroundLoads++;
 
+        // text text text text generation — text text text text text
         const int_gen = this._loadGeneration;
         const img = new Image();
         this._inflightImages.add(img);
-        const finishLoad = () => {
+        img.onload = () => {
             this._inflightImages.delete(img);
             this._tileLoading.delete(key);
-            this._activeLoads = Math.max(0, this._activeLoads - 1);
-            if (bool_background) this._activeBackgroundLoads = Math.max(0, this._activeBackgroundLoads - 1);
-            else this._activeForegroundLoads = Math.max(0, this._activeForegroundLoads - 1);
-        };
-        img.onload = () => {
-            finishLoad();
+            this._activeLoads--;
+            // text text text text text text (text text text text cache text
+            // text text text contamination text)
             if (int_gen !== this._loadGeneration) {
                 this._processLoadQueue();
                 return;
@@ -1696,7 +1747,10 @@ export class TileViewer {
             this.requestRender();
         };
         img.onerror = () => {
-            finishLoad();
+            this._inflightImages.delete(img);
+            this._tileLoading.delete(key);
+            this._activeLoads--;
+            // text "text" text text text text text text
             this._markPreloadTileDone(key);
             this._processLoadQueue();
         };
@@ -1704,7 +1758,9 @@ export class TileViewer {
     }
 
     _putCache(key, img) {
+        // LRU text
         if (this._tileCache.size >= this._maxCacheTiles) {
+            // text text (Map text text) text text
             const oldest = this._tileCache.keys().next().value;
             this._tileCache.delete(oldest);
             this._tileFadeStart.delete(oldest);
@@ -1713,19 +1769,19 @@ export class TileViewer {
     }
 
     /**
-      *
+     * NDP text ON/OFF. Hamamatsu text text toggle text text.
      *
-      *
-      *
-      *
-      *
+     * text text text text/text URL text text (text /ndp/ text text
+     * JPEG text text text text) text text text text text. text text
+     * text text text text text text text, text text text
+     * HTTP text + text text text text text text text text text.
      */
     setColorCorrectionEnabled(bool_enabled) {
         bool_enabled = !!bool_enabled;
         if (this._colorCorrectionEnabled === bool_enabled) return;
         this._colorCorrectionEnabled = bool_enabled;
+        // text URL text text text/text text text text flag text text
         this._loadGeneration++;
-        this._clearOverviewPreloadTimer();
         for (const img of this._inflightImages) {
             try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
         }
@@ -1736,19 +1792,12 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
-        this._activeForegroundLoads = 0;
-        this._activeBackgroundLoads = 0;
         this._thumbnailBitmap = null;
-        this._preloadKeys = null;
-        this._preloadTotal = 0;
-        this._preloadDone = 0;
-        this._isPreloading = false;
         this._loadThumbnailFallbackImmediate();
-        this._scheduleOverviewPreload();
         this.requestRender();
     }
 
-    /**      (    ) */
+    /** text text text text text (text text text text text) */
     clearCacheAndRender() {
         this._tileCache.clear();
         this._tileLoading.clear();
@@ -1756,15 +1805,15 @@ export class TileViewer {
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
-        this._activeForegroundLoads = 0;
-        this._activeBackgroundLoads = 0;
         this.requestRender();
     }
 
+    // ── text text ──
 
     setDetectionResults(cells, roiPolygons = null) {
         let filtered = cells || [];
 
+        // ROI text text text text text text
         if (roiPolygons && roiPolygons.length > 0) {
             filtered = filtered.filter(c =>
                 roiPolygons.some(poly => this._pointInPolygon(c.x, c.y, poly))
@@ -1785,6 +1834,7 @@ export class TileViewer {
             this.classConfidence[id] = defConf;
         });
 
+        // text text text (text text O(1) text)
         this._spatialGrid = new SpatialGrid(2048);
         this._spatialGrid.build(filtered);
 
@@ -1814,12 +1864,13 @@ export class TileViewer {
         this.requestRender();
     }
 
+    // ── Cell editing (Alt+Click) ──
 
     /**
-      *
+     * text text(WSI text)text text text text text.
      * @param {number} sx WSI x
      * @param {number} sy WSI y
-      *
+     * @param {number} maxScreenPx text text text text text
      * @returns {{index, cell}|null}
      */
     _findNearestCell(sx, sy, maxScreenPx = 30) {
@@ -1827,9 +1878,11 @@ export class TileViewer {
         const maxDistWsi = this.zoom > 0 ? maxScreenPx / this.zoom : maxScreenPx;
         const r = maxDistWsi;
 
+        // SpatialGridtext text text
         let candidates;
         if (this._spatialGrid) {
             const cellsInBox = this._spatialGrid.query(sx - r, sy - r, sx + r, sy + r);
+            // SpatialGridtext cell text text → text text text
             candidates = cellsInBox.map(c => ({ cell: c, index: this.detectionCells.indexOf(c) }));
         } else {
             candidates = this.detectionCells.map((c, i) => ({ cell: c, index: i }));
@@ -1839,6 +1892,7 @@ export class TileViewer {
         let bestCell = null;
         let bestDist = Infinity;
         for (const { cell, index } of candidates) {
+            // visibility/confidence text (text text text text text)
             if (this.classVisibility[cell.class_id] === false) continue;
             const thresh = this.classConfidence[cell.class_id] ?? 0.01;
             if ((cell.confidence ?? 1.0) < thresh) continue;
@@ -1859,7 +1913,7 @@ export class TileViewer {
         return null;
     }
 
-    /** Ray-casting point-in-polygon (scene ) */
+    /** Ray-casting point-in-polygon (scene text) */
     _pointInPolygon(x, y, poly) {
         let inside = false;
         for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -1872,7 +1926,7 @@ export class TileViewer {
         return inside;
     }
 
-    /**        (visibility/confidence  ) */
+    /** text text text text text text text (visibility/confidence text text) */
     _findCellsInPolygon(poly) {
         if (!this.detectionCells.length || poly.length < 3) return [];
         let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
@@ -1968,10 +2022,10 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
-      *
+     * text text detectionCells text text — Shift+click UX text.
+     * confidence text 1.0 (text text text max). undo/redo text.
+     * highlight text text text text — text text text text text text text text text text text.
+     * text: text text text.
      */
     addCell(sx, sy, classId, className = null) {
         const cell = {
@@ -1987,13 +2041,14 @@ export class TileViewer {
             items: [{ index: int_index, cell }],
         });
         this.detectionCells.push(cell);
+        // text highlight text text text text text text text.
         this._highlightedCellIdx = -1;
         this._highlightedCellIdxSet = null;
         this._refreshAfterCellEdit();
         return cell;
     }
 
-    /**     */
+    /** text text text text */
     deleteCells(listIndices) {
         if (!listIndices || listIndices.length === 0) return;
         const list_valid = listIndices
@@ -2011,7 +2066,7 @@ export class TileViewer {
         this._refreshAfterCellEdit();
     }
 
-    /**      */
+    /** text text text text text */
     changeCellsClass(listIndices, newClassId, newClassName = null) {
         if (!listIndices || listIndices.length === 0) return;
         const list_items = [];
@@ -2080,7 +2135,7 @@ export class TileViewer {
         return promoted;
     }
 
-    /**     */
+    /** text text text text */
     undoCellEdit() {
         const op = this._undoStack.pop();
         if (!op) return false;
@@ -2098,6 +2153,7 @@ export class TileViewer {
                 c.class_name = it.oldClassName;
             }
         } else if (op.type === 'add') {
+            // text text = text text splice (text text text).
             const sortedDesc = [...op.items].sort((a, b) => b.index - a.index);
             for (const { index } of sortedDesc) {
                 if (index < 0 || index >= this.detectionCells.length) continue;
@@ -2124,7 +2180,7 @@ export class TileViewer {
         return true;
     }
 
-    /**  undo  */
+    /** text undo text */
     redoCellEdit() {
         const op = this._redoStack.pop();
         if (!op) return false;
@@ -2252,12 +2308,14 @@ export class TileViewer {
     }
 
     _refreshAfterCellEdit() {
+        // text text text text text text
         const cls = new Set(this.detectionCells.map(c => c.class_id));
         cls.forEach(id => {
             if (this.classVisibility[id] === undefined) this.classVisibility[id] = true;
             if (this.classConfidence[id] === undefined) this.classConfidence[id] = this.defaultConfidence ?? 0.01;
         });
 
+        // text text + text text text
         this._spatialGrid = new SpatialGrid(2048);
         this._spatialGrid.build(this.detectionCells);
         this._heatmapDirty = true;
@@ -2269,19 +2327,20 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
+     * text density text text text (text TiledDetectionOverlay._build_heatmap_cache)
+     * text text 2048 text text histogram2d
+     * confidence text text text
      */
     /**
-      *
-      *
-      *
+     * text density text text text — setDetectionResults text 1text text
+     * text text: confidence text text text text density text
+     * confidence/visibility text text text text text text (text text)
      */
     _buildHeatmapCache() {
         this._heatmapCache = null;
         if (!this.detectionCells.length || !this.slideInfo) return;
 
+        // text text text
         let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
         for (const c of this.detectionCells) {
             if (c.x < xMin) xMin = c.x;
@@ -2305,6 +2364,7 @@ export class TileViewer {
         const sx = gw / spanW;
         const sy = gh / spanH;
 
+        // text density text (confidence text text)
         const clsDensities = {};
         for (const cell of this.detectionCells) {
             const cls = cell.class_id;
@@ -2326,15 +2386,16 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
-      *
+     * text text (5x5 box blur text text)
+     * text: cv2.GaussianBlur(sigma = max(3.0, w/60)) ≈ sigma 8~9
+     * 5x5 box blur × passes text → sigma ≈ sqrt(passes * 2) text text
+     * passes=18 → sigma ≈ 6, passes=32 → sigma ≈ 8
      */
     _blurGrid(src, w, h, passes) {
         let a = new Float32Array(src);
         let b = new Float32Array(w * h);
         for (let p = 0; p < passes; p++) {
+            // text 5-tap text: [1,2,3,2,1]/9 text text → text 5-tap
             for (let y = 0; y < h; y++) {
                 for (let x = 0; x < w; x++) {
                     const x0 = Math.max(0, x - 2);
@@ -2345,6 +2406,7 @@ export class TileViewer {
                     b[row + x] = (a[row + x0] + a[row + x1] + a[row + x] + a[row + x3] + a[row + x4]) / 5;
                 }
             }
+            // text 5-tap text
             for (let y = 0; y < h; y++) {
                 const y0 = Math.max(0, y - 2) * w;
                 const y1 = Math.max(0, y - 1) * w;
@@ -2359,7 +2421,7 @@ export class TileViewer {
         return a;
     }
 
-    /** jet : 0~1  [r, g, b] */
+    /** jet text: 0~1 → [r, g, b] */
     _jetColor(t) {
         t = Math.max(0, Math.min(1, t));
         let r, g, b;
@@ -2370,25 +2432,29 @@ export class TileViewer {
         return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
     }
 
+    // ── Segmentation text (text wsi_view_widget.py text) ──
+    // text: Stroma=text, Non_Tumor=text, Tumor=text, alpha=128
 
     /**
-      *
-      *
-      *
-      *
+     * Segmentation text text
+     * @param {Uint8Array} maskData - text text text (0=BG, 1=Stroma, 2=Non_Tumor, 3=Tumor)
+     * @param {number} maskW - text text
+     * @param {number} maskH - text text
      * @param {number} sceneX - WSI level-0 offset X
      * @param {number} sceneY - WSI level-0 offset Y
-      *
-      *
+     * @param {number} sceneW - WSI level-0 text text
+     * @param {number} sceneH - WSI level-0 text text
      * @param {string[]} classNames - ['Stroma', 'Non_Tumor', 'Tumor']
      */
     setSegmentationOverlay(maskData, maskW, maskH, sceneX, sceneY, sceneW, sceneH, classNames) {
+        // text text text: Stroma=text, Non_Tumor=text, Tumor=text
         const SEG_COLORS = {
             1: [255, 0, 0, 128],    // Stroma
             2: [0, 255, 0, 128],    // Non_Tumor
             3: [0, 0, 255, 128],    // Tumor
         };
 
+        // RGBA ImageData text
         const offscreen = new OffscreenCanvas(maskW, maskH);
         const offCtx = offscreen.getContext('2d');
         const imgData = offCtx.createImageData(maskW, maskH);
@@ -2410,7 +2476,7 @@ export class TileViewer {
     }
 
     /**
-      *
+     * base64 text seg overlay text text (text text text)
      */
     setSegmentationOverlayFromData(segData) {
         if (!segData || !segData.mask_b64) {
@@ -2442,55 +2508,21 @@ export class TileViewer {
     }
 
     /**
-      *
+     * Virtual Stain (VS IHC) text text — text text text.
      * @param {object} meta - {
      *   slide_id, stain_type, target_mpp,
      *   roi_origin: [x,y], canvas_l0_w, canvas_l0_h,
      *   tile_size, levels: [{level,width,height,nx,ny}...],
-      *
+     *   roi_polygons? (text text)
      * }
      */
-    _buildVsTileKeySets(tileKeys) {
-        const tileKeySets = {};
-        if (tileKeys && typeof tileKeys === 'object') {
-            for (const [level, keys] of Object.entries(tileKeys)) {
-                if (Array.isArray(keys)) tileKeySets[String(level)] = new Set(keys);
-            }
-        }
-        return tileKeySets;
-    }
-
-    async _loadVsTileManifest(meta, requestId) {
-        try {
-            const manifest = await api.getVirtualStainTileManifest(
-                meta.slide_id,
-                meta.stain_type || 'ihc_membrane',
-                meta.target_mpp || 2.0
-            );
-            if (requestId !== this._vsManifestRequestId || !this._vsOverlay) return;
-            this._vsOverlay.tileKeySets = this._buildVsTileKeySets(manifest.tile_keys);
-            this._vsOverlay.tileManifestPending = false;
-            this._vsOverlay.tileManifestLoaded = true;
-            this._vsOverlay.tileManifestFailed = false;
-            this.requestRender();
-        } catch (err) {
-            if (requestId !== this._vsManifestRequestId || !this._vsOverlay) return;
-            console.warn('[viewer] VS tile manifest failed', err);
-            this._vsOverlay.tileKeySets = {};
-            this._vsOverlay.tileManifestPending = false;
-            this._vsOverlay.tileManifestLoaded = false;
-            this._vsOverlay.tileManifestFailed = true;
-            this.requestRender();
-        }
-    }
-
     setVirtualStainOverlay(meta) {
+        // text text text text
         this._vsTileCache.clear();
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
         this._vsLoadQueue.length = 0;
         this._vsActiveLoads = 0;
-        this._vsManifestRequestId++;
 
         if (!meta || !meta.levels || meta.levels.length === 0) {
             console.warn('[viewer] VS overlay: missing tile levels metadata');
@@ -2500,9 +2532,6 @@ export class TileViewer {
         }
 
         const [ox, oy] = meta.roi_origin || [0, 0];
-        const tileKeySets = this._buildVsTileKeySets(meta.tile_keys);
-        const hasTileManifest = Object.keys(tileKeySets).length > 0;
-        const manifestRequestId = this._vsManifestRequestId;
         this._vsOverlay = {
             slideId: meta.slide_id,
             stainType: meta.stain_type || 'ihc_membrane',
@@ -2513,14 +2542,9 @@ export class TileViewer {
             sceneH: meta.canvas_l0_h,
             tileSize: meta.tile_size || 512,
             levels: meta.levels,
-            tileKeySets,
-            tileManifestPending: !hasTileManifest,
-            tileManifestLoaded: hasTileManifest,
-            tileManifestFailed: false,
             roiPolygons: meta.roi_polygons || null,
         };
         this._vsVisible = true;
-        if (!hasTileManifest) this._loadVsTileManifest(meta, manifestRequestId);
         this.requestRender();
     }
 
@@ -2530,7 +2554,6 @@ export class TileViewer {
     }
 
     clearVirtualStainOverlay() {
-        this._vsManifestRequestId++;
         this._vsOverlay = null;
         this._vsVisible = true;
         this._vsSplitMode = false;
@@ -2561,6 +2584,8 @@ export class TileViewer {
         const octx = this.overlayCtx;
         if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet) return;
 
+        // effectiveMpp text: text text text text text
+        // mpp < 3.0 → text text, mpp >= 3.0 → text → text
         const effectiveMpp = this.getEffectiveMpp();
         if (this.detectionCells.length) {
             if (effectiveMpp >= 3.0) {
@@ -2570,6 +2595,7 @@ export class TileViewer {
             }
         }
 
+        // text text text text text text text text
         this._renderCellHighlight(octx);
         this._renderMultiCellHighlight(octx);
         this._renderHiddenCellHighlight(octx);
@@ -2679,21 +2705,25 @@ export class TileViewer {
         const g = parseInt(hexColor.slice(3, 5), 16);
         const b = parseInt(hexColor.slice(5, 7), 16);
 
+        // text text text text text text (text 18px)
         const baseR = Math.max(18, 12 * this.zoom);
 
         octx.save();
 
+        // text text text (text)
         octx.strokeStyle = 'rgba(0,0,0,0.85)';
         octx.lineWidth = 6;
         octx.beginPath();
         octx.arc(hx, hy, baseR + 2, 0, Math.PI * 2);
         octx.stroke();
 
+        // text
         octx.fillStyle = `rgba(${r},${g},${b},0.25)`;
         octx.beginPath();
         octx.arc(hx, hy, baseR, 0, Math.PI * 2);
         octx.fill();
 
+        // text text text
         octx.strokeStyle = `rgb(${r},${g},${b})`;
         octx.lineWidth = 3;
         octx.shadowColor = `rgb(${r},${g},${b})`;
@@ -2702,6 +2732,7 @@ export class TileViewer {
         octx.arc(hx, hy, baseR, 0, Math.PI * 2);
         octx.stroke();
 
+        // text (text text text text)
         octx.shadowBlur = 0;
         octx.strokeStyle = '#FFFFFF';
         octx.lineWidth = 2;
@@ -2721,21 +2752,23 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
-      *
-      *
+     * text text (text create_heatmap_masktext text text)
+     * 1. text text densitytext text
+     * 2. text text text crop
+     * 3. text text
+     * 4. jet text + text ImageDatatext text
      */
     _renderHeatmap(octx) {
         const cache = this._heatmapCache;
         if (!cache) return;
 
+        // text text text — text text
         const visKey = Object.keys(cache.clsDensities)
             .filter(k => this.classVisibility[parseInt(k)] !== false)
             .sort()
             .join(',');
 
+        // text text text text drawImage
         if (!this._heatmapImage || this._heatmapImage.visKey !== visKey) {
             this._heatmapImage = this._buildHeatmapImage(visKey);
         }
@@ -2751,14 +2784,15 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
+     * text text text text text text 1text text.
+     * text/text text text text drawImagetext text.
      */
     _buildHeatmapImage(visKey) {
         const cache = this._heatmapCache;
         if (!cache) return null;
         const { clsDensities, xMin, yMin, gw, gh, sx, sy } = cache;
 
+        // text text text (text text)
         const total = gw * gh;
         const combined = new Float32Array(total);
         let hasData = false;
@@ -2775,6 +2809,7 @@ export class TileViewer {
         }
         if (!hasData) return null;
 
+        // text text (text 512px)
         const maxDim = 512;
         let outW, outH;
         if (gw >= gh) {
@@ -2785,6 +2820,7 @@ export class TileViewer {
             outW = Math.max(1, Math.round(outH * gw / gh));
         }
 
+        // text (nearest)
         const resized = new Float32Array(outH * outW);
         const rxScale = gw / outW;
         const ryScale = gh / outH;
@@ -2796,6 +2832,7 @@ export class TileViewer {
             }
         }
 
+        // text text
         const blurPasses = Math.max(8, Math.round(outW / 20));
         const blurred = this._blurGrid(resized, outW, outH, blurPasses);
 
@@ -2805,6 +2842,7 @@ export class TileViewer {
         }
         if (maxVal === 0) return null;
 
+        // ImageData → text text
         const offscreen = new OffscreenCanvas(outW, outH);
         const offCtx = offscreen.getContext('2d');
         const imgData = offCtx.createImageData(outW, outH);
@@ -2842,8 +2880,10 @@ export class TileViewer {
         const viewRight = this.viewCenterX + halfVW;
         const viewBottom = this.viewCenterY + halfVH;
 
+        // SpatialGridtext text text text text (O(1), text text text)
         const visible = this._spatialGrid.query(viewLeft, viewTop, viewRight, viewBottom);
 
+        // effectiveMpptext text text text/text text
         const effectiveMpp = this.getEffectiveMpp();
         let baseRadius, lineW;
         if (effectiveMpp < 1.0) {
@@ -2878,6 +2918,7 @@ export class TileViewer {
 
     }
 
+    // ── Annotation text ──
 
     setDrawMode(mode) {
         // mode: 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | null
@@ -2937,19 +2978,19 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
+     * text text text 1mm text text px text. mpp(µm/px) text 0.25 text 4000 px = 1mm.
+     * slideInfo text text mpp text text null — text text text text.
      */
     _pixelsPerMM() {
         if (!this.slideInfo || !this.slideInfo.mpp) return null;
-        return 1000 / this.slideInfo.mpp;
+        return 1000 / this.slideInfo.mpp;  // 1mm = 1000 µm
     }
 
-    /** (cx,cy)  1mm  1mm  4  (scene ). */
+    /** text(cx,cy) text 1mm × 1mm text 4 text (scene text). */
     _makeRect1mm2Coords(cx, cy) {
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
-        const half = ppm / 2;
+        const half = ppm / 2;  // 1mm text text
         return [
             [cx - half, cy - half],
             [cx + half, cy - half],
@@ -2958,10 +2999,11 @@ export class TileViewer {
         ];
     }
 
-    /** (cx,cy)   1mm   64  (scene ). */
+    /** text(cx,cy) text text 1mm² text text 64text text (scene text). */
     _makeCircle1mm2Coords(cx, cy) {
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
+        // text = π r² = 1mm²  →  r = √(1/π) mm  →  px text text
         const radiusPx = Math.sqrt(1 / Math.PI) * ppm;
         const N = 64;
         const pts = [];
@@ -2974,6 +3016,7 @@ export class TileViewer {
 
     _onDrawMouseDown(sx, sy, cx, cy, e) {
         if (this.drawMode === 'polygon') {
+            // text text text, text text text, text text
             this._drawingPoints = [[sx, sy]];
             this._isDrawing = true;
             this._drawingCurrent = [sx, sy];
@@ -3006,17 +3049,23 @@ export class TileViewer {
         } else if (this.drawMode === 'point') {
             this._createAnnotation('point', [[sx, sy]]);
         } else if (this.drawMode === 'rect-1mm2') {
+            // text text text 1mm × 1mm text text text.
             const coords = this._makeRect1mm2Coords(sx, sy);
             if (coords) this._createAnnotation('rectangle', coords);
         } else if (this.drawMode === 'circle-1mm2') {
+            // text 1mm² text (64text text) — text polygon text text text
+            // text/ROI text/text text text text.
             const coords = this._makeCircle1mm2Coords(sx, sy);
             if (coords) this._createAnnotation('polygon', coords);
         } else if (this.drawMode === 'ruler') {
+            // 1text text: text, 2text text: text, 3text text: text text text.
+            // annotation text text X — drawMode text text text text text.
             if (!this._rulerStart || this._rulerFinalized) {
                 this._rulerStart = [sx, sy];
                 this._rulerEnd = [sx, sy];
                 this._rulerFinalized = false;
             } else {
+                // text/text ±2° text — preview text text text text.
                 this._rulerEnd = this._snapRulerEnd(
                     this._rulerStart[0], this._rulerStart[1], sx, sy);
                 this._rulerFinalized = true;
@@ -3028,6 +3077,7 @@ export class TileViewer {
     _onDrawMouseMove(sx, sy, cx, cy) {
         this._drawingCurrent = [sx, sy];
 
+        // text text text text (10px text)
         if ((this.drawMode === 'polygon' || this.drawMode === 'brush' || this.drawMode === 'cut') &&
                 this._drawingPoints.length > 0 && (cx !== undefined)) {
             if (this._lastDrawDragCanvas) {
@@ -3046,6 +3096,7 @@ export class TileViewer {
 
     _onDrawMouseUp(sx, sy) {
         if (this.drawMode === 'polygon' && this._isDrawing) {
+            // text text text text (text 3text)
             if (this._drawingPoints.length >= 3) {
                 this._finishPolygon();
             } else {
@@ -3104,6 +3155,7 @@ export class TileViewer {
 
     _finishPolygon() {
         if (this._drawingPoints.length >= 3) {
+            // text(self-intersection) text — text text text
             if (this._isSelfIntersecting(this._drawingPoints)) {
                 this._cancelDrawing();
                 return;
@@ -3117,7 +3169,7 @@ export class TileViewer {
         this.requestRender();
     }
 
-    /**       */
+    /** text text text text text text */
     _makeCirclePolygon(cx, cy, radius, count = 28) {
         const pts = [];
         for (let i = 0; i < count; i++) {
@@ -3383,11 +3435,12 @@ export class TileViewer {
 
     _isSelfIntersecting(pts) {
         const n = pts.length;
-        if (n < 4) return false;
+        if (n < 4) return false; // text text text
+        // text text text text(edge) text text
         for (let i = 0; i < n; i++) {
             const a = pts[i], b = pts[(i + 1) % n];
             for (let j = i + 2; j < n; j++) {
-                if (i === 0 && j === n - 1) continue;
+                if (i === 0 && j === n - 1) continue; // text text (text-text) text
                 const c = pts[j], d = pts[(j + 1) % n];
                 if (this._segmentsIntersect(a, b, c, d)) return true;
             }
@@ -3395,7 +3448,7 @@ export class TileViewer {
         return false;
     }
 
-    /**   (p1-p2, p3-p4)   */
+    /** text text (p1-p2, p3-p4) text text */
     _segmentsIntersect(p1, p2, p3, p4) {
         const d1 = this._cross(p3, p4, p1);
         const d2 = this._cross(p3, p4, p2);
@@ -3416,6 +3469,7 @@ export class TileViewer {
         this._drawingCurrent = null;
         this._isDrawing = false;
         this._lastDrawDragCanvas = null;
+        // Ruler text text text text (text text/text text text text).
         this._rulerStart = null;
         this._rulerEnd = null;
         this._rulerFinalized = false;
@@ -3478,8 +3532,10 @@ export class TileViewer {
         this.requestRender();
     }
 
+    // ── Annotation text ──
 
     _renderAnnotations(octx) {
+        // text annotation
         for (const ann of this.annotations) {
             if (!ann.visible) continue;
             if (this._isAnnotationClassHidden(ann)) continue;
@@ -3511,6 +3567,7 @@ export class TileViewer {
             }
         }
 
+        // text text text text
         this._renderInsertVertexPreview(octx);
         this._renderMergeHover(octx);
         this._renderDrawingPreview(octx);
@@ -3596,10 +3653,10 @@ export class TileViewer {
     }
 
     /**
-      *
-      *
-      *
-      *
+     * scene text text text text text text text text text text.
+     *  - 1 mm text: "342.7 µm (1,370 px)"
+     *  - 1 mm text: "1.234 mm (4,936 px)"
+     * mpp text text px text.
      */
     _formatDistance(sx0, sy0, sx1, sy1) {
         const dx = sx1 - sx0, dy = sy1 - sy0;
@@ -3609,15 +3666,15 @@ export class TileViewer {
         if (!mpp) return strPx;
         const distUm = distPx * mpp;
         const strUnit = distUm < 1000
-            ? `${distUm.toFixed(1)} um`
+            ? `${distUm.toFixed(1)} µm`
             : `${(distUm / 1000).toFixed(3)} mm`;
         return `${strUnit} (${strPx})`;
     }
 
     /**
-      *
-      *
-      *
+     * text→text text text/text ±2° text text text text.
+     * text text text — text text text text text text text text.
+     * text: [snappedSx, snappedSy]
      */
     _snapRulerEnd(sx0, sy0, sx1, sy1) {
         const dx = sx1 - sx0;
@@ -3625,11 +3682,13 @@ export class TileViewer {
         if (dx === 0 && dy === 0) return [sx1, sy1];
         const FLOAT_SNAP_DEG = 2;
         const float_tol = FLOAT_SNAP_DEG * Math.PI / 180;
-        const float_ang = Math.atan2(dy, dx);
+        const float_ang = Math.atan2(dy, dx);  // (-π, π]
         const float_abs = Math.abs(float_ang);
+        // text: 0 text ±π
         if (float_abs < float_tol || Math.abs(float_abs - Math.PI) < float_tol) {
             return [sx1, sy0];
         }
+        // text: ±π/2
         if (Math.abs(float_abs - Math.PI / 2) < float_tol) {
             return [sx0, sy1];
         }
@@ -3644,6 +3703,7 @@ export class TileViewer {
 
         const color = this._rulerFinalized ? 'rgba(255,140,0,0.95)' : 'rgba(255,140,0,0.8)';
 
+        // text text
         octx.beginPath();
         octx.moveTo(cx0, cy0);
         octx.lineTo(cx1, cy1);
@@ -3653,6 +3713,7 @@ export class TileViewer {
         octx.stroke();
         octx.setLineDash([]);
 
+        // text text text
         for (const [px, py] of [[cx0, cy0], [cx1, cy1]]) {
             octx.beginPath();
             octx.arc(px, py, 4, 0, Math.PI * 2);
@@ -3663,6 +3724,7 @@ export class TileViewer {
             octx.stroke();
         }
 
+        // text text — text text text + text
         const label = this._formatDistance(sx0, sy0, sx1, sy1);
         const midX = (cx0 + cx1) / 2;
         const midY = (cy0 + cy1) / 2;
@@ -3673,6 +3735,7 @@ export class TileViewer {
         const padX = 6, padY = 3;
         const boxW = textW + padX * 2;
         const boxH = 18;
+        // text text text text text text (text text text text)
         const ang = Math.atan2(cy1 - cy0, cx1 - cx0);
         const off = 14;
         const ox = midX + Math.sin(ang) * off;
@@ -3684,6 +3747,7 @@ export class TileViewer {
         octx.strokeRect(ox - boxW / 2, oy - boxH / 2, boxW, boxH);
         octx.fillStyle = '#fff';
         octx.fillText(label, ox, oy + 0.5);
+        // text text (text text text text)
         octx.textAlign = 'start';
         octx.textBaseline = 'alphabetic';
     }
@@ -3715,6 +3779,7 @@ export class TileViewer {
             octx.stroke();
             octx.setLineDash([]);
 
+            // text text
             octx.beginPath();
             octx.arc(cx0, cy0, 6, 0, Math.PI * 2);
             octx.fillStyle = previewFillStrong;
@@ -3723,6 +3788,7 @@ export class TileViewer {
             octx.lineWidth = 1;
             octx.stroke();
 
+            // text text
             for (const [sx, sy] of this._drawingPoints) {
                 const [cx, cy] = this.sceneToCanvas(sx, sy);
                 octx.beginPath();
@@ -3812,10 +3878,12 @@ export class TileViewer {
             octx.setLineDash([]);
         }
 
+        // Ruler — text text text. annotation text text drawMode text text text.
         if (this.drawMode === 'ruler' && this._rulerStart && this._rulerEnd) {
             this._renderRulerPreview(octx);
         }
 
+        // 1mm² text text text — text text text text.
         if ((this.drawMode === 'rect-1mm2' || this.drawMode === 'circle-1mm2')
                 && this._drawingCurrent) {
             const [sx, sy] = this._drawingCurrent;
@@ -3840,6 +3908,7 @@ export class TileViewer {
                 octx.setLineDash([6, 3]);
                 octx.stroke();
                 octx.setLineDash([]);
+                // text text
                 const [ccx, ccy] = this.sceneToCanvas(sx, sy);
                 octx.strokeStyle = strokeColor;
                 octx.lineWidth = 1;
@@ -3851,8 +3920,9 @@ export class TileViewer {
         }
     }
 
+    // ── Hit Testing ──
 
-    /**    annotation    */
+    /** text text text annotationtext text text text */
     _getEditableSelectedPolygon() {
         const ann = this.annotations.find(a => a.id === this.selectedAnnotationId);
         if (!ann || !ann.visible || this._isAnnotationClassHidden(ann)) return null;
@@ -4243,7 +4313,7 @@ export class TileViewer {
         return null;
     }
 
-    /** scene  annotation   (:    ) */
+    /** scene text annotation text text (text: text text text text) */
     _hitAnnotation(sx, sy) {
         const threshold = Math.max(4, 8 / Math.max(this.zoom, 0.0001));
         for (let i = this.annotations.length - 1; i >= 0; i--) {
@@ -4372,7 +4442,7 @@ export class TileViewer {
         return inside;
     }
 
-    /** annotation    */
+    /** annotation text text text */
     centerOnAnnotation(ann) {
         if (!ann || !ann.coordinates || ann.coordinates.length === 0) return;
         const xs = ann.coordinates.map(c => c[0]);
@@ -4386,6 +4456,7 @@ export class TileViewer {
         if (this.onViewChange) this.onViewChange();
     }
 
+    // ── text ──
 
     getViewRect() {
         if (!this.slideInfo) return null;

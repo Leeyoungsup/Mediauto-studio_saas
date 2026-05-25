@@ -34,24 +34,6 @@ VS_MODEL_FILES = {
 }
 
 
-def attach_vs_tile_keys(dict_meta: dict, path_tile_dir: Path) -> dict:
-    if not isinstance(dict_meta, dict):
-        return dict_meta
-    dict_keys = {}
-    for dict_level in dict_meta.get("levels") or []:
-        try:
-            int_level = int(dict_level.get("level"))
-        except Exception:
-            continue
-        path_level = path_tile_dir / str(int_level)
-        if path_level.exists():
-            dict_keys[str(int_level)] = sorted(path.stem for path in path_level.glob("*.jpeg"))
-        else:
-            dict_keys[str(int_level)] = []
-    dict_meta["tile_keys"] = dict_keys
-    return dict_meta
-
-
 class VSTileStreamer:
     """VS IHC level-0 text text text.
 
@@ -438,7 +420,6 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
                 cached_meta['image_filename'] = png_path.name
                 cached_meta['cached'] = True
-                attach_vs_tile_keys(cached_meta, tile_dir)
                 if display_roi_polygons is not None:
                     cached_meta['roi_polygons'] = display_roi_polygons
                 # text hit text DB text text — auto_ai text text text text text text.
@@ -747,7 +728,6 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 "tile_size": tile_size_px,
                 "levels": levels_meta,
             }
-            attach_vs_tile_keys(meta, tile_dir)
             # meta text text (PNG text text text — text text text)
             list_cleanup_on_cancel.append(meta_path)
             with open(meta_path, 'w', encoding='utf-8') as f:
@@ -773,7 +753,6 @@ def run_virtual_stain(task_id: str, slide_id: str,
             "levels": levels_meta,
             "cached": False,
         }
-        attach_vs_tile_keys(result_payload, tile_dir)
         if display_roi_polygons is not None:
             result_payload["roi_polygons"] = display_roi_polygons
         update_task(task_id, status="completed", progress=100,

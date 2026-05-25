@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.93",
+  "version": "1.1.94",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Removes Korean and replacement characters from backend and frontend source files."
+  "description": "Restores VS IHC backend and viewer tile behavior to the 1.1.78 implementation."
 }

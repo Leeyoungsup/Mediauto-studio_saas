@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.94] - 2026-05-26
+
+### Fixed
+
+- Restored VS IHC backend and viewer tile behavior to the 1.1.78 implementation.
+- Removed the later VS tile manifest/request-gating changes that caused overlay rendering regressions.
+- Bumped frontend module cache keys so the restored viewer code loads immediately.
+
 ## [1.1.93] - 2026-05-26
 
 ### Changed
