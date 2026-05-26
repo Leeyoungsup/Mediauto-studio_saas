@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.95",
+  "version": "1.1.96",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Keeps VS IHC 1.1.78 rendering while reopening slides for media tile requests when needed."
+  "description": "Updates annotation workflow status controls to use icon states instead of text status labels."
 }

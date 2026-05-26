@@ -2386,6 +2386,62 @@ body.annotation-page .project-gate-row {
     letter-spacing: 0;
     text-align: center;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.annotation-step-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.annotation-step-icon {
+    position: relative;
+    display: inline-flex;
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    align-items: center;
+    justify-content: center;
+}
+.annotation-step-icon.is-done {
+    border-radius: 50%;
+    background: #20c76b;
+    box-shadow: 0 0 0 2px rgba(32, 199, 107, 0.14);
+}
+.annotation-step-icon.is-done::after {
+    content: "";
+    width: 7px;
+    height: 4px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translate(1px, -1px);
+}
+.annotation-step-icon.is-running {
+    border-radius: 50%;
+    border: 2px solid rgba(245, 158, 11, 0.35);
+    border-top-color: #f59e0b;
+}
+.annotation-step-icon.is-running::after {
+    content: "";
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #f59e0b;
+}
+.annotation-step-icon.is-current::before,
+.annotation-step-icon.is-pending::before {
+    content: "";
+    width: 9px;
+    height: 2px;
+    border-radius: 999px;
+}
+.annotation-step-icon.is-current::before {
+    background: #2563eb;
+}
+.annotation-step-icon.is-pending::before {
+    background: #f0b429;
 }
 .annotation-step.is-active {
     border-color: #54a0ff;
@@ -2416,6 +2472,9 @@ body.annotation-page .project-gate-row {
     font-weight: 900;
     line-height: 1;
     text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 .annotation-status-workflow.is-disabled {
     opacity: 0.62;

@@ -255,6 +255,20 @@ function _annotationWorkflowStepSymbol(state) {
     return '-';
 }
 
+function _annotationWorkflowActionState(boolComplete, boolRunning, boolActive) {
+    if (boolComplete) return 'done';
+    if (boolRunning) return 'running';
+    if (boolActive) return 'current';
+    return 'pending';
+}
+
+function _annotationWorkflowActionLabel(state) {
+    if (state === 'done') return 'Done';
+    if (state === 'running') return 'Running';
+    if (state === 'current') return 'Current';
+    return 'Pending';
+}
+
 function _nextAnnotationWorkflowStatus(status) {
     const int_current = _annotationWorkflowIndex(status);
     return ANNOTATION_WORKFLOW_ORDER[Math.min(int_current + 1, ANNOTATION_WORKFLOW_ORDER.length - 1)];
@@ -704,11 +718,15 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
         const boolRunning = _annotationRunningStep === strTarget;
         const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
-        const strAction = boolComplete ? 'Done' : (boolRunning ? 'Running' : (boolActive ? 'Current' : '-'));
-        btn.textContent = `${strLabel} ${strAction}`;
+        const strActionState = _annotationWorkflowActionState(boolComplete, boolRunning, boolActive);
+        btn.innerHTML = `
+            <span class="annotation-step-label">${strLabel}</span>
+            <span class="annotation-step-icon is-${strActionState}" aria-label="${_annotationWorkflowActionLabel(strActionState)}"></span>
+        `;
         btn.classList.toggle('is-active', boolActive);
         btn.classList.toggle('is-complete', boolComplete);
         btn.classList.toggle('is-running', boolRunning);
+        btn.dataset.actionState = strActionState;
         btn.disabled = boolDisabled;
         btn.title = boolActive
             ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
@@ -716,8 +734,14 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) connectorA.textContent = intCurrent > 0 ? 'Done' : '-';
-    if (connectorB) connectorB.textContent = intCurrent > 1 || _annotationWorkflowFinished ? 'Done' : '-';
+    if (connectorA) {
+        const boolDone = intCurrent > 0;
+        connectorA.innerHTML = `<span class="annotation-step-icon is-${boolDone ? 'done' : 'pending'}" aria-label="${boolDone ? 'Done' : 'Pending'}"></span>`;
+    }
+    if (connectorB) {
+        const boolDone = intCurrent > 1 || _annotationWorkflowFinished;
+        connectorB.innerHTML = `<span class="annotation-step-icon is-${boolDone ? 'done' : 'pending'}" aria-label="${boolDone ? 'Done' : 'Pending'}"></span>`;
+    }
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {

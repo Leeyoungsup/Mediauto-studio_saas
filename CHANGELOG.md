@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.96] - 2026-05-26
+
+### Changed
+
+- Replaced annotation workflow text status labels with icon states: green check for done, orange in-progress marker for running, blue dash for current, and yellow dash for pending.
+- Bumped annotation page cache keys for the updated workflow controls.
+
 ## [1.1.95] - 2026-05-26
 
 ### Fixed
