@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.103] - 2026-05-27
+
+### Added
+
+- Added Cell Annotation required-region undo from the required patch panel.
+- Added Ctrl+Z handling to remove the latest required region and recompute patch statuses.
+
 ## [1.1.102] - 2026-05-26
 
 ### Changed

@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260526-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260526-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260526-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260526-07';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-01';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -3282,6 +3282,15 @@ window.addEventListener('keydown', (e) => {
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (!(e.ctrlKey || e.metaKey)) return;
     const key = e.key.toLowerCase();
+    if (cellPatchWorkflow && key === 'z' && !e.shiftKey && cellPatchWorkflow.canUndoRequiredRegion?.()) {
+        _closeCellEditPopup();
+        cellPatchWorkflow.undoLastRequiredRegion().catch((err) => {
+            setStatus(`Required region undo failed: ${err.message}`);
+        });
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+    }
     if (key === 'z' && !e.shiftKey && viewer.canUndoAnnotationEdit?.()) {
         _closeCellEditPopup();
         viewer.undoAnnotationEdit();

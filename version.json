@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.102",
+  "version": "1.1.103",
   "channel": "production",
-  "release_date": "2026-05-26",
-  "description": "Updates Cell Annotation patch tasks to a 512um grid."
+  "release_date": "2026-05-27",
+  "description": "Adds undo support for Cell Annotation required regions."
 }

@@ -2543,14 +2543,39 @@ body.cell-patch-workflow-page .annotation-list {
 }
 .patch-list-summary {
     display: flex;
+    justify-content: space-between;
     align-items: baseline;
     gap: 6px;
     color: #1f2a44;
     font-size: 12px;
 }
+.patch-list-summary > div {
+    min-width: 0;
+}
 .patch-list-summary strong {
     color: #4f46e5;
     font-size: 18px;
+}
+.patch-region-undo {
+    flex: 0 0 auto;
+    min-height: 26px;
+    padding: 0 9px;
+    border: 1px solid #d5dbee;
+    border-radius: 6px;
+    background: #fff;
+    color: #4f46e5;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.patch-region-undo:hover:not(:disabled) {
+    border-color: #6c5ce7;
+    background: #f8f7ff;
+}
+.patch-region-undo:disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
+    opacity: 0.55;
 }
 .patch-list-counts,
 .patch-list-empty {

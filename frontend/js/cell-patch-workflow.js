@@ -16,6 +16,7 @@ export class CellPatchWorkflow {
         this.patches = new Map();
         this.patchListEl = document.getElementById('annotation-list');
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
+        this.lastRegionAction = null;
         this.editor = new CellAnnotationEditor({
             api,
             viewer,
@@ -107,11 +108,19 @@ export class CellPatchWorkflow {
             .join(' / ');
         this.patchListEl.innerHTML = `
             <div class="patch-list-summary">
-                <strong>${list.length}</strong>
-                <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
+                <div>
+                    <strong>${list.length}</strong>
+                    <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
+                </div>
+                <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() ? '' : 'disabled'} title="Undo last required region">Undo Region</button>
             </div>
             ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
+        this.patchListEl.querySelector('.patch-region-undo')?.addEventListener('click', () => {
+            this.undoLastRequiredRegion().catch((err) => {
+                this.setStatus(`Required region undo failed: ${err.message}`);
+            });
+        });
         if (!this.slideId) {
             this.patchListEl.insertAdjacentHTML('beforeend', '<div class="patch-list-empty">Open a slide to load required patches.</div>');
             return;
@@ -179,13 +188,39 @@ export class CellPatchWorkflow {
             .replace(/'/g, '&#39;');
     }
 
+    canUndoRequiredRegion() {
+        return Boolean(this.slideId && this.required.toApiRegions().length);
+    }
+
+    async undoLastRequiredRegion() {
+        if (!this.canUndoRequiredRegion()) return false;
+        const regions = this.required.toApiRegions();
+        const targetId = this.lastRegionAction?.regionId;
+        let nextRegions = regions;
+        if (targetId) {
+            const idx = regions.findIndex(region => region.id === targetId);
+            if (idx >= 0) nextRegions = regions.filter((_, regionIdx) => regionIdx !== idx);
+        }
+        if (nextRegions === regions) nextRegions = regions.slice(0, -1);
+        await this.api.saveCellRequiredRegions(this.slideId, nextRegions);
+        await this.api.recomputeCellPatchStatus(this.slideId);
+        const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
+        this.required.setRegions(regionPayload.regions || []);
+        this.lastRegionAction = null;
+        await this.refreshPatches();
+        this.setStatus('Required region undone and patch status recomputed');
+        this.viewer?.requestRender?.();
+        return true;
+    }
+
     async addRequiredRegionFromAnnotation(annotation) {
         if (!this.slideId || !annotation) return;
         const coords = annotation.coordinates || [];
         if (coords.length < 3) return;
         const regions = this.required.toApiRegions();
+        const regionId = `region_${Date.now()}`;
         regions.push({
-            id: `region_${Date.now()}`,
+            id: regionId,
             type: 'annotation_required_region',
             points: coords.map(pt => [Number(pt[0]), Number(pt[1])]),
         });
@@ -193,6 +228,7 @@ export class CellPatchWorkflow {
         await this.api.recomputeCellPatchStatus(this.slideId);
         const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
         this.required.setRegions(regionPayload.regions || []);
+        this.lastRegionAction = { regionId };
         await this.refreshPatches();
         this.setStatus('Required region saved and patch status recomputed');
     }
