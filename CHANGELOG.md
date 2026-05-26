@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.99] - 2026-05-26
+
+### Changed
+
+- Removed the annotation workflow connector separators so only step buttons and their state icons remain.
+
 ## [1.1.98] - 2026-05-26
 
 ### Changed

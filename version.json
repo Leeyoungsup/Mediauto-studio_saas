@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.98",
+  "version": "1.1.99",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Moves annotation workflow status icons outside the step buttons."
+  "description": "Removes annotation workflow connector separators."
 }

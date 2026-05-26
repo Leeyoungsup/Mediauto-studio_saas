@@ -739,10 +739,10 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
             ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
             : `Move to ${strLabel}`;
     });
-    const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
-    const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) connectorA.textContent = '-';
-    if (connectorB) connectorB.textContent = '-';
+    $annotationStatusWorkflow.querySelectorAll('[data-connector]').forEach((el) => {
+        el.hidden = true;
+        el.textContent = '';
+    });
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {
