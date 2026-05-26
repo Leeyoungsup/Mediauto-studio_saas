@@ -16,8 +16,8 @@ from app.slide_manager import slide_manager
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 TARGET_MPP = 0.5
-TARGET_PATCH_SIZE = 512
-PATCH_PHYSICAL_UM = TARGET_MPP * TARGET_PATCH_SIZE
+PATCH_PHYSICAL_UM = 512.0
+TARGET_PATCH_SIZE = int(round(PATCH_PHYSICAL_UM / TARGET_MPP))
 PATCH_STATUSES = {
     "not_required",
     "required",

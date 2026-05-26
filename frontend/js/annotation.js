@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260526-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260526-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260526-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260526-06';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260526-07';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -2195,6 +2195,10 @@ function _sortedAnnotationEntries() {
 
 function renderAnnotationPanel() {
     if (!$annList) return;
+    if (cellPatchWorkflow) {
+        cellPatchWorkflow.renderPatchList();
+        return;
+    }
     $annList.innerHTML = '';
     const header = document.createElement('div');
     header.className = 'ann-list-header';

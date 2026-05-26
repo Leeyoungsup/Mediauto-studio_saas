@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.102] - 2026-05-26
+
+### Changed
+
+- Updated Cell Annotation patch grid sizing from 256um to 512um physical patches at the 0.5um/px target.
+- Replaced the Cell Annotation annotation list area with a required patch task list that shows each patch status.
+- Hid tissue-style annotation class/style controls on the Cell Annotation patch workflow page.
+
 ## [1.1.101] - 2026-05-26
 
 ### Fixed

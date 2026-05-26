@@ -14,6 +14,8 @@ export class CellPatchWorkflow {
         this.status = new PatchStatusLayer();
         this.required = new WsiRequiredRegionLayer();
         this.patches = new Map();
+        this.patchListEl = document.getElementById('annotation-list');
+        this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
         this.editor = new CellAnnotationEditor({
             api,
             viewer,
@@ -21,10 +23,17 @@ export class CellPatchWorkflow {
             onStatus: this.setStatus,
             onSaved: (patch) => this.updatePatch(patch),
         });
+        this._setupRightPanel();
         this.viewer.addOverlayLayer(this.required);
         this.viewer.addOverlayLayer(this.status);
         this.viewer.addOverlayLayer(this.grid);
         this._bindEvents();
+    }
+
+    _setupRightPanel() {
+        document.body.classList.add('cell-patch-workflow-page');
+        if (this.patchHeaderEl) this.patchHeaderEl.textContent = 'Required Patches';
+        this.renderPatchList();
     }
 
     _bindEvents() {
@@ -37,6 +46,7 @@ export class CellPatchWorkflow {
             const saved = this.patches.get(patch.patch_id);
             if (!saved || (saved.str_status || saved.status) === 'not_required') return;
             this.editor.open(this.slideId, { ...patch, ...saved });
+            this.renderPatchList();
         }, true);
     }
 
@@ -44,6 +54,7 @@ export class CellPatchWorkflow {
         this.slideId = slideId || '';
         this.patches.clear();
         this.editor.close();
+        this.renderPatchList();
         if (!this.slideId) return;
         const config = await this.api.getCellGridConfig(slideId);
         this.grid.setConfig(config);
@@ -62,6 +73,7 @@ export class CellPatchWorkflow {
             if (id) this.patches.set(id, { ...patch, patch_id: id });
         }
         this.status.setPatches(Array.from(this.patches.values()));
+        this.renderPatchList();
         this.viewer.requestRender();
     }
 
@@ -70,7 +82,101 @@ export class CellPatchWorkflow {
         if (!id) return;
         this.patches.set(id, { ...patch, patch_id: id });
         this.status.setPatches(Array.from(this.patches.values()));
+        this.renderPatchList();
         this.viewer.requestRender();
+    }
+
+    renderPatchList() {
+        if (!this.patchListEl) return;
+        const list = Array.from(this.patches.values())
+            .filter(patch => (patch.str_status || patch.status || 'not_required') !== 'not_required')
+            .sort((a, b) => {
+                const ay = Number(a.int_py ?? a.py ?? 0);
+                const by = Number(b.int_py ?? b.py ?? 0);
+                const ax = Number(a.int_px ?? a.px ?? 0);
+                const bx = Number(b.int_px ?? b.px ?? 0);
+                return ay - by || ax - bx;
+            });
+        const statusCounts = list.reduce((acc, patch) => {
+            const status = patch.str_status || patch.status || 'required';
+            acc[status] = (acc[status] || 0) + 1;
+            return acc;
+        }, {});
+        const countText = Object.entries(statusCounts)
+            .map(([status, count]) => `${this._statusLabel(status)} ${count}`)
+            .join(' / ');
+        this.patchListEl.innerHTML = `
+            <div class="patch-list-summary">
+                <strong>${list.length}</strong>
+                <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
+            </div>
+            ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
+        `;
+        if (!this.slideId) {
+            this.patchListEl.insertAdjacentHTML('beforeend', '<div class="patch-list-empty">Open a slide to load required patches.</div>');
+            return;
+        }
+        if (!list.length) {
+            this.patchListEl.insertAdjacentHTML('beforeend', '<div class="patch-list-empty">No required patches. Draw a required region to create patch tasks.</div>');
+            return;
+        }
+        const body = document.createElement('div');
+        body.className = 'patch-task-list';
+        for (const patch of list) {
+            const id = patch.str_patch_id || patch.patch_id;
+            const status = patch.str_status || patch.status || 'required';
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'patch-task-row';
+            row.dataset.patchId = id;
+            row.dataset.status = status;
+            if (id && id === this.status.selectedPatchId) row.classList.add('selected');
+            row.innerHTML = `
+                <span class="patch-task-id">${this._escape(id)}</span>
+                <span class="patch-task-coord">X${Number(patch.int_px ?? patch.px ?? 0)} Y${Number(patch.int_py ?? patch.py ?? 0)}</span>
+                <span class="patch-task-status">${this._escape(this._statusLabel(status))}</span>
+            `;
+            row.addEventListener('click', () => this.openPatchFromList(id));
+            body.appendChild(row);
+        }
+        this.patchListEl.appendChild(body);
+    }
+
+    async openPatchFromList(patchId) {
+        if (!patchId || !this.slideId) return;
+        const saved = this.patches.get(patchId);
+        if (!saved) return;
+        const patch = this.grid.patchAt(Number(saved.int_x ?? saved.x ?? 0) + 1, Number(saved.int_y ?? saved.y ?? 0) + 1);
+        await this.editor.open(this.slideId, {
+            ...(patch || {}),
+            ...saved,
+            patch_id: patchId,
+            x: Number(saved.int_x ?? saved.x ?? patch?.x ?? 0),
+            y: Number(saved.int_y ?? saved.y ?? patch?.y ?? 0),
+            w: Number(saved.int_w ?? saved.w ?? patch?.w ?? 0),
+            h: Number(saved.int_h ?? saved.h ?? patch?.h ?? 0),
+        });
+        this.renderPatchList();
+    }
+
+    _statusLabel(status) {
+        return {
+            required: 'Required',
+            in_progress: 'In Progress',
+            completed: 'Completed',
+            reviewed: 'Reviewed',
+            rejected: 'Rejected',
+            not_required: 'Not Required',
+        }[status] || 'Required';
+    }
+
+    _escape(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     async addRequiredRegionFromAnnotation(annotation) {
