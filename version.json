@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.96",
+  "version": "1.1.98",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Updates annotation workflow status controls to use icon states instead of text status labels."
+  "description": "Moves annotation workflow status icons outside the step buttons."
 }

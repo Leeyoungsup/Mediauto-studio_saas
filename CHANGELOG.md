@@ -2,6 +2,20 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.98] - 2026-05-26
+
+### Changed
+
+- Moved annotation workflow status icons outside each step button so the button label remains clean.
+- Restored workflow connectors to simple separators between steps.
+
+## [1.1.97] - 2026-05-26
+
+### Fixed
+
+- Enabled the VS IHC split-view control after virtual staining results load on annotation pages.
+- Passed VS ROI polygons through the annotation-page overlay setup to match the AI viewer behavior.
+
 ## [1.1.96] - 2026-05-26
 
 ### Changed

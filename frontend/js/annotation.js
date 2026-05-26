@@ -719,10 +719,17 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         const boolRunning = _annotationRunningStep === strTarget;
         const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
         const strActionState = _annotationWorkflowActionState(boolComplete, boolRunning, boolActive);
-        btn.innerHTML = `
-            <span class="annotation-step-label">${strLabel}</span>
-            <span class="annotation-step-icon is-${strActionState}" aria-label="${_annotationWorkflowActionLabel(strActionState)}"></span>
-        `;
+        btn.innerHTML = `<span class="annotation-step-label">${strLabel}</span>`;
+        let stateIcon = btn.nextElementSibling;
+        if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) {
+            stateIcon = document.createElement('span');
+            stateIcon.className = 'annotation-step-state';
+            btn.insertAdjacentElement('afterend', stateIcon);
+        }
+        stateIcon.className = `annotation-step-state annotation-step-icon is-${strActionState}`;
+        stateIcon.dataset.workflowStateFor = strTarget;
+        stateIcon.setAttribute('aria-label', _annotationWorkflowActionLabel(strActionState));
+        stateIcon.title = _annotationWorkflowActionLabel(strActionState);
         btn.classList.toggle('is-active', boolActive);
         btn.classList.toggle('is-complete', boolComplete);
         btn.classList.toggle('is-running', boolRunning);
@@ -734,14 +741,8 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     });
     const connectorA = $annotationStatusWorkflow.querySelector('[data-connector="annotation-review"]');
     const connectorB = $annotationStatusWorkflow.querySelector('[data-connector="review-termination"]');
-    if (connectorA) {
-        const boolDone = intCurrent > 0;
-        connectorA.innerHTML = `<span class="annotation-step-icon is-${boolDone ? 'done' : 'pending'}" aria-label="${boolDone ? 'Done' : 'Pending'}"></span>`;
-    }
-    if (connectorB) {
-        const boolDone = intCurrent > 1 || _annotationWorkflowFinished;
-        connectorB.innerHTML = `<span class="annotation-step-icon is-${boolDone ? 'done' : 'pending'}" aria-label="${boolDone ? 'Done' : 'Pending'}"></span>`;
-    }
+    if (connectorA) connectorA.textContent = '-';
+    if (connectorB) connectorB.textContent = '-';
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {
@@ -6014,8 +6015,10 @@ function onVirtualStainComplete(result) {
         canvas_l0_h: result.canvas_l0_h,
         tile_size: result.tile_size || 512,
         levels: result.levels || [],
+        roi_polygons: result.roi_polygons || null,
     });
     _setVsToggleState(true, false);
+    _setVsSplitState(false, false);
 
     viewer.clearAnnotations();
     renderAnnotationPanel();
