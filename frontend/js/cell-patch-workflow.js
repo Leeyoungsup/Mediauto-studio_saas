@@ -1,5 +1,5 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260526-06';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260526-06';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-02';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260526-06';
 
@@ -71,7 +71,9 @@ export class CellPatchWorkflow {
         this.patches.clear();
         for (const patch of payload.patches || []) {
             const id = patch.str_patch_id || patch.patch_id;
-            if (id) this.patches.set(id, { ...patch, patch_id: id });
+            if (id && this._patchMatchesCurrentGrid(patch)) {
+                this.patches.set(id, { ...patch, patch_id: id });
+            }
         }
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
@@ -81,10 +83,26 @@ export class CellPatchWorkflow {
     updatePatch(patch) {
         const id = patch.str_patch_id || patch.patch_id;
         if (!id) return;
+        if (!this._patchMatchesCurrentGrid(patch)) return;
         this.patches.set(id, { ...patch, patch_id: id });
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
         this.viewer.requestRender();
+    }
+
+    _patchMatchesCurrentGrid(patch) {
+        const config = this.grid?.config;
+        if (!config) return true;
+        const size = Number(config.patch_size_slide_px || 0);
+        if (size <= 0) return true;
+        const px = Number(patch.int_px ?? patch.px);
+        const py = Number(patch.int_py ?? patch.py);
+        if (!Number.isFinite(px) || !Number.isFinite(py)) return true;
+        const expectedX = Math.round(px * size);
+        const expectedY = Math.round(py * size);
+        const actualX = Math.round(Number(patch.int_x ?? patch.x ?? expectedX));
+        const actualY = Math.round(Number(patch.int_y ?? patch.y ?? expectedY));
+        return Math.abs(actualX - expectedX) <= 1 && Math.abs(actualY - expectedY) <= 1;
     }
 
     renderPatchList() {

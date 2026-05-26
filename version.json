@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.103",
+  "version": "1.1.104",
   "channel": "production",
   "release_date": "2026-05-27",
-  "description": "Adds undo support for Cell Annotation required regions."
+  "description": "Filters stale Cell Annotation patch overlays."
 }

@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260526-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260526-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260526-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-02';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {

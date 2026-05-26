@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.104] - 2026-05-27
+
+### Fixed
+
+- Hid not-required Cell Annotation patch overlays so inactive patches do not leave gray grid remnants.
+- Filtered stale patch status records whose saved coordinates do not match the current 512um grid.
+
 ## [1.1.103] - 2026-05-27
 
 ### Added

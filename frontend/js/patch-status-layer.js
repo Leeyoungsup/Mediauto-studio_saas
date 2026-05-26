@@ -31,6 +31,8 @@ export class PatchStatusLayer {
         if (!this.visible || !viewer?.slideInfo) return;
         ctx.save();
         for (const patch of this.patches.values()) {
+            const status = patch.str_status || patch.status || 'required';
+            if (status === 'not_required') continue;
             const x = Number(patch.int_x ?? patch.x ?? 0);
             const y = Number(patch.int_y ?? patch.y ?? 0);
             const w = Number(patch.int_w ?? patch.w ?? 0);
@@ -41,7 +43,6 @@ export class PatchStatusLayer {
             const ch = h * viewer.zoom;
             if (cx > viewer._viewW || cy > viewer._viewH || cx + cw < 0 || cy + ch < 0) continue;
             if (Math.max(cw, ch) < this.minScreenSize) continue;
-            const status = patch.str_status || patch.status || 'required';
             const style = STATUS_STYLE[status] || STATUS_STYLE.required;
             ctx.fillStyle = style.fill;
             ctx.strokeStyle = (patch.str_patch_id || patch.patch_id) === this.selectedPatchId ? '#2563eb' : style.stroke;
