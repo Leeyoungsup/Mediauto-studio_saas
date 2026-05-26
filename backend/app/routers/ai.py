@@ -6,6 +6,7 @@ text app/routers/ai_user_edits.py text text text text. text text
 text text task_id text text text text text text text text.
 """
 import asyncio
+import hashlib
 import json
 import sys
 import threading
@@ -18,6 +19,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
+from app.config import settings
 from app.slide_manager import slide_manager
 
 # text AI text text text — ai_pipelines text text ai/ text import text text text text.
@@ -59,6 +61,26 @@ router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_
 # Virtual stain text text text text — <img src> text ?mt= text text.
 # main.py text text prefix("/api/ai") text text include text.
 media_router = APIRouter(dependencies=[Depends(get_media_user)])
+
+
+def _find_and_open_slide(slide_id: str):
+    """Return an open slide, reopening it from uploads when it is not in memory."""
+    info = slide_manager.get(slide_id)
+    if info:
+        return info
+
+    path_upload_dir = Path(settings.UPLOAD_DIR)
+    for path_file in path_upload_dir.rglob("*"):
+        try:
+            if not path_file.is_file():
+                continue
+            if path_file.suffix.lower() not in settings.SUPPORTED_EXTENSIONS:
+                continue
+            if hashlib.md5(path_file.name.encode()).hexdigest()[:12] == slide_id:
+                return slide_manager.open(slide_id, str(path_file))
+        except Exception:
+            continue
+    return None
 
 
 async def _log_ai_analyze(
@@ -347,9 +369,9 @@ async def start_virtual_stain(
 async def get_virtual_stain_image(slide_id: str, stain_type: str,
                                   target_mpp: float = Query(2.0)):
     """Virtual stain text PNG text (text text text, PDF/text)"""
-    info = slide_manager.get(slide_id)
+    info = _find_and_open_slide(slide_id)
     if not info:
-        raise HTTPException(404, "text text text text")
+        raise HTTPException(404, "slide not found")
     png_path, _ = _get_vs_cache_paths(info.file_path, target_mpp)
     if not png_path.exists():
         raise HTTPException(404, "Virtual stain image not found")
@@ -369,9 +391,9 @@ async def get_virtual_stain_tile(
     Virtual stain text text text.
     text text text text, text 404 (text/text text text text text).
     """
-    info = slide_manager.get(slide_id)
+    info = _find_and_open_slide(slide_id)
     if not info:
-        raise HTTPException(404, "text text text text")
+        raise HTTPException(404, "slide not found")
     tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)
     tile_path = tile_dir / str(level) / f"{tx}_{ty}.jpeg"
     if not tile_path.exists():

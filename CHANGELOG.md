@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.95] - 2026-05-26
+
+### Fixed
+
+- Kept the VS IHC 1.1.78 viewer behavior and added a backend fallback so VS tile/image requests reopen slides from uploads when they are not currently held by the slide manager.
+- Prevented VS IHC media endpoints from returning 404 only because the slide was evicted from memory.
+
 ## [1.1.94] - 2026-05-26
 
 ### Fixed

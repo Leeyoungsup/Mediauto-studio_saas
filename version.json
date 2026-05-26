@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.94",
+  "version": "1.1.95",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Restores VS IHC backend and viewer tile behavior to the 1.1.78 implementation."
+  "description": "Keeps VS IHC 1.1.78 rendering while reopening slides for media tile requests when needed."
 }
