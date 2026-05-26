@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.101] - 2026-05-26
+
+### Fixed
+
+- Replaced corrupted Admin page labels and broken JavaScript strings with clean English UI text.
+- Bumped the Admin script cache key so the repaired page loads immediately.
+
 ## [1.1.100] - 2026-05-26
 
 ### Added

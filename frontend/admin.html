@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MeDIAuto Studio — text</title>
+    <title>MeDIAuto Studio - Admin</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
     <link rel="stylesheet" href="css/admin.css">
@@ -13,15 +13,16 @@
     <header class="admin-header" hidden>
         <div class="admin-header-inner">
             <a href="/home" class="admin-brand">
-                <img src="assets/logo.png" alt="logo" class="admin-logo">
+                <img src="assets/logo.png" alt="MeDIAuto Studio" class="admin-logo">
             </a>
             <nav class="admin-nav">
                 <a href="/home" class="admin-nav-item">Home</a>
+                <a href="/project" class="admin-nav-item">Project</a>
                 <a href="/ai" class="admin-nav-item">AI</a>
                 <a href="/admin" class="admin-nav-item active">Admin</a>
             </nav>
             <div class="admin-user-info">
-                <span id="current-user-name">—</span>
+                <span id="current-user-name">-</span>
                 <span class="role-badge" id="current-user-role">admin</span>
                 <button id="btn-logout" class="admin-btn-ghost">Logout</button>
             </div>
@@ -30,95 +31,102 @@
 
     <nav class="admin-tabs">
         <button class="admin-tab active" data-tab="pending-panel">
-            text text <span id="pending-badge" class="badge">0</span>
+            Pending Approvals <span id="pending-badge" class="badge">0</span>
         </button>
-        <button class="admin-tab" data-tab="users-panel">text text</button>
-        <button class="admin-tab" data-tab="create-panel">text text</button>
-        <button class="admin-tab" data-tab="activity-panel">text text</button>
+        <button class="admin-tab" data-tab="users-panel">Users</button>
+        <button class="admin-tab" data-tab="create-panel">Create User</button>
+        <button class="admin-tab" data-tab="activity-panel">Activity</button>
     </nav>
 
     <main class="admin-main">
         <div id="admin-alert" class="admin-alert" hidden></div>
 
-        <!-- text text text -->
         <section id="pending-panel" class="admin-panel active">
             <div class="panel-toolbar">
-                <h2>text text text text</h2>
-                <button id="btn-refresh-pending" class="admin-btn-secondary">text</button>
+                <h2>Pending User Approvals</h2>
+                <button id="btn-refresh-pending" class="admin-btn-secondary">Refresh</button>
             </div>
             <table class="admin-table">
                 <thead>
                     <tr>
-                        <th>text</th><th>text</th><th>text</th><th>text</th>
-                        <th>text text</th><th>text</th>
+                        <th>Login ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Requested At</th>
+                        <th>Approve As</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="pending-tbody">
-                    <tr><td colspan="6" class="empty-row">text text...</td></tr>
+                    <tr><td colspan="6" class="empty-row">Loading...</td></tr>
                 </tbody>
             </table>
         </section>
 
-        <!-- text text text -->
         <section id="users-panel" class="admin-panel">
             <div class="panel-toolbar">
-                <h2>text text</h2>
+                <h2>User Management</h2>
                 <div class="toolbar-group">
                     <select id="filter-status" class="admin-select">
-                        <option value="">text text</option>
-                        <option value="approved">text</option>
-                        <option value="pending">text text</option>
-                        <option value="rejected">text</option>
+                        <option value="">All statuses</option>
+                        <option value="approved">Approved</option>
+                        <option value="pending">Pending</option>
+                        <option value="rejected">Rejected</option>
                     </select>
                     <input type="text" id="filter-search" class="admin-input"
-                           placeholder="text/text/text text">
-                    <button id="btn-refresh-users" class="admin-btn-secondary">text</button>
+                           placeholder="Search login, name, department">
+                    <button id="btn-refresh-users" class="admin-btn-secondary">Refresh</button>
                 </div>
             </div>
             <table class="admin-table">
                 <thead>
                     <tr>
-                        <th>text</th><th>text</th><th>text</th><th>text</th>
-                        <th>text</th><th>text</th><th>text text</th><th>text</th>
+                        <th>Login ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Active</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="users-tbody">
-                    <tr><td colspan="8" class="empty-row">text text...</td></tr>
+                    <tr><td colspan="8" class="empty-row">Loading...</td></tr>
                 </tbody>
             </table>
             <div class="pager">
-                <button id="btn-prev-page" class="admin-btn-secondary">text</button>
+                <button id="btn-prev-page" class="admin-btn-secondary">Previous</button>
                 <span id="page-info">1 / 1</span>
-                <button id="btn-next-page" class="admin-btn-secondary">text</button>
+                <button id="btn-next-page" class="admin-btn-secondary">Next</button>
             </div>
         </section>
 
-        <!-- text text text -->
         <section id="create-panel" class="admin-panel">
             <div class="panel-toolbar">
-                <h2>text text text</h2>
+                <h2>Create User</h2>
             </div>
             <form id="create-form" class="admin-form">
                 <div class="form-row">
-                    <label>text *</label>
+                    <label for="new-login-id">Login ID *</label>
                     <input type="text" id="new-login-id" required minlength="4" maxlength="30"
-                           pattern="[a-zA-Z0-9_]{4,30}" placeholder="4~30text text/text/text">
+                           pattern="[a-zA-Z0-9_]{4,30}" placeholder="4-30 letters, numbers, or underscores">
                 </div>
                 <div class="form-row">
-                    <label>text *</label>
+                    <label for="new-password">Password *</label>
                     <input type="password" id="new-password" required minlength="8"
-                           placeholder="text text/text + text + text 8text text">
+                           placeholder="At least 8 characters with letters and numbers">
                 </div>
                 <div class="form-row">
-                    <label>text *</label>
+                    <label for="new-name">Name *</label>
                     <input type="text" id="new-name" required maxlength="100">
                 </div>
                 <div class="form-row">
-                    <label>text</label>
+                    <label for="new-department">Department</label>
                     <input type="text" id="new-department" maxlength="100">
                 </div>
                 <div class="form-row">
-                    <label>text *</label>
+                    <label for="new-role">Role *</label>
                     <select id="new-role" required>
                         <option value="viewer">Viewer</option>
                         <option value="doctor">Doctor</option>
@@ -126,105 +134,104 @@
                     </select>
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="admin-btn-primary">text</button>
-                    <button type="reset" class="admin-btn-secondary">text</button>
+                    <button type="submit" class="admin-btn-primary">Create</button>
+                    <button type="reset" class="admin-btn-secondary">Reset</button>
                 </div>
             </form>
         </section>
 
-        <!-- text text text -->
         <section id="activity-panel" class="admin-panel">
             <div class="panel-toolbar">
-                <h2>text / text text</h2>
+                <h2>Login Activity</h2>
                 <div class="toolbar-group">
                     <input type="text" id="activity-filter-user" class="admin-input"
-                           placeholder="text text/text text">
-                    <button id="btn-refresh-activity" class="admin-btn-secondary">text</button>
+                           placeholder="Filter by login or name">
+                    <button id="btn-refresh-activity" class="admin-btn-secondary">Refresh</button>
                 </div>
             </div>
             <table class="admin-table">
                 <thead>
                     <tr>
-                        <th>text</th>
-                        <th>text</th>
-                        <th>text / text</th>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Name / Role</th>
                         <th>IP</th>
-                        <th>text</th>
-                        <th>text</th>
-                        <th>text text</th>
+                        <th>Location</th>
+                        <th>Device</th>
+                        <th>Details</th>
                     </tr>
                 </thead>
                 <tbody id="activity-tbody">
-                    <tr><td colspan="7" class="empty-row">text text...</td></tr>
+                    <tr><td colspan="7" class="empty-row">Loading...</td></tr>
                 </tbody>
             </table>
             <div class="pager">
-                <button id="btn-activity-prev" class="admin-btn-secondary">text</button>
+                <button id="btn-activity-prev" class="admin-btn-secondary">Previous</button>
                 <span id="activity-page-info">1 / 1</span>
-                <button id="btn-activity-next" class="admin-btn-secondary">text</button>
+                <button id="btn-activity-next" class="admin-btn-secondary">Next</button>
             </div>
         </section>
     </main>
 
-    <!-- text text text text -->
     <dialog id="user-activity-dialog" class="admin-dialog admin-dialog-wide">
         <div class="activity-dialog-header">
-            <h3 id="user-activity-title">text text</h3>
-            <button type="button" id="btn-user-activity-close" class="admin-btn-secondary">text</button>
+            <h3 id="user-activity-title">User Activity</h3>
+            <button type="button" id="btn-user-activity-close" class="admin-btn-secondary">Close</button>
         </div>
         <div class="activity-tabs">
-            <button class="activity-cat-tab active" data-cat="all">text <span class="cat-badge" data-badge="all">0</span></button>
-            <button class="activity-cat-tab" data-cat="login">text <span class="cat-badge" data-badge="login">0</span></button>
-            <button class="activity-cat-tab" data-cat="slide">text text <span class="cat-badge" data-badge="slide">0</span></button>
-            <button class="activity-cat-tab" data-cat="ai">AI text <span class="cat-badge" data-badge="ai">0</span></button>
+            <button class="activity-cat-tab active" data-cat="all">All <span class="cat-badge" data-badge="all">0</span></button>
+            <button class="activity-cat-tab" data-cat="login">Login <span class="cat-badge" data-badge="login">0</span></button>
+            <button class="activity-cat-tab" data-cat="slide">Slides <span class="cat-badge" data-badge="slide">0</span></button>
+            <button class="activity-cat-tab" data-cat="ai">AI <span class="cat-badge" data-badge="ai">0</span></button>
+            <button class="activity-cat-tab" data-cat="project">Projects <span class="cat-badge" data-badge="project">0</span></button>
+            <button class="activity-cat-tab" data-cat="file">Files <span class="cat-badge" data-badge="file">0</span></button>
         </div>
         <div class="activity-body">
             <table class="admin-table compact">
                 <thead>
                     <tr>
-                        <th>text</th>
-                        <th>text</th>
-                        <th>text</th>
-                        <th>IP / text</th>
+                        <th>Time</th>
+                        <th>Action</th>
+                        <th>Details</th>
+                        <th>IP / Location</th>
                     </tr>
                 </thead>
                 <tbody id="user-activity-tbody">
-                    <tr><td colspan="4" class="empty-row">text text...</td></tr>
+                    <tr><td colspan="4" class="empty-row">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
     </dialog>
 
-    <!-- text text text -->
     <dialog id="edit-dialog" class="admin-dialog">
         <form method="dialog" id="edit-form">
-            <h3>text text</h3>
+            <h3>Edit User</h3>
             <input type="hidden" id="edit-user-id">
             <div class="form-row">
-                <label>text</label>
+                <label for="edit-login-id">Login ID</label>
                 <input type="text" id="edit-login-id" disabled>
             </div>
             <div class="form-row">
-                <label>text</label>
+                <label for="edit-name">Name</label>
                 <input type="text" id="edit-name" maxlength="100">
             </div>
             <div class="form-row">
-                <label>text</label>
+                <label for="edit-department">Department</label>
                 <input type="text" id="edit-department" maxlength="100">
             </div>
             <div class="form-row">
-                <label>text text</label>
+                <label for="edit-password">New Password</label>
                 <input type="password" id="edit-password" minlength="8"
-                       placeholder="text text text text">
+                       placeholder="Leave blank to keep current password">
             </div>
             <div class="form-actions">
-                <button type="button" id="btn-edit-save" class="admin-btn-primary">text</button>
-                <button type="button" id="btn-edit-cancel" class="admin-btn-secondary">text</button>
+                <button type="button" id="btn-edit-save" class="admin-btn-primary">Save</button>
+                <button type="button" id="btn-edit-cancel" class="admin-btn-secondary">Cancel</button>
             </div>
         </form>
     </dialog>
 
     <script src="js/shared-header.js?v=20260520-01"></script>
-    <script src="js/admin.js"></script>
+    <script src="js/admin.js?v=20260526-06"></script>
 </body>
 </html>

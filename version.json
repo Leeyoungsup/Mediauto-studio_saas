@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.100",
+  "version": "1.1.101",
   "channel": "production",
   "release_date": "2026-05-26",
-  "description": "Adds patch-based cell annotation workflow foundation."
+  "description": "Restores clean Admin page text."
 }
