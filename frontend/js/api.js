@@ -713,6 +713,69 @@ export const api = {
         return res.json();
     },
 
+    async getCellGridConfig(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/grid-config`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async getCellRequiredRegions(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/required-regions`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async saveCellRequiredRegions(slideId, regions) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/required-regions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ regions: regions || [] }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async recomputeCellPatchStatus(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/recompute-status`, {
+            method: 'POST',
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async getCellPatches(slideId, status = '') {
+        const q = status ? `?status=${encodeURIComponent(status)}` : '';
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches${q}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async getPatchCells(slideId, patchId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async savePatchCells(slideId, patchId, cells) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cells: cells || [] }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async updatePatchStatus(slideId, patchId, status) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
 
     /**   */
     async loadAnnotationClasses(path) {

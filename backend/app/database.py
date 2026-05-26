@@ -5,7 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
 
-# ── text text text (lifespantext connect/disconnect) ──
+# Global MongoDB connection state managed by the FastAPI lifespan.
 _client: AsyncIOMotorClient = None
 _db = None
 _connected: bool = False
@@ -27,7 +27,7 @@ async def connect_db():
         # text text (ping)
         await _client.admin.command("ping")
 
-        # ── text text (text) ──
+        # Core indexes.
         await _db.users.create_index("str_login_id", unique=True)
         await _db.users.create_index("str_approval_status")
         await _db.sessions.create_index("str_refresh_token", unique=True)
@@ -40,18 +40,18 @@ async def connect_db():
         )
         await _db.audit_logs.create_index("str_hmac")
 
-        # ── ip_geo_cache: MongoDB TTL text (dt_expires_at text text text text) ──
+        # MongoDB TTL index for cached IP geolocation records.
         await _db.ip_geo_cache.create_index("str_ip", unique=True)
         await _db.ip_geo_cache.create_index("dt_expires_at", expireAfterSeconds=0)
 
-        # ── slides text text ──
+        # Slide metadata indexes.
         await _db.slides.create_index(
             [("str_rel_path", 1), ("str_filename", 1)], unique=True
         )
         await _db.slides.create_index("str_slide_id")
         await _db.slides.create_index("dt_last_opened_at")
 
-        # ── folder_ai_configs text ──
+        # Folder/project configuration indexes.
         await _db.folder_ai_configs.create_index("str_rel_path", unique=True)
         await _db.folder_ai_configs.create_index("bool_enabled")
 
@@ -59,8 +59,20 @@ async def connect_db():
         await _db.project_infos.create_index("str_status")
         await _db.project_infos.create_index("bool_project_ai_enabled")
         await _db.project_infos.create_index("dt_updated_at")
+        await _db.annotation_required_regions.create_index("str_slide_id", unique=True)
+        await _db.patch_annotation_status.create_index(
+            [("str_slide_id", 1), ("str_patch_id", 1)],
+            unique=True,
+        )
+        await _db.patch_annotation_status.create_index(
+            [("str_slide_id", 1), ("str_status", 1), ("int_py", 1), ("int_px", 1)]
+        )
+        await _db.patch_cell_annotations.create_index(
+            [("str_slide_id", 1), ("str_patch_id", 1)],
+            unique=True,
+        )
 
-        # ── user_ai_edits text (text text text — text text) ──
+        # User-specific AI result edits.
         await _db.user_ai_edits.create_index(
             [
                 ("str_slide_id", 1),
@@ -74,10 +86,8 @@ async def connect_db():
             [("str_slide_id", 1), ("str_ai_mode", 1), ("str_variant", 1)]
         )
 
-        # ── text text text ──
-        # str_approval_status text text text text text:
-        #   - admin → approved + is_active=True text
-        #   - text text → pending + is_active=False (text text)
+        # Legacy approval-status migration.
+        # Admin accounts are approved and active; other legacy accounts reset to pending.
         int_migrated_admin = (await _db.users.update_many(
             {
                 "str_approval_status": {"$exists": False},
@@ -106,21 +116,19 @@ async def connect_db():
         )).modified_count
         if int_migrated_admin or int_migrated_pending:
             print(
-                f"[MeDIAuto SaaS] Approval migration — "
+                f"[MeDIAuto SaaS] Approval migration: "
                 f"admin approved: {int_migrated_admin}, reset to pending: {int_migrated_pending}"
             )
 
-        # ── technician text text text ──
-        # text text text: technician text text. text technician text
-        # viewer text downgrade (text text text text doctor text text viewer text).
+        # Legacy role migration. Technician was replaced by viewer.
         int_migrated_tech = (await _db.users.update_many(
             {"str_role": "technician"},
             {"$set": {"str_role": "viewer"}},
         )).modified_count
         if int_migrated_tech:
             print(
-                f"[MeDIAuto SaaS] Role migration — "
-                f"technician → viewer: {int_migrated_tech}"
+                f"[MeDIAuto SaaS] Role migration: "
+                f"technician to viewer: {int_migrated_tech}"
             )
 
         _connected = True
@@ -149,7 +157,7 @@ def is_db_connected() -> bool:
 
 
 def get_main_loop() -> asyncio.AbstractEventLoop:
-    """text text text text — text text async DB text text."""
+    """Return the main event loop used for thread-safe async DB calls."""
     return _main_loop
 
 

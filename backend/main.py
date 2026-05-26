@@ -89,7 +89,7 @@ from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
-from app.routers import slides, slide_media, annotation_storage, projects, file_operations, tiles, ai, auth, users
+from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users
 from app import auto_ai
 from app import tile_worker
 from app.version import APP_VERSION, get_version_info
@@ -183,6 +183,7 @@ app.include_router(file_operations.router, prefix="/api/slides", tags=["slide-fi
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
 app.include_router(slide_media.router, prefix="/api/slides", tags=["slides-media"])
 app.include_router(annotation_storage.router, prefix="/api/slides", tags=["slide-annotations"])
+app.include_router(cell_annotation.router, prefix="/api/cell-annotation", tags=["cell-annotation"])
 app.include_router(tiles.router, prefix="/api/tiles", tags=["tiles"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(ai.media_router, prefix="/api/ai", tags=["ai-media"])

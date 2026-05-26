@@ -2472,6 +2472,65 @@ body.annotation-page .project-gate-row {
 .annotation-step-connector {
     display: none;
 }
+
+.patch-cell-editor {
+    gap: 10px;
+}
+
+.patch-editor-empty,
+.patch-editor-note {
+    color: #6b7280;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.patch-editor-meta {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    color: #374151;
+}
+
+.patch-editor-meta strong {
+    color: #111827;
+    font-size: 13px;
+}
+
+.patch-editor-meta span:not(:first-child) {
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4f46e5;
+    padding: 3px 8px;
+    font-weight: 700;
+}
+
+.patch-editor-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.patch-editor-actions button {
+    min-height: 30px;
+    border: 1px solid #d5dbee;
+    border-radius: 6px;
+    background: #fff;
+    color: #1f2a44;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.patch-editor-actions button:hover:not(:disabled) {
+    border-color: #6c5ce7;
+    color: #5746d8;
+}
+
+.patch-editor-actions button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
 .annotation-status-workflow.is-disabled {
     opacity: 0.62;
 }

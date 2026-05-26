@@ -5,6 +5,7 @@
 import { api } from './api.js?v=20260526-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260526-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260526-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260526-06';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -279,6 +280,9 @@ const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
     ? CellAnnotationViewer
     : TissueAnnotationViewer;
 const viewer = new ViewerClass($canvas, $overlay);
+const cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
+    ? new CellPatchWorkflow({ api, viewer, canvas: $canvas, setStatus })
+    : null;
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
@@ -652,6 +656,11 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     _setVsSplitState(false, true);
 
     _loadSavedAnnotationsForSlide(slideId);
+    if (cellPatchWorkflow) {
+        cellPatchWorkflow.load(slideId).catch((err) => {
+            setStatus(`Cell patch workflow failed: ${err.message}`);
+        });
+    }
 
     setProgress(0);
 }
@@ -2366,6 +2375,22 @@ window.addEventListener('keydown', (e) => {
 }, true);
 
 viewer.onAnnotationCreated = (ann) => {
+    if (cellPatchWorkflow) {
+        const bool_can_manage_required = window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
+        if (!bool_can_manage_required) {
+            viewer.deleteAnnotation?.(ann.id);
+            setStatus('Only admin or doctor users can create required regions');
+            return;
+        }
+        viewer.annotations = viewer.annotations.filter(item => item.id !== ann.id);
+        viewer.selectedAnnotationId = null;
+        renderAnnotationPanel();
+        viewer.requestRender();
+        cellPatchWorkflow.addRequiredRegionFromAnnotation(ann).catch((err) => {
+            setStatus(`Required region save failed: ${err.message}`);
+        });
+        return;
+    }
     _applyClassToAnnotation(ann, _activeAnnotationClassId);
     _syncActiveAnnotationClassToViewer();
     setStatus(`Annotation ${_annotationDisplayId(ann)} created`);

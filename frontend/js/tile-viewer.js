@@ -212,6 +212,7 @@ export class TileViewer {
         this.onAnnotationChanged = null;   // (annotation) => {}
         this.onAnnotationContextMenu = null; // (annotation, event) => {}
         this.onDrawModeChange = null;      // (mode) => {}
+        this.extraOverlayLayers = [];
 
         // text text text
         this._renderPending = false;
@@ -219,6 +220,27 @@ export class TileViewer {
         this._setupEvents();
         this._resizeCanvas();
         window.addEventListener('resize', () => this._resizeCanvas());
+    }
+
+    addOverlayLayer(layer) {
+        if (!layer || typeof layer.draw !== 'function') return;
+        if (!this.extraOverlayLayers.includes(layer)) {
+            this.extraOverlayLayers.push(layer);
+            this.requestRender();
+        }
+    }
+
+    removeOverlayLayer(layer) {
+        const idx = this.extraOverlayLayers.indexOf(layer);
+        if (idx >= 0) {
+            this.extraOverlayLayers.splice(idx, 1);
+            this.requestRender();
+        }
+    }
+
+    clearOverlayLayers() {
+        this.extraOverlayLayers = [];
+        this.requestRender();
     }
 
     // ── text text ──
@@ -1395,6 +1417,13 @@ export class TileViewer {
         // text: annotation/detection text CSS text text text.
         this._renderDetectionOverlay();
         this._renderAnnotations(this.overlayCtx);
+        for (const layer of this.extraOverlayLayers || []) {
+            try {
+                layer.draw(this.overlayCtx, this);
+            } catch (err) {
+                console.error('[tile-viewer] overlay layer failed:', err);
+            }
+        }
     }
 
     _renderVirtualStainOverlay(ctx) {

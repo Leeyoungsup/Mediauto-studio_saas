@@ -2,6 +2,17 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.100] - 2026-05-26
+
+### Added
+
+- Added a separate patch-based Cell Annotation workflow foundation with deterministic patch IDs, required-region storage, patch status APIs, and patch cell storage.
+- Added dedicated frontend layers for patch grid drawing, patch status overlays, WSI-level required regions, and patch cell editing.
+
+### Changed
+
+- Added a minimal TileViewer overlay-layer hook so Cell Annotation can draw patch workflow overlays without coupling the logic into the core viewer.
+
 ## [1.1.99] - 2026-05-26
 
 ### Changed
