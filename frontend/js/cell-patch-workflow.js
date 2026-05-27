@@ -3,20 +3,70 @@ import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-02';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260526-06';
 
+class PatchFocusLayer {
+    constructor() {
+        this.patch = null;
+        this.visible = false;
+    }
+
+    setPatch(patch) {
+        this.patch = patch || null;
+        this.visible = Boolean(patch);
+    }
+
+    clear() {
+        this.patch = null;
+        this.visible = false;
+    }
+
+    draw(ctx, viewer) {
+        if (!this.visible || !this.patch || !viewer?.slideInfo) return;
+        const x = Number(this.patch.x ?? this.patch.int_x ?? 0);
+        const y = Number(this.patch.y ?? this.patch.int_y ?? 0);
+        const w = Number(this.patch.w ?? this.patch.int_w ?? 0);
+        const h = Number(this.patch.h ?? this.patch.int_h ?? 0);
+        if (w <= 0 || h <= 0) return;
+        const [cx, cy] = viewer.sceneToCanvas(x, y);
+        const cw = w * viewer.zoom;
+        const ch = h * viewer.zoom;
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.rect(0, 0, viewer._viewW, viewer._viewH);
+        ctx.rect(cx, cy, cw, ch);
+        ctx.fill('evenodd');
+        ctx.strokeStyle = '#6c5ce7';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.fillStyle = 'rgba(79, 70, 229, 0.92)';
+        ctx.font = '700 11px sans-serif';
+        ctx.fillText('Patch View', Math.max(8, cx + 8), Math.max(18, cy + 18));
+        ctx.restore();
+    }
+}
+
 export class CellPatchWorkflow {
-    constructor({ api, viewer, canvas, setStatus } = {}) {
+    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved } = {}) {
         this.api = api;
         this.viewer = viewer;
         this.canvas = canvas;
         this.setStatus = setStatus || (() => {});
+        this.onRequiredRegionSaved = onRequiredRegionSaved || (() => {});
         this.slideId = '';
         this.grid = new PatchGridLayer();
         this.status = new PatchStatusLayer();
         this.required = new WsiRequiredRegionLayer();
+        this.focusLayer = new PatchFocusLayer();
         this.patches = new Map();
         this.patchListEl = document.getElementById('annotation-list');
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
         this.lastRegionAction = null;
+        this.selectedPatch = null;
+        this.patchFocusActive = false;
+        this.savedWsiView = null;
+        this.lastWsiViewBeforePatchOpen = null;
+        this.layerVisibilityBeforePatchView = null;
+        this.toolbarToggle = null;
         this.editor = new CellAnnotationEditor({
             api,
             viewer,
@@ -25,9 +75,11 @@ export class CellPatchWorkflow {
             onSaved: (patch) => this.updatePatch(patch),
         });
         this._setupRightPanel();
+        this._setupToolbarToggle();
         this.viewer.addOverlayLayer(this.required);
         this.viewer.addOverlayLayer(this.status);
         this.viewer.addOverlayLayer(this.grid);
+        this.viewer.addOverlayLayer(this.focusLayer);
         this._bindEvents();
     }
 
@@ -37,8 +89,38 @@ export class CellPatchWorkflow {
         this.renderPatchList();
     }
 
+    _setupToolbarToggle() {
+        const toolbar = document.getElementById('toolbar') || document.querySelector('.viewer-toolbar, #viewer-toolbar, nav.toolbar');
+        if (!toolbar || document.getElementById('cell-patch-view-toggle')) return;
+        const btn = document.createElement('button');
+        btn.id = 'cell-patch-view-toggle';
+        btn.type = 'button';
+        btn.className = 'toolbar-btn patch-view-toolbar-toggle';
+        btn.title = 'Toggle selected patch view (P)';
+        btn.textContent = 'Patch View';
+        btn.disabled = true;
+        btn.addEventListener('click', () => this.togglePatchView());
+        const spacer = toolbar.querySelector('.toolbar-spacer');
+        toolbar.insertBefore(btn, spacer || null);
+        this.toolbarToggle = btn;
+        this._syncToolbarToggle();
+    }
+
+    _syncToolbarToggle() {
+        if (!this.toolbarToggle) return;
+        this.toolbarToggle.disabled = !this.selectedPatch;
+        this.toolbarToggle.textContent = this.patchFocusActive ? 'WSI View' : 'Patch View';
+        this.toolbarToggle.classList.toggle('active', this.patchFocusActive);
+    }
+
     _bindEvents() {
         this.canvas?.addEventListener('click', (e) => {
+            if (this.patchFocusActive) {
+                e.preventDefault();
+                e.stopImmediatePropagation?.();
+                e.stopPropagation();
+                return;
+            }
             if (!this.slideId || this.viewer.drawMode) return;
             const rect = this.canvas.getBoundingClientRect();
             const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
@@ -46,14 +128,46 @@ export class CellPatchWorkflow {
             if (!patch) return;
             const saved = this.patches.get(patch.patch_id);
             if (!saved || (saved.str_status || saved.status) === 'not_required') return;
-            this.editor.open(this.slideId, { ...patch, ...saved });
+            this.openPatch({ ...patch, ...saved });
             this.renderPatchList();
+        }, true);
+
+        this.canvas?.addEventListener('dblclick', (e) => {
+            if (this.patchFocusActive) {
+                e.preventDefault();
+                e.stopImmediatePropagation?.();
+                e.stopPropagation();
+                return;
+            }
+            if (!this.slideId || this.viewer.drawMode) return;
+            const rect = this.canvas.getBoundingClientRect();
+            const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
+            const patch = this.grid.patchAt(sx, sy);
+            const saved = patch ? this.patches.get(patch.patch_id) : null;
+            if (!patch || !saved || (saved.str_status || saved.status) === 'not_required') return;
+            this.openPatch({ ...patch, ...saved }).then(() => this.enterPatchView());
+            e.preventDefault();
+            e.stopPropagation();
+        }, true);
+
+        window.addEventListener('keydown', (e) => {
+            const tag = (e.target && e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            if (String(e.key || '').toLowerCase() !== 'p') return;
+            if (!this.selectedPatch) return;
+            this.togglePatchView();
+            e.preventDefault();
         }, true);
     }
 
     async load(slideId) {
         this.slideId = slideId || '';
         this.patches.clear();
+        this.exitPatchView({ restore: false });
+        this.selectedPatch = null;
+        this.lastWsiViewBeforePatchOpen = null;
+        this._syncToolbarToggle();
         this.editor.close();
         this.renderPatchList();
         if (!this.slideId) return;
@@ -157,13 +271,17 @@ export class CellPatchWorkflow {
             row.className = 'patch-task-row';
             row.dataset.patchId = id;
             row.dataset.status = status;
-            if (id && id === this.status.selectedPatchId) row.classList.add('selected');
+            if (id && id === this.selectedPatchId()) row.classList.add('selected');
             row.innerHTML = `
                 <span class="patch-task-id">${this._escape(id)}</span>
                 <span class="patch-task-coord">X${Number(patch.int_px ?? patch.px ?? 0)} Y${Number(patch.int_py ?? patch.py ?? 0)}</span>
                 <span class="patch-task-status">${this._escape(this._statusLabel(status))}</span>
             `;
             row.addEventListener('click', () => this.openPatchFromList(id));
+            row.addEventListener('dblclick', (event) => {
+                this.openPatchFromList(id).then(() => this.enterPatchView());
+                event.preventDefault();
+            });
             body.appendChild(row);
         }
         this.patchListEl.appendChild(body);
@@ -174,7 +292,7 @@ export class CellPatchWorkflow {
         const saved = this.patches.get(patchId);
         if (!saved) return;
         const patch = this.grid.patchAt(Number(saved.int_x ?? saved.x ?? 0) + 1, Number(saved.int_y ?? saved.y ?? 0) + 1);
-        await this.editor.open(this.slideId, {
+        await this.openPatch({
             ...(patch || {}),
             ...saved,
             patch_id: patchId,
@@ -184,6 +302,108 @@ export class CellPatchWorkflow {
             h: Number(saved.int_h ?? saved.h ?? patch?.h ?? 0),
         });
         this.renderPatchList();
+    }
+
+    async openPatch(patch) {
+        if (!patch || !this.slideId) return;
+        if (!this.patchFocusActive && !this.lastWsiViewBeforePatchOpen) {
+            this.lastWsiViewBeforePatchOpen = {
+                viewCenterX: this.viewer.viewCenterX,
+                viewCenterY: this.viewer.viewCenterY,
+                zoom: this.viewer.zoom,
+            };
+        }
+        this.selectedPatch = this._normalizePatchView(patch);
+        await this.editor.open(this.slideId, this.selectedPatch);
+        if (this.patchFocusActive) this.focusLayer.setPatch(this.selectedPatch);
+        this.renderPatchList();
+        this._syncToolbarToggle();
+    }
+
+    selectedPatchId() {
+        return this.selectedPatch?.patch_id || this.selectedPatch?.str_patch_id || this.status.selectedPatchId || '';
+    }
+
+    _normalizePatchView(patch) {
+        return {
+            ...patch,
+            patch_id: patch.patch_id || patch.str_patch_id,
+            x: Number(patch.x ?? patch.int_x ?? 0),
+            y: Number(patch.y ?? patch.int_y ?? 0),
+            w: Number(patch.w ?? patch.int_w ?? 0),
+            h: Number(patch.h ?? patch.int_h ?? 0),
+        };
+    }
+
+    _fitPatchView(patch) {
+        if (!patch || !this.viewer) return;
+        const w = Number(patch.w || 0);
+        const h = Number(patch.h || 0);
+        if (w <= 0 || h <= 0) return;
+        this.viewer.viewCenterX = Number(patch.x || 0) + w / 2;
+        this.viewer.viewCenterY = Number(patch.y || 0) + h / 2;
+        const fitZoom = Math.min(this.viewer._viewW / w, this.viewer._viewH / h) * 0.98;
+        this.viewer.setZoom(Math.max(this.viewer.minZoom, Math.min(this.viewer.maxZoom, fitZoom)));
+        this.viewer.requestRender();
+        this.viewer.onViewChange?.();
+    }
+
+    enterPatchView() {
+        if (!this.selectedPatch || this.patchFocusActive) return;
+        this.savedWsiView = this.lastWsiViewBeforePatchOpen || {
+            viewCenterX: this.viewer.viewCenterX,
+            viewCenterY: this.viewer.viewCenterY,
+            zoom: this.viewer.zoom,
+        };
+        this.patchFocusActive = true;
+        this.layerVisibilityBeforePatchView = {
+            required: this.required.visible,
+            status: this.status.visible,
+            grid: this.grid.visible,
+        };
+        this.required.visible = false;
+        this.status.visible = false;
+        this.grid.visible = false;
+        this.viewer.setViewBounds?.(this.selectedPatch);
+        this.focusLayer.setPatch(this.selectedPatch);
+        this._fitPatchView(this.selectedPatch);
+        this.renderPatchList();
+        this._syncToolbarToggle();
+        this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
+    }
+
+    exitPatchView({ restore = true } = {}) {
+        if (!this.patchFocusActive && !this.focusLayer.visible) return;
+        this.patchFocusActive = false;
+        this.focusLayer.clear();
+        if (this.layerVisibilityBeforePatchView) {
+            this.required.visible = this.layerVisibilityBeforePatchView.required;
+            this.status.visible = this.layerVisibilityBeforePatchView.status;
+            this.grid.visible = this.layerVisibilityBeforePatchView.grid;
+        }
+        this.viewer.setViewBounds?.(null);
+        if (restore && this.savedWsiView) {
+            this.viewer.viewCenterX = this.savedWsiView.viewCenterX;
+            this.viewer.viewCenterY = this.savedWsiView.viewCenterY;
+            this.viewer.zoom = this.savedWsiView.zoom;
+            this.viewer._clampView?.();
+            this.viewer._emitZoomChange?.();
+        }
+        this.savedWsiView = null;
+        this.lastWsiViewBeforePatchOpen = null;
+        this.layerVisibilityBeforePatchView = null;
+        this.viewer.requestRender();
+        this.renderPatchList();
+        this._syncToolbarToggle();
+        this.setStatus('WSI view restored');
+    }
+
+    togglePatchView() {
+        if (this.patchFocusActive) {
+            this.exitPatchView();
+        } else {
+            this.enterPatchView();
+        }
     }
 
     _statusLabel(status) {
@@ -248,6 +468,7 @@ export class CellPatchWorkflow {
         this.required.setRegions(regionPayload.regions || []);
         this.lastRegionAction = { regionId };
         await this.refreshPatches();
+        await this.onRequiredRegionSaved({ regionId });
         this.setStatus('Required region saved and patch status recomputed');
     }
 }

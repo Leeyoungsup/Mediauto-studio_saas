@@ -2,6 +2,27 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.107] - 2026-05-27
+
+### Changed
+
+- Moved the Cell Annotation Patch View / WSI View toggle to the viewer toolbar.
+- Hid required-region, grid, and patch status overlays while Patch View is active.
+- Renamed the Hamamatsu NDP toggle label to NDP Color.
+
+## [1.1.106] - 2026-05-27
+
+### Added
+
+- Added Cell Annotation patch focus view from double-clicking a required patch.
+- Added a Patch View / WSI View toggle and P shortcut that restore the previous WSI viewport without reloading the slide.
+
+## [1.1.105] - 2026-05-27
+
+### Changed
+
+- Cell Annotation now automatically marks the Annotation workflow step as in progress after a WSI required region is drawn.
+
 ## [1.1.104] - 2026-05-27
 
 ### Fixed

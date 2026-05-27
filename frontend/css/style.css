@@ -1453,7 +1453,7 @@ body.viewer-alt-held #wsi-canvas {
     font-variant-numeric: tabular-nums;
 }
 
-/* NDP text toggle — text text text */
+/* NDP color matching toggle. */
 .ndp-color-toggle {
     position: absolute; top: 12px; left: 12px; z-index: 50;
     display: inline-flex; align-items: center; gap: 6px;
@@ -2556,6 +2556,12 @@ body.cell-patch-workflow-page .annotation-list {
     color: #4f46e5;
     font-size: 18px;
 }
+.patch-list-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+}
 .patch-region-undo {
     flex: 0 0 auto;
     min-height: 26px;
@@ -2571,11 +2577,32 @@ body.cell-patch-workflow-page .annotation-list {
 .patch-region-undo:hover:not(:disabled) {
     border-color: #6c5ce7;
     background: #f8f7ff;
+    color: #4f46e5;
 }
 .patch-region-undo:disabled {
     color: #9ca3af;
     cursor: not-allowed;
     opacity: 0.55;
+}
+.patch-view-toolbar-toggle {
+    width: auto;
+    min-width: 82px;
+    padding: 0 11px;
+    border: 1px solid #d5dbee;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #4f46e5;
+    font-size: 11px;
+    font-weight: 800;
+}
+.patch-view-toolbar-toggle.active {
+    border-color: #6c5ce7;
+    background: #6c5ce7;
+    color: #fff;
+}
+.patch-view-toolbar-toggle:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 .patch-list-counts,
 .patch-list-empty {

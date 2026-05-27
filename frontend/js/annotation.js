@@ -3,9 +3,9 @@
  */
 
 import { api } from './api.js?v=20260526-01';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260526-01';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260526-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-02';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-06';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-06';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-06';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -281,7 +281,13 @@ const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
     : TissueAnnotationViewer;
 const viewer = new ViewerClass($canvas, $overlay);
 const cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
-    ? new CellPatchWorkflow({ api, viewer, canvas: $canvas, setStatus })
+    ? new CellPatchWorkflow({
+        api,
+        viewer,
+        canvas: $canvas,
+        setStatus,
+        onRequiredRegionSaved: () => _markAnnotationWorkflowInProgressIfIdle(),
+    })
     : null;
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
@@ -5640,6 +5646,39 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
         currentAnnotationStatus = strPrevStatus;
         _annotationRunningStep = strCompletedStatus;
         alert(`Failed to update annotation status: ${err.message}`);
+    } finally {
+        _annotationStatusSaving = false;
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+    }
+}
+
+async function _markAnnotationWorkflowInProgressIfIdle() {
+    if (!currentSlideFilename || _isViewerRole() || _annotationStatusSaving) return false;
+    const strCurrentStatus = currentAnnotationStatus || 'pending';
+    if (_normalizeAnnotationWorkflowStatus(strCurrentStatus) !== 'annotation') return false;
+    if (_annotationRunningStep === 'annotation') return false;
+    if (_annotationWorkflowFinished) return false;
+
+    const strPrevStatus = currentAnnotationStatus || '';
+    const strPrevRunningStep = _annotationRunningStep || '';
+    const boolPrevFinished = _annotationWorkflowFinished;
+    const strRunningStorageStatus = _annotationWorkflowRunningStorageStatus('annotation');
+    _annotationStatusSaving = true;
+    _syncAnnotationStatusControl(currentAnnotationStatus);
+    try {
+        await _saveAnnotationWorkflowStorageStatus(currentSlideFilename, strRunningStorageStatus);
+        currentAnnotationStatus = strRunningStorageStatus;
+        _annotationRunningStep = 'annotation';
+        _annotationWorkflowFinished = false;
+        _setSlideListItemAnnotationStatus(currentSlideFilename, strRunningStorageStatus);
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return true;
+    } catch (err) {
+        currentAnnotationStatus = strPrevStatus;
+        _annotationRunningStep = strPrevRunningStep;
+        _annotationWorkflowFinished = boolPrevFinished;
+        console.warn('Failed to mark annotation workflow in progress:', err);
+        return false;
     } finally {
         _annotationStatusSaving = false;
         _syncAnnotationStatusControl(currentAnnotationStatus);

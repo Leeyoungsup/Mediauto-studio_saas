@@ -88,6 +88,7 @@ export class TileViewer {
         this.zoom = 1.0;
         this.minZoom = 0.001;
         this.maxZoom = 40.0;
+        this.viewBounds = null;
 
         // text text — text text text text (fallbacktext). NDP text text text text.
         this._tileCache = new Map();  // "level/tx/ty" -> HTMLImageElement
@@ -540,20 +541,41 @@ export class TileViewer {
 
     _clampView() {
         if (!this.slideInfo) return;
+        const bounds = this.viewBounds;
         const [imgW, imgH] = this.slideInfo.dimensions;
+        const minX = bounds ? Number(bounds.x || 0) : 0;
+        const minY = bounds ? Number(bounds.y || 0) : 0;
+        const maxX = bounds ? minX + Number(bounds.w || 0) : imgW;
+        const maxY = bounds ? minY + Number(bounds.h || 0) : imgH;
+        if (!(maxX > minX) || !(maxY > minY)) return;
         const halfVW = (this._viewW / this.zoom) / 2;
         const halfVH = (this._viewH / this.zoom) / 2;
 
-        if (imgW > halfVW * 2) {
-            this.viewCenterX = Math.max(halfVW, Math.min(this.viewCenterX, imgW - halfVW));
+        if ((maxX - minX) > halfVW * 2) {
+            this.viewCenterX = Math.max(minX + halfVW, Math.min(this.viewCenterX, maxX - halfVW));
         } else {
-            this.viewCenterX = imgW / 2;
+            this.viewCenterX = (minX + maxX) / 2;
         }
-        if (imgH > halfVH * 2) {
-            this.viewCenterY = Math.max(halfVH, Math.min(this.viewCenterY, imgH - halfVH));
+        if ((maxY - minY) > halfVH * 2) {
+            this.viewCenterY = Math.max(minY + halfVH, Math.min(this.viewCenterY, maxY - halfVH));
         } else {
-            this.viewCenterY = imgH / 2;
+            this.viewCenterY = (minY + maxY) / 2;
         }
+    }
+
+    setViewBounds(bounds = null) {
+        if (!bounds) {
+            this.viewBounds = null;
+        } else {
+            const x = Number(bounds.x || 0);
+            const y = Number(bounds.y || 0);
+            const w = Number(bounds.w || 0);
+            const h = Number(bounds.h || 0);
+            this.viewBounds = w > 0 && h > 0 ? { x, y, w, h } : null;
+        }
+        this._clampView();
+        this.requestRender();
+        if (this.onViewChange) this.onViewChange();
     }
 
     _emitZoomChange() {
