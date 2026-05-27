@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.123] - 2026-05-27
+
+### Fixed
+
+- Prevented Cell Annotation status labels and completion percentage from overlapping in the right panel.
+- Preserved the running-state indicator while showing WSI-level patch completion percentage.
+
 ## [1.1.122] - 2026-05-27
 
 ### Fixed

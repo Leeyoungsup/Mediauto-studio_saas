@@ -474,13 +474,15 @@ export class CellPatchWorkflow {
         workflow.dataset.patchWorkflow = '';
         workflow.querySelectorAll('[data-annotation-status]').forEach((statusBtn) => {
             statusBtn.onclick = null;
-            statusBtn.title = '';
-            statusBtn.classList.remove('is-active', 'is-complete', 'is-running');
         });
         const pct = this._patchCompletionPercent();
         stateIcon.className = 'annotation-step-state annotation-step-percent';
         stateIcon.textContent = `${pct}%`;
         stateIcon.title = `Annotation completion: ${pct}%`;
+    }
+
+    syncAnnotationStatusPanel() {
+        this._syncAnnotationStatusPanel();
     }
 
     _renderSelectedPatchWorkflowPanel(workflow) {

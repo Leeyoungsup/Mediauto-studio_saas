@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260527-10';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-19';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-20';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -160,6 +160,7 @@ let currentAnnotationStatus = '';
 let _annotationStatusSaving = false;
 let _annotationRunningStep = '';
 let _annotationWorkflowFinished = false;
+let cellPatchWorkflow = null;
 let minimapImage = null;
 function _setMinimapDisplaySize(img) {
     const body = document.getElementById('minimap-body');
@@ -289,7 +290,7 @@ const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
     ? CellAnnotationViewer
     : TissueAnnotationViewer;
 const viewer = new ViewerClass($canvas, $overlay);
-const cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
+cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
     ? new CellPatchWorkflow({
         api,
         viewer,
@@ -767,6 +768,7 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         el.hidden = true;
         el.textContent = '';
     });
+    cellPatchWorkflow?.syncAnnotationStatusPanel?.();
 }
 
 function _setSlideListItemAnnotationStatus(filename, status) {

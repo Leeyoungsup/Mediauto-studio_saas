@@ -2368,10 +2368,13 @@ body.annotation-page .project-gate-row {
 }
 .annotation-status-workflow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 0.86fr) 16px minmax(0, 1.08fr) 16px;
+    grid-template-columns: minmax(72px, 1fr) 34px minmax(68px, 0.86fr) 16px minmax(82px, 1.08fr) 16px;
     align-items: center;
     column-gap: 4px;
     row-gap: 3px;
+}
+.annotation-status-workflow.is-patch-status {
+    grid-template-columns: minmax(72px, 1fr) 16px minmax(68px, 0.86fr) 16px minmax(82px, 1.08fr) 16px;
 }
 .annotation-step {
     min-width: 0;
@@ -2393,8 +2396,10 @@ body.annotation-page .project-gate-row {
 }
 .annotation-step-label {
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .annotation-step-icon {
     position: relative;
