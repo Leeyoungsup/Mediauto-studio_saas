@@ -2,6 +2,29 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.119] - 2026-05-27
+
+### Changed
+
+- Fixed Cell Annotation grid line width at 1px and removed its display control.
+- Changed Cell Annotation patch overlay defaults to 1px border and 5% fill opacity.
+
+## [1.1.118] - 2026-05-27
+
+### Fixed
+
+- Refitted Cell Annotation Patch View when selecting a different patch from the Required Patches list.
+
+## [1.1.117] - 2026-05-27
+
+### Added
+
+- Added Cell Annotation patch overlay controls for grid line width, patch border width, and patch fill opacity.
+
+### Changed
+
+- Hid the AI Progress panel in Cell Annotation patch workflow mode.
+
 ## [1.1.116] - 2026-05-27
 
 ### Fixed

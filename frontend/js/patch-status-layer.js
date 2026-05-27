@@ -1,10 +1,10 @@
 const STATUS_STYLE = {
-    not_required: { fill: 'rgba(148, 163, 184, 0.08)', stroke: 'rgba(148, 163, 184, 0.35)' },
-    required: { fill: 'rgba(245, 158, 11, 0.18)', stroke: 'rgba(245, 158, 11, 0.85)' },
-    in_progress: { fill: 'rgba(59, 130, 246, 0.18)', stroke: 'rgba(59, 130, 246, 0.85)' },
-    completed: { fill: 'rgba(34, 197, 94, 0.16)', stroke: 'rgba(34, 197, 94, 0.85)' },
-    reviewed: { fill: 'rgba(16, 185, 129, 0.22)', stroke: 'rgba(16, 185, 129, 0.95)' },
-    rejected: { fill: 'rgba(239, 68, 68, 0.18)', stroke: 'rgba(239, 68, 68, 0.85)' },
+    not_required: { fill: '148, 163, 184', stroke: 'rgba(148, 163, 184, 0.35)' },
+    required: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.85)' },
+    in_progress: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.85)' },
+    completed: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.85)' },
+    reviewed: { fill: '16, 185, 129', stroke: 'rgba(16, 185, 129, 0.95)' },
+    rejected: { fill: '239, 68, 68', stroke: 'rgba(239, 68, 68, 0.85)' },
 };
 
 export class PatchStatusLayer {
@@ -13,6 +13,8 @@ export class PatchStatusLayer {
         this.visible = options.visible !== false;
         this.minScreenSize = options.minScreenSize || 10;
         this.selectedPatchId = '';
+        this.fillOpacity = Number(options.fillOpacity ?? 0.05);
+        this.strokeWidth = Number(options.strokeWidth ?? 1);
     }
 
     setPatches(patches = []) {
@@ -25,6 +27,15 @@ export class PatchStatusLayer {
 
     setSelectedPatch(patchId) {
         this.selectedPatchId = patchId || '';
+    }
+
+    setStyle(options = {}) {
+        if (options.fillOpacity !== undefined) {
+            this.fillOpacity = Math.max(0, Math.min(1, Number(options.fillOpacity)));
+        }
+        if (options.strokeWidth !== undefined) {
+            this.strokeWidth = Math.max(0.5, Math.min(8, Number(options.strokeWidth)));
+        }
     }
 
     draw(ctx, viewer) {
@@ -44,9 +55,11 @@ export class PatchStatusLayer {
             if (cx > viewer._viewW || cy > viewer._viewH || cx + cw < 0 || cy + ch < 0) continue;
             if (Math.max(cw, ch) < this.minScreenSize) continue;
             const style = STATUS_STYLE[status] || STATUS_STYLE.required;
-            ctx.fillStyle = style.fill;
+            ctx.fillStyle = `rgba(${style.fill}, ${this.fillOpacity})`;
             ctx.strokeStyle = (patch.str_patch_id || patch.patch_id) === this.selectedPatchId ? '#2563eb' : style.stroke;
-            ctx.lineWidth = (patch.str_patch_id || patch.patch_id) === this.selectedPatchId ? 3 : 1.5;
+            ctx.lineWidth = (patch.str_patch_id || patch.patch_id) === this.selectedPatchId
+                ? Math.max(3, this.strokeWidth + 1.5)
+                : this.strokeWidth;
             ctx.fillRect(cx, cy, cw, ch);
             ctx.strokeRect(cx, cy, cw, ch);
         }

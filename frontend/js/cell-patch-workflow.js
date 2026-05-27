@@ -1,5 +1,5 @@
-import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-07';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-02';
+import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
@@ -57,6 +57,7 @@ export class CellPatchWorkflow {
         this.patches = new Map();
         this.patchListEl = document.getElementById('annotation-list');
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
+        this.displayPanel = null;
         this.lastRegionAction = null;
         this.selectedPatch = null;
         this.patchFocusActive = false;
@@ -84,7 +85,45 @@ export class CellPatchWorkflow {
     _setupRightPanel() {
         document.body.classList.add('cell-patch-workflow-page');
         if (this.patchHeaderEl) this.patchHeaderEl.textContent = 'Required Patches';
+        document.getElementById('progress-label')?.closest('.panel-section')?.classList.add('cell-patch-hidden-progress');
+        this._setupDisplayPanel();
         this.renderPatchList();
+    }
+
+    _setupDisplayPanel() {
+        if (document.getElementById('cell-patch-display-panel')) return;
+        const host = document.querySelector('.annotation-group');
+        if (!host) return;
+        const panel = document.createElement('div');
+        panel.id = 'cell-patch-display-panel';
+        panel.className = 'cell-patch-display-panel';
+        panel.innerHTML = `
+            <div class="cell-patch-display-title">Patch Overlay</div>
+            <label class="cell-patch-display-row">
+                <span>Patch border</span>
+                <input id="cell-patch-border-width" type="range" min="0.5" max="6" step="0.5" value="1">
+                <output id="cell-patch-border-width-value">1 px</output>
+            </label>
+            <label class="cell-patch-display-row">
+                <span>Patch fill</span>
+                <input id="cell-patch-fill-opacity" type="range" min="0" max="60" step="5" value="5">
+                <output id="cell-patch-fill-opacity-value">5%</output>
+            </label>
+        `;
+        host.appendChild(panel);
+        this.displayPanel = panel;
+        const formatPx = (value) => Number(value).toFixed(1).replace(/\.0$/, '');
+        const apply = () => {
+            const patchBorder = Number(panel.querySelector('#cell-patch-border-width')?.value || 1);
+            const patchFill = Number(panel.querySelector('#cell-patch-fill-opacity')?.value || 5);
+            this.grid.lineWidth = 1;
+            this.status.setStyle({ strokeWidth: patchBorder, fillOpacity: patchFill / 100 });
+            panel.querySelector('#cell-patch-border-width-value').textContent = `${formatPx(patchBorder)} px`;
+            panel.querySelector('#cell-patch-fill-opacity-value').textContent = `${patchFill}%`;
+            this.viewer?.requestRender?.();
+        };
+        panel.querySelectorAll('input').forEach(input => input.addEventListener('input', apply));
+        apply();
     }
 
     _setupToolbarToggle() {
@@ -665,7 +704,11 @@ export class CellPatchWorkflow {
         }
         this.selectedPatch = this._normalizePatchView(patch);
         await this.editor.open(this.slideId, this.selectedPatch);
-        if (this.patchFocusActive) this.focusLayer.setPatch(this.selectedPatch);
+        if (this.patchFocusActive) {
+            this.viewer.setViewBounds?.(this.selectedPatch);
+            this.focusLayer.setPatch(this.selectedPatch);
+            this._fitPatchView(this.selectedPatch);
+        }
         this.renderPatchList();
         this._scrollSelectedPatchIntoView();
         this._syncToolbarToggle();

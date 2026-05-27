@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.116",
+  "version": "1.1.119",
   "channel": "production",
   "release_date": "2026-05-27",
-  "description": "Allows manually removed Cell Annotation patches to be restored."
+  "description": "Refines default Cell Annotation patch overlay styling."
 }

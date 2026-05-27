@@ -2541,6 +2541,41 @@ body.cell-patch-workflow-page .annotation-list {
     padding: 10px 12px;
     gap: 8px;
 }
+.cell-patch-hidden-progress {
+    display: none;
+}
+.cell-patch-display-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border-light);
+    background: #fff;
+}
+.cell-patch-display-title {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+.cell-patch-display-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) 44px;
+    gap: 8px;
+    align-items: center;
+    color: #64748b;
+    font-size: 11px;
+}
+.cell-patch-display-row input {
+    width: 100%;
+    accent-color: #6c5ce7;
+}
+.cell-patch-display-row output {
+    color: #475569;
+    font-size: 10px;
+    text-align: right;
+}
 .patch-list-summary {
     display: flex;
     justify-content: space-between;
