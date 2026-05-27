@@ -51,9 +51,24 @@ def _compact_cell(cell: dict) -> dict:
         int(cell.get("class_id", 0)),
         round(float(cell.get("confidence", 0.0)), 4),
     ]
+    if all(k in cell for k in ("x0", "y0", "x1", "y1")):
+        compact.extend([
+            round(float(cell.get("x0", 0.0)), 2),
+            round(float(cell.get("y0", 0.0)), 2),
+            round(float(cell.get("x1", 0.0)), 2),
+            round(float(cell.get("y1", 0.0)), 2),
+        ])
     if cell.get("hidden") or cell.get("exclude_from_score"):
         compact.extend([bool(cell.get("hidden")), bool(cell.get("exclude_from_score"))])
     return compact
+
+
+def _cell_has_bbox(cell) -> bool:
+    if isinstance(cell, (list, tuple)):
+        return len(cell) >= 8 and all(isinstance(cell[i], (int, float)) for i in range(4, 8))
+    if isinstance(cell, dict):
+        return all(k in cell for k in ("x0", "y0", "x1", "y1"))
+    return False
 
 
 def _compact_result_payload(result: dict) -> dict:
@@ -132,6 +147,9 @@ def run_marker_detection_pipeline(
                     list_cached_before_compact and isinstance(list_cached_before_compact[0], dict)
                 )
                 cached = _compact_result_payload(cached)
+                cached_cells = cached.get("cells") or []
+                if cached_cells and not _cell_has_bbox(cached_cells[0]):
+                    raise ValueError("stale cache missing bbox")
                 bool_rewrite_compact_cache = bool_object_cell_cache
 
                 # text text(score_conf_threshold text text text text text text)text
@@ -278,6 +296,7 @@ def run_marker_detection_pipeline(
             return
 
         chunks_x, chunks_y, chunks_cls, chunks_conf = [], [], [], []
+        chunks_x0, chunks_y0, chunks_x1, chunks_y1 = [], [], [], []
         detected_count = 0
         processed_valid = 0
 
@@ -313,6 +332,7 @@ def run_marker_detection_pipeline(
 
         def _infer_batch(batch_coords, batch_tensors):
             bx, by, bcls, bconf = [], [], [], []
+            bx0, by0, bx1, by1 = [], [], [], []
             try:
                 batch = torch.stack(batch_tensors).to(device)
                 with torch.no_grad():
@@ -335,11 +355,19 @@ def run_marker_detection_pipeline(
                     xyxy = det[:, :4]
                     cx_np = ((xyxy[:, 0] + xyxy[:, 2]) / 2 * coord_scale + sx).cpu().numpy().astype(np.float32)
                     cy_np = ((xyxy[:, 1] + xyxy[:, 3]) / 2 * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    x0_np = (xyxy[:, 0] * coord_scale + sx).cpu().numpy().astype(np.float32)
+                    y0_np = (xyxy[:, 1] * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    x1_np = (xyxy[:, 2] * coord_scale + sx).cpu().numpy().astype(np.float32)
+                    y1_np = (xyxy[:, 3] * coord_scale + sy).cpu().numpy().astype(np.float32)
                     cls_np = det[:, 5].cpu().numpy().astype(np.int32)
                     conf_np = det[:, 4].cpu().numpy().astype(np.float32)
                     if len(cx_np) > 0:
                         bx.append(cx_np)
                         by.append(cy_np)
+                        bx0.append(x0_np)
+                        by0.append(y0_np)
+                        bx1.append(x1_np)
+                        by1.append(y1_np)
                         bcls.append(cls_np)
                         bconf.append(conf_np)
             except Exception as e:
@@ -349,8 +377,17 @@ def run_marker_detection_pipeline(
             if not bx:
                 ef = np.empty(0, dtype=np.float32)
                 ei = np.empty(0, dtype=np.int32)
-                return ef, ef.copy(), ei, ef.copy()
-            return np.concatenate(bx), np.concatenate(by), np.concatenate(bcls), np.concatenate(bconf)
+                return ef, ef.copy(), ei, ef.copy(), ef.copy(), ef.copy(), ef.copy(), ef.copy()
+            return (
+                np.concatenate(bx),
+                np.concatenate(by),
+                np.concatenate(bcls),
+                np.concatenate(bconf),
+                np.concatenate(bx0),
+                np.concatenate(by0),
+                np.concatenate(bx1),
+                np.concatenate(by1),
+            )
 
         prefetch_q = queue.Queue(maxsize=PREFETCH_BATCHES)
         producer_done = threading.Event()
@@ -407,13 +444,17 @@ def run_marker_detection_pipeline(
                 break
 
             batch_coords, batch_tensors, patch_count = item
-            bx, by, bcls, bconf = _infer_batch(batch_coords, batch_tensors)
+            bx, by, bcls, bconf, bx0, by0, bx1, by1 = _infer_batch(batch_coords, batch_tensors)
             k = len(bx)
             if k > 0:
                 chunks_x.append(bx)
                 chunks_y.append(by)
                 chunks_cls.append(bcls)
                 chunks_conf.append(bconf)
+                chunks_x0.append(bx0)
+                chunks_y0.append(by0)
+                chunks_x1.append(bx1)
+                chunks_y1.append(by1)
                 detected_count += k
 
             processed_valid += patch_count
@@ -428,8 +469,13 @@ def run_marker_detection_pipeline(
             all_y = np.concatenate(chunks_y)
             all_cls = np.concatenate(chunks_cls)
             all_conf = np.concatenate(chunks_conf)
+            all_x0 = np.concatenate(chunks_x0)
+            all_y0 = np.concatenate(chunks_y0)
+            all_x1 = np.concatenate(chunks_x1)
+            all_y1 = np.concatenate(chunks_y1)
         else:
             all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
+            all_x0 = all_y0 = all_x1 = all_y1 = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
         # ── text text text text (e.g. 'Other' text) ──
@@ -442,6 +488,10 @@ def run_marker_detection_pipeline(
                     round(float(all_y[i]), 2),
                     int(all_cls[i]),
                     round(float(all_conf[i]), 4),
+                    round(float(all_x0[i]), 2),
+                    round(float(all_y0[i]), 2),
+                    round(float(all_x1[i]), 2),
+                    round(float(all_y1[i]), 2),
                     True,
                     True,
                 ]
@@ -452,6 +502,10 @@ def run_marker_detection_pipeline(
             all_y = all_y[keep_mask]
             all_cls = all_cls[keep_mask]
             all_conf = all_conf[keep_mask]
+            all_x0 = all_x0[keep_mask]
+            all_y0 = all_y0[keep_mask]
+            all_x1 = all_x1[keep_mask]
+            all_y1 = all_y1[keep_mask]
 
         n_cells = len(all_x)
         update_task(task_id, progress=97,
@@ -463,6 +517,10 @@ def run_marker_detection_pipeline(
                 round(float(all_y[i]), 2),
                 int(all_cls[i]),
                 round(float(all_conf[i]), 4),
+                round(float(all_x0[i]), 2),
+                round(float(all_y0[i]), 2),
+                round(float(all_x1[i]), 2),
+                round(float(all_y1[i]), 2),
             ]
             for i in range(n_cells)
         ]

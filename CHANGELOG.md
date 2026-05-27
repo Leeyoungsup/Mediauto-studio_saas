@@ -2,6 +2,22 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.130] - 2026-05-28
+
+### Fixed
+
+- Preserved YOLO model bbox coordinates in Quanti HE, Quanti PD-L1, and Quanti IHC result payloads.
+- Changed Cell Annotation WSI labeling assistance to use model bboxes instead of fixed-size fallback boxes when available.
+- Marked old point-only AI caches as stale so bbox-capable inference reruns and rewrites cache.
+- Allowed existing point-based WSI labeling assistance files to be regenerated with model bboxes.
+
+## [1.1.129] - 2026-05-28
+
+### Fixed
+
+- Prevented Cell Annotation from starting WSI labeling assistance when project Annotation AI is disabled.
+- Added the frontend API helper for WSI labeling assistance project options.
+
 ## [1.1.128] - 2026-05-28
 
 ### Fixed

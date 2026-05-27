@@ -318,8 +318,20 @@ function _normalizeCellArray(cell) {
         class_id: cell[2],
         confidence: cell[3],
     };
-    if (cell[4]) normalized.hidden = true;
-    if (cell[5]) normalized.exclude_from_score = true;
+    const hasBbox = cell.length >= 8 && [4, 5, 6, 7].every(idx => typeof cell[idx] === 'number');
+    if (hasBbox) {
+        normalized.x0 = cell[4];
+        normalized.y0 = cell[5];
+        normalized.x1 = cell[6];
+        normalized.y1 = cell[7];
+        normalized.width = Math.max(0, Number(cell[6]) - Number(cell[4]));
+        normalized.height = Math.max(0, Number(cell[7]) - Number(cell[5]));
+        if (cell[8]) normalized.hidden = true;
+        if (cell[9]) normalized.exclude_from_score = true;
+    } else {
+        if (cell[4]) normalized.hidden = true;
+        if (cell[5]) normalized.exclude_from_score = true;
+    }
     return normalized;
 }
 
@@ -936,6 +948,12 @@ export const api = {
 
     async getWsiLabelingAssistance(slideId) {
         const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async getWsiLabelingAssistanceOptions(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance/options`);
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },

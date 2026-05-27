@@ -1273,7 +1273,19 @@ export class CellPatchWorkflow {
         const existing = this.api.getWsiLabelingAssistance
             ? await this.api.getWsiLabelingAssistance(this.slideId)
             : null;
-        if (existing?.exists && existing?.annotation_ai?.key) {
+        const hasModelBboxAssistance = existing?.exists &&
+            existing?.annotation_ai?.key &&
+            existing?.base_result_format === 'bbox' &&
+            (existing?.labels || []).some(label => label?.bbox_source === 'model');
+        if (hasModelBboxAssistance) {
+            return;
+        }
+        const options = this.api.getWsiLabelingAssistanceOptions
+            ? await this.api.getWsiLabelingAssistanceOptions(this.slideId)
+            : null;
+        const current = options?.current || {};
+        if (!current.enabled || !current.key) {
+            this.setStatus('Annotation AI assistance is disabled for this project');
             return;
         }
         const start = await this.api.startWsiLabelingAssistance(this.slideId);

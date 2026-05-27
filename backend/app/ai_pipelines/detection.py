@@ -35,12 +35,28 @@ def _compact_cell(cell):
         return list(cell)
     if not isinstance(cell, dict):
         return cell
-    return [
+    compact = [
         round(float(cell.get("x", 0.0)), 2),
         round(float(cell.get("y", 0.0)), 2),
         int(cell.get("class_id", 0)),
         round(float(cell.get("confidence", 0.0)), 4),
     ]
+    if all(k in cell for k in ("x0", "y0", "x1", "y1")):
+        compact.extend([
+            round(float(cell.get("x0", 0.0)), 2),
+            round(float(cell.get("y0", 0.0)), 2),
+            round(float(cell.get("x1", 0.0)), 2),
+            round(float(cell.get("y1", 0.0)), 2),
+        ])
+    return compact
+
+
+def _cell_has_bbox(cell) -> bool:
+    if isinstance(cell, (list, tuple)):
+        return len(cell) >= 8 and all(isinstance(cell[i], (int, float)) for i in range(4, 8))
+    if isinstance(cell, dict):
+        return all(k in cell for k in ("x0", "y0", "x1", "y1"))
+    return False
 
 
 def _compact_cached_result(result):
@@ -64,7 +80,7 @@ STROMAL_SUPPRESSION_RADIUS_UM = 10.0  # text text text text text (μm)
 STROMAL_SUPPRESSION_CONF = 0.1        # text text text text confidence text
 
 
-def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float_mpp):
+def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, float_mpp):
     """Stromal cell (class 5) text conf >= STROMAL_SUPPRESSION_CONF text text text
     text text text Stromal cell text text. KDTree text O((n_stromal + n_other) log n) text.
 
@@ -74,12 +90,12 @@ def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float
     import numpy as np
 
     if len(all_cls) == 0:
-        return all_x, all_y, all_conf, all_cls, 0
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
 
     np_stromal_mask = (all_cls == STROMAL_CLASS_ID)
     np_other_mask = (~np_stromal_mask) & (all_conf >= STROMAL_SUPPRESSION_CONF)
     if not np_stromal_mask.any() or not np_other_mask.any():
-        return all_x, all_y, all_conf, all_cls, 0
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
 
     # mpp text 0/None text text fallback (40x text 0.25 μm/px)
     float_mpp_safe = float(float_mpp) if float_mpp and float_mpp > 0 else 0.25
@@ -97,7 +113,7 @@ def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float
 
     np_drop_local = np.array([len(ns) > 0 for ns in list_neighbors], dtype=bool)
     if not np_drop_local.any():
-        return all_x, all_y, all_conf, all_cls, 0
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
 
     np_drop_idx = np_stromal_idx[np_drop_local]
     np_keep_mask = np.ones(len(all_x), dtype=bool)
@@ -108,6 +124,10 @@ def _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, float
         all_y[np_keep_mask],
         all_conf[np_keep_mask],
         all_cls[np_keep_mask],
+        all_x0[np_keep_mask],
+        all_y0[np_keep_mask],
+        all_x1[np_keep_mask],
+        all_y1[np_keep_mask],
         int(np_drop_local.sum()),
     )
 
@@ -140,6 +160,9 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
+                cached_cells = cached.get("cells") or []
+                if cached_cells and not _cell_has_bbox(cached_cells[0]):
+                    raise ValueError("stale cache missing bbox")
                 if bool_rewrite_compact_cache:
                     try:
                         with open(cache_path, 'w', encoding='utf-8') as f:
@@ -241,6 +264,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         # ── numpy text text (text text: list-of-dicts text numpy text) ──
         chunks_x, chunks_y, chunks_cls, chunks_conf = [], [], [], []
+        chunks_x0, chunks_y0, chunks_x1, chunks_y1 = [], [], [], []
         detected_count = 0
         processed_valid = 0
 
@@ -278,6 +302,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         # ── text GPU text text (text _infer_batchtext text) ──
         def _infer_batch(batch_coords, batch_tensors):
             bx, by, bcls, bconf = [], [], [], []
+            bx0, by0, bx1, by1 = [], [], [], []
             try:
                 batch = torch.stack(batch_tensors).to(device)
                 with torch.no_grad():
@@ -300,11 +325,19 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     xyxy = det[:, :4]
                     cx_np = ((xyxy[:, 0] + xyxy[:, 2]) / 2 * coord_scale + sx).cpu().numpy().astype(np.float32)
                     cy_np = ((xyxy[:, 1] + xyxy[:, 3]) / 2 * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    x0_np = (xyxy[:, 0] * coord_scale + sx).cpu().numpy().astype(np.float32)
+                    y0_np = (xyxy[:, 1] * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    x1_np = (xyxy[:, 2] * coord_scale + sx).cpu().numpy().astype(np.float32)
+                    y1_np = (xyxy[:, 3] * coord_scale + sy).cpu().numpy().astype(np.float32)
                     cls_np = det[:, 5].cpu().numpy().astype(np.int32)
                     conf_np = det[:, 4].cpu().numpy().astype(np.float32)
                     if len(cx_np) > 0:
                         bx.append(cx_np)
                         by.append(cy_np)
+                        bx0.append(x0_np)
+                        by0.append(y0_np)
+                        bx1.append(x1_np)
+                        by1.append(y1_np)
                         bcls.append(cls_np)
                         bconf.append(conf_np)
             except Exception as e:
@@ -314,8 +347,17 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             if not bx:
                 ef = np.empty(0, dtype=np.float32)
                 ei = np.empty(0, dtype=np.int32)
-                return ef, ef.copy(), ei, ef.copy()
-            return np.concatenate(bx), np.concatenate(by), np.concatenate(bcls), np.concatenate(bconf)
+                return ef, ef.copy(), ei, ef.copy(), ef.copy(), ef.copy(), ef.copy(), ef.copy()
+            return (
+                np.concatenate(bx),
+                np.concatenate(by),
+                np.concatenate(bcls),
+                np.concatenate(bconf),
+                np.concatenate(bx0),
+                np.concatenate(by0),
+                np.concatenate(bx1),
+                np.concatenate(by1),
+            )
 
         # ══════════════════════════════════════
         # text: I/O text → text GPU text
@@ -378,13 +420,17 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 break
 
             batch_coords, batch_tensors, patch_count = item
-            bx, by, bcls, bconf = _infer_batch(batch_coords, batch_tensors)
+            bx, by, bcls, bconf, bx0, by0, bx1, by1 = _infer_batch(batch_coords, batch_tensors)
             k = len(bx)
             if k > 0:
                 chunks_x.append(bx)
                 chunks_y.append(by)
                 chunks_cls.append(bcls)
                 chunks_conf.append(bconf)
+                chunks_x0.append(bx0)
+                chunks_y0.append(by0)
+                chunks_x1.append(bx1)
+                chunks_y1.append(by1)
                 detected_count += k
 
             processed_valid += patch_count
@@ -400,15 +446,22 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             all_y = np.concatenate(chunks_y)
             all_cls = np.concatenate(chunks_cls)
             all_conf = np.concatenate(chunks_conf)
+            all_x0 = np.concatenate(chunks_x0)
+            all_y0 = np.concatenate(chunks_y0)
+            all_x1 = np.concatenate(chunks_x1)
+            all_y1 = np.concatenate(chunks_y1)
         else:
             all_x = all_y = all_conf = np.empty(0, dtype=np.float32)
+            all_x0 = all_y0 = all_x1 = all_y1 = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
         check_cancel(task_id)
 
         # ── Stromal cell text text: text text conf >= 0.1 text text text text Stromal text ──
-        all_x, all_y, all_conf, all_cls, int_stromal_dropped = (
-            _suppress_stromal_when_others_present(all_x, all_y, all_conf, all_cls, info.mpp)
+        all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_stromal_dropped = (
+            _suppress_stromal_when_others_present(
+                all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, info.mpp
+            )
         )
         if int_stromal_dropped > 0:
             print(f"[detection] suppressed {int_stromal_dropped} Stromal cells overlapping other classes")
@@ -442,6 +495,10 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 round(float(all_y[i]), 2),
                 int(all_cls[i]),
                 round(float(all_conf[i]), 4),
+                round(float(all_x0[i]), 2),
+                round(float(all_y0[i]), 2),
+                round(float(all_x1[i]), 2),
+                round(float(all_y1[i]), 2),
             ]
             for i in range(n_cells)
         ]

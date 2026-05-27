@@ -468,18 +468,26 @@ def _read_assistance_file(info) -> dict:
         return {}
 
 
-def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float]]:
+def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float, Optional[tuple[float, float, float, float]]]]:
+    bbox = None
     if isinstance(cell, dict):
         x = cell.get("x", cell.get("slide_x"))
         y = cell.get("y", cell.get("slide_y"))
         class_id = cell.get("class_id", cell.get("classId"))
         confidence = cell.get("confidence", 1.0)
+        if all(k in cell for k in ("x0", "y0", "x1", "y1")):
+            bbox = (cell.get("x0"), cell.get("y0"), cell.get("x1"), cell.get("y1"))
     elif isinstance(cell, (list, tuple)) and len(cell) >= 4:
         x, y, class_id, confidence = cell[:4]
+        if len(cell) >= 8 and all(isinstance(cell[i], (int, float)) for i in range(4, 8)):
+            bbox = tuple(cell[4:8])
     else:
         return None
     try:
-        return float(x), float(y), class_id, float(confidence)
+        parsed_bbox = None
+        if bbox is not None:
+            parsed_bbox = tuple(float(v) for v in bbox)
+        return float(x), float(y), class_id, float(confidence), parsed_bbox
     except Exception:
         return None
 
@@ -490,40 +498,47 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
         class_names = {}
     inherit_classes = bool(config.get("inherit_classes"))
     labels = []
-    half = DEFAULT_ASSISTANCE_BOX_SIZE / 2.0
+    used_model_bbox = False
     for idx, cell in enumerate((result or {}).get("cells") or [], start=1):
         parsed = _cell_tuple_values(cell)
         if parsed is None:
             continue
-        x, y, class_id, confidence = parsed
+        x, y, class_id, confidence, bbox = parsed
+        if bbox is None:
+            half = DEFAULT_ASSISTANCE_BOX_SIZE / 2.0
+            x0, y0, x1, y1 = x - half, y - half, x + half, y + half
+        else:
+            x0, y0, x1, y1 = bbox
+            used_model_bbox = True
         str_class_id = str(class_id)
         labels.append({
             "id": f"assist_{idx}",
-            "x": round(x - half, 2),
-            "y": round(y - half, 2),
-            "width": DEFAULT_ASSISTANCE_BOX_SIZE,
-            "height": DEFAULT_ASSISTANCE_BOX_SIZE,
+            "x": round(x0, 2),
+            "y": round(y0, 2),
+            "width": round(max(0.0, x1 - x0), 2),
+            "height": round(max(0.0, y1 - y0), 2),
             "center_x": round(x, 2),
             "center_y": round(y, 2),
             "class_id": str_class_id if inherit_classes else "",
             "class_name": str(class_names.get(str_class_id, "")) if inherit_classes else "",
             "confidence": round(confidence, 4),
             "source_format": "bbox",
+            "bbox_source": "model" if bbox is not None else "fallback_point",
         })
-    return labels
+    return labels, used_model_bbox
 
 
 def _write_assistance_result(slide_id: str, info, config: dict, result: dict) -> dict:
-    labels = _result_cells_to_bbox_labels(result, config)
+    labels, used_model_bbox = _result_cells_to_bbox_labels(result, config)
     payload = {
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
         "slide_stem": Path(info.file_path).stem,
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
-        "base_result_format": "point",
+        "base_result_format": "bbox" if used_model_bbox else "point",
         "label_format": "bbox",
-        "bbox_size_px": DEFAULT_ASSISTANCE_BOX_SIZE,
+        "fallback_bbox_size_px": DEFAULT_ASSISTANCE_BOX_SIZE,
         "total_labels": len(labels),
         "labels": labels,
     }
