@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 
 from app.auth import get_current_user
 from app.config import settings
+from app.models import UserRole
 from app.slide_manager import slide_manager
 
 router = APIRouter()
@@ -31,6 +32,11 @@ _LEGACY_USER_EDIT_MODES = {
 
 def _normalize_ai_mode(ai_mode: str) -> str:
     return _LEGACY_USER_EDIT_MODES.get(ai_mode, ai_mode)
+
+
+def _reject_labeler_ai_edit(dict_user: dict):
+    if dict_user.get("str_role") == UserRole.LABELER.value:
+        raise HTTPException(403, "Labeler role cannot save or load AI edits")
 
 
 def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: str) -> Path:
@@ -57,6 +63,7 @@ async def save_detection_result(
     text text **text text text text**text DB text text.
     text text text (ai_results/...) text text text.
     """
+    _reject_labeler_ai_edit(dict_user)
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"text text AI text: {ai_mode}")
@@ -136,8 +143,10 @@ async def list_user_edits(
     slide_id: str,
     ai_mode: str,
     variant: str = "",
+    dict_user: dict = Depends(get_current_user),
 ):
     """text text+text+variant text text text text text text."""
+    _reject_labeler_ai_edit(dict_user)
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"text text AI text: {ai_mode}")
@@ -154,6 +163,7 @@ async def delete_user_edit(
     dict_user: dict = Depends(get_current_user),
 ):
     """text text **text** text text text (text text text text)."""
+    _reject_labeler_ai_edit(dict_user)
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"text text AI text: {ai_mode}")
@@ -184,8 +194,10 @@ async def load_user_edit(
     ai_mode: str,
     user_id: str,
     variant: str = "",
+    dict_user: dict = Depends(get_current_user),
 ):
     """text text text text text — DB text text text text text JSON text."""
+    _reject_labeler_ai_edit(dict_user)
     ai_mode = _normalize_ai_mode(ai_mode)
     if ai_mode not in _USER_EDIT_MODES:
         raise HTTPException(400, f"text text AI text: {ai_mode}")

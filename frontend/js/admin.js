@@ -179,6 +179,7 @@ async function loadPending() {
                 <td>
                     <select class="role-select" data-role-for="${esc(user._id)}">
                         <option value="viewer" selected>Viewer</option>
+                        <option value="labeler">Labeler</option>
                         <option value="doctor">Doctor</option>
                         <option value="admin">Admin</option>
                     </select>
@@ -265,6 +266,7 @@ async function loadUsers() {
                 <td>
                     <select class="role-select" data-role-change="${esc(user._id)}" ${isSelf ? 'disabled' : ''}>
                         <option value="viewer" ${user.str_role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                        <option value="labeler" ${user.str_role === 'labeler' ? 'selected' : ''}>Labeler</option>
                         <option value="doctor" ${user.str_role === 'doctor' ? 'selected' : ''}>Doctor</option>
                         <option value="admin" ${user.str_role === 'admin' ? 'selected' : ''}>Admin</option>
                     </select>

@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.123",
+  "version": "1.1.124",
   "channel": "production",
   "release_date": "2026-05-27",
-  "description": "Fixes Cell Annotation status panel layout and running-state display."
+  "description": "Adds the Labeler role with AI and annotation workflow restrictions."
 }

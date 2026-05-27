@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.124] - 2026-05-27
+
+### Added
+
+- Added the Labeler role to backend role validation and Admin user management.
+- Allowed Labeler users to run AI analysis while blocking AI result save/load and detection-result editing.
+
+### Changed
+
+- Restricted Labeler project management permissions.
+- Limited Tissue Annotation status changes for Labeler users to the Annotation step before review or termination starts.
+- Limited Cell Annotation Labeler users to patch-level annotation work while keeping WSI-level setup immutable.
+
 ## [1.1.123] - 2026-05-27
 
 ### Fixed

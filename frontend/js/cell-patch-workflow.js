@@ -166,7 +166,7 @@ export class CellPatchWorkflow {
             const saved = this._findPatchRecord(patch);
             if (!saved) return;
             if ((saved.str_status || saved.status) === 'not_required') {
-                if (saved.bool_manual_excluded) {
+                if (saved.bool_manual_excluded && !this._isLabelerRole()) {
                     this.restorePatchToRequiredList({ ...patch, ...saved }).catch((err) => {
                         this.setStatus(`Patch restore failed: ${err.message}`);
                     });
@@ -178,6 +178,7 @@ export class CellPatchWorkflow {
         }, true);
 
         this.canvas?.addEventListener('contextmenu', (e) => {
+            if (this._isLabelerRole()) return;
             if (this.patchFocusActive || !this.slideId || this.viewer.drawMode) return;
             const patch = this._patchFromPointerEvent(e);
             const saved = patch ? this._findPatchRecord(patch) : null;
@@ -318,7 +319,7 @@ export class CellPatchWorkflow {
                     <strong>${list.length}</strong>
                     <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
                 </div>
-                <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() ? '' : 'disabled'} title="Undo last required region">Undo Region</button>
+                <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last required region">Undo Region</button>
             </div>
             ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
@@ -382,9 +383,20 @@ export class CellPatchWorkflow {
             row.querySelector('.patch-task-memo-btn')?.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (this._isLabelerRole()) {
+                    this.setStatus('Labeler role cannot change patch memo.');
+                    return;
+                }
                 this.editPatchMemo(patch);
             });
             row.querySelectorAll('.patch-task-step').forEach(btn => {
+                const boolLockedForLabeler = this._isLabelerRole() &&
+                    (btn.dataset.step !== 'annotation' || this._labelerPatchWorkflowLocked(patch));
+                btn.disabled = boolLockedForLabeler;
+                if (boolLockedForLabeler) {
+                    btn.title = 'Labeler role can change annotation only before review or termination starts.';
+                    return;
+                }
                 btn.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -394,6 +406,7 @@ export class CellPatchWorkflow {
                 });
             });
             row.addEventListener('contextmenu', (event) => {
+                if (this._isLabelerRole()) return;
                 event.preventDefault();
                 event.stopPropagation();
                 this._showPatchContextMenu(patch, event.clientX, event.clientY);
@@ -414,6 +427,16 @@ export class CellPatchWorkflow {
             review: patch.str_review_status || this._derivedWorkflowStatus(status, 'review'),
             termination: patch.str_termination_status || this._derivedWorkflowStatus(status, 'termination'),
         };
+    }
+
+    _isLabelerRole() {
+        return window.__currentUserRole === 'labeler';
+    }
+
+    _labelerPatchWorkflowLocked(patch) {
+        const workflow = this._patchWorkflowStatus(patch);
+        return !['', 'pending'].includes(String(workflow.review || 'pending')) ||
+            !['', 'pending'].includes(String(workflow.termination || 'pending'));
     }
 
     _derivedWorkflowStatus(status, step) {
@@ -491,6 +514,8 @@ export class CellPatchWorkflow {
         workflow.dataset.patchWorkflow = '1';
         const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
         const states = this._patchWorkflowStatus(patch);
+        const boolLabeler = this._isLabelerRole();
+        const boolLabelerLocked = boolLabeler && this._labelerPatchWorkflowLocked(patch);
         const stepMap = {
             annotation: { label: 'Annotation', state: states.annotation },
             review: { label: 'Review', state: states.review },
@@ -503,9 +528,10 @@ export class CellPatchWorkflow {
             btn.classList.toggle('is-active', info.state === 'required' || info.state === 'in_progress' || info.state === 'current');
             btn.classList.toggle('is-complete', info.state === 'completed' || info.state === 'reviewed');
             btn.classList.toggle('is-running', info.state === 'in_progress');
-            btn.disabled = false;
+            const boolDisabled = boolLabeler && (step !== 'annotation' || boolLabelerLocked);
+            btn.disabled = boolDisabled;
             btn.title = `Patch ${info.label}: ${this._workflowLabel(info.state)}`;
-            btn.onclick = (event) => {
+            btn.onclick = boolDisabled ? null : (event) => {
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 this.updatePatchWorkflowStep(patch, step).catch((err) => {
@@ -531,6 +557,12 @@ export class CellPatchWorkflow {
     async updatePatchWorkflowStep(patch, step) {
         const id = patch?.str_patch_id || patch?.patch_id;
         if (!this.slideId || !id || !step) return;
+        if (this._isLabelerRole()) {
+            if (step !== 'annotation' || this._labelerPatchWorkflowLocked(patch)) {
+                this.setStatus('Labeler role can change annotation status only before review or termination starts.');
+                return;
+            }
+        }
         const workflow = this._patchWorkflowStatus(patch);
         const next = { ...workflow };
         let status = patch.str_status || patch.status || 'required';
@@ -565,13 +597,16 @@ export class CellPatchWorkflow {
             if (workflow.review === 'pending') next.review = 'reviewed';
             status = next.review === 'rejected' ? 'rejected' : 'reviewed';
         }
-        const result = await this.api.updatePatchStatus(this.slideId, id, status, {
+        const payload = {
             annotation_status: next.annotation,
-            review_status: next.review,
-            termination_status: next.termination,
-            memo: this._patchMemo(patch),
-            memo_history: this._patchMemoHistory(patch),
-        });
+        };
+        if (!this._isLabelerRole()) {
+            payload.review_status = next.review;
+            payload.termination_status = next.termination;
+            payload.memo = this._patchMemo(patch);
+            payload.memo_history = this._patchMemoHistory(patch);
+        }
+        const result = await this.api.updatePatchStatus(this.slideId, id, status, payload);
         this.updatePatch({ ...patch, ...(result.patch || {}), patch_id: id });
         this.setStatus(`Patch ${step} updated: ${id}`);
     }
@@ -785,6 +820,10 @@ export class CellPatchWorkflow {
     }
 
     async removePatchFromRequiredList(patch) {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot remove required patches.');
+            return;
+        }
         const id = patch?.str_patch_id || patch?.patch_id;
         if (!this.slideId || !id) return;
         if (!confirm(`Remove patch from required list?\n${id}`)) return;
@@ -803,6 +842,10 @@ export class CellPatchWorkflow {
     }
 
     async restorePatchToRequiredList(patch) {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot restore required patches.');
+            return;
+        }
         const id = patch?.str_patch_id || patch?.patch_id;
         if (!this.slideId || !id) return;
         const result = await this.api.updatePatchStatus(this.slideId, id, 'required', {
@@ -912,6 +955,7 @@ export class CellPatchWorkflow {
         this.required.visible = false;
         this.status.visible = false;
         this.grid.visible = false;
+        if (this._isLabelerRole()) this.viewer.canEditDetectionResults = true;
         this.viewer.setViewBounds?.(this.selectedPatch);
         this.focusLayer.setPatch(this.selectedPatch);
         this._fitPatchView(this.selectedPatch);
@@ -924,6 +968,7 @@ export class CellPatchWorkflow {
     exitPatchView({ restore = true } = {}) {
         if (!this.patchFocusActive && !this.focusLayer.visible) return;
         this.patchFocusActive = false;
+        if (this._isLabelerRole()) this.viewer.canEditDetectionResults = false;
         this.focusLayer.clear();
         if (this.layerVisibilityBeforePatchView) {
             this.required.visible = this.layerVisibilityBeforePatchView.required;
@@ -981,6 +1026,10 @@ export class CellPatchWorkflow {
     }
 
     async undoLastRequiredRegion() {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot change WSI-level required regions.');
+            return false;
+        }
         if (!this.canUndoRequiredRegion()) return false;
         const regions = this.required.toApiRegions();
         const targetId = this.lastRegionAction?.regionId;
@@ -1002,6 +1051,10 @@ export class CellPatchWorkflow {
     }
 
     async addRequiredRegionFromAnnotation(annotation) {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot change WSI-level required regions.');
+            return;
+        }
         if (!this.slideId || !annotation) return;
         const coords = annotation.coordinates || [];
         if (coords.length < 3) return;

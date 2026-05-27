@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260527-10';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-20';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-21';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -84,6 +84,23 @@ let _lastDetectionRoi = null;
 
 function _isViewerRole() {
     return window.__currentUserRole === 'viewer';
+}
+
+function _isLabelerRole() {
+    return window.__currentUserRole === 'labeler';
+}
+
+function _canEditAiDetections() {
+    if (_isLabelerRole() && ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.patchFocusActive) return true;
+    return !_isViewerRole() && !_isLabelerRole();
+}
+
+function _blockAiResultPersistenceAction(message = 'This role cannot save or load AI results.') {
+    if (!_isViewerRole() && !_isLabelerRole()) return false;
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+    setStatus(message);
+    return true;
 }
 
 function _blockViewerAction(message = 'Viewer role cannot use AI or annotation features.') {
@@ -653,8 +670,12 @@ function onSlideLoaded(slideId, slideInfo, filename) {
         _applyFolderAiRestrictions(currentBrowsePath);
     }
 
+    viewer.canEditDetectionResults = _canEditAiDetections();
     if (_isViewerRole()) {
         _applyViewerRoleRestrictions();
+    }
+    if (_isLabelerRole()) {
+        _applyLabelerRoleRestrictions();
     }
 
     viewer.loadSlide(slideId, currentSlideInfo);
@@ -725,16 +746,25 @@ function _renderAnnotationWorkflowCells(item, status) {
 function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
     const strStatus = _normalizeAnnotationWorkflowStatus(status);
     const boolDisabled = !currentSlideFilename || _isViewerRole() || _annotationStatusSaving;
+    const boolLabeler = _isLabelerRole();
+    const boolLabelerCellWsiLocked = boolLabeler && ANNOTATION_PAGE_KIND === 'cell' && !cellPatchWorkflow?.patchFocusActive;
+    const boolLabelerWorkflowLocked = boolLabeler && (
+        _annotationRunningStep === 'review' ||
+        _annotationRunningStep === 'termination' ||
+        strStatus === 'review' ||
+        strStatus === 'termination' ||
+        _annotationWorkflowFinished
+    );
     if ($annotationStatusSelect) {
         $annotationStatusSelect.value = SLIDE_STATUS_OPTIONS.some(opt => opt.value === strStatus)
             ? strStatus
             : 'annotation';
-        $annotationStatusSelect.disabled = boolDisabled;
+        $annotationStatusSelect.disabled = boolDisabled || boolLabeler;
     }
     if (!$annotationStatusWorkflow) return;
     const intCurrent = _annotationWorkflowIndex(strStatus);
     $annotationStatusWorkflow.dataset.status = strStatus;
-    $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled);
+    $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled || boolLabelerCellWsiLocked);
     $annotationStatusWorkflow.classList.toggle('is-running', !!_annotationRunningStep);
     $annotationStatusWorkflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
         const strTarget = _normalizeAnnotationWorkflowStatus(btn.dataset.annotationStatus);
@@ -759,7 +789,12 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
         btn.classList.toggle('is-complete', boolComplete);
         btn.classList.toggle('is-running', boolRunning);
         btn.dataset.actionState = strActionState;
-        btn.disabled = boolDisabled;
+        const boolLabelerBlocked = boolLabeler && (
+            boolLabelerCellWsiLocked ||
+            strTarget !== 'annotation' ||
+            boolLabelerWorkflowLocked
+        );
+        btn.disabled = boolDisabled || boolLabelerBlocked;
         btn.title = boolActive
             ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
             : `Move to ${strLabel}`;
@@ -886,6 +921,7 @@ async function _applyFolderAiRestrictions(strFolderPath) {
 function _applyViewerRoleRestrictions() {
     document.body.classList.add('role-viewer');
     _stopAiActivePolling();
+    if (viewer) viewer.canEditDetectionResults = false;
 
     const list_draw_btns = ['btn-draw-polygon', 'btn-draw-brush', 'btn-draw-rect', 'btn-draw-point', 'btn-cut-polygon',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
@@ -934,6 +970,33 @@ function _applyViewerRoleRestrictions() {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use annotation features.';
     });
+}
+
+function _applyLabelerRoleRestrictions() {
+    document.body.classList.add('role-labeler');
+    if (viewer) viewer.canEditDetectionResults = _canEditAiDetections();
+    ['btn-save-results', 'btn-load-results',
+     'btn-new-project', 'btn-rename-project', 'btn-delete-project'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = true;
+            el.title = id === 'btn-save-results' || id === 'btn-load-results'
+                ? 'Labeler role cannot save or load AI results.'
+                : 'Labeler role cannot manage projects.';
+        }
+    });
+    if (ANNOTATION_PAGE_KIND === 'cell' && !cellPatchWorkflow?.patchFocusActive) {
+        ['btn-draw-polygon', 'btn-draw-brush', 'btn-draw-rect', 'btn-draw-point', 'btn-cut-polygon',
+         'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.disabled = true;
+                el.classList.remove('active');
+                el.title = 'Labeler role cannot change WSI-level cell annotation setup.';
+            }
+        });
+        if (viewer && viewer.drawMode) viewer.setDrawMode(null);
+    }
 }
 
 const $viewerContainer = $('#viewer-container');
@@ -2667,6 +2730,7 @@ function _renameClassLabel(classId, newName) {
 }
 
 function _showCellEditPopup(idx, cell, screenX, screenY) {
+    if (!_canEditAiDetections()) return;
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
 
@@ -2896,6 +2960,7 @@ document.addEventListener('mousemove', (e) => {
 }, true);
 
 function _showCellAddPopup(sx, sy, screenX, screenY) {
+    if (!_canEditAiDetections()) return;
     _closeCellEditPopup();
     if (!_lastDetectionResult) return;
 
@@ -3132,6 +3197,7 @@ window.addEventListener('keydown', (e) => {
 viewer.onCellAddRequested = _showCellAddPopup;
 
 function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, options = {}) {
+    if (!_canEditAiDetections()) return;
     _closeCellEditPopup();
     if (!_lastDetectionResult || !listIndices || listIndices.length === 0) return;
 
@@ -3954,6 +4020,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
 }
 
 const CLASS_COLORS = {
@@ -4333,7 +4400,7 @@ $btnVisualize.addEventListener('click', () => {
 });
 
 $btnSaveResults?.addEventListener('click', async () => {
-    if (_blockViewerAction('Viewer role cannot save AI results.')) return;
+    if (_blockAiResultPersistenceAction('Labeler role cannot save or load AI results.')) return;
     if (!currentSlideId || !_lastDetectionResult) {
         setStatus('No detection result to save');
         return;
@@ -4361,6 +4428,7 @@ $btnSaveResults?.addEventListener('click', async () => {
     } finally {
         $btnSaveResults.disabled = false;
         if (_isViewerRole()) _applyViewerRoleRestrictions();
+        if (_isLabelerRole()) _applyLabelerRoleRestrictions();
     }
 });
 
@@ -4378,7 +4446,7 @@ function _fmtDateIso(str) {
 }
 
 async function _openLoadUserEditDialog() {
-    if (_blockViewerAction('Viewer role cannot load AI results.')) return;
+    if (_blockAiResultPersistenceAction('Labeler role cannot save or load AI results.')) return;
     if (!currentSlideId) {
         setStatus('Open a slide first.');
         return;
@@ -4726,7 +4794,7 @@ function _getCurrentProjectName() {
 
 function _setProjectControlsEnabled() {
     const hasProject = !!_getCurrentProjectName();
-    const canEdit = window.__currentUserRole !== 'viewer';
+    const canEdit = window.__currentUserRole !== 'viewer' && window.__currentUserRole !== 'labeler';
     const canDelete = window.__currentUserRole === 'admin';
     if ($btnNewProject) $btnNewProject.disabled = !canEdit;
     if ($btnRenameProject) $btnRenameProject.disabled = !hasProject || !canEdit;
@@ -5610,6 +5678,20 @@ async function _applyAnnotationWorkflowStatusToCurrent(strRequestedStatus) {
         return;
     }
     const strNextStatus = _normalizeAnnotationWorkflowStatus(strRequestedStatus || 'annotation');
+    if (_isLabelerRole()) {
+        const boolCellWsiLocked = ANNOTATION_PAGE_KIND === 'cell' && !cellPatchWorkflow?.patchFocusActive;
+        const strCurrentStatus = _normalizeAnnotationWorkflowStatus(currentAnnotationStatus);
+        const boolWorkflowLocked = _annotationRunningStep === 'review' ||
+            _annotationRunningStep === 'termination' ||
+            strCurrentStatus === 'review' ||
+            strCurrentStatus === 'termination' ||
+            _annotationWorkflowFinished;
+        if (boolCellWsiLocked || strNextStatus !== 'annotation' || boolWorkflowLocked) {
+            setStatus('Labeler role can change annotation status only before review or termination starts.');
+            _syncAnnotationStatusControl(currentAnnotationStatus);
+            return;
+        }
+    }
     if (strNextStatus !== _normalizeAnnotationWorkflowStatus(currentAnnotationStatus) || _annotationWorkflowFinished) {
         await _moveAnnotationWorkflowStatusDirect(strNextStatus);
         return;
@@ -6279,6 +6361,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
@@ -6435,6 +6518,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
 }
 
 function _setVsToggleState(visible, disabled) {
@@ -6510,6 +6594,9 @@ $btnVsSplit?.addEventListener('click', () => {
         localStorage.setItem('user', JSON.stringify(dict_me));
         if (window.__currentUserRole === 'viewer') {
             _applyViewerRoleRestrictions();
+        }
+        if (window.__currentUserRole === 'labeler') {
+            _applyLabelerRoleRestrictions();
         }
     } catch (_) {
         return;

@@ -116,7 +116,7 @@ async def list_pending_users(
 # ── text / text (Admintext) ──
 class ApprovalRequest(BaseModel):
     str_user_id: str
-    str_new_role: str = Field(default="viewer", pattern="^(admin|doctor|viewer)$")
+    str_new_role: str = Field(default="viewer", pattern="^(admin|doctor|labeler|viewer)$")
 
 
 @router.post("/approve")
@@ -235,7 +235,7 @@ class CreateUserRequest(BaseModel):
     str_password: str = Field(..., min_length=8, max_length=128)
     str_name: str = Field(..., min_length=1, max_length=100)
     str_department: str = Field(default="", max_length=100)
-    str_role: str = Field(default="viewer", pattern="^(admin|doctor|viewer)$")
+    str_role: str = Field(default="viewer", pattern="^(admin|doctor|labeler|viewer)$")
 
 
 @router.post("/create")
@@ -547,7 +547,7 @@ async def delete_user(
 # ── text text (Admintext) ──
 class UpdateRoleRequest(BaseModel):
     str_user_id: str
-    str_new_role: str = Field(..., pattern="^(admin|doctor|viewer)$")
+    str_new_role: str = Field(..., pattern="^(admin|doctor|labeler|viewer)$")
 
 
 @router.post("/role")

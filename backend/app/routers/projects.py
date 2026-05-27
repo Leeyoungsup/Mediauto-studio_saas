@@ -125,7 +125,7 @@ async def list_projects():
     return {"projects": list_projects_out}
 
 
-@router.post("/project/create", dependencies=[Depends(require_not_viewer)])
+@router.post("/project/create", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
 async def create_project(
     request: Request,
     name: str = Form(...),
@@ -180,7 +180,7 @@ async def create_project(
     return {"status": "created", "name": name, "path": name}
 
 
-@router.post("/project/update", dependencies=[Depends(require_not_viewer)])
+@router.post("/project/update", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
 async def update_project(
     request: Request,
     name: str = Form(...),
@@ -239,7 +239,7 @@ async def update_project(
     return {"status": "saved", "name": name, "path": name}
 
 
-@router.post("/project/rename", dependencies=[Depends(require_not_viewer)])
+@router.post("/project/rename", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
 async def rename_project(
     request: Request,
     name: str = Form(...),
@@ -281,7 +281,7 @@ async def rename_project(
     return {"status": "renamed", "name": new_name, "path": new_name}
 
 
-@router.post("/project/move-folder", dependencies=[Depends(require_not_viewer)])
+@router.post("/project/move-folder", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
 async def move_folder_to_project(
     request: Request,
     src_path: str = Form(...),

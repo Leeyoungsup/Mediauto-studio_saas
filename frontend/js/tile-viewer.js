@@ -127,6 +127,7 @@ export class TileViewer {
         // text text
         this.detectionCells = [];
         this.hiddenDetectionCells = [];
+        this.canEditDetectionResults = true;
         this.classVisibility = {};   // {class_id: bool}
         this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
         this.classConfidence = {};   // {class_id: float} text threshold (text defaultConfidence)
@@ -648,7 +649,7 @@ export class TileViewer {
 
             // Alt + text/text: text text (text=text, text=text text text)
             // mousedown text text text — mousemovetext text text text
-            if (e.altKey && e.button === 2 && !this.drawMode) {
+            if (this.canEditDetectionResults && e.altKey && e.button === 2 && !this.drawMode) {
                 suppressContextMenuUntil = Date.now() + 2000;
                 this._altPending = {
                     sx, sy, cx, cy,
@@ -693,7 +694,7 @@ export class TileViewer {
                 }
             }
 
-            if (e.altKey && e.button === 0 && this.detectionCells.length > 0) {
+            if (this.canEditDetectionResults && e.altKey && e.button === 0 && this.detectionCells.length > 0) {
                 this._altPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
@@ -2042,6 +2043,7 @@ export class TileViewer {
     }
 
     deleteCell(cellIdx) {
+        if (!this.canEditDetectionResults) return;
         if (cellIdx < 0 || cellIdx >= this.detectionCells.length) return;
         this._pushUndoOp({
             type: 'delete',
@@ -2053,6 +2055,7 @@ export class TileViewer {
     }
 
     changeCellClass(cellIdx, newClassId, newClassName = null) {
+        if (!this.canEditDetectionResults) return;
         if (cellIdx < 0 || cellIdx >= this.detectionCells.length) return;
         const c = this.detectionCells[cellIdx];
         this._pushUndoOp({
@@ -2077,6 +2080,7 @@ export class TileViewer {
      * text: text text text.
      */
     addCell(sx, sy, classId, className = null) {
+        if (!this.canEditDetectionResults) return null;
         const cell = {
             x: Number(sx),
             y: Number(sy),
@@ -2099,6 +2103,7 @@ export class TileViewer {
 
     /** text text text text */
     deleteCells(listIndices) {
+        if (!this.canEditDetectionResults) return;
         if (!listIndices || listIndices.length === 0) return;
         const list_valid = listIndices
             .filter(i => i >= 0 && i < this.detectionCells.length)
@@ -2117,6 +2122,7 @@ export class TileViewer {
 
     /** text text text text text */
     changeCellsClass(listIndices, newClassId, newClassName = null) {
+        if (!this.canEditDetectionResults) return;
         if (!listIndices || listIndices.length === 0) return;
         const list_items = [];
         for (const i of listIndices) {
@@ -2142,6 +2148,7 @@ export class TileViewer {
     }
 
     promoteHiddenCells(listIndices, newClassId, newClassName = null) {
+        if (!this.canEditDetectionResults) return [];
         if (!listIndices || listIndices.length === 0) return [];
         const list_valid = [...new Set(listIndices)]
             .filter(i => i >= 0 && i < this.hiddenDetectionCells.length)
@@ -2186,6 +2193,7 @@ export class TileViewer {
 
     /** text text text text */
     undoCellEdit() {
+        if (!this.canEditDetectionResults) return false;
         const op = this._undoStack.pop();
         if (!op) return false;
         if (op.type === 'delete') {
@@ -2231,6 +2239,7 @@ export class TileViewer {
 
     /** text undo text */
     redoCellEdit() {
+        if (!this.canEditDetectionResults) return false;
         const op = this._redoStack.pop();
         if (!op) return false;
         if (op.type === 'delete') {

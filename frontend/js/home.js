@@ -96,7 +96,7 @@
     });
 
     function canEditProjects() {
-        return currentUser && currentUser.str_role !== 'viewer';
+        return currentUser && currentUser.str_role !== 'viewer' && currentUser.str_role !== 'labeler';
     }
 
     function canDeleteProjects() {
