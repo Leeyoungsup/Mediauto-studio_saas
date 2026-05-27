@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.108] - 2026-05-27
+
+### Fixed
+
+- Prevented Patch View clicks and double-clicks from switching to other WSI patches.
+- Constrained viewer pan and zoom to the selected patch while Patch View is active.
+
 ## [1.1.107] - 2026-05-27
 
 ### Changed

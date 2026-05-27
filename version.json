@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.107",
+  "version": "1.1.108",
   "channel": "production",
   "release_date": "2026-05-27",
-  "description": "Refines Cell Annotation patch view controls."
+  "description": "Improves independent Cell Annotation patch view behavior."
 }
