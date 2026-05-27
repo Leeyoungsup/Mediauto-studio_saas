@@ -2616,12 +2616,22 @@ body.cell-patch-workflow-page .annotation-list {
     gap: 6px;
     overflow: auto;
 }
+.patch-task-header {
+    display: grid;
+    grid-template-columns: minmax(92px, 1fr) 68px 58px 72px;
+    gap: 6px;
+    padding: 0 8px 2px;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
 .patch-task-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(92px, 1fr) 68px 58px 72px;
     gap: 4px 8px;
     width: 100%;
-    min-height: 40px;
+    min-height: 46px;
     padding: 7px 8px;
     border: 1px solid #dbe2f1;
     border-radius: 6px;
@@ -2629,6 +2639,7 @@ body.cell-patch-workflow-page .annotation-list {
     color: #1f2a44;
     text-align: left;
     cursor: pointer;
+    align-items: center;
 }
 .patch-task-row:hover {
     border-color: #8b7cf6;
@@ -2638,7 +2649,11 @@ body.cell-patch-workflow-page .annotation-list {
     border-color: #6c5ce7;
     box-shadow: 0 0 0 1px rgba(108, 92, 231, 0.18);
 }
+.patch-task-main {
+    min-width: 0;
+}
 .patch-task-id {
+    display: block;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2650,33 +2665,39 @@ body.cell-patch-workflow-page .annotation-list {
     color: #64748b;
     font-size: 10px;
 }
-.patch-task-status {
-    grid-row: 1 / span 2;
-    grid-column: 2;
-    align-self: center;
+.patch-task-step {
+    justify-self: center;
+    max-width: 100%;
     border-radius: 999px;
-    padding: 3px 7px;
+    padding: 3px 6px;
     background: #f1f5f9;
     color: #475569;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 800;
+    white-space: nowrap;
 }
-.patch-task-row[data-status="required"] .patch-task-status {
+.patch-task-step[data-step-status="required"] {
     background: #fff7ed;
     color: #b45309;
 }
-.patch-task-row[data-status="in_progress"] .patch-task-status {
+.patch-task-step[data-step-status="in_progress"],
+.patch-task-step[data-step-status="current"] {
     background: #eff6ff;
     color: #2563eb;
 }
-.patch-task-row[data-status="completed"] .patch-task-status,
-.patch-task-row[data-status="reviewed"] .patch-task-status {
+.patch-task-step[data-step-status="completed"],
+.patch-task-step[data-step-status="reviewed"] {
     background: #ecfdf5;
     color: #059669;
 }
-.patch-task-row[data-status="rejected"] .patch-task-status {
+.patch-task-step[data-step-status="rejected"] {
     background: #fef2f2;
     color: #dc2626;
+}
+.patch-task-step[data-step-status="pending"],
+.patch-task-step[data-step-status="not_required"] {
+    background: transparent;
+    color: #d97706;
 }
 .annotation-status-workflow.is-disabled {
     opacity: 0.62;

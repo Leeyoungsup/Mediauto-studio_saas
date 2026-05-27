@@ -137,7 +137,7 @@ async def set_file_status(
     dict_user: dict = Depends(get_current_user),
 ):
     str_scope = (scope or "").strip().lower()
-    if str_scope not in {"", "ai", "annotation"}:
+    if str_scope not in {"", "ai", "annotation", "tissue_annotation", "cell_annotation"}:
         raise HTTPException(400, f"Invalid status scope: {scope}")
     if status not in slide_store.SET_SLIDE_STATUSES:
         raise HTTPException(400, f"Invalid status: {status}")

@@ -21,7 +21,7 @@ export class PatchGridLayer {
         const x = px * size;
         const y = py * size;
         return {
-            patch_id: `px_${px}_py_${py}`,
+            patch_id: `px_${Math.round(x)}_py_${Math.round(y)}`,
             px,
             py,
             x,

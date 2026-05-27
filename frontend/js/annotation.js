@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260526-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-06';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-06';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-06';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-07';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -28,6 +28,7 @@ function _isAnnotationPage() {
 const ANNOTATION_PAGE_KIND = location.pathname.includes('cell') ? 'cell' : 'tissue';
 const ANNOTATION_PAGE_ROUTE = ANNOTATION_PAGE_KIND === 'cell' ? '/cell-annotation' : '/tissue-annotation';
 const ANNOTATION_HEADER_ACTIVE = ANNOTATION_PAGE_KIND === 'cell' ? 'cell-annotation' : 'tissue-annotation';
+const ANNOTATION_STATUS_SCOPE = ANNOTATION_PAGE_KIND === 'cell' ? 'cell_annotation' : 'tissue_annotation';
 
 const $canvas = $('#wsi-canvas');
 const $overlay = $('#overlay-canvas');
@@ -201,12 +202,20 @@ function _annotationWorkflowCompleteStorageStatus(status) {
     return 'done';
 }
 
+function _browseAnnotationStatus(slide) {
+    if (!slide) return '';
+    if (ANNOTATION_PAGE_KIND === 'cell') {
+        return slide.cell_annotation_status || '';
+    }
+    return slide.tissue_annotation_status || slide.annotation_status || slide.status || '';
+}
+
 async function _saveAnnotationWorkflowStorageStatus(filename, status) {
     try {
-        await api.setFileStatus([filename], status, currentBrowsePath, 'annotation');
+        await api.setFileStatus([filename], status, currentBrowsePath, ANNOTATION_STATUS_SCOPE);
     } catch (err) {
         if (status === 'termination') {
-            await api.setFileStatus([filename], 'flagged', currentBrowsePath, 'annotation');
+            await api.setFileStatus([filename], 'flagged', currentBrowsePath, ANNOTATION_STATUS_SCOPE);
             return;
         }
         throw err;
@@ -5207,7 +5216,7 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
-            const strRawSlideStatus = s.annotation_status || s.status || 'annotation';
+            const strRawSlideStatus = _browseAnnotationStatus(s) || 'annotation';
             const strSlideStatus = _normalizeAnnotationWorkflowStatus(strRawSlideStatus);
             item.classList.add(`status-${strSlideStatus}`);
             item.dataset.filename = s.filename;

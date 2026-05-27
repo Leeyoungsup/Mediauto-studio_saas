@@ -1,4 +1,4 @@
-import { PatchGridLayer } from './patch-grid-layer.js?v=20260526-06';
+import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-07';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-02';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260526-06';
@@ -126,7 +126,7 @@ export class CellPatchWorkflow {
             const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
             const patch = this.grid.patchAt(sx, sy);
             if (!patch) return;
-            const saved = this.patches.get(patch.patch_id);
+            const saved = this._findPatchRecord(patch);
             if (!saved || (saved.str_status || saved.status) === 'not_required') return;
             this.openPatch({ ...patch, ...saved });
             this.renderPatchList();
@@ -143,7 +143,7 @@ export class CellPatchWorkflow {
             const rect = this.canvas.getBoundingClientRect();
             const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
             const patch = this.grid.patchAt(sx, sy);
-            const saved = patch ? this.patches.get(patch.patch_id) : null;
+            const saved = patch ? this._findPatchRecord(patch) : null;
             if (!patch || !saved || (saved.str_status || saved.status) === 'not_required') return;
             this.openPatch({ ...patch, ...saved }).then(() => this.enterPatchView());
             e.preventDefault();
@@ -219,6 +219,14 @@ export class CellPatchWorkflow {
         return Math.abs(actualX - expectedX) <= 1 && Math.abs(actualY - expectedY) <= 1;
     }
 
+    _findPatchRecord(patch) {
+        if (!patch) return null;
+        const direct = this.patches.get(patch.patch_id || patch.str_patch_id);
+        if (direct) return direct;
+        const legacyId = `px_${Number(patch.px ?? patch.int_px ?? 0)}_py_${Number(patch.py ?? patch.int_py ?? 0)}`;
+        return this.patches.get(legacyId) || null;
+    }
+
     renderPatchList() {
         if (!this.patchListEl) return;
         const list = Array.from(this.patches.values())
@@ -263,9 +271,19 @@ export class CellPatchWorkflow {
         }
         const body = document.createElement('div');
         body.className = 'patch-task-list';
+        const header = document.createElement('div');
+        header.className = 'patch-task-header';
+        header.innerHTML = `
+            <span>Patch</span>
+            <span>Annotation</span>
+            <span>Review</span>
+            <span>Termination</span>
+        `;
+        body.appendChild(header);
         for (const patch of list) {
             const id = patch.str_patch_id || patch.patch_id;
             const status = patch.str_status || patch.status || 'required';
+            const workflow = this._patchWorkflowStatus(patch);
             const row = document.createElement('button');
             row.type = 'button';
             row.className = 'patch-task-row';
@@ -273,9 +291,13 @@ export class CellPatchWorkflow {
             row.dataset.status = status;
             if (id && id === this.selectedPatchId()) row.classList.add('selected');
             row.innerHTML = `
-                <span class="patch-task-id">${this._escape(id)}</span>
-                <span class="patch-task-coord">X${Number(patch.int_px ?? patch.px ?? 0)} Y${Number(patch.int_py ?? patch.py ?? 0)}</span>
-                <span class="patch-task-status">${this._escape(this._statusLabel(status))}</span>
+                <span class="patch-task-main">
+                    <span class="patch-task-id">${this._escape(id)}</span>
+                    <span class="patch-task-coord">X ${Number(patch.int_x ?? patch.x ?? 0).toLocaleString()} / Y ${Number(patch.int_y ?? patch.y ?? 0).toLocaleString()}</span>
+                </span>
+                <span class="patch-task-step" data-step-status="${this._escape(workflow.annotation)}">${this._escape(this._workflowLabel(workflow.annotation))}</span>
+                <span class="patch-task-step" data-step-status="${this._escape(workflow.review)}">${this._escape(this._workflowLabel(workflow.review))}</span>
+                <span class="patch-task-step" data-step-status="${this._escape(workflow.termination)}">${this._escape(this._workflowLabel(workflow.termination))}</span>
             `;
             row.addEventListener('click', () => this.openPatchFromList(id));
             row.addEventListener('dblclick', (event) => {
@@ -285,6 +307,48 @@ export class CellPatchWorkflow {
             body.appendChild(row);
         }
         this.patchListEl.appendChild(body);
+    }
+
+    _patchWorkflowStatus(patch) {
+        const status = patch.str_status || patch.status || 'required';
+        return {
+            annotation: patch.str_annotation_status || this._derivedWorkflowStatus(status, 'annotation'),
+            review: patch.str_review_status || this._derivedWorkflowStatus(status, 'review'),
+            termination: patch.str_termination_status || this._derivedWorkflowStatus(status, 'termination'),
+        };
+    }
+
+    _derivedWorkflowStatus(status, step) {
+        if (step === 'annotation') {
+            if (status === 'required') return 'required';
+            if (status === 'in_progress') return 'in_progress';
+            if (status === 'not_required') return 'not_required';
+            return 'completed';
+        }
+        if (step === 'review') {
+            if (status === 'reviewed') return 'reviewed';
+            if (status === 'rejected') return 'rejected';
+            if (status === 'completed') return 'current';
+            return 'pending';
+        }
+        if (step === 'termination') {
+            if (status === 'reviewed' || status === 'rejected') return 'current';
+            return 'pending';
+        }
+        return 'pending';
+    }
+
+    _workflowLabel(status) {
+        return {
+            required: 'Required',
+            in_progress: 'Running',
+            completed: 'Done',
+            reviewed: 'Done',
+            rejected: 'Rejected',
+            current: 'Current',
+            pending: '-',
+            not_required: '-',
+        }[status] || '-';
     }
 
     async openPatchFromList(patchId) {

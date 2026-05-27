@@ -2,6 +2,20 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.110] - 2026-05-27
+
+### Fixed
+
+- Separated Tissue Annotation and Cell Annotation slide workflow statuses.
+- Cell Annotation now stores status in its own slide field instead of sharing Tissue Annotation status.
+
+## [1.1.109] - 2026-05-27
+
+### Changed
+
+- Changed Cell Annotation patch IDs to use slide coordinates, such as px_3072_py_4096.
+- Updated the required patch list to show Annotation, Review, and Termination workflow columns.
+
 ## [1.1.108] - 2026-05-27
 
 ### Fixed

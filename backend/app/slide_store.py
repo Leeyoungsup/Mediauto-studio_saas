@@ -343,6 +343,10 @@ async def set_slide_status(
         str_status_field = "str_ai_status"
     elif str_scope == "annotation":
         str_status_field = "str_annotation_status"
+    elif str_scope == "tissue_annotation":
+        str_status_field = "str_tissue_annotation_status"
+    elif str_scope == "cell_annotation":
+        str_status_field = "str_cell_annotation_status"
     db = get_db()
     str_rel_path = _norm_rel_path(str_rel_path)
     dict_set = {

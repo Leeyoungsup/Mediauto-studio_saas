@@ -315,6 +315,13 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
                 dict_item["status"] = dict_db.get("str_status") or ""
                 dict_item["ai_status"] = dict_db.get("str_ai_status") or ""
                 dict_item["annotation_status"] = dict_db.get("str_annotation_status") or dict_db.get("str_status") or ""
+                dict_item["tissue_annotation_status"] = (
+                    dict_db.get("str_tissue_annotation_status")
+                    or dict_db.get("str_annotation_status")
+                    or dict_db.get("str_status")
+                    or ""
+                )
+                dict_item["cell_annotation_status"] = dict_db.get("str_cell_annotation_status") or ""
                 dict_clinical = dict_db.get("dict_clinical_info") or dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
                 dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)
@@ -323,6 +330,8 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
                 dict_item["status"] = ""
                 dict_item["ai_status"] = ""
                 dict_item["annotation_status"] = ""
+                dict_item["tissue_annotation_status"] = ""
+                dict_item["cell_annotation_status"] = ""
                 dict_clinical = dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
                 dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)

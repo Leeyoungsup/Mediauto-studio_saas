@@ -52,8 +52,36 @@ def _patch_slide_size(info) -> int:
     return max(1, int(round(TARGET_PATCH_SIZE * TARGET_MPP / mpp)))
 
 
-def _patch_id(px: int, py: int) -> str:
-    return f"px_{int(px)}_py_{int(py)}"
+def _patch_id_from_xy(x: int, y: int) -> str:
+    return f"px_{int(x)}_py_{int(y)}"
+
+
+def _patch_workflow_fields(status: str) -> dict:
+    annotation_status = "pending"
+    review_status = "pending"
+    termination_status = "pending"
+    if status == "required":
+        annotation_status = "required"
+    elif status == "in_progress":
+        annotation_status = "in_progress"
+    elif status == "completed":
+        annotation_status = "completed"
+        review_status = "current"
+    elif status == "reviewed":
+        annotation_status = "completed"
+        review_status = "reviewed"
+        termination_status = "current"
+    elif status == "rejected":
+        annotation_status = "completed"
+        review_status = "rejected"
+        termination_status = "current"
+    elif status == "not_required":
+        annotation_status = "not_required"
+    return {
+        "str_annotation_status": annotation_status,
+        "str_review_status": review_status,
+        "str_termination_status": termination_status,
+    }
 
 
 def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict) -> dict:
@@ -63,7 +91,7 @@ def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict) -
     w, h = info.dimensions
     return {
         "str_slide_id": slide_id,
-        "str_patch_id": _patch_id(px, py),
+        "str_patch_id": _patch_id_from_xy(x0, y0),
         "int_px": int(px),
         "int_py": int(py),
         "int_x": int(x0),
@@ -71,6 +99,7 @@ def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict) -
         "int_w": int(max(0, min(patch_size, w - x0))),
         "int_h": int(max(0, min(patch_size, h - y0))),
         "str_status": status,
+        **_patch_workflow_fields(status),
         "str_updated_by": str(user.get("_id", "")),
         "dt_updated_at": _now(),
     }
@@ -280,7 +309,7 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
                 ry1 = min(height, ry0 + patch_size)
                 if not _poly_intersects_rect(poly, rx0, ry0, rx1, ry1):
                     continue
-                pid = _patch_id(px, py)
+                pid = _patch_id_from_xy(rx0, ry0)
                 if pid in required_ids:
                     continue
                 required_ids.add(pid)
@@ -296,7 +325,11 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
     now = _now()
     await db.patch_annotation_status.update_many(
         {"str_slide_id": slide_id, "str_status": {"$in": ["required", "in_progress"]}},
-        {"$set": {"str_status": "not_required", "dt_updated_at": now}},
+        {"$set": {
+            "str_status": "not_required",
+            **_patch_workflow_fields("not_required"),
+            "dt_updated_at": now,
+        }},
     )
     for doc in ops:
         await db.patch_annotation_status.update_one(
@@ -316,6 +349,19 @@ async def get_patches(slide_id: str, status: str = Query("")):
         query["str_status"] = status
     cursor = db.patch_annotation_status.find(query, {"_id": 0}).sort([("int_py", 1), ("int_px", 1)])
     patches = await cursor.to_list(length=200000)
+    for patch in patches:
+        old_id = patch.get("str_patch_id")
+        expected_id = _patch_id_from_xy(int(patch.get("int_x", 0)), int(patch.get("int_y", 0)))
+        if old_id and expected_id and old_id != expected_id:
+            patch["str_patch_id"] = expected_id
+            await db.patch_annotation_status.update_one(
+                {"str_slide_id": slide_id, "str_patch_id": old_id},
+                {"$set": {"str_patch_id": expected_id}},
+            )
+            await db.patch_cell_annotations.update_many(
+                {"str_slide_id": slide_id, "str_patch_id": old_id},
+                {"$set": {"str_patch_id": expected_id}},
+            )
     return {"slide_id": slide_id, "patches": patches}
 
 
@@ -360,7 +406,12 @@ async def save_patch_cells(
     )
     await db.patch_annotation_status.update_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
-        {"$set": {"str_status": "completed", "dt_updated_at": now, "str_updated_by": str(user.get("_id", ""))}},
+        {"$set": {
+            "str_status": "completed",
+            **_patch_workflow_fields("completed"),
+            "dt_updated_at": now,
+            "str_updated_by": str(user.get("_id", "")),
+        }},
     )
     return {"status": "saved", "patch_status": "completed", "cell_count": len(cells)}
 
@@ -377,16 +428,20 @@ async def update_patch_status(
     status = str(payload.get("status", "")).strip()
     if status not in PATCH_STATUSES:
         raise HTTPException(400, f"Invalid patch status: {status}")
-    parts = patch_id.replace("px_", "").replace("py_", "").split("_")
-    try:
-        px = int(parts[0])
-        py = int(parts[1])
-    except Exception:
-        existing = await db.patch_annotation_status.find_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
-        if not existing:
-            raise HTTPException(404, "Patch not found")
+    existing = await db.patch_annotation_status.find_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
+    if existing:
         px = int(existing.get("int_px", 0))
         py = int(existing.get("int_py", 0))
+    else:
+        parts = patch_id.replace("px_", "").replace("py_", "").split("_")
+        try:
+            patch_size = _patch_slide_size(info)
+            x = int(parts[0])
+            y = int(parts[1])
+            px = max(0, int(round(x / patch_size)))
+            py = max(0, int(round(y / patch_size)))
+        except Exception:
+            raise HTTPException(404, "Patch not found")
     doc = _patch_doc(slide_id, px, py, status, info, user)
     now = _now()
     await db.patch_annotation_status.update_one(
