@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260528-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-02';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -29,6 +29,8 @@ const ANNOTATION_PAGE_KIND = location.pathname.includes('cell') ? 'cell' : 'tiss
 const ANNOTATION_PAGE_ROUTE = ANNOTATION_PAGE_KIND === 'cell' ? '/cell-annotation' : '/tissue-annotation';
 const ANNOTATION_HEADER_ACTIVE = ANNOTATION_PAGE_KIND === 'cell' ? 'cell-annotation' : 'tissue-annotation';
 const ANNOTATION_STATUS_SCOPE = ANNOTATION_PAGE_KIND === 'cell' ? 'cell_annotation' : 'tissue_annotation';
+document.body.classList.toggle('cell-annotation-page', ANNOTATION_PAGE_KIND === 'cell');
+document.body.classList.toggle('tissue-annotation-page', ANNOTATION_PAGE_KIND !== 'cell');
 
 const $canvas = $('#wsi-canvas');
 const $overlay = $('#overlay-canvas');
@@ -119,6 +121,15 @@ const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 const $btnRuler = $('#btn-ruler');
 const $btnSlideMemo = $('#btn-slide-memo');
+
+if (ANNOTATION_PAGE_KIND === 'cell') {
+    [$btnDrawPoint, $btnCutPolygon].forEach((el) => {
+        if (!el) return;
+        el.hidden = true;
+        el.disabled = true;
+        el.style.display = 'none';
+    });
+}
 
 // VS IHC
 const $btnVsMembrane = $('#btn-vs-membrane');

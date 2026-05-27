@@ -1,6 +1,8 @@
 const STATUS_STYLE = {
     not_required: { fill: '148, 163, 184', stroke: 'rgba(148, 163, 184, 0.35)' },
     required: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.85)' },
+    pending_required: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.95)' },
+    pending_excluded: { fill: '239, 68, 68', stroke: 'rgba(239, 68, 68, 0.95)' },
     in_progress: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.85)' },
     completed: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.85)' },
     reviewed: { fill: '16, 185, 129', stroke: 'rgba(16, 185, 129, 0.95)' },
@@ -15,6 +17,7 @@ export class PatchStatusLayer {
         this.selectedPatchId = '';
         this.fillOpacity = Number(options.fillOpacity ?? 0.05);
         this.strokeWidth = Number(options.strokeWidth ?? 1);
+        this.pendingPatches = [];
     }
 
     setPatches(patches = []) {
@@ -29,6 +32,10 @@ export class PatchStatusLayer {
         this.selectedPatchId = patchId || '';
     }
 
+    setPendingPatches(patches = []) {
+        this.pendingPatches = Array.isArray(patches) ? patches : [];
+    }
+
     setStyle(options = {}) {
         if (options.fillOpacity !== undefined) {
             this.fillOpacity = Math.max(0, Math.min(1, Number(options.fillOpacity)));
@@ -41,7 +48,13 @@ export class PatchStatusLayer {
     draw(ctx, viewer) {
         if (!this.visible || !viewer?.slideInfo) return;
         ctx.save();
-        for (const patch of this.patches.values()) {
+        this._drawPatches(ctx, viewer, this.pendingPatches, true);
+        this._drawPatches(ctx, viewer, this.patches.values(), false);
+        ctx.restore();
+    }
+
+    _drawPatches(ctx, viewer, patches, pending) {
+        for (const patch of patches) {
             const status = patch.str_status || patch.status || 'required';
             if (status === 'not_required') continue;
             const x = Number(patch.int_x ?? patch.x ?? 0);
@@ -60,9 +73,11 @@ export class PatchStatusLayer {
             ctx.lineWidth = (patch.str_patch_id || patch.patch_id) === this.selectedPatchId
                 ? Math.max(3, this.strokeWidth + 1.5)
                 : this.strokeWidth;
+            if (pending) ctx.setLineDash([6, 4]);
+            else ctx.setLineDash([]);
             ctx.fillRect(cx, cy, cw, ch);
             ctx.strokeRect(cx, cy, cw, ch);
         }
-        ctx.restore();
+        ctx.setLineDash([]);
     }
 }

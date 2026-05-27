@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.128] - 2026-05-28
+
+### Fixed
+
+- Changed Cell Annotation patch workflow status to enter progress only after Apply creates at least one required patch.
+- Hid Point and Cut tools from the Cell Annotation toolbar.
+- Added pre-Apply pending patch visualization and pending patch counts for required and excluded regions.
+
 ## [1.1.127] - 2026-05-28
 
 ### Added

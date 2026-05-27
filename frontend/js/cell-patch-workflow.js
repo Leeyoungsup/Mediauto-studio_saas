@@ -1,5 +1,5 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-03';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260527-01';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
@@ -223,6 +223,8 @@ export class CellPatchWorkflow {
     async load(slideId) {
         this.slideId = slideId || '';
         this.patches.clear();
+        this.pendingRegions = [];
+        this._syncPendingPatchPreview();
         this.exitPatchView({ restore: false });
         this.selectedPatch = null;
         this.lastWsiViewBeforePatchOpen = null;
@@ -249,6 +251,7 @@ export class CellPatchWorkflow {
             }
         }
         this.status.setPatches(Array.from(this.patches.values()));
+        this._syncPendingPatchPreview();
         this.renderPatchList();
         this._syncAnnotationStatusPanel();
         this.viewer.requestRender();
@@ -304,6 +307,118 @@ export class CellPatchWorkflow {
         return null;
     }
 
+    _bbox(points = []) {
+        if (!points.length) return null;
+        const xs = points.map(pt => Number(pt[0]));
+        const ys = points.map(pt => Number(pt[1]));
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+
+    _pointInPoly(x, y, poly) {
+        let inside = false;
+        let j = poly.length - 1;
+        for (let i = 0; i < poly.length; i += 1) {
+            const xi = Number(poly[i][0]);
+            const yi = Number(poly[i][1]);
+            const xj = Number(poly[j][0]);
+            const yj = Number(poly[j][1]);
+            if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi) {
+                inside = !inside;
+            }
+            j = i;
+        }
+        return inside;
+    }
+
+    _segmentsIntersect(a, b, c, d) {
+        const orient = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+        const onSeg = (p, q, r) => (
+            Math.min(p[0], r[0]) <= q[0] && q[0] <= Math.max(p[0], r[0]) &&
+            Math.min(p[1], r[1]) <= q[1] && q[1] <= Math.max(p[1], r[1])
+        );
+        const o1 = orient(a, b, c);
+        const o2 = orient(a, b, d);
+        const o3 = orient(c, d, a);
+        const o4 = orient(c, d, b);
+        if ((o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)) return true;
+        const eps = 1e-9;
+        return (
+            (Math.abs(o1) < eps && onSeg(a, c, b)) ||
+            (Math.abs(o2) < eps && onSeg(a, d, b)) ||
+            (Math.abs(o3) < eps && onSeg(c, a, d)) ||
+            (Math.abs(o4) < eps && onSeg(c, b, d))
+        );
+    }
+
+    _polyIntersectsRect(poly, x0, y0, x1, y1) {
+        if (!poly || poly.length < 3) return false;
+        const box = this._bbox(poly);
+        if (!box) return false;
+        const [bx0, by0, bx1, by1] = box;
+        if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) return false;
+        const rect = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+        if (poly.some(([x, y]) => x0 <= x && x <= x1 && y0 <= y && y <= y1)) return true;
+        if (rect.some(([x, y]) => this._pointInPoly(x, y, poly))) return true;
+        for (let i = 0; i < poly.length; i += 1) {
+            const a = poly[i];
+            const b = poly[(i + 1) % poly.length];
+            for (let j = 0; j < 4; j += 1) {
+                if (this._segmentsIntersect(a, b, rect[j], rect[(j + 1) % 4])) return true;
+            }
+        }
+        return false;
+    }
+
+    _pendingRegionPatches(region) {
+        const config = this.grid?.config;
+        const points = region?.points || [];
+        const size = Number(config?.patch_size_slide_px || 0);
+        if (!config || size <= 0 || points.length < 3) return [];
+        const box = this._bbox(points);
+        if (!box) return [];
+        const [x0, y0, x1, y1] = box;
+        const cols = Number(config.cols || 0);
+        const rows = Number(config.rows || 0);
+        const slideW = Number(config.slide_width || 0);
+        const slideH = Number(config.slide_height || 0);
+        const px0 = Math.max(0, Math.floor(x0 / size));
+        const py0 = Math.max(0, Math.floor(y0 / size));
+        const px1 = Math.min(cols - 1, Math.floor(x1 / size));
+        const py1 = Math.min(rows - 1, Math.floor(y1 / size));
+        const patches = [];
+        for (let py = py0; py <= py1; py += 1) {
+            for (let px = px0; px <= px1; px += 1) {
+                const rx0 = px * size;
+                const ry0 = py * size;
+                const rx1 = Math.min(slideW, rx0 + size);
+                const ry1 = Math.min(slideH, ry0 + size);
+                if (!this._polyIntersectsRect(points, rx0, ry0, rx1, ry1)) continue;
+                const type = region.type === 'annotation_excluded_region' ? 'pending_excluded' : 'pending_required';
+                patches.push({
+                    patch_id: `pending_${type}_${Math.round(rx0)}_${Math.round(ry0)}`,
+                    str_status: type,
+                    int_x: rx0,
+                    int_y: ry0,
+                    int_w: Math.max(0, rx1 - rx0),
+                    int_h: Math.max(0, ry1 - ry0),
+                });
+            }
+        }
+        return patches;
+    }
+
+    _syncPendingPatchPreview() {
+        const previewMap = new Map();
+        for (const region of this.pendingRegions || []) {
+            for (const patch of this._pendingRegionPatches(region)) {
+                const key = `${Math.round(Number(patch.int_x || 0))}_${Math.round(Number(patch.int_y || 0))}`;
+                previewMap.set(key, patch);
+            }
+        }
+        this.status.setPendingPatches([...previewMap.values()]);
+        this.viewer?.requestRender?.();
+    }
+
     renderPatchList() {
         if (!this.patchListEl) return;
         const list = Array.from(this.patches.values())
@@ -323,10 +438,11 @@ export class CellPatchWorkflow {
         const countText = Object.entries(statusCounts)
             .map(([status, count]) => `${this._statusLabel(status)} ${count}`)
             .join(' / ');
-        const pendingRequired = this.pendingRegions.filter(region => region.type !== 'annotation_excluded_region').length;
-        const pendingExcluded = this.pendingRegions.filter(region => region.type === 'annotation_excluded_region').length;
-        const pendingText = this.pendingRegions.length
-            ? `<div class="patch-list-pending">Pending: ${pendingRequired} required / ${pendingExcluded} excluded</div>`
+        const pendingPatches = this.status?.pendingPatches || [];
+        const pendingRequired = pendingPatches.filter(patch => patch.str_status === 'pending_required').length;
+        const pendingExcluded = pendingPatches.filter(patch => patch.str_status === 'pending_excluded').length;
+        const pendingText = pendingPatches.length
+            ? `<div class="patch-list-pending">Pending patches: ${pendingRequired} required / ${pendingExcluded} excluded</div>`
             : '';
         this.patchListEl.innerHTML = `
             <div class="patch-list-summary">
@@ -1072,6 +1188,7 @@ export class CellPatchWorkflow {
             this.lastRegionAction = this.pendingRegions.length
                 ? { regionId: this.pendingRegions[this.pendingRegions.length - 1].id }
                 : null;
+            this._syncPendingPatchPreview();
             this.renderPatchList();
             this.setStatus(`Pending ${removed.type === 'annotation_excluded_region' ? 'exclude' : 'required'} region removed`);
             return true;
@@ -1112,7 +1229,7 @@ export class CellPatchWorkflow {
             points: coords.map(pt => [Number(pt[0]), Number(pt[1])]),
         });
         this.lastRegionAction = { regionId };
-        await this.onRequiredRegionSaved({ regionId });
+        this._syncPendingPatchPreview();
         this.renderPatchList();
         this.setStatus(`${regionType === 'annotation_excluded_region' ? 'Exclude' : 'Required'} region queued. Click Apply to save patches.`);
     }
@@ -1132,12 +1249,16 @@ export class CellPatchWorkflow {
             })),
         ];
         await this.api.saveCellRequiredRegions(this.slideId, regions);
-        await this.api.recomputeCellPatchStatus(this.slideId);
+        const recompute = await this.api.recomputeCellPatchStatus(this.slideId);
         const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
         this.required.setRegions(regionPayload.regions || []);
         this.pendingRegions = [];
+        this._syncPendingPatchPreview();
         this.lastRegionAction = null;
         await this.refreshPatches();
+        if (Number(recompute?.required_count || 0) > 0) {
+            await this.onRequiredRegionSaved({ requiredCount: Number(recompute.required_count || 0) });
+        }
         this.setStatus('Patch regions applied and patch list updated');
         this.ensureLabelingAssistance().catch((err) => {
             if (!/disabled/i.test(err.message || '')) {

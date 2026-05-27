@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.127",
+  "version": "1.1.128",
   "channel": "production",
   "release_date": "2026-05-28",
-  "description": "Adds project-level Annotation AI assistance settings and WSI bbox assistance export separation."
+  "description": "Refines Cell Annotation patch apply status behavior and pending patch preview."
 }

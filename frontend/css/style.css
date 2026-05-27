@@ -1387,6 +1387,12 @@ body.viewer-alt-held #wsi-canvas {
 }
 #overlay-canvas { pointer-events: none; }
 
+body.cell-annotation-page #btn-draw-point,
+body.cell-annotation-page #btn-cut-polygon,
+.cell-only-hidden-tool {
+    display: none !important;
+}
+
 /* text */
 #drop-overlay {
     position: absolute; inset: 0; z-index: 100;
