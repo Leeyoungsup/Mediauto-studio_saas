@@ -100,6 +100,14 @@
                         <p class="project-ai-hint">Folders without individual AI settings inherit this list.</p>
                         <div id="project-ai-task-list" class="project-ai-task-list"></div>
                     </div>
+                    <div class="dialog-wide project-ai-section">
+                        <label class="project-ai-enable">
+                            <input id="annotation-ai-enabled-input" type="checkbox">
+                            <span>Annotation AI assistance</span>
+                        </label>
+                        <p class="project-ai-hint">One model can assist patch-level cell labeling through WSI_Labeling_assistance.json.</p>
+                        <select id="annotation-ai-select" name="annotation_ai_key" class="project-ai-select"></select>
+                    </div>
                 </div>
                 <div class="dialog-footer">
                     <button id="project-dialog-cancel" type="button" class="home-action-btn secondary">Cancel</button>
@@ -261,6 +269,6 @@
     </footer>
 
     <script src="js/shared-header.js?v=20260520-01"></script>
-    <script src="js/home.js?v=20260527-01"></script>
+    <script src="js/home.js?v=20260528-01"></script>
 </body>
 </html>

@@ -934,6 +934,29 @@ export const api = {
         return res.json();
     },
 
+    async getWsiLabelingAssistance(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async startWsiLabelingAssistance(slideId, annotationAiKey = '') {
+        const body = JSON.stringify(annotationAiKey ? { annotation_ai_key: annotationAiKey } : {});
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async getWsiLabelingAssistanceTask(taskId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/wsi-labeling-assistance/task/${taskId}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
 
     /**  (   +   ) */
     async logout() {

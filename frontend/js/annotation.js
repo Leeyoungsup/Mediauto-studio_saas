@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260527-10';
+import { api } from './api.js?v=20260528-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-21';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-01';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -2471,7 +2471,7 @@ viewer.onAnnotationCreated = (ann) => {
         renderAnnotationPanel();
         viewer.requestRender();
         cellPatchWorkflow.addRequiredRegionFromAnnotation(ann).catch((err) => {
-            setStatus(`Required region save failed: ${err.message}`);
+            setStatus(`Patch region queue failed: ${err.message}`);
         });
         return;
     }

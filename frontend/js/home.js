@@ -46,6 +46,8 @@
     const $projectDescriptionInput = document.getElementById('project-description-input');
     const $projectAiEnabledInput = document.getElementById('project-ai-enabled-input');
     const $projectAiTaskList = document.getElementById('project-ai-task-list');
+    const $annotationAiEnabledInput = document.getElementById('annotation-ai-enabled-input');
+    const $annotationAiSelect = document.getElementById('annotation-ai-select');
     const $projectMoveDialog = document.getElementById('project-move-dialog');
     const $projectMoveClose = document.getElementById('project-move-close');
     const $projectMoveCancel = document.getElementById('project-move-cancel');
@@ -80,6 +82,19 @@
         { value: 2.0, label: '2.0 um/px (x5)' },
         { value: 1.0, label: '1.0 um/px (x10)' },
         { value: 0.5, label: '0.5 um/px (x20)' },
+    ];
+    const ANNOTATION_AI_OPTIONS = [
+        { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI' },
+        { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI' },
+        { key: 'quanti_he_other', label: 'Quanti HE-other', group: 'Inherited AI' },
+        { key: 'quanti_pd_l1_stomach', label: 'Quanti PD-L1 - Stomach (CPS)', group: 'Inherited AI' },
+        { key: 'quanti_pd_l1_lung', label: 'Quanti PD-L1 - Lung (TPS)', group: 'Inherited AI' },
+        { key: 'quanti_ihc_her2', label: 'Quanti IHC - HER2', group: 'Inherited AI' },
+        { key: 'quanti_ihc_er_pr', label: 'Quanti IHC - ER/PR (Allred)', group: 'Inherited AI' },
+        { key: 'quanti_ihc_ki_67', label: 'Quanti IHC - KI-67', group: 'Inherited AI' },
+        { key: 'hne', label: 'HnE', group: 'Non-inherited AI' },
+        { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI' },
+        { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI' },
     ];
     const PROJECT_CHART_COLORS = [
         '#67b7dc', '#6794dc', '#6771dc', '#8067dc', '#a367dc',
@@ -276,6 +291,29 @@
         $projectAiTaskList.querySelectorAll('input').forEach(input => {
             input.disabled = !enabled;
         });
+    }
+
+    function renderAnnotationAiOptions(selectedKey = '') {
+        if (!$annotationAiSelect) return;
+        const current = selectedKey || $annotationAiSelect.value || '';
+        const groups = [];
+        for (const opt of ANNOTATION_AI_OPTIONS) {
+            let group = groups.find(item => item.label === opt.group);
+            if (!group) {
+                group = { label: opt.group, items: [] };
+                groups.push(group);
+            }
+            group.items.push(opt);
+        }
+        $annotationAiSelect.innerHTML = '<option value="">Select annotation AI</option>' + groups.map(group => `
+            <optgroup label="${_esc(group.label)}">
+                ${group.items.map(opt => `<option value="${_esc(opt.key)}"${opt.key === current ? ' selected' : ''}>${_esc(opt.label)}</option>`).join('')}
+            </optgroup>
+        `).join('');
+    }
+
+    function setAnnotationAiEnabled(enabled) {
+        if ($annotationAiSelect) $annotationAiSelect.disabled = !enabled;
     }
 
     function renderProjectAiTasks(tasks = []) {
@@ -566,6 +604,8 @@
             description: $projectDescriptionInput.value.trim(),
             project_ai_enabled: Boolean($projectAiEnabledInput?.checked),
             project_ai_tasks_json: JSON.stringify(collectProjectAiTasks()),
+            annotation_ai_enabled: Boolean($annotationAiEnabledInput?.checked),
+            annotation_ai_key: $annotationAiSelect?.value || '',
         };
     }
 
@@ -606,6 +646,11 @@
             $projectAiEnabledInput.checked = Boolean(info.project_ai_enabled);
         }
         renderProjectAiTasks(info.project_ai_tasks || []);
+        if ($annotationAiEnabledInput) {
+            $annotationAiEnabledInput.checked = Boolean(info.annotation_ai_enabled);
+        }
+        renderAnnotationAiOptions(info.annotation_ai?.key || '');
+        setAnnotationAiEnabled(Boolean(info.annotation_ai_enabled));
         $projectDialog.showModal();
     }
 
@@ -850,6 +895,9 @@
     $btnRefreshProjects?.addEventListener('click', () => loadFolderTree());
     $projectAiEnabledInput?.addEventListener('change', () => {
         setProjectAiListEnabled($projectAiEnabledInput.checked);
+    });
+    $annotationAiEnabledInput?.addEventListener('change', () => {
+        setAnnotationAiEnabled($annotationAiEnabledInput.checked);
     });
     $projectPagePrev?.addEventListener('click', () => {
         if (_projectPage <= 1) return;

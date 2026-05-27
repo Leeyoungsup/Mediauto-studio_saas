@@ -138,6 +138,8 @@ async def create_project(
     description: str = Form(""),
     project_ai_enabled: bool = Form(False),
     project_ai_tasks_json: str = Form("[]"),
+    annotation_ai_enabled: bool = Form(False),
+    annotation_ai_key: str = Form(""),
     dict_user: dict = Depends(get_current_user),
 ):
     name = safe_filename(name)
@@ -157,6 +159,8 @@ async def create_project(
         str_description=description,
         bool_project_ai_enabled=project_ai_enabled,
         list_project_ai_tasks=list_project_ai_tasks,
+        bool_annotation_ai_enabled=annotation_ai_enabled,
+        str_annotation_ai_key=annotation_ai_key,
     )
     await _log_event(
         request,
@@ -175,6 +179,8 @@ async def create_project(
             "description": description,
             "project_ai_enabled": bool(project_ai_enabled),
             "project_ai_tasks": list_project_ai_tasks,
+            "annotation_ai_enabled": bool(annotation_ai_enabled),
+            "annotation_ai_key": annotation_ai_key,
         },
     )
     return {"status": "created", "name": name, "path": name}
@@ -193,6 +199,8 @@ async def update_project(
     description: str = Form(""),
     project_ai_enabled: bool = Form(False),
     project_ai_tasks_json: str = Form("[]"),
+    annotation_ai_enabled: bool = Form(False),
+    annotation_ai_key: str = Form(""),
     dict_user: dict = Depends(get_current_user),
 ):
     name = safe_filename(name)
@@ -215,6 +223,8 @@ async def update_project(
         str_description=description,
         bool_project_ai_enabled=project_ai_enabled,
         list_project_ai_tasks=list_project_ai_tasks,
+        bool_annotation_ai_enabled=annotation_ai_enabled,
+        str_annotation_ai_key=annotation_ai_key,
     )
     await _log_event(
         request,
@@ -234,6 +244,8 @@ async def update_project(
             "description": description,
             "project_ai_enabled": bool(project_ai_enabled),
             "project_ai_tasks": list_project_ai_tasks,
+            "annotation_ai_enabled": bool(annotation_ai_enabled),
+            "annotation_ai_key": annotation_ai_key,
         },
     )
     return {"status": "saved", "name": name, "path": name}

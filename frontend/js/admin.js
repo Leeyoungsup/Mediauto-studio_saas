@@ -4,6 +4,12 @@ const API_BASE = '/api';
 const PAGE_LIMIT = 20;
 const ACTIVITY_PAGE_LIMIT = 50;
 const USER_ACTIVITY_PAGE_LIMIT = 100;
+const ROLE_OPTIONS = [
+    ['viewer', 'Viewer'],
+    ['labeler', 'Labeler'],
+    ['doctor', 'Doctor'],
+    ['admin', 'Admin'],
+];
 
 const accessToken = localStorage.getItem('access_token');
 const userRaw = localStorage.getItem('user');
@@ -49,6 +55,7 @@ let userActivityEnd = '';
 document.getElementById('current-user-name').textContent =
     currentUser.str_name || currentUser.str_login_id || '-';
 document.getElementById('current-user-role').textContent = currentUser.str_role || 'admin';
+populateCreateRoleSelect();
 
 function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -58,6 +65,17 @@ function esc(value) {
         '"': '&quot;',
         "'": '&#39;',
     }[ch]));
+}
+
+function roleOptionsHtml(selected = 'viewer') {
+    return ROLE_OPTIONS.map(([value, label]) => (
+        `<option value="${esc(value)}" ${selected === value ? 'selected' : ''}>${esc(label)}</option>`
+    )).join('');
+}
+
+function populateCreateRoleSelect() {
+    const createSelect = document.getElementById('new-role');
+    if (createSelect) createSelect.innerHTML = roleOptionsHtml(createSelect.value || 'viewer');
 }
 
 function fmtDate(value) {
@@ -178,10 +196,7 @@ async function loadPending() {
                 <td>${fmtDate(user.dt_created_at)}</td>
                 <td>
                     <select class="role-select" data-role-for="${esc(user._id)}">
-                        <option value="viewer" selected>Viewer</option>
-                        <option value="labeler">Labeler</option>
-                        <option value="doctor">Doctor</option>
-                        <option value="admin">Admin</option>
+                        ${roleOptionsHtml('viewer')}
                     </select>
                 </td>
                 <td class="row-actions">
@@ -265,10 +280,7 @@ async function loadUsers() {
                 <td>${esc(user.str_department || '-')}</td>
                 <td>
                     <select class="role-select" data-role-change="${esc(user._id)}" ${isSelf ? 'disabled' : ''}>
-                        <option value="viewer" ${user.str_role === 'viewer' ? 'selected' : ''}>Viewer</option>
-                        <option value="labeler" ${user.str_role === 'labeler' ? 'selected' : ''}>Labeler</option>
-                        <option value="doctor" ${user.str_role === 'doctor' ? 'selected' : ''}>Doctor</option>
-                        <option value="admin" ${user.str_role === 'admin' ? 'selected' : ''}>Admin</option>
+                        ${roleOptionsHtml(user.str_role || 'viewer')}
                     </select>
                 </td>
                 <td><span class="status-pill ${esc(user.str_approval_status || 'approved')}">${esc(user.str_approval_status || 'approved')}</span></td>

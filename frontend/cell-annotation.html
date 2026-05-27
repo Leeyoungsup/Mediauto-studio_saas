@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260527-12">
+    <link rel="stylesheet" href="css/style.css?v=20260527-13">
 </head>
 <body class="annotation-page">
     <!-- ═══ text ═══ -->
@@ -119,7 +119,7 @@
             <button id="btn-draw-rect" class="toolbar-btn toggle-btn" title="Draw Rectangle" disabled>
                 <img src="assets/Rectangular_ROI_measurement.png" alt="Rectangle">
             </button>
-            <button id="btn-draw-point" class="toolbar-btn toggle-btn" title="Draw Point" aria-label="Draw Point" disabled>
+            <button id="btn-draw-point" class="toolbar-btn toggle-btn cell-only-hidden-tool" title="Draw Point" aria-label="Draw Point" disabled hidden>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
                      stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none"/>
@@ -127,7 +127,7 @@
                     <path d="M10 1.8v3M10 15.2v3M1.8 10h3M15.2 10h3"/>
                 </svg>
             </button>
-            <button id="btn-cut-polygon" class="toolbar-btn toggle-btn" title="Cut / reshape selected polygon" aria-label="Cut polygon" disabled>
+            <button id="btn-cut-polygon" class="toolbar-btn toggle-btn cell-only-hidden-tool" title="Cut / reshape selected polygon" aria-label="Cut polygon" disabled hidden>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"
                      stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 4l12 12"/>
@@ -688,6 +688,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260520-01"></script>
-    <script type="module" src="js/annotation.js?v=20260527-21"></script>
+    <script type="module" src="js/annotation.js?v=20260528-01"></script>
 </body>
 </html>

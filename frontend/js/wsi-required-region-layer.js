@@ -11,7 +11,7 @@ export class WsiRequiredRegionLayer {
     toApiRegions() {
         return this.regions.map((region, idx) => ({
             id: region.str_region_id || region.id || `region_${idx + 1}`,
-            type: 'annotation_required_region',
+            type: region.str_type || region.type || 'annotation_required_region',
             points: (region.list_points || region.points || region.coordinates || []).map(pt => (
                 Array.isArray(pt) ? [Number(pt[0]), Number(pt[1])] : [Number(pt.x), Number(pt.y)]
             )),

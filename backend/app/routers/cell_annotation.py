@@ -1,8 +1,12 @@
 """Patch-based cell annotation workflow endpoints."""
 
 from datetime import datetime, timezone
+import json
 from math import ceil, floor
 from pathlib import Path
+import re
+import threading
+import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -10,7 +14,15 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.database import get_db, is_db_connected
 from app.models import UserRole
+from app.project_utils import ANNOTATION_AI_OPTION_BY_KEY, ANNOTATION_AI_OPTIONS, normalize_annotation_ai_config
 from app.slide_manager import slide_manager
+from app.ai_pipelines.detection import run_detection as _run_detection
+from app.ai_pipelines.marker_pipeline import (
+    run_pd_score as _run_pd_score,
+    run_precise_ihc as _run_precise_ihc,
+)
+from app.ai_pipelines.task_state import _tasks, _tasks_lock, cleanup_old_tasks, release_task_result, update_task
+from app.config import settings
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -18,6 +30,7 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 TARGET_MPP = 0.5
 PATCH_PHYSICAL_UM = 512.0
 TARGET_PATCH_SIZE = int(round(PATCH_PHYSICAL_UM / TARGET_MPP))
+CELL_ANNOTATION_ROOT = Path(__file__).resolve().parents[2] / "cell_annotation"
 PATCH_STATUSES = {
     "not_required",
     "required",
@@ -26,6 +39,8 @@ PATCH_STATUSES = {
     "reviewed",
     "rejected",
 }
+REGION_TYPES = {"annotation_required_region", "annotation_excluded_region"}
+DEFAULT_ASSISTANCE_BOX_SIZE = 32.0
 
 
 def _now() -> datetime:
@@ -52,8 +67,52 @@ def _patch_slide_size(info) -> int:
     return max(1, int(round(TARGET_PATCH_SIZE * TARGET_MPP / mpp)))
 
 
-def _patch_id_from_xy(x: int, y: int) -> str:
+def _patch_key_from_xy(x: int, y: int) -> str:
     return f"px_{int(x)}_py_{int(y)}"
+
+
+def _patch_id_from_xy(x: int, y: int) -> str:
+    return _patch_key_from_xy(x, y)
+
+
+def _patch_num_from_id(value: str) -> Optional[int]:
+    match = re.fullmatch(r"patch_(\d+)", str(value or ""))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+async def _next_patch_number(db, slide_id: str) -> int:
+    cursor = db.patch_annotation_status.find(
+        {"str_slide_id": slide_id, "str_patch_id": {"$regex": r"^patch_\d+$"}},
+        {"str_patch_id": 1},
+    )
+    max_num = 0
+    async for doc in cursor:
+        num = _patch_num_from_id(doc.get("str_patch_id"))
+        if num and num > max_num:
+            max_num = num
+    return max_num + 1
+
+
+async def _patch_id_for_key(db, slide_id: str, patch_key: str, allocated: dict[str, str]) -> str:
+    if patch_key in allocated:
+        return allocated[patch_key]
+    existing = await db.patch_annotation_status.find_one(
+        {"str_slide_id": slide_id, "$or": [{"str_patch_key": patch_key}, {"str_patch_id": patch_key}]},
+        {"str_patch_id": 1},
+    )
+    existing_id = str((existing or {}).get("str_patch_id") or "")
+    if _patch_num_from_id(existing_id):
+        allocated[patch_key] = existing_id
+        return existing_id
+    if "__next_num__" not in allocated:
+        allocated["__next_num__"] = await _next_patch_number(db, slide_id)
+    next_num = int(allocated["__next_num__"])
+    patch_id = f"patch_{next_num}"
+    allocated["__next_num__"] = next_num + 1
+    allocated[patch_key] = patch_id
+    return patch_id
 
 
 def _patch_workflow_fields(status: str) -> dict:
@@ -84,14 +143,16 @@ def _patch_workflow_fields(status: str) -> dict:
     }
 
 
-def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict) -> dict:
+def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict, patch_id: str = "") -> dict:
     patch_size = _patch_slide_size(info)
     x0 = px * patch_size
     y0 = py * patch_size
     w, h = info.dimensions
+    patch_key = _patch_key_from_xy(x0, y0)
     return {
         "str_slide_id": slide_id,
-        "str_patch_id": _patch_id_from_xy(x0, y0),
+        "str_patch_id": patch_id or patch_key,
+        "str_patch_key": patch_key,
         "int_px": int(px),
         "int_py": int(py),
         "int_x": int(x0),
@@ -198,9 +259,17 @@ def _normalize_region(item: dict, idx: int) -> dict:
     if len(points) < 3:
         raise HTTPException(400, "Required region must contain at least three points")
     bbox = _bbox(points)
+    region_type = str(
+        item.get("type")
+        or item.get("region_type")
+        or item.get("str_type")
+        or "annotation_required_region"
+    )
+    if region_type not in REGION_TYPES:
+        raise HTTPException(400, f"Invalid region type: {region_type}")
     return {
         "str_region_id": str(item.get("id") or item.get("region_id") or f"region_{idx}"),
-        "str_type": "annotation_required_region",
+        "str_type": region_type,
         "list_points": points,
         "dict_bbox": {
             "x0": bbox[0],
@@ -249,6 +318,261 @@ def _normalize_memo_history(value: Any) -> list[dict]:
                 "accepted_at": accepted_at[:80],
             })
     return out[:200]
+
+
+def _cell_annotation_slide_dir(info) -> Path:
+    return CELL_ANNOTATION_ROOT / Path(info.file_path).stem
+
+
+def _slide_project_path(info) -> str:
+    try:
+        rel = Path(info.file_path).resolve().relative_to(Path(settings.UPLOAD_DIR).resolve())
+        return rel.parts[0] if rel.parts else ""
+    except Exception:
+        return ""
+
+
+def _assistance_path(info) -> Path:
+    return _cell_annotation_slide_dir(info) / "WSI_Labeling_assistance.json"
+
+
+def _json_default(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
+
+
+def _write_patch_image(info, patch: dict, out_path: Path) -> None:
+    if out_path.exists():
+        return
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import openslide
+
+        slide = openslide.OpenSlide(info.file_path)
+        try:
+            x = int(patch.get("int_x", 0))
+            y = int(patch.get("int_y", 0))
+            w = max(1, int(patch.get("int_w", 0)))
+            h = max(1, int(patch.get("int_h", 0)))
+            image = slide.read_region((x, y), 0, (w, h)).convert("RGB")
+            image.save(out_path, "JPEG", quality=90, optimize=True)
+        finally:
+            slide.close()
+    except Exception as exc:
+        print(f"[cell_annotation] patch image export failed ({out_path.name}): {exc}")
+
+
+async def _export_cell_annotation_files(slide_id: str, info, regions: list[dict]) -> None:
+    db = _require_db()
+    root = _cell_annotation_slide_dir(info)
+    patches_dir = root / "patches"
+    labels_dir = root / "labels"
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+
+    patches = await db.patch_annotation_status.find(
+        {"str_slide_id": slide_id},
+        {"_id": 0},
+    ).sort([("int_py", 1), ("int_px", 1)]).to_list(length=200000)
+
+    active_ids = {
+        p.get("str_patch_id")
+        for p in patches
+        if p.get("str_patch_id") and p.get("str_status") != "not_required"
+    }
+    for path in patches_dir.glob("patch_*.jpeg"):
+        if path.stem not in active_ids:
+            path.unlink(missing_ok=True)
+    for path in labels_dir.glob("patch_*.json"):
+        if path.stem not in active_ids:
+            path.unlink(missing_ok=True)
+
+    info_patches = []
+    for patch in patches:
+        patch_id = patch.get("str_patch_id")
+        if not patch_id:
+            continue
+        is_required_patch = patch.get("str_status") != "not_required"
+        if is_required_patch:
+            _write_patch_image(info, patch, patches_dir / f"{patch_id}.jpeg")
+        cells_doc = await db.patch_cell_annotations.find_one(
+            {"str_slide_id": slide_id, "str_patch_id": patch_id},
+            {"_id": 0},
+        )
+        label_path = labels_dir / f"{patch_id}.json"
+        if is_required_patch and (cells_doc or not label_path.exists()):
+            _write_json(label_path, {
+                "slide_id": slide_id,
+                "patch_id": patch_id,
+                "patch_key": patch.get("str_patch_key", ""),
+                "cells": (cells_doc or {}).get("list_cells", []),
+            })
+        info_patches.append({
+            "patch_id": patch_id,
+            "patch_key": patch.get("str_patch_key", ""),
+            "grid_x": patch.get("int_px"),
+            "grid_y": patch.get("int_py"),
+            "x": patch.get("int_x"),
+            "y": patch.get("int_y"),
+            "width": patch.get("int_w"),
+            "height": patch.get("int_h"),
+            "status": patch.get("str_status"),
+            "annotation_status": patch.get("str_annotation_status"),
+            "review_status": patch.get("str_review_status"),
+            "termination_status": patch.get("str_termination_status"),
+            "memo": patch.get("str_memo", ""),
+        })
+
+    _write_json(root / "info.json", {
+        "slide_id": slide_id,
+        "slide_filename": Path(info.file_path).name,
+        "slide_stem": Path(info.file_path).stem,
+        "target_mpp": TARGET_MPP,
+        "target_patch_size": TARGET_PATCH_SIZE,
+        "patch_physical_um": PATCH_PHYSICAL_UM,
+        "slide_mpp": getattr(info, "mpp", None),
+        "patch_size_slide_px": _patch_slide_size(info),
+        "classes": [],
+        "patches": info_patches,
+    })
+    _write_json(root / "WSI_regions.json", {
+        "slide_id": slide_id,
+        "regions": regions,
+    })
+
+
+async def _project_annotation_ai_config(info) -> dict:
+    project_path = _slide_project_path(info)
+    if not project_path or not is_db_connected():
+        return {"enabled": False, "key": "", "label": ""}
+    doc = await get_db().project_infos.find_one({"str_project_path": project_path})
+    return normalize_annotation_ai_config(
+        bool((doc or {}).get("bool_annotation_ai_enabled", False)),
+        (doc or {}).get("str_annotation_ai_key", ""),
+    )
+
+
+def _read_assistance_file(info) -> dict:
+    path = _assistance_path(info)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float]]:
+    if isinstance(cell, dict):
+        x = cell.get("x", cell.get("slide_x"))
+        y = cell.get("y", cell.get("slide_y"))
+        class_id = cell.get("class_id", cell.get("classId"))
+        confidence = cell.get("confidence", 1.0)
+    elif isinstance(cell, (list, tuple)) and len(cell) >= 4:
+        x, y, class_id, confidence = cell[:4]
+    else:
+        return None
+    try:
+        return float(x), float(y), class_id, float(confidence)
+    except Exception:
+        return None
+
+
+def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
+    class_names = result.get("class_names") if isinstance(result, dict) else {}
+    if not isinstance(class_names, dict):
+        class_names = {}
+    inherit_classes = bool(config.get("inherit_classes"))
+    labels = []
+    half = DEFAULT_ASSISTANCE_BOX_SIZE / 2.0
+    for idx, cell in enumerate((result or {}).get("cells") or [], start=1):
+        parsed = _cell_tuple_values(cell)
+        if parsed is None:
+            continue
+        x, y, class_id, confidence = parsed
+        str_class_id = str(class_id)
+        labels.append({
+            "id": f"assist_{idx}",
+            "x": round(x - half, 2),
+            "y": round(y - half, 2),
+            "width": DEFAULT_ASSISTANCE_BOX_SIZE,
+            "height": DEFAULT_ASSISTANCE_BOX_SIZE,
+            "center_x": round(x, 2),
+            "center_y": round(y, 2),
+            "class_id": str_class_id if inherit_classes else "",
+            "class_name": str(class_names.get(str_class_id, "")) if inherit_classes else "",
+            "confidence": round(confidence, 4),
+            "source_format": "bbox",
+        })
+    return labels
+
+
+def _write_assistance_result(slide_id: str, info, config: dict, result: dict) -> dict:
+    labels = _result_cells_to_bbox_labels(result, config)
+    payload = {
+        "slide_id": slide_id,
+        "slide_filename": Path(info.file_path).name,
+        "slide_stem": Path(info.file_path).stem,
+        "generated_at": _now().isoformat(),
+        "annotation_ai": config,
+        "base_result_format": "point",
+        "label_format": "bbox",
+        "bbox_size_px": DEFAULT_ASSISTANCE_BOX_SIZE,
+        "total_labels": len(labels),
+        "labels": labels,
+    }
+    _write_json(_assistance_path(info), payload)
+    return payload
+
+
+def _run_labeling_assistance_task(task_id: str, slide_id: str, file_path: str, config: dict) -> None:
+    info = slide_manager.get(slide_id)
+    if not info:
+        try:
+            info = slide_manager.open(slide_id, file_path)
+        except Exception as exc:
+            update_task(task_id, status="error", error=str(exc), progress=0)
+            return
+    try:
+        update_task(task_id, status="running", progress=1, status_msg="Starting labeling assistance")
+        base_model = config.get("base_model")
+        variant = config.get("variant")
+        if base_model == "Quanti HE":
+            _run_detection(task_id, slide_id, None, variant)
+        elif base_model == "Quanti PD-L1":
+            _run_pd_score(task_id, slide_id, None, variant)
+        elif base_model == "Quanti IHC":
+            _run_precise_ihc(task_id, slide_id, None, variant)
+        else:
+            raise ValueError(f"Unsupported annotation AI model: {base_model}")
+        with _tasks_lock:
+            task = _tasks.get(task_id) or {}
+            result = task.get("result")
+            error = task.get("error")
+        if not result:
+            raise ValueError(error or "Labeling assistance model returned no result")
+        payload = _write_assistance_result(slide_id, info, config, result)
+        with _tasks_lock:
+            if task_id in _tasks:
+                _tasks[task_id].update({
+                    "status": "completed",
+                    "progress": 100,
+                    "status_msg": "Labeling assistance ready",
+                    "result": {
+                        "status": "saved",
+                        "path": str(_assistance_path(info)),
+                        "total_labels": payload.get("total_labels", 0),
+                    },
+                    "updated_at": datetime.now(timezone.utc).timestamp(),
+                })
+    except Exception as exc:
+        update_task(task_id, status="error", error=str(exc), progress=0)
 
 
 @router.get("/{slide_id}/grid-config")
@@ -313,12 +637,15 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
     db = _require_db()
     region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
     regions = (region_doc or {}).get("list_regions", [])
+    include_regions = [region for region in regions if region.get("str_type") != "annotation_excluded_region"]
+    exclude_regions = [region for region in regions if region.get("str_type") == "annotation_excluded_region"]
     patch_size = _patch_slide_size(info)
     width, height = info.dimensions
     ops = []
-    required_ids = set()
-    skipped_ids = set()
-    for region in regions:
+    required_keys = set()
+    skipped_keys = set()
+    allocated_ids: dict[str, str] = {}
+    for region in include_regions:
         poly = region.get("list_points") or []
         box = _bbox(poly)
         if not box:
@@ -336,21 +663,45 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
                 ry1 = min(height, ry0 + patch_size)
                 if not _poly_intersects_rect(poly, rx0, ry0, rx1, ry1):
                     continue
-                pid = _patch_id_from_xy(rx0, ry0)
-                if pid in required_ids or pid in skipped_ids:
+                patch_key = _patch_key_from_xy(rx0, ry0)
+                if patch_key in required_keys or patch_key in skipped_keys:
                     continue
                 existing = await db.patch_annotation_status.find_one(
-                    {"str_slide_id": slide_id, "str_patch_id": pid},
-                    {"str_status": 1, "bool_manual_excluded": 1},
+                    {"str_slide_id": slide_id, "$or": [{"str_patch_key": patch_key}, {"str_patch_id": patch_key}]},
+                    {"str_status": 1, "str_patch_id": 1, "bool_manual_excluded": 1},
                 )
                 if (existing or {}).get("bool_manual_excluded"):
-                    skipped_ids.add(pid)
+                    skipped_keys.add(patch_key)
                     continue
-                required_ids.add(pid)
+                required_keys.add(patch_key)
+                patch_id = await _patch_id_for_key(db, slide_id, patch_key, allocated_ids)
                 status = (existing or {}).get("str_status") or "required"
                 if status == "not_required":
                     status = "required"
-                ops.append(_patch_doc(slide_id, px, py, status, info, user))
+                ops.append(_patch_doc(slide_id, px, py, status, info, user, patch_id=patch_id))
+
+    excluded_keys = set()
+    for region in exclude_regions:
+        poly = region.get("list_points") or []
+        box = _bbox(poly)
+        if not box:
+            continue
+        x0, y0, x1, y1 = box
+        px0 = max(0, floor(x0 / patch_size))
+        py0 = max(0, floor(y0 / patch_size))
+        px1 = min(ceil(width / patch_size) - 1, floor(x1 / patch_size))
+        py1 = min(ceil(height / patch_size) - 1, floor(y1 / patch_size))
+        for py in range(py0, py1 + 1):
+            for px in range(px0, px1 + 1):
+                rx0 = px * patch_size
+                ry0 = py * patch_size
+                rx1 = min(width, rx0 + patch_size)
+                ry1 = min(height, ry0 + patch_size)
+                if _poly_intersects_rect(poly, rx0, ry0, rx1, ry1):
+                    excluded_keys.add(_patch_key_from_xy(rx0, ry0))
+    if excluded_keys:
+        ops = [doc for doc in ops if doc.get("str_patch_key") not in excluded_keys]
+        required_keys.difference_update(excluded_keys)
 
     now = _now()
     await db.patch_annotation_status.update_many(
@@ -362,37 +713,148 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
         }},
     )
     for doc in ops:
+        existing_doc = await db.patch_annotation_status.find_one(
+            {"str_slide_id": slide_id, "$or": [
+                {"str_patch_key": doc["str_patch_key"]},
+                {"str_patch_id": doc["str_patch_id"]},
+            ]},
+            {"_id": 1},
+        )
+        update_filter = {"_id": existing_doc["_id"]} if existing_doc else {
+            "str_slide_id": slide_id,
+            "str_patch_key": doc["str_patch_key"],
+        }
         await db.patch_annotation_status.update_one(
-            {"str_slide_id": slide_id, "str_patch_id": doc["str_patch_id"]},
+            update_filter,
             {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
             upsert=True,
         )
-    return {"status": "recomputed", "required_count": len(required_ids)}
+    for patch_key in excluded_keys:
+        await db.patch_annotation_status.update_many(
+            {"str_slide_id": slide_id, "$or": [{"str_patch_key": patch_key}, {"str_patch_id": patch_key}]},
+            {"$set": {
+                "str_status": "not_required",
+                "bool_manual_excluded": True,
+                **_patch_workflow_fields("not_required"),
+                "dt_updated_at": now,
+            }},
+        )
+    await _export_cell_annotation_files(slide_id, info, regions)
+    return {"status": "recomputed", "required_count": len(required_keys), "excluded_count": len(excluded_keys)}
 
 
 @router.get("/{slide_id}/patches")
 async def get_patches(slide_id: str, status: str = Query("")):
-    _slide_info(slide_id)
+    info = _slide_info(slide_id)
     db = _require_db()
     query: dict[str, Any] = {"str_slide_id": slide_id}
     if status:
         query["str_status"] = status
     cursor = db.patch_annotation_status.find(query, {"_id": 0}).sort([("int_py", 1), ("int_px", 1)])
     patches = await cursor.to_list(length=200000)
+    allocated_ids: dict[str, str] = {}
     for patch in patches:
         old_id = patch.get("str_patch_id")
-        expected_id = _patch_id_from_xy(int(patch.get("int_x", 0)), int(patch.get("int_y", 0)))
+        patch_key = patch.get("str_patch_key") or _patch_key_from_xy(int(patch.get("int_x", 0)), int(patch.get("int_y", 0)))
+        expected_id = await _patch_id_for_key(db, slide_id, patch_key, allocated_ids)
         if old_id and expected_id and old_id != expected_id:
             patch["str_patch_id"] = expected_id
+            patch["str_patch_key"] = patch_key
             await db.patch_annotation_status.update_one(
                 {"str_slide_id": slide_id, "str_patch_id": old_id},
-                {"$set": {"str_patch_id": expected_id}},
+                {"$set": {"str_patch_id": expected_id, "str_patch_key": patch_key}},
             )
             await db.patch_cell_annotations.update_many(
                 {"str_slide_id": slide_id, "str_patch_id": old_id},
                 {"$set": {"str_patch_id": expected_id}},
             )
+        elif patch_key and not patch.get("str_patch_key"):
+            patch["str_patch_key"] = patch_key
+            await db.patch_annotation_status.update_one(
+                {"str_slide_id": slide_id, "str_patch_id": old_id},
+                {"$set": {"str_patch_key": patch_key}},
+            )
     return {"slide_id": slide_id, "patches": patches}
+
+
+@router.get("/{slide_id}/wsi-labeling-assistance/options")
+async def get_wsi_labeling_assistance_options(slide_id: str):
+    info = _slide_info(slide_id)
+    config = await _project_annotation_ai_config(info)
+    return {
+        "slide_id": slide_id,
+        "project_path": _slide_project_path(info),
+        "current": config,
+        "options": ANNOTATION_AI_OPTIONS,
+    }
+
+
+@router.get("/{slide_id}/wsi-labeling-assistance")
+async def get_wsi_labeling_assistance(slide_id: str):
+    info = _slide_info(slide_id)
+    payload = _read_assistance_file(info)
+    if not payload:
+        return {"slide_id": slide_id, "exists": False, "labels": []}
+    payload["exists"] = True
+    return payload
+
+
+@router.post("/{slide_id}/wsi-labeling-assistance/run", dependencies=[Depends(require_not_viewer)])
+async def start_wsi_labeling_assistance(
+    slide_id: str,
+    payload: Optional[dict] = Body(None),
+):
+    info = _slide_info(slide_id)
+    config = await _project_annotation_ai_config(info)
+    override_key = str((payload or {}).get("annotation_ai_key") or "").strip()
+    if override_key:
+        option = ANNOTATION_AI_OPTION_BY_KEY.get(override_key)
+        if not option:
+            raise HTTPException(400, f"Invalid annotation AI key: {override_key}")
+        config = normalize_annotation_ai_config(True, override_key)
+    if not config.get("enabled"):
+        raise HTTPException(400, "Annotation AI assistance is disabled for this project")
+    task_id = uuid.uuid4().hex[:12]
+    str_filename = Path(info.file_path).name
+    with _tasks_lock:
+        _tasks[task_id] = {
+            "status": "queued",
+            "progress": 0,
+            "result": None,
+            "error": None,
+            "status_msg": "",
+            "slide_filename": str_filename,
+            "model": "WSI Labeling Assistance",
+            "variant": config.get("label", ""),
+        }
+    thread = threading.Thread(
+        target=_run_labeling_assistance_task,
+        args=(task_id, slide_id, info.file_path, config),
+        daemon=True,
+    )
+    thread.start()
+    return {"task_id": task_id, "status": "queued", "annotation_ai": config}
+
+
+@router.get("/wsi-labeling-assistance/task/{task_id}")
+async def get_wsi_labeling_assistance_task(task_id: str):
+    cleanup_old_tasks()
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    response = {
+        "task_id": task_id,
+        "status": task.get("status"),
+        "progress": task.get("progress", 0),
+        "status_msg": task.get("status_msg", ""),
+    }
+    if task.get("status") == "completed":
+        response["result"] = task.get("result")
+        release_task_result(task_id)
+    elif task.get("status") == "error":
+        response["error"] = task.get("error")
+    return response
 
 
 @router.get("/{slide_id}/patches/{patch_id}/cells")
@@ -413,7 +875,7 @@ async def save_patch_cells(
     payload: dict = Body(...),
     user: dict = Depends(get_current_user),
 ):
-    _slide_info(slide_id)
+    info = _slide_info(slide_id)
     db = _require_db()
     patch = await db.patch_annotation_status.find_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
     if not patch:
@@ -448,6 +910,8 @@ async def save_patch_cells(
             "str_updated_by": str(user.get("_id", "")),
         }},
     )
+    region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
+    await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
     return {"status": "saved", "patch_status": "completed", "cell_count": len(cells)}
 
 
@@ -493,6 +957,8 @@ async def update_patch_status(
         except Exception:
             raise HTTPException(404, "Patch not found")
     doc = _patch_doc(slide_id, px, py, status, info, user)
+    doc["str_patch_id"] = existing.get("str_patch_id") if existing else patch_id
+    doc["str_patch_key"] = existing.get("str_patch_key") if existing else _patch_key_from_xy(doc["int_x"], doc["int_y"])
     doc["bool_manual_excluded"] = bool(payload.get("manual_excluded") or payload.get("excluded")) and status == "not_required"
     for key in ("annotation_status", "review_status", "termination_status"):
         if key in payload:
@@ -511,4 +977,6 @@ async def update_patch_status(
         {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
         upsert=True,
     )
+    region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
+    await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
     return {"status": "saved", "patch": doc}

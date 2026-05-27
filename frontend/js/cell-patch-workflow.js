@@ -1,6 +1,6 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-03';
-import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
+import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260527-01';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
 class PatchFocusLayer {
@@ -59,6 +59,8 @@ export class CellPatchWorkflow {
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
         this.displayPanel = null;
         this.lastRegionAction = null;
+        this.pendingRegions = [];
+        this.regionMode = 'required';
         this.selectedPatch = null;
         this.patchFocusActive = false;
         this.savedWsiView = null;
@@ -84,7 +86,7 @@ export class CellPatchWorkflow {
 
     _setupRightPanel() {
         document.body.classList.add('cell-patch-workflow-page');
-        if (this.patchHeaderEl) this.patchHeaderEl.textContent = 'Required Patches';
+        if (this.patchHeaderEl) this.patchHeaderEl.textContent = 'Patch List';
         document.getElementById('progress-label')?.closest('.panel-section')?.classList.add('cell-patch-hidden-progress');
         this._setupDisplayPanel();
         this.renderPatchList();
@@ -290,8 +292,16 @@ export class CellPatchWorkflow {
         if (!patch) return null;
         const direct = this.patches.get(patch.patch_id || patch.str_patch_id);
         if (direct) return direct;
-        const legacyId = `px_${Number(patch.px ?? patch.int_px ?? 0)}_py_${Number(patch.py ?? patch.int_py ?? 0)}`;
-        return this.patches.get(legacyId) || null;
+        const x = Number(patch.x ?? patch.int_x ?? 0);
+        const y = Number(patch.y ?? patch.int_y ?? 0);
+        const key = patch.str_patch_key || patch.patch_key || `px_${Math.round(x)}_py_${Math.round(y)}`;
+        for (const saved of this.patches.values()) {
+            if ((saved.str_patch_key || saved.patch_key) === key) return saved;
+            const savedX = Math.round(Number(saved.int_x ?? saved.x ?? 0));
+            const savedY = Math.round(Number(saved.int_y ?? saved.y ?? 0));
+            if (`px_${savedX}_py_${savedY}` === key) return saved;
+        }
+        return null;
     }
 
     renderPatchList() {
@@ -313,19 +323,42 @@ export class CellPatchWorkflow {
         const countText = Object.entries(statusCounts)
             .map(([status, count]) => `${this._statusLabel(status)} ${count}`)
             .join(' / ');
+        const pendingRequired = this.pendingRegions.filter(region => region.type !== 'annotation_excluded_region').length;
+        const pendingExcluded = this.pendingRegions.filter(region => region.type === 'annotation_excluded_region').length;
+        const pendingText = this.pendingRegions.length
+            ? `<div class="patch-list-pending">Pending: ${pendingRequired} required / ${pendingExcluded} excluded</div>`
+            : '';
         this.patchListEl.innerHTML = `
             <div class="patch-list-summary">
                 <div>
                     <strong>${list.length}</strong>
                     <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
                 </div>
-                <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last required region">Undo Region</button>
+                <div class="patch-list-actions">
+                    <button type="button" class="patch-region-mode ${this.regionMode === 'required' ? 'active' : ''}" data-mode="required" ${this._isLabelerRole() ? 'disabled' : ''}>Required</button>
+                    <button type="button" class="patch-region-mode ${this.regionMode === 'exclude' ? 'active' : ''}" data-mode="exclude" ${this._isLabelerRole() ? 'disabled' : ''}>Exclude</button>
+                    <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
+                    <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending or saved region">Undo</button>
+                </div>
             </div>
+            ${pendingText}
             ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
+        this.patchListEl.querySelectorAll('.patch-region-mode').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.regionMode = btn.dataset.mode === 'exclude' ? 'exclude' : 'required';
+                this.renderPatchList();
+                this.setStatus(`${this.regionMode === 'exclude' ? 'Exclude' : 'Required'} region mode`);
+            });
+        });
+        this.patchListEl.querySelector('.patch-region-apply')?.addEventListener('click', () => {
+            this.applyPendingRegions().catch((err) => {
+                this.setStatus(`Patch region apply failed: ${err.message}`);
+            });
+        });
         this.patchListEl.querySelector('.patch-region-undo')?.addEventListener('click', () => {
             this.undoLastRequiredRegion().catch((err) => {
-                this.setStatus(`Required region undo failed: ${err.message}`);
+                this.setStatus(`Patch region undo failed: ${err.message}`);
             });
         });
         if (!this.slideId) {
@@ -1022,13 +1055,26 @@ export class CellPatchWorkflow {
     }
 
     canUndoRequiredRegion() {
-        return Boolean(this.slideId && this.required.toApiRegions().length);
+        return Boolean(this.slideId && (this.pendingRegions.length || this.required.toApiRegions().length));
+    }
+
+    canApplyPendingRegions() {
+        return Boolean(this.slideId && this.pendingRegions.length);
     }
 
     async undoLastRequiredRegion() {
         if (this._isLabelerRole()) {
             this.setStatus('Labeler role cannot change WSI-level required regions.');
             return false;
+        }
+        if (this.pendingRegions.length) {
+            const removed = this.pendingRegions.pop();
+            this.lastRegionAction = this.pendingRegions.length
+                ? { regionId: this.pendingRegions[this.pendingRegions.length - 1].id }
+                : null;
+            this.renderPatchList();
+            this.setStatus(`Pending ${removed.type === 'annotation_excluded_region' ? 'exclude' : 'required'} region removed`);
+            return true;
         }
         if (!this.canUndoRequiredRegion()) return false;
         const regions = this.required.toApiRegions();
@@ -1058,20 +1104,73 @@ export class CellPatchWorkflow {
         if (!this.slideId || !annotation) return;
         const coords = annotation.coordinates || [];
         if (coords.length < 3) return;
-        const regions = this.required.toApiRegions();
         const regionId = `region_${Date.now()}`;
-        regions.push({
+        const regionType = this.regionMode === 'exclude' ? 'annotation_excluded_region' : 'annotation_required_region';
+        this.pendingRegions.push({
             id: regionId,
-            type: 'annotation_required_region',
+            type: regionType,
             points: coords.map(pt => [Number(pt[0]), Number(pt[1])]),
         });
+        this.lastRegionAction = { regionId };
+        await this.onRequiredRegionSaved({ regionId });
+        this.renderPatchList();
+        this.setStatus(`${regionType === 'annotation_excluded_region' ? 'Exclude' : 'Required'} region queued. Click Apply to save patches.`);
+    }
+
+    async applyPendingRegions() {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot change WSI-level required regions.');
+            return false;
+        }
+        if (!this.slideId || !this.pendingRegions.length) return false;
+        const regions = [
+            ...this.required.toApiRegions(),
+            ...this.pendingRegions.map(region => ({
+                id: region.id,
+                type: region.type,
+                points: region.points,
+            })),
+        ];
         await this.api.saveCellRequiredRegions(this.slideId, regions);
         await this.api.recomputeCellPatchStatus(this.slideId);
         const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
         this.required.setRegions(regionPayload.regions || []);
-        this.lastRegionAction = { regionId };
+        this.pendingRegions = [];
+        this.lastRegionAction = null;
         await this.refreshPatches();
-        await this.onRequiredRegionSaved({ regionId });
-        this.setStatus('Required region saved and patch status recomputed');
+        this.setStatus('Patch regions applied and patch list updated');
+        this.ensureLabelingAssistance().catch((err) => {
+            if (!/disabled/i.test(err.message || '')) {
+                this.setStatus(`Labeling assistance failed: ${err.message}`);
+            }
+        });
+        return true;
+    }
+
+    async ensureLabelingAssistance() {
+        if (!this.slideId || !this.api?.startWsiLabelingAssistance) return;
+        const existing = this.api.getWsiLabelingAssistance
+            ? await this.api.getWsiLabelingAssistance(this.slideId)
+            : null;
+        if (existing?.exists && existing?.annotation_ai?.key) {
+            return;
+        }
+        const start = await this.api.startWsiLabelingAssistance(this.slideId);
+        const taskId = start?.task_id;
+        if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
+        this.setStatus(`Labeling assistance started: ${start.annotation_ai?.label || 'Annotation AI'}`);
+        for (let i = 0; i < 600; i += 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const task = await this.api.getWsiLabelingAssistanceTask(taskId);
+            if (task.status === 'completed') {
+                const count = Number(task.result?.total_labels || 0);
+                this.setStatus(`Labeling assistance ready: ${count.toLocaleString()} bbox labels`);
+                return;
+            }
+            if (task.status === 'error') {
+                throw new Error(task.error || 'Labeling assistance task failed');
+            }
+        }
+        this.setStatus('Labeling assistance is still running');
     }
 }

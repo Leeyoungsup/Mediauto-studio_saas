@@ -58,6 +58,8 @@ async def connect_db():
         await _db.project_infos.create_index("str_project_path", unique=True)
         await _db.project_infos.create_index("str_status")
         await _db.project_infos.create_index("bool_project_ai_enabled")
+        await _db.project_infos.create_index("bool_annotation_ai_enabled")
+        await _db.project_infos.create_index("str_annotation_ai_key")
         await _db.project_infos.create_index("dt_updated_at")
         await _db.annotation_required_regions.create_index("str_slide_id", unique=True)
         await _db.patch_annotation_status.create_index(

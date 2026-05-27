@@ -2,6 +2,37 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.127] - 2026-05-28
+
+### Added
+
+- Added project-level Annotation AI assistance settings with one selectable inherited or non-inherited model.
+- Added Cell Annotation WSI labeling assistance APIs that run a separate assistance task and write bbox-format `WSI_Labeling_assistance.json`.
+
+### Changed
+
+- Stopped Cell Annotation patch export from overwriting `WSI_Labeling_assistance.json` with required-region data; required regions now export to `WSI_regions.json`.
+- Bumped Home and Project page script cache keys.
+
+## [1.1.126] - 2026-05-27
+
+### Fixed
+
+- Ensured the Admin Create User, Pending Approval, and Users role controls all include the Labeler role from one shared role option list.
+- Bumped the Admin page script cache key.
+
+## [1.1.125] - 2026-05-27
+
+### Added
+
+- Added Apply-based Cell Annotation patch selection with required and exclude region modes.
+- Added Cell Annotation artifact export under `backend/cell_annotation/{slide_stem}` with patch JPEGs, patch labels, `info.json`, and `WSI_Labeling_assistance.json`.
+
+### Changed
+
+- Changed Cell Annotation patch identifiers to `patch_{num}` and renamed the right-panel list to Patch List.
+- Hid Point and Cut tools on the Cell Annotation page.
+
 ## [1.1.124] - 2026-05-27
 
 ### Added
