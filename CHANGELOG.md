@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.111] - 2026-05-27
+
+### Changed
+
+- Removed the in-canvas Patch View label from Cell Annotation Patch View.
+- Allowed Patch View panning across the slide while keeping the toolbar Fit action focused on the selected patch.
+
 ## [1.1.110] - 2026-05-27
 
 ### Fixed

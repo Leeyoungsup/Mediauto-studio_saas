@@ -38,9 +38,6 @@ class PatchFocusLayer {
         ctx.strokeStyle = '#6c5ce7';
         ctx.lineWidth = 2;
         ctx.strokeRect(cx, cy, cw, ch);
-        ctx.fillStyle = 'rgba(79, 70, 229, 0.92)';
-        ctx.font = '700 11px sans-serif';
-        ctx.fillText('Patch View', Math.max(8, cx + 8), Math.max(18, cy + 18));
         ctx.restore();
     }
 }
