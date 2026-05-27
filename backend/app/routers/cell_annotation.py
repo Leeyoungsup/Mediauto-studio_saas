@@ -472,6 +472,10 @@ async def update_patch_status(
             raise HTTPException(404, "Patch not found")
     doc = _patch_doc(slide_id, px, py, status, info, user)
     doc["bool_manual_excluded"] = bool(payload.get("manual_excluded") or payload.get("excluded")) and status == "not_required"
+    for key in ("annotation_status", "review_status", "termination_status"):
+        if key in payload:
+            field = f"str_{key}"
+            doc[field] = str(payload.get(key) or "").strip()[:80]
     if "memo" in payload:
         doc["str_memo"] = str(payload.get("memo") or "").strip()[:2000]
     if "memo_history" in payload:

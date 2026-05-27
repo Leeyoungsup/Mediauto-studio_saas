@@ -2446,6 +2446,27 @@ body.annotation-page .project-gate-row {
 .annotation-step-icon.is-pending::before {
     background: #f0b429;
 }
+.annotation-status-workflow.is-patch-status .annotation-step-percent {
+    min-width: 15px;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    font-size: 0;
+}
+.annotation-step-percent {
+    display: inline-flex;
+    min-width: 28px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    align-items: center;
+    justify-content: center;
+    background: #eef6ff;
+    color: #2563eb;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+}
 .annotation-step.is-active {
     border-color: #54a0ff;
     background: #eef6ff;
@@ -2703,6 +2724,7 @@ body.cell-patch-workflow-page .annotation-list {
 .patch-task-step {
     justify-self: center;
     max-width: 100%;
+    border: 0;
     border-radius: 999px;
     padding: 3px 6px;
     background: #f1f5f9;
@@ -2710,6 +2732,11 @@ body.cell-patch-workflow-page .annotation-list {
     font-size: 9px;
     font-weight: 800;
     white-space: nowrap;
+    cursor: pointer;
+}
+.patch-task-step:hover {
+    box-shadow: 0 0 0 1px rgba(108, 92, 231, 0.24);
+    filter: brightness(0.98);
 }
 .patch-task-memo-btn {
     justify-self: center;

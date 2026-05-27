@@ -2,6 +2,25 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.122] - 2026-05-27
+
+### Fixed
+
+- Connected the Cell Annotation Patch View status panel to the selected patch workflow state.
+
+## [1.1.121] - 2026-05-27
+
+### Fixed
+
+- Show selected patch workflow status in the Annotation Status panel while Cell Annotation Patch View is active.
+
+## [1.1.120] - 2026-05-27
+
+### Added
+
+- Show WSI-level Cell Annotation completion as a percentage in the Annotation status panel.
+- Made Required Patches Anno., Review, and Term. columns editable from the patch list.
+
 ## [1.1.119] - 2026-05-27
 
 ### Changed

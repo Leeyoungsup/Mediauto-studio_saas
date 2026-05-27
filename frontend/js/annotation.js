@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260527-10';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-16';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-19';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -5696,6 +5696,7 @@ async function _markAnnotationWorkflowInProgressIfIdle() {
 
 $annotationStatusWorkflow?.querySelectorAll('[data-annotation-status]').forEach((btn) => {
     btn.addEventListener('click', () => {
+        if ($annotationStatusWorkflow?.dataset.patchWorkflow === '1') return;
         if (btn.disabled) return;
         _applyAnnotationWorkflowStatusToCurrent(btn.dataset.annotationStatus);
     });

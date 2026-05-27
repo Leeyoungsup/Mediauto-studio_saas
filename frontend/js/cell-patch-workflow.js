@@ -247,6 +247,7 @@ export class CellPatchWorkflow {
         }
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
+        this._syncAnnotationStatusPanel();
         this.viewer.requestRender();
     }
 
@@ -254,9 +255,18 @@ export class CellPatchWorkflow {
         const id = patch.str_patch_id || patch.patch_id;
         if (!id) return;
         if (!this._patchMatchesCurrentGrid(patch)) return;
-        this.patches.set(id, { ...patch, patch_id: id });
+        const normalized = { ...patch, patch_id: id };
+        this.patches.set(id, normalized);
+        if (this.selectedPatchId() === id) {
+            this.selectedPatch = this._normalizePatchView({
+                ...(this.selectedPatch || {}),
+                ...normalized,
+            });
+            this.status.setSelectedPatch(id);
+        }
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
+        this._syncAnnotationStatusPanel();
         this.viewer.requestRender();
     }
 
@@ -358,9 +368,9 @@ export class CellPatchWorkflow {
                     <span class="patch-task-id">${this._escape(id)}</span>
                     <span class="patch-task-coord">X ${Number(patch.int_x ?? patch.x ?? 0).toLocaleString()} / Y ${Number(patch.int_y ?? patch.y ?? 0).toLocaleString()}</span>
                 </span>
-                <span class="patch-task-step" data-step-status="${this._escape(workflow.annotation)}">${this._escape(this._workflowLabel(workflow.annotation))}</span>
-                <span class="patch-task-step" data-step-status="${this._escape(workflow.review)}">${this._escape(this._workflowLabel(workflow.review))}</span>
-                <span class="patch-task-step" data-step-status="${this._escape(workflow.termination)}">${this._escape(this._workflowLabel(workflow.termination))}</span>
+                <button type="button" class="patch-task-step" data-step="annotation" data-step-status="${this._escape(workflow.annotation)}">${this._escape(this._workflowLabel(workflow.annotation))}</button>
+                <button type="button" class="patch-task-step" data-step="review" data-step-status="${this._escape(workflow.review)}">${this._escape(this._workflowLabel(workflow.review))}</button>
+                <button type="button" class="patch-task-step" data-step="termination" data-step-status="${this._escape(workflow.termination)}">${this._escape(this._workflowLabel(workflow.termination))}</button>
                 <button type="button" class="patch-task-memo-btn" title="${this._escape(memoTitle)}">${this._escape(memoLabel)}</button>
             `;
             row.addEventListener('click', () => this.openPatchFromList(id));
@@ -373,6 +383,15 @@ export class CellPatchWorkflow {
                 event.preventDefault();
                 event.stopPropagation();
                 this.editPatchMemo(patch);
+            });
+            row.querySelectorAll('.patch-task-step').forEach(btn => {
+                btn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.updatePatchWorkflowStep(patch, btn.dataset.step).catch((err) => {
+                        this.setStatus(`Patch workflow update failed: ${err.message}`);
+                    });
+                });
             });
             row.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
@@ -428,6 +447,131 @@ export class CellPatchWorkflow {
             pending: '-',
             not_required: '-',
         }[status] || '-';
+    }
+
+    _patchCompletionPercent() {
+        const list = Array.from(this.patches.values())
+            .filter(patch => (patch.str_status || patch.status || 'not_required') !== 'not_required');
+        if (!list.length) return 0;
+        const done = list.filter(patch => {
+            const workflow = this._patchWorkflowStatus(patch);
+            return ['completed', 'reviewed', 'rejected'].includes(workflow.annotation);
+        }).length;
+        return Math.round((done / list.length) * 100);
+    }
+
+    _syncAnnotationStatusPanel() {
+        const workflow = document.getElementById('annotation-status-workflow');
+        const btn = workflow?.querySelector('[data-annotation-status="annotation"]');
+        if (!workflow || !btn) return;
+        let stateIcon = btn.nextElementSibling;
+        if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) return;
+        if (this.patchFocusActive && this.selectedPatch) {
+            this._renderSelectedPatchWorkflowPanel(workflow);
+            return;
+        }
+        workflow.classList.remove('is-patch-status');
+        workflow.dataset.patchWorkflow = '';
+        workflow.querySelectorAll('[data-annotation-status]').forEach((statusBtn) => {
+            statusBtn.onclick = null;
+            statusBtn.title = '';
+            statusBtn.classList.remove('is-active', 'is-complete', 'is-running');
+        });
+        const pct = this._patchCompletionPercent();
+        stateIcon.className = 'annotation-step-state annotation-step-percent';
+        stateIcon.textContent = `${pct}%`;
+        stateIcon.title = `Annotation completion: ${pct}%`;
+    }
+
+    _renderSelectedPatchWorkflowPanel(workflow) {
+        if (!workflow || !this.selectedPatch) return;
+        workflow.classList.add('is-patch-status');
+        workflow.dataset.patchWorkflow = '1';
+        const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
+        const states = this._patchWorkflowStatus(patch);
+        const stepMap = {
+            annotation: { label: 'Annotation', state: states.annotation },
+            review: { label: 'Review', state: states.review },
+            termination: { label: 'Termination', state: states.termination },
+        };
+        workflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
+            const step = btn.dataset.annotationStatus;
+            const info = stepMap[step] || stepMap.annotation;
+            btn.innerHTML = `<span class="annotation-step-label">${info.label}</span>`;
+            btn.classList.toggle('is-active', info.state === 'required' || info.state === 'in_progress' || info.state === 'current');
+            btn.classList.toggle('is-complete', info.state === 'completed' || info.state === 'reviewed');
+            btn.classList.toggle('is-running', info.state === 'in_progress');
+            btn.disabled = false;
+            btn.title = `Patch ${info.label}: ${this._workflowLabel(info.state)}`;
+            btn.onclick = (event) => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                this.updatePatchWorkflowStep(patch, step).catch((err) => {
+                    this.setStatus(`Patch workflow update failed: ${err.message}`);
+                });
+            };
+            let stateIcon = btn.nextElementSibling;
+            if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) return;
+            const iconState = this._workflowIconState(info.state);
+            stateIcon.className = `annotation-step-state annotation-step-icon is-${iconState}`;
+            stateIcon.textContent = '';
+            stateIcon.title = `Patch ${info.label}: ${this._workflowLabel(info.state)}`;
+        });
+    }
+
+    _workflowIconState(state) {
+        if (state === 'completed' || state === 'reviewed') return 'done';
+        if (state === 'in_progress') return 'running';
+        if (state === 'required' || state === 'current') return 'current';
+        return 'pending';
+    }
+
+    async updatePatchWorkflowStep(patch, step) {
+        const id = patch?.str_patch_id || patch?.patch_id;
+        if (!this.slideId || !id || !step) return;
+        const workflow = this._patchWorkflowStatus(patch);
+        const next = { ...workflow };
+        let status = patch.str_status || patch.status || 'required';
+        if (step === 'annotation') {
+            const order = ['required', 'in_progress', 'completed'];
+            const current = workflow.annotation === 'completed' ? 'completed' : (workflow.annotation || 'required');
+            const nextStatus = order[(Math.max(0, order.indexOf(current)) + 1) % order.length];
+            next.annotation = nextStatus;
+            status = nextStatus;
+            if (nextStatus !== 'completed') {
+                next.review = 'pending';
+                next.termination = 'pending';
+            }
+        } else if (step === 'review') {
+            const order = ['pending', 'reviewed', 'rejected'];
+            const current = ['reviewed', 'rejected'].includes(workflow.review) ? workflow.review : 'pending';
+            next.review = order[(order.indexOf(current) + 1) % order.length];
+            if (next.review === 'pending') {
+                status = 'completed';
+                next.annotation = 'completed';
+                next.termination = 'pending';
+            } else {
+                status = next.review;
+                next.annotation = 'completed';
+                next.termination = 'current';
+            }
+        } else if (step === 'termination') {
+            const order = ['pending', 'current', 'completed'];
+            const current = ['current', 'completed'].includes(workflow.termination) ? workflow.termination : 'pending';
+            next.termination = order[(order.indexOf(current) + 1) % order.length];
+            next.annotation = 'completed';
+            if (workflow.review === 'pending') next.review = 'reviewed';
+            status = next.review === 'rejected' ? 'rejected' : 'reviewed';
+        }
+        const result = await this.api.updatePatchStatus(this.slideId, id, status, {
+            annotation_status: next.annotation,
+            review_status: next.review,
+            termination_status: next.termination,
+            memo: this._patchMemo(patch),
+            memo_history: this._patchMemoHistory(patch),
+        });
+        this.updatePatch({ ...patch, ...(result.patch || {}), patch_id: id });
+        this.setStatus(`Patch ${step} updated: ${id}`);
     }
 
     _patchMemo(patch) {
@@ -711,6 +855,7 @@ export class CellPatchWorkflow {
         }
         this.renderPatchList();
         this._scrollSelectedPatchIntoView();
+        this._syncAnnotationStatusPanel();
         this._syncToolbarToggle();
     }
 
@@ -770,6 +915,7 @@ export class CellPatchWorkflow {
         this._fitPatchView(this.selectedPatch);
         this.renderPatchList();
         this._syncToolbarToggle();
+        this._syncAnnotationStatusPanel();
         this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
     }
 
@@ -796,6 +942,7 @@ export class CellPatchWorkflow {
         this.viewer.requestRender();
         this.renderPatchList();
         this._syncToolbarToggle();
+        this._syncAnnotationStatusPanel();
         this.setStatus('WSI view restored');
     }
 
