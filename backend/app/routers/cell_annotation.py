@@ -227,6 +227,30 @@ def _normalize_cell(cell: dict, patch: dict) -> dict:
     }
 
 
+def _normalize_memo_history(value: Any) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            answer = ""
+            accepted_at = ""
+        elif isinstance(item, dict):
+            text = str(item.get("text") or item.get("memo") or "").strip()
+            answer = str(item.get("answer") or item.get("reply") or "").strip()
+            accepted_at = str(item.get("accepted_at") or item.get("created_at") or "").strip()
+        else:
+            continue
+        if text:
+            out.append({
+                "text": text[:2000],
+                "answer": answer[:2000],
+                "accepted_at": accepted_at[:80],
+            })
+    return out[:200]
+
+
 @router.get("/{slide_id}/grid-config")
 async def get_grid_config(slide_id: str):
     info = _slide_info(slide_id)
@@ -291,6 +315,7 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
     width, height = info.dimensions
     ops = []
     required_ids = set()
+    skipped_ids = set()
     for region in regions:
         poly = region.get("list_points") or []
         box = _bbox(poly)
@@ -310,13 +335,16 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
                 if not _poly_intersects_rect(poly, rx0, ry0, rx1, ry1):
                     continue
                 pid = _patch_id_from_xy(rx0, ry0)
-                if pid in required_ids:
+                if pid in required_ids or pid in skipped_ids:
                     continue
-                required_ids.add(pid)
                 existing = await db.patch_annotation_status.find_one(
                     {"str_slide_id": slide_id, "str_patch_id": pid},
-                    {"str_status": 1},
+                    {"str_status": 1, "bool_manual_excluded": 1},
                 )
+                if (existing or {}).get("bool_manual_excluded"):
+                    skipped_ids.add(pid)
+                    continue
+                required_ids.add(pid)
                 status = (existing or {}).get("str_status") or "required"
                 if status == "not_required":
                     status = "required"
@@ -443,6 +471,11 @@ async def update_patch_status(
         except Exception:
             raise HTTPException(404, "Patch not found")
     doc = _patch_doc(slide_id, px, py, status, info, user)
+    doc["bool_manual_excluded"] = bool(payload.get("manual_excluded") or payload.get("excluded")) and status == "not_required"
+    if "memo" in payload:
+        doc["str_memo"] = str(payload.get("memo") or "").strip()[:2000]
+    if "memo_history" in payload:
+        doc["list_memo_history"] = _normalize_memo_history(payload.get("memo_history"))
     now = _now()
     await db.patch_annotation_status.update_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},

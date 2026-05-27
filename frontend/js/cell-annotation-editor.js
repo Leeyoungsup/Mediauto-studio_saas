@@ -44,10 +44,6 @@ export class CellAnnotationEditor {
             [this.patch.x + this.patch.w, this.patch.y + this.patch.h],
             [this.patch.x, this.patch.y + this.patch.h],
         ]]);
-        this.viewer.viewCenterX = this.patch.x + this.patch.w / 2;
-        this.viewer.viewCenterY = this.patch.y + this.patch.h / 2;
-        const fitZoom = Math.min(this.viewer._viewW / this.patch.w, this.viewer._viewH / this.patch.h) * 0.9;
-        this.viewer.setZoom(Math.max(this.viewer.minZoom, Math.min(this.viewer.maxZoom, fitZoom)));
         this.viewer.requestRender();
         this.render();
     }

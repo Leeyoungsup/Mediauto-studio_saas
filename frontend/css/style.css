@@ -2618,7 +2618,7 @@ body.cell-patch-workflow-page .annotation-list {
 }
 .patch-task-header {
     display: grid;
-    grid-template-columns: minmax(92px, 1fr) 68px 58px 72px;
+    grid-template-columns: minmax(88px, 1fr) 52px 50px 46px 40px;
     gap: 6px;
     padding: 0 8px 2px;
     color: #64748b;
@@ -2628,7 +2628,7 @@ body.cell-patch-workflow-page .annotation-list {
 }
 .patch-task-row {
     display: grid;
-    grid-template-columns: minmax(92px, 1fr) 68px 58px 72px;
+    grid-template-columns: minmax(88px, 1fr) 52px 50px 46px 40px;
     gap: 4px 8px;
     width: 100%;
     min-height: 46px;
@@ -2676,6 +2676,33 @@ body.cell-patch-workflow-page .annotation-list {
     font-weight: 800;
     white-space: nowrap;
 }
+.patch-task-memo-btn {
+    justify-self: center;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0 6px;
+    border: 1px solid #d5dbee;
+    border-radius: 6px;
+    background: #fff;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.patch-task-row[data-has-memo="current"] .patch-task-memo-btn {
+    border-color: #8b7cf6;
+    background: #f5f3ff;
+    color: #6c5ce7;
+}
+.patch-task-row[data-has-memo="history"] .patch-task-memo-btn {
+    border-color: #c4b5fd;
+    background: #faf5ff;
+    color: #7c3aed;
+}
+.patch-task-memo-btn:hover {
+    border-color: #6c5ce7;
+    color: #4f46e5;
+}
 .patch-task-step[data-step-status="required"] {
     background: #fff7ed;
     color: #b45309;
@@ -2698,6 +2725,51 @@ body.cell-patch-workflow-page .annotation-list {
 .patch-task-step[data-step-status="not_required"] {
     background: transparent;
     color: #d97706;
+}
+.patch-context-menu {
+    position: fixed;
+    z-index: 5000;
+    min-width: 168px;
+    padding: 6px;
+    border: 1px solid #dbe2f1;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+}
+.patch-context-title {
+    max-width: 210px;
+    padding: 5px 7px 6px;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.patch-context-menu button {
+    display: block;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #1f2a44;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+.patch-context-menu button:hover {
+    background: #f8f7ff;
+    color: #4f46e5;
+}
+.patch-context-menu button.danger {
+    color: #dc2626;
+}
+.patch-context-menu button.danger:hover {
+    background: #fef2f2;
+    color: #b91c1c;
 }
 .annotation-status-workflow.is-disabled {
     opacity: 0.62;

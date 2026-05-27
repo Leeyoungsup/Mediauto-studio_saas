@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260526-01';
+import { api } from './api.js?v=20260527-10';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-09';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260527-12';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {

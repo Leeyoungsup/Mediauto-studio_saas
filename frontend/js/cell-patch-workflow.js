@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-07';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260527-02';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260526-06';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260526-06';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
 class PatchFocusLayer {
     constructor() {
@@ -64,6 +64,7 @@ export class CellPatchWorkflow {
         this.lastWsiViewBeforePatchOpen = null;
         this.layerVisibilityBeforePatchView = null;
         this.toolbarToggle = null;
+        this.patchContextMenu = null;
         this.editor = new CellAnnotationEditor({
             api,
             viewer,
@@ -127,6 +128,16 @@ export class CellPatchWorkflow {
             if (!saved || (saved.str_status || saved.status) === 'not_required') return;
             this.openPatch({ ...patch, ...saved });
             this.renderPatchList();
+        }, true);
+
+        this.canvas?.addEventListener('contextmenu', (e) => {
+            if (this.patchFocusActive || !this.slideId || this.viewer.drawMode) return;
+            const patch = this._patchFromPointerEvent(e);
+            const saved = patch ? this._findPatchRecord(patch) : null;
+            if (!saved || (saved.str_status || saved.status) === 'not_required') return;
+            e.preventDefault();
+            e.stopPropagation();
+            this._showPatchContextMenu({ ...patch, ...saved }, e.clientX, e.clientY);
         }, true);
 
         this.canvas?.addEventListener('dblclick', (e) => {
@@ -272,20 +283,27 @@ export class CellPatchWorkflow {
         header.className = 'patch-task-header';
         header.innerHTML = `
             <span>Patch</span>
-            <span>Annotation</span>
+            <span>Anno.</span>
             <span>Review</span>
-            <span>Termination</span>
+            <span>Term.</span>
+            <span>Memo</span>
         `;
         body.appendChild(header);
         for (const patch of list) {
             const id = patch.str_patch_id || patch.patch_id;
             const status = patch.str_status || patch.status || 'required';
             const workflow = this._patchWorkflowStatus(patch);
-            const row = document.createElement('button');
-            row.type = 'button';
+            const memo = this._patchMemo(patch);
+            const memoHistory = this._patchMemoHistory(patch);
+            const memoLabel = memo ? 'M' : (memoHistory.length ? 'H' : '-');
+            const memoTitle = memo || (memoHistory.length ? `${memoHistory.length} previous memo(s)` : 'No memo');
+            const row = document.createElement('div');
+            row.tabIndex = 0;
+            row.role = 'button';
             row.className = 'patch-task-row';
             row.dataset.patchId = id;
             row.dataset.status = status;
+            row.dataset.hasMemo = memo ? 'current' : (memoHistory.length ? 'history' : '');
             if (id && id === this.selectedPatchId()) row.classList.add('selected');
             row.innerHTML = `
                 <span class="patch-task-main">
@@ -295,8 +313,24 @@ export class CellPatchWorkflow {
                 <span class="patch-task-step" data-step-status="${this._escape(workflow.annotation)}">${this._escape(this._workflowLabel(workflow.annotation))}</span>
                 <span class="patch-task-step" data-step-status="${this._escape(workflow.review)}">${this._escape(this._workflowLabel(workflow.review))}</span>
                 <span class="patch-task-step" data-step-status="${this._escape(workflow.termination)}">${this._escape(this._workflowLabel(workflow.termination))}</span>
+                <button type="button" class="patch-task-memo-btn" title="${this._escape(memoTitle)}">${this._escape(memoLabel)}</button>
             `;
             row.addEventListener('click', () => this.openPatchFromList(id));
+            row.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                this.openPatchFromList(id);
+            });
+            row.querySelector('.patch-task-memo-btn')?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.editPatchMemo(patch);
+            });
+            row.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this._showPatchContextMenu(patch, event.clientX, event.clientY);
+            });
             row.addEventListener('dblclick', (event) => {
                 this.openPatchFromList(id).then(() => this.enterPatchView());
                 event.preventDefault();
@@ -348,6 +382,226 @@ export class CellPatchWorkflow {
         }[status] || '-';
     }
 
+    _patchMemo(patch) {
+        return String(patch?.str_memo || patch?.memo || '').trim();
+    }
+
+    _patchMemoHistory(patch) {
+        return this._normalizeMemoHistory(patch?.list_memo_history || patch?.memo_history);
+    }
+
+    _normalizeMemoHistory(value) {
+        const list = Array.isArray(value) ? value : [];
+        return list
+            .map(item => {
+                if (typeof item === 'string') return { text: item.trim(), answer: '', accepted_at: '' };
+                return {
+                    text: String(item?.text ?? item?.memo ?? '').trim(),
+                    answer: String(item?.answer ?? item?.reply ?? '').trim(),
+                    accepted_at: String(item?.accepted_at ?? item?.created_at ?? '').trim(),
+                };
+            })
+            .filter(item => item.text);
+    }
+
+    _patchFromPointerEvent(event) {
+        if (!this.canvas || !this.viewer) return null;
+        const rect = this.canvas.getBoundingClientRect();
+        const [sx, sy] = this.viewer.canvasToScene(event.clientX - rect.left, event.clientY - rect.top);
+        return this.grid.patchAt(sx, sy);
+    }
+
+    _closePatchContextMenu() {
+        this.patchContextMenu?.remove();
+        this.patchContextMenu = null;
+    }
+
+    _showPatchContextMenu(patch, clientX, clientY) {
+        const id = patch?.str_patch_id || patch?.patch_id;
+        if (!id) return;
+        this._closePatchContextMenu();
+        const menu = document.createElement('div');
+        menu.className = 'patch-context-menu';
+        menu.innerHTML = `
+            <div class="patch-context-title">${this._escape(id)}</div>
+            <button type="button" data-action="memo">Memo</button>
+            <button type="button" data-action="remove" class="danger">Remove Patch</button>
+        `;
+        menu.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const action = event.target?.closest('button')?.dataset?.action;
+            if (action === 'memo') {
+                this.editPatchMemo(patch);
+            }
+            if (action === 'remove') {
+                this.removePatchFromRequiredList(patch).catch((err) => this.setStatus(`Patch remove failed: ${err.message}`));
+            }
+            if (action) this._closePatchContextMenu();
+        });
+        document.body.appendChild(menu);
+        const width = menu.offsetWidth || 180;
+        const height = menu.offsetHeight || 96;
+        menu.style.left = `${Math.min(clientX, window.innerWidth - width - 8)}px`;
+        menu.style.top = `${Math.min(clientY, window.innerHeight - height - 8)}px`;
+        this.patchContextMenu = menu;
+        setTimeout(() => {
+            const close = () => {
+                this._closePatchContextMenu();
+                document.removeEventListener('click', close, true);
+                document.removeEventListener('keydown', onKey, true);
+            };
+            const onKey = (event) => {
+                if (event.key === 'Escape') close();
+            };
+            document.addEventListener('click', close, true);
+            document.addEventListener('keydown', onKey, true);
+        }, 0);
+    }
+
+    _openPatchMemoDialog({ patch, onSave, onAccept, onDelete, onDeleteHistory }) {
+        const existing = document.querySelector('.memo-modal');
+        if (existing) existing.remove();
+        const id = patch?.str_patch_id || patch?.patch_id || 'patch';
+        const value = this._patchMemo(patch);
+        const hasCurrentMemo = Boolean(value);
+        let historyList = this._patchMemoHistory(patch);
+        const modal = document.createElement('div');
+        modal.className = 'memo-modal';
+        modal.innerHTML = `
+            <div class="memo-dialog" role="dialog" aria-modal="true" aria-labelledby="patch-memo-title">
+                <div class="memo-dialog-header">
+                    <h2 id="patch-memo-title">Patch memo - ${this._escape(id)}</h2>
+                    <button type="button" class="memo-close" aria-label="Close">x</button>
+                </div>
+                <div class="memo-dialog-body">
+                    <label class="memo-current">
+                        <span>${hasCurrentMemo ? 'Current memo' : 'Memo'}</span>
+                        <textarea class="memo-textarea" rows="6" placeholder="Write memo..."${hasCurrentMemo ? ' readonly' : ''}>${this._escape(value)}</textarea>
+                    </label>
+                    <label class="memo-answer" ${hasCurrentMemo ? '' : 'hidden'}>
+                        <span>Answer</span>
+                        <textarea class="memo-answer-textarea" rows="4" placeholder="Write answer..."${hasCurrentMemo ? '' : ' disabled'}></textarea>
+                    </label>
+                    <div class="memo-history">
+                        <div class="memo-history-title">Previous memo list</div>
+                        <div class="memo-history-list"></div>
+                    </div>
+                </div>
+                <div class="memo-dialog-footer">
+                    <button type="button" class="small-btn memo-delete"${hasCurrentMemo ? ' hidden' : ''}>Delete</button>
+                    <button type="button" class="small-btn memo-save"${hasCurrentMemo ? ' hidden' : ''}>Save</button>
+                    <button type="button" class="small-btn primary memo-accept"${hasCurrentMemo ? '' : ' hidden'}>Accept</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const textarea = modal.querySelector('.memo-textarea');
+        const answerTextarea = modal.querySelector('.memo-answer-textarea');
+        const listEl = modal.querySelector('.memo-history-list');
+        const renderHistory = () => {
+            listEl.innerHTML = '';
+            if (!historyList.length) {
+                const empty = document.createElement('div');
+                empty.className = 'memo-history-empty';
+                empty.textContent = 'No previous memos';
+                listEl.appendChild(empty);
+                return;
+            }
+            historyList.forEach((item, idx) => {
+                const row = document.createElement('div');
+                row.className = 'memo-history-item';
+                row.innerHTML = `
+                    <div class="memo-history-text">${this._escape(item.text)}</div>
+                    ${item.answer ? `<div class="memo-history-answer"><strong>Answer</strong>${this._escape(item.answer)}</div>` : ''}
+                    <time>${this._escape(item.accepted_at || '')}</time>
+                    <button type="button" class="memo-history-delete" title="Delete previous memo">x</button>
+                `;
+                row.querySelector('.memo-history-delete')?.addEventListener('click', async () => {
+                    if (!confirm('Delete previous memo?')) return;
+                    const nextHistory = historyList.filter((_, itemIdx) => itemIdx !== idx);
+                    await onDeleteHistory?.(nextHistory);
+                    historyList = nextHistory;
+                    renderHistory();
+                });
+                listEl.appendChild(row);
+            });
+        };
+        const close = () => modal.remove();
+        modal.querySelector('.memo-close')?.addEventListener('click', close);
+        modal.addEventListener('mousedown', (event) => { if (event.target === modal) close(); });
+        modal.querySelector('.memo-save')?.addEventListener('click', async () => {
+            await onSave?.(textarea.value.trim());
+            close();
+        });
+        modal.querySelector('.memo-accept')?.addEventListener('click', async () => {
+            await onAccept?.(textarea.value.trim(), answerTextarea?.value.trim() || '');
+            close();
+        });
+        modal.querySelector('.memo-delete')?.addEventListener('click', async () => {
+            if (!textarea.value.trim() && !value) return close();
+            if (!confirm('Delete current memo?')) return;
+            await onDelete?.();
+            close();
+        });
+        renderHistory();
+        const focusTarget = hasCurrentMemo ? answerTextarea : textarea;
+        focusTarget?.focus();
+        focusTarget?.select();
+    }
+
+    async _savePatchMemoState(patch, memo, history) {
+        const id = patch?.str_patch_id || patch?.patch_id;
+        if (!this.slideId || !id) return;
+        const status = patch.str_status || patch.status || 'required';
+        const result = await this.api.updatePatchStatus(this.slideId, id, status, {
+            memo,
+            memo_history: this._normalizeMemoHistory(history),
+        });
+        this.updatePatch(result.patch || { ...patch, str_memo: memo, list_memo_history: history });
+    }
+
+    editPatchMemo(patch) {
+        this._openPatchMemoDialog({
+            patch,
+            onSave: async (text) => {
+                await this._savePatchMemoState(patch, text, this._patchMemoHistory(patch));
+                this.setStatus(text ? 'Patch memo saved' : 'Patch memo cleared');
+            },
+            onAccept: async (text, answer) => {
+                const history = this._patchMemoHistory(patch);
+                if (text) history.unshift({ text, answer, accepted_at: new Date().toISOString() });
+                await this._savePatchMemoState(patch, '', history);
+                this.setStatus('Patch memo accepted');
+            },
+            onDelete: async () => {
+                await this._savePatchMemoState(patch, '', this._patchMemoHistory(patch));
+                this.setStatus('Patch memo deleted');
+            },
+            onDeleteHistory: async (nextHistory) => {
+                await this._savePatchMemoState(patch, this._patchMemo(patch), nextHistory);
+                this.setStatus('Previous patch memo deleted');
+            },
+        });
+    }
+
+    async removePatchFromRequiredList(patch) {
+        const id = patch?.str_patch_id || patch?.patch_id;
+        if (!this.slideId || !id) return;
+        if (!confirm(`Remove patch from required list?\n${id}`)) return;
+        await this.api.updatePatchStatus(this.slideId, id, 'not_required', {
+            manual_excluded: true,
+            memo: this._patchMemo(patch),
+            memo_history: this._patchMemoHistory(patch),
+        });
+        if (this.selectedPatchId() === id) {
+            this.selectedPatch = null;
+            this.status.setSelectedPatch('');
+            if (this.patchFocusActive) this.exitPatchView({ restore: true });
+        }
+        await this.refreshPatches();
+        this.setStatus(`Patch removed from required list: ${id}`);
+    }
+
     async openPatchFromList(patchId) {
         if (!patchId || !this.slideId) return;
         const saved = this.patches.get(patchId);
@@ -378,7 +632,15 @@ export class CellPatchWorkflow {
         await this.editor.open(this.slideId, this.selectedPatch);
         if (this.patchFocusActive) this.focusLayer.setPatch(this.selectedPatch);
         this.renderPatchList();
+        this._scrollSelectedPatchIntoView();
         this._syncToolbarToggle();
+    }
+
+    _scrollSelectedPatchIntoView() {
+        const id = this.selectedPatchId();
+        if (!id || !this.patchListEl) return;
+        const row = this.patchListEl.querySelector(`.patch-task-row[data-patch-id="${CSS.escape(id)}"]`);
+        row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
     selectedPatchId() {

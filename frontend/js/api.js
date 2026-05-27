@@ -766,11 +766,11 @@ export const api = {
         return res.json();
     },
 
-    async updatePatchStatus(slideId, patchId, status) {
+    async updatePatchStatus(slideId, patchId, status, options = {}) {
         const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, ...(options || {}) }),
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

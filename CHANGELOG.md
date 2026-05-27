@@ -2,6 +2,26 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.115] - 2026-05-27
+
+### Fixed
+
+- Stopped regular WSI patch selection from fitting the viewer to the patch.
+- Kept the selected WSI patch synchronized and visible in the Required Patches panel.
+
+## [1.1.114] - 2026-05-27
+
+### Changed
+
+- Changed the Cell Annotation required patch list to Patch, Anno., Review, Term., and Memo columns.
+- Replaced the patch memo prompt with a memo dialog that supports current memo, answers, and previous memo history.
+
+## [1.1.113] - 2026-05-27
+
+### Added
+
+- Added right-click Cell Annotation patch actions for patch memo editing and removing a patch from the required list.
+
 ## [1.1.112] - 2026-05-27
 
 ### Changed
