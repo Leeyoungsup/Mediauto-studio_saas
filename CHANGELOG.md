@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.116] - 2026-05-27
+
+### Fixed
+
+- Allowed manually removed Cell Annotation patches to be restored from WSI click or the patch context menu.
+
 ## [1.1.115] - 2026-05-27
 
 ### Fixed

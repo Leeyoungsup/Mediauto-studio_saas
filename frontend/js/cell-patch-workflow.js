@@ -125,7 +125,15 @@ export class CellPatchWorkflow {
             const patch = this.grid.patchAt(sx, sy);
             if (!patch) return;
             const saved = this._findPatchRecord(patch);
-            if (!saved || (saved.str_status || saved.status) === 'not_required') return;
+            if (!saved) return;
+            if ((saved.str_status || saved.status) === 'not_required') {
+                if (saved.bool_manual_excluded) {
+                    this.restorePatchToRequiredList({ ...patch, ...saved }).catch((err) => {
+                        this.setStatus(`Patch restore failed: ${err.message}`);
+                    });
+                }
+                return;
+            }
             this.openPatch({ ...patch, ...saved });
             this.renderPatchList();
         }, true);
@@ -134,7 +142,8 @@ export class CellPatchWorkflow {
             if (this.patchFocusActive || !this.slideId || this.viewer.drawMode) return;
             const patch = this._patchFromPointerEvent(e);
             const saved = patch ? this._findPatchRecord(patch) : null;
-            if (!saved || (saved.str_status || saved.status) === 'not_required') return;
+            if (!saved) return;
+            if ((saved.str_status || saved.status) === 'not_required' && !saved.bool_manual_excluded) return;
             e.preventDefault();
             e.stopPropagation();
             this._showPatchContextMenu({ ...patch, ...saved }, e.clientX, e.clientY);
@@ -419,13 +428,16 @@ export class CellPatchWorkflow {
     _showPatchContextMenu(patch, clientX, clientY) {
         const id = patch?.str_patch_id || patch?.patch_id;
         if (!id) return;
+        const isRemoved = (patch.str_status || patch.status) === 'not_required' && patch.bool_manual_excluded;
         this._closePatchContextMenu();
         const menu = document.createElement('div');
         menu.className = 'patch-context-menu';
         menu.innerHTML = `
             <div class="patch-context-title">${this._escape(id)}</div>
             <button type="button" data-action="memo">Memo</button>
-            <button type="button" data-action="remove" class="danger">Remove Patch</button>
+            ${isRemoved
+                ? '<button type="button" data-action="restore">Restore Patch</button>'
+                : '<button type="button" data-action="remove" class="danger">Remove Patch</button>'}
         `;
         menu.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -435,6 +447,9 @@ export class CellPatchWorkflow {
             }
             if (action === 'remove') {
                 this.removePatchFromRequiredList(patch).catch((err) => this.setStatus(`Patch remove failed: ${err.message}`));
+            }
+            if (action === 'restore') {
+                this.restorePatchToRequiredList(patch).catch((err) => this.setStatus(`Patch restore failed: ${err.message}`));
             }
             if (action) this._closePatchContextMenu();
         });
@@ -600,6 +615,26 @@ export class CellPatchWorkflow {
         }
         await this.refreshPatches();
         this.setStatus(`Patch removed from required list: ${id}`);
+    }
+
+    async restorePatchToRequiredList(patch) {
+        const id = patch?.str_patch_id || patch?.patch_id;
+        if (!this.slideId || !id) return;
+        const result = await this.api.updatePatchStatus(this.slideId, id, 'required', {
+            manual_excluded: false,
+            memo: this._patchMemo(patch),
+            memo_history: this._patchMemoHistory(patch),
+        });
+        const restored = {
+            ...patch,
+            ...(result.patch || {}),
+            patch_id: id,
+            str_status: 'required',
+            bool_manual_excluded: false,
+        };
+        this.updatePatch(restored);
+        await this.openPatch(restored);
+        this.setStatus(`Patch restored: ${id}`);
     }
 
     async openPatchFromList(patchId) {
