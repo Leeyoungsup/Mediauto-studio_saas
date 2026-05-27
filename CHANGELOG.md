@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.112] - 2026-05-27
+
+### Changed
+
+- Hid the Cell Annotation required-region polygon overlay while keeping patch generation and undo behavior.
+
 ## [1.1.111] - 2026-05-27
 
 ### Changed

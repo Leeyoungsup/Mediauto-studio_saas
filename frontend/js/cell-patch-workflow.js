@@ -52,7 +52,7 @@ export class CellPatchWorkflow {
         this.slideId = '';
         this.grid = new PatchGridLayer();
         this.status = new PatchStatusLayer();
-        this.required = new WsiRequiredRegionLayer();
+        this.required = new WsiRequiredRegionLayer({ visible: false });
         this.focusLayer = new PatchFocusLayer();
         this.patches = new Map();
         this.patchListEl = document.getElementById('annotation-list');
