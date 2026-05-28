@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.133] - 2026-05-28
+
+### Changed
+
+- Changed Cell Annotation required/exclude WSI regions to one-time Apply inputs; patch tasks remain, but saved region overlays are cleared after Apply.
+- Limited Cell Annotation region Undo to pending regions before Apply.
+
+## [1.1.132] - 2026-05-28
+
+### Fixed
+
+- Prevented Cell Annotation patch refresh from hiding returned patch records because of local grid metadata mismatch.
+
 ## [1.1.131] - 2026-05-28
 
 ### Added

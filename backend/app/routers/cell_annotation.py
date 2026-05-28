@@ -741,7 +741,7 @@ async def save_required_regions(
     payload: dict = Body(...),
     user: dict = Depends(get_current_user),
 ):
-    _slide_info(slide_id)
+    info = _slide_info(slide_id)
     db = _require_db()
     raw_regions = payload.get("regions", payload if isinstance(payload, list) else [])
     if not isinstance(raw_regions, list):
@@ -759,6 +759,10 @@ async def save_required_regions(
         {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
         upsert=True,
     )
+    _write_json(_cell_annotation_slide_dir(info) / "WSI_regions.json", {
+        "slide_id": slide_id,
+        "regions": regions,
+    })
     return {"status": "saved", "count": len(regions), "regions": regions}
 
 

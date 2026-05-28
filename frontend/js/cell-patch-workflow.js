@@ -239,9 +239,7 @@ export class CellPatchWorkflow {
         this.patches.clear();
         for (const patch of payload.patches || []) {
             const id = patch.str_patch_id || patch.patch_id;
-            if (id && this._patchMatchesCurrentGrid(patch)) {
-                this.patches.set(id, { ...patch, patch_id: id });
-            }
+            if (id) this.patches.set(id, { ...patch, patch_id: id });
         }
         this.status.setPatches(Array.from(this.patches.values()));
         this._syncPendingPatchPreview();
@@ -253,7 +251,6 @@ export class CellPatchWorkflow {
     updatePatch(patch) {
         const id = patch.str_patch_id || patch.patch_id;
         if (!id) return;
-        if (!this._patchMatchesCurrentGrid(patch)) return;
         const normalized = { ...patch, patch_id: id };
         this.patches.set(id, normalized);
         if (this.selectedPatchId() === id) {
@@ -447,7 +444,7 @@ export class CellPatchWorkflow {
                     <button type="button" class="patch-region-mode ${this.regionMode === 'required' ? 'active' : ''}" data-mode="required" ${this._isLabelerRole() ? 'disabled' : ''}>Required</button>
                     <button type="button" class="patch-region-mode ${this.regionMode === 'exclude' ? 'active' : ''}" data-mode="exclude" ${this._isLabelerRole() ? 'disabled' : ''}>Exclude</button>
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
-                    <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending or saved region">Undo</button>
+                    <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending region">Undo</button>
                 </div>
             </div>
             ${pendingText}
@@ -1136,7 +1133,7 @@ export class CellPatchWorkflow {
     }
 
     canUndoRequiredRegion() {
-        return Boolean(this.slideId && (this.pendingRegions.length || this.required.toApiRegions().length));
+        return Boolean(this.slideId && this.pendingRegions.length);
     }
 
     canApplyPendingRegions() {
@@ -1158,24 +1155,7 @@ export class CellPatchWorkflow {
             this.setStatus(`Pending ${removed.type === 'annotation_excluded_region' ? 'exclude' : 'required'} region removed`);
             return true;
         }
-        if (!this.canUndoRequiredRegion()) return false;
-        const regions = this.required.toApiRegions();
-        const targetId = this.lastRegionAction?.regionId;
-        let nextRegions = regions;
-        if (targetId) {
-            const idx = regions.findIndex(region => region.id === targetId);
-            if (idx >= 0) nextRegions = regions.filter((_, regionIdx) => regionIdx !== idx);
-        }
-        if (nextRegions === regions) nextRegions = regions.slice(0, -1);
-        await this.api.saveCellRequiredRegions(this.slideId, nextRegions);
-        await this.api.recomputeCellPatchStatus(this.slideId);
-        const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
-        this.required.setRegions(regionPayload.regions || []);
-        this.lastRegionAction = null;
-        await this.refreshPatches();
-        this.setStatus('Required region undone and patch status recomputed');
-        this.viewer?.requestRender?.();
-        return true;
+        return false;
     }
 
     async addRequiredRegionFromAnnotation(annotation) {
@@ -1205,18 +1185,15 @@ export class CellPatchWorkflow {
             return false;
         }
         if (!this.slideId || !this.pendingRegions.length) return false;
-        const regions = [
-            ...this.required.toApiRegions(),
-            ...this.pendingRegions.map(region => ({
-                id: region.id,
-                type: region.type,
-                points: region.points,
-            })),
-        ];
+        const regions = this.pendingRegions.map(region => ({
+            id: region.id,
+            type: region.type,
+            points: region.points,
+        }));
         await this.api.saveCellRequiredRegions(this.slideId, regions);
         const recompute = await this.api.recomputeCellPatchStatus(this.slideId);
-        const regionPayload = await this.api.getCellRequiredRegions(this.slideId);
-        this.required.setRegions(regionPayload.regions || []);
+        await this.api.saveCellRequiredRegions(this.slideId, []);
+        this.required.setRegions([]);
         this.pendingRegions = [];
         this._syncPendingPatchPreview();
         this.lastRegionAction = null;
