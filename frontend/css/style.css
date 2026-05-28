@@ -2478,6 +2478,24 @@ body.annotation-page .project-gate-row {
     font-weight: 900;
     line-height: 1;
 }
+.annotation-step-percent.is-before {
+    background: #eef6ff;
+    color: #2563eb;
+}
+.annotation-step-percent.is-running {
+    background: #fff7ed;
+    color: #f59e0b;
+}
+.annotation-step-percent.is-completed {
+    background: #ecfdf3;
+    color: #20a85a;
+}
+.annotation-status-workflow.is-wsi-auto-status .annotation-step {
+    cursor: default;
+}
+.annotation-status-workflow.is-wsi-auto-status .annotation-step:disabled {
+    opacity: 1;
+}
 .annotation-step.is-active {
     border-color: #54a0ff;
     background: #eef6ff;
@@ -2498,7 +2516,8 @@ body.annotation-page .project-gate-row {
     opacity: 0.48;
 }
 .annotation-step.is-active:disabled,
-.annotation-step.is-complete:disabled {
+.annotation-step.is-complete:disabled,
+.annotation-step.is-running:disabled {
     opacity: 1;
 }
 .annotation-step-connector {
@@ -2667,6 +2686,32 @@ body.cell-patch-workflow-page .annotation-list {
     color: #b45309;
     font-size: 11px;
     font-weight: 800;
+}
+.patch-list-progress {
+    display: grid;
+    gap: 4px;
+    margin: 6px 0 2px;
+}
+.patch-list-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #4f46e5;
+    font-size: 10px;
+    font-weight: 800;
+}
+.patch-list-progress-track {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #eef2ff;
+}
+.patch-list-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #6c5ce7;
+    transition: width 180ms ease;
 }
 .patch-view-toolbar-toggle {
     width: auto;

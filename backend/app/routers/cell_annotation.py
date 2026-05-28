@@ -365,7 +365,7 @@ def _normalize_region(item: dict, idx: int) -> dict:
 def _normalize_cell(cell: dict, patch: dict) -> dict:
     x = float(cell.get("x", cell.get("slide_x", 0)))
     y = float(cell.get("y", cell.get("slide_y", 0)))
-    return {
+    out = {
         "id": str(cell.get("id") or ""),
         "x": x,
         "y": y,
@@ -376,6 +376,83 @@ def _normalize_cell(cell: dict, patch: dict) -> dict:
         "confidence": float(cell.get("confidence", 1.0)),
         "source": str(cell.get("source", "manual")),
     }
+    shape_type = str(cell.get("shape_type") or cell.get("type") or "").strip()
+    if shape_type:
+        out["shape_type"] = shape_type
+        out["type"] = shape_type
+
+    def _normalize_points(value) -> list[list[float]]:
+        if not isinstance(value, list):
+            return []
+        points = []
+        for point in value:
+            try:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    px = float(point[0])
+                    py = float(point[1])
+                elif isinstance(point, dict):
+                    px = float(point.get("x"))
+                    py = float(point.get("y"))
+                else:
+                    continue
+            except Exception:
+                continue
+            points.append([px, py])
+        return points
+
+    points = _normalize_points(cell.get("coordinates") or cell.get("points") or cell.get("list_points"))
+    if points:
+        out["coordinates"] = points
+        local_points = _normalize_points(cell.get("local_coordinates") or cell.get("local_points"))
+        if not local_points:
+            local_points = [[px - float(patch["int_x"]), py - float(patch["int_y"])] for px, py in points]
+        out["local_coordinates"] = local_points
+
+    raw_bbox = cell.get("bbox") if isinstance(cell.get("bbox"), dict) else {}
+    try:
+        bx0 = float(raw_bbox.get("x0", raw_bbox.get("x", cell.get("x0"))))
+        by0 = float(raw_bbox.get("y0", raw_bbox.get("y", cell.get("y0"))))
+        bw = float(raw_bbox.get("width", cell.get("width", 0)))
+        bh = float(raw_bbox.get("height", cell.get("height", 0)))
+        bx1 = float(raw_bbox.get("x1", cell.get("x1", bx0 + bw)))
+        by1 = float(raw_bbox.get("y1", cell.get("y1", by0 + bh)))
+        if bw <= 0:
+            bw = max(1.0, bx1 - bx0)
+        if bh <= 0:
+            bh = max(1.0, by1 - by0)
+        if bx1 <= bx0:
+            bx1 = bx0 + bw
+        if by1 <= by0:
+            by1 = by0 + bh
+        out["bbox"] = {
+            "x": bx0,
+            "y": by0,
+            "width": bw,
+            "height": bh,
+            "x0": bx0,
+            "y0": by0,
+            "x1": bx1,
+            "y1": by1,
+        }
+    except Exception:
+        if points:
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            bx0 = min(xs)
+            by0 = min(ys)
+            bx1 = max(xs)
+            by1 = max(ys)
+            out["bbox"] = {
+                "x": bx0,
+                "y": by0,
+                "width": max(1.0, bx1 - bx0),
+                "height": max(1.0, by1 - by0),
+                "x0": bx0,
+                "y0": by0,
+                "x1": bx1,
+                "y1": by1,
+            }
+    return out
 
 
 def _normalize_memo_history(value: Any) -> list[dict]:
@@ -880,7 +957,6 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
     width, height = info.dimensions
     ops = []
     required_keys = set()
-    skipped_keys = set()
     allocated_ids: dict[str, str] = {}
     for region in include_regions:
         poly = region.get("list_points") or []
@@ -937,17 +1013,31 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
         ops = [doc for doc in ops if doc.get("str_patch_key") not in excluded_keys]
         required_keys.difference_update(excluded_keys)
 
-    now = _now()
-    stale_query: dict[str, Any] = {"str_slide_id": slide_id}
-    keep_keys = list(required_keys)
-    if keep_keys:
-        stale_query["str_patch_key"] = {"$nin": keep_keys}
-    await db.patch_annotation_status.delete_many(stale_query)
+    excluded_patch_ids = []
     if excluded_keys:
+        cursor = db.patch_annotation_status.find(
+            {
+                "str_slide_id": slide_id,
+                "str_patch_key": {"$in": list(excluded_keys)},
+            },
+            {"str_patch_id": 1},
+        )
+        excluded_patch_ids = [
+            str(doc.get("str_patch_id") or "")
+            async for doc in cursor
+            if doc.get("str_patch_id")
+        ]
         await db.patch_annotation_status.delete_many({
             "str_slide_id": slide_id,
             "str_patch_key": {"$in": list(excluded_keys)},
         })
+        if excluded_patch_ids:
+            await db.patch_cell_annotations.delete_many({
+                "str_slide_id": slide_id,
+                "str_patch_id": {"$in": excluded_patch_ids},
+            })
+    added_count = 0
+    now = _now()
     for doc in ops:
         existing_doc = await db.patch_annotation_status.find_one(
             {"str_slide_id": slide_id, "$or": [
@@ -956,17 +1046,28 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
             ]},
             {"_id": 1},
         )
-        update_filter = {"_id": existing_doc["_id"]} if existing_doc else {
-            "str_slide_id": slide_id,
-            "str_patch_key": doc["str_patch_key"],
-        }
+        if existing_doc:
+            continue
         await db.patch_annotation_status.update_one(
-            update_filter,
+            {
+                "str_slide_id": slide_id,
+                "str_patch_key": doc["str_patch_key"],
+            },
             {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
             upsert=True,
         )
+        added_count += 1
     await _export_cell_annotation_files(slide_id, info, regions)
-    return {"status": "recomputed", "required_count": len(required_keys), "excluded_count": len(excluded_keys)}
+    total_required = await db.patch_annotation_status.count_documents({
+        "str_slide_id": slide_id,
+        "str_status": {"$ne": "not_required"},
+    })
+    return {
+        "status": "recomputed",
+        "required_count": total_required,
+        "added_count": added_count,
+        "excluded_count": len(excluded_patch_ids),
+    }
 
 
 @router.get("/{slide_id}/patches")

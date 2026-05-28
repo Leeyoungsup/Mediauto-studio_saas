@@ -3,9 +3,9 @@
  */
 
 import { api } from './api.js?v=20260528-02';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-11';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-15';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -2483,6 +2483,18 @@ window.addEventListener('keydown', (e) => {
 
 viewer.onAnnotationCreated = (ann) => {
     if (cellPatchWorkflow) {
+        if (cellPatchWorkflow.patchFocusActive) {
+            _applyClassToAnnotation(ann, _activeAnnotationClassId);
+            _syncActiveAnnotationClassToViewer();
+            viewer.annotations = viewer.annotations.filter(item => item.id !== ann.id);
+            viewer.selectedAnnotationId = null;
+            renderAnnotationPanel();
+            viewer.requestRender();
+            cellPatchWorkflow.addPatchLabelFromAnnotation(ann).catch((err) => {
+                setStatus(`Patch label failed: ${err.message}`);
+            });
+            return;
+        }
         const bool_can_manage_required = window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
         if (!bool_can_manage_required) {
             viewer.deleteAnnotation?.(ann.id);
@@ -5804,6 +5816,7 @@ async function _markAnnotationWorkflowInProgressIfIdle() {
 $annotationStatusWorkflow?.querySelectorAll('[data-annotation-status]').forEach((btn) => {
     btn.addEventListener('click', () => {
         if ($annotationStatusWorkflow?.dataset.patchWorkflow === '1') return;
+        if (ANNOTATION_PAGE_KIND === 'cell' && !cellPatchWorkflow?.patchFocusActive) return;
         if (btn.disabled) return;
         _applyAnnotationWorkflowStatusToCurrent(btn.dataset.annotationStatus);
     });

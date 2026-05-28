@@ -2967,6 +2967,31 @@ export class TileViewer {
 
             const [cx, cy] = this.sceneToCanvas(cell.x, cell.y);
             const color = (override && override[cell.class_id]) || CLASS_COLORS[cell.class_id] || '#FFFFFF';
+            const coords = Array.isArray(cell.coordinates) ? cell.coordinates : [];
+            if (coords.length >= 2) {
+                octx.beginPath();
+                coords.forEach((point, idx) => {
+                    const [px, py] = Array.isArray(point)
+                        ? this.sceneToCanvas(Number(point[0]), Number(point[1]))
+                        : this.sceneToCanvas(Number(point.x), Number(point.y));
+                    if (idx === 0) octx.moveTo(px, py);
+                    else octx.lineTo(px, py);
+                });
+                if (coords.length >= 3) octx.closePath();
+                octx.strokeStyle = color;
+                octx.stroke();
+                continue;
+            }
+            if (cell.bbox && Number.isFinite(Number(cell.bbox.x)) && Number.isFinite(Number(cell.bbox.y))) {
+                const bx = Number(cell.bbox.x);
+                const by = Number(cell.bbox.y);
+                const bw = Math.max(1, Number(cell.bbox.width || 0));
+                const bh = Math.max(1, Number(cell.bbox.height || 0));
+                const [rx, ry] = this.sceneToCanvas(bx, by);
+                octx.strokeStyle = color;
+                octx.strokeRect(rx, ry, bw * this.zoom, bh * this.zoom);
+                continue;
+            }
 
             octx.beginPath();
             octx.arc(cx, cy, cellRadius, 0, Math.PI * 2);

@@ -9,6 +9,7 @@ export class CellAnnotationEditor {
         this.patch = null;
         this.cells = [];
         this.panel = null;
+        this.viewerSynced = false;
         this._ensurePanel();
     }
 
@@ -25,7 +26,7 @@ export class CellAnnotationEditor {
         this.render();
     }
 
-    async open(slideId, patch) {
+    async open(slideId, patch, options = {}) {
         this.slideId = slideId;
         this.patch = patch;
         this.statusLayer?.setSelectedPatch(patch?.patch_id || patch?.str_patch_id || '');
@@ -38,19 +39,120 @@ export class CellAnnotationEditor {
             this.cells = [];
             this.onStatus(`Patch cells unavailable: ${err.message}`);
         }
-        this.viewer?.setDetectionResults?.(this.cells, [[
-            [this.patch.x, this.patch.y],
-            [this.patch.x + this.patch.w, this.patch.y],
-            [this.patch.x + this.patch.w, this.patch.y + this.patch.h],
-            [this.patch.x, this.patch.y + this.patch.h],
-        ]]);
+        if (options.syncViewer !== false) this.syncViewer();
+        else this.viewerSynced = false;
         this.viewer.requestRender();
         this.render();
+    }
+
+    _patchBounds() {
+        const patch = this.patch || {};
+        const x = Number(patch.x ?? patch.int_x ?? 0);
+        const y = Number(patch.y ?? patch.int_y ?? 0);
+        const w = Number(patch.w ?? patch.int_w ?? patch.width ?? 0);
+        const h = Number(patch.h ?? patch.int_h ?? patch.height ?? 0);
+        return { x, y, w, h };
+    }
+
+    _annotationPoints(annotation) {
+        const candidates = [
+            annotation?.coordinates,
+            annotation?.points,
+            annotation?.list_points,
+            annotation?.properties?.coordinates,
+            annotation?.properties?.points,
+        ];
+        for (const value of candidates) {
+            if (!Array.isArray(value)) continue;
+            const points = value
+                .map((point) => {
+                    if (Array.isArray(point) && point.length >= 2) return [Number(point[0]), Number(point[1])];
+                    if (point && typeof point === 'object') return [Number(point.x), Number(point.y)];
+                    return null;
+                })
+                .filter((point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]));
+            if (points.length) return points;
+        }
+        const x = Number(annotation?.x ?? annotation?.slide_x);
+        const y = Number(annotation?.y ?? annotation?.slide_y);
+        return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : [];
+    }
+
+    _annotationLabelClass(annotation) {
+        const classId = annotation?.class_id ?? annotation?.classId ?? annotation?.properties?.class_id ?? annotation?.properties?.classId ?? '';
+        const className = annotation?.class_name ?? annotation?.className ?? annotation?.properties?.class_name ?? annotation?.properties?.className ?? '';
+        return { class_id: String(classId || ''), class_name: String(className || '') };
+    }
+
+    _annotationToPatchCell(annotation) {
+        const points = this._annotationPoints(annotation);
+        if (!points.length) throw new Error('Annotation has no slide coordinates.');
+        const xs = points.map(point => point[0]);
+        const ys = points.map(point => point[1]);
+        const x0 = Math.min(...xs);
+        const y0 = Math.min(...ys);
+        const x1 = Math.max(...xs);
+        const y1 = Math.max(...ys);
+        const centerX = Number.isFinite(Number(annotation?.x)) ? Number(annotation.x) : (x0 + x1) / 2;
+        const centerY = Number.isFinite(Number(annotation?.y)) ? Number(annotation.y) : (y0 + y1) / 2;
+        const patch = this._patchBounds();
+        const labelClass = this._annotationLabelClass(annotation);
+        const localPoints = points.map(([x, y]) => [x - patch.x, y - patch.y]);
+        const type = String(annotation?.type || annotation?.shape_type || annotation?.tool || 'polygon');
+        return {
+            id: String(annotation?.id || `cell_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+            type,
+            shape_type: type,
+            x: centerX,
+            y: centerY,
+            local_x: centerX - patch.x,
+            local_y: centerY - patch.y,
+            coordinates: points,
+            local_coordinates: localPoints,
+            bbox: {
+                x: x0,
+                y: y0,
+                width: Math.max(1, x1 - x0),
+                height: Math.max(1, y1 - y0),
+                x0,
+                y0,
+                x1,
+                y1,
+            },
+            class_id: labelClass.class_id,
+            class_name: labelClass.class_name,
+            confidence: Number(annotation?.confidence ?? 1),
+            source: 'manual_patch_annotation',
+        };
+    }
+
+    syncViewer() {
+        if (!this.viewer || !this.patch) return;
+        const patch = this._patchBounds();
+        this.viewer.setDetectionResults?.(this.cells || [], [[
+            [patch.x, patch.y],
+            [patch.x + patch.w, patch.y],
+            [patch.x + patch.w, patch.y + patch.h],
+            [patch.x, patch.y + patch.h],
+        ]]);
+        this.viewerSynced = true;
+    }
+
+    async addAnnotationLabel(annotation) {
+        if (!this.slideId || !this.patch) throw new Error('No patch is selected.');
+        const cell = this._annotationToPatchCell(annotation);
+        this.cells = [...(this.cells || []), cell];
+        this.syncViewer();
+        this.viewer?.requestRender?.();
+        this.onStatus(`Patch label added: ${this.patch.patch_id}`);
+        this.render();
+        return cell;
     }
 
     close() {
         this.patch = null;
         this.cells = [];
+        this.viewerSynced = false;
         this.statusLayer?.setSelectedPatch('');
         this.viewer?.requestRender();
         this.render();
@@ -58,13 +160,15 @@ export class CellAnnotationEditor {
 
     async save() {
         if (!this.slideId || !this.patch) return;
-        const cells = (this.viewer?.detectionCells || this.cells || []).map((cell, idx) => ({
+        const patch = this._patchBounds();
+        const sourceCells = this.viewerSynced ? (this.viewer?.detectionCells || []) : (this.cells || []);
+        const cells = sourceCells.map((cell, idx) => ({
             ...cell,
             id: cell.id || `cell_${idx + 1}`,
             x: Number(cell.x),
             y: Number(cell.y),
-            local_x: Number(cell.x) - Number(this.patch.x),
-            local_y: Number(cell.y) - Number(this.patch.y),
+            local_x: Number.isFinite(Number(cell.local_x)) ? Number(cell.local_x) : Number(cell.x) - patch.x,
+            local_y: Number.isFinite(Number(cell.local_y)) ? Number(cell.local_y) : Number(cell.y) - patch.y,
         }));
         const result = await this.api.savePatchCells(this.slideId, this.patch.patch_id, cells);
         this.cells = cells;

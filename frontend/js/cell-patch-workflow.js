@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260528-01';
 
 class PatchFocusLayer {
     constructor() {
@@ -63,6 +63,7 @@ export class CellPatchWorkflow {
         this.regionMode = 'required';
         this.assistancePromise = null;
         this.assistanceSlideId = '';
+        this.patchApplyProgress = null;
         this.selectedPatch = null;
         this.patchFocusActive = false;
         this.savedWsiView = null;
@@ -502,6 +503,18 @@ export class CellPatchWorkflow {
         const pendingText = pendingPatches.length
             ? `<div class="patch-list-pending">Pending patches: ${pendingRequired} required / ${pendingExcluded} excluded</div>`
             : '';
+        const progress = this.patchApplyProgress;
+        const progressText = progress?.label
+            ? `<div class="patch-list-progress" role="status" aria-live="polite">
+                <div class="patch-list-progress-meta">
+                    <span>${this._escape(progress.label)}</span>
+                    <span>${Math.round(progress.percent)}%</span>
+                </div>
+                <div class="patch-list-progress-track">
+                    <div class="patch-list-progress-fill" style="width:${Math.round(progress.percent)}%"></div>
+                </div>
+            </div>`
+            : '';
         this.patchListEl.innerHTML = `
             <div class="patch-list-summary">
                 <div>
@@ -513,6 +526,7 @@ export class CellPatchWorkflow {
                     <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending region">Undo</button>
                 </div>
             </div>
+            ${progressText}
             ${pendingText}
             ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
@@ -681,25 +695,109 @@ export class CellPatchWorkflow {
         return Math.round((done / list.length) * 100);
     }
 
+    _wsiStepSummary(step) {
+        const list = Array.from(this.patches.values())
+            .filter(patch => (patch.str_status || patch.status || 'not_required') !== 'not_required');
+        const total = list.length;
+        const annotationCompleted = (patch) => {
+            const workflow = this._patchWorkflowStatus(patch);
+            return ['completed', 'reviewed', 'rejected'].includes(workflow.annotation);
+        };
+        const reviewCompleted = (patch) => {
+            const workflow = this._patchWorkflowStatus(patch);
+            return ['reviewed', 'rejected'].includes(workflow.review);
+        };
+        const terminationCompleted = (patch) => {
+            const workflow = this._patchWorkflowStatus(patch);
+            return workflow.termination === 'completed';
+        };
+        let completed = 0;
+        let running = false;
+        if (step === 'review') {
+            completed = list.filter(reviewCompleted).length;
+            running = list.some(patch => this._patchWorkflowStatus(patch).review === 'current');
+            const annotationDone = total > 0 && list.every(annotationCompleted);
+            if (!annotationDone && completed === 0 && !running) {
+                return { total, completed: 0, percent: 0, running: false, state: 'before' };
+            }
+        } else if (step === 'termination') {
+            completed = list.filter(terminationCompleted).length;
+            running = list.some(patch => this._patchWorkflowStatus(patch).termination === 'current');
+            const reviewDone = total > 0 && list.every(reviewCompleted);
+            if (!reviewDone && completed === 0 && !running) {
+                return { total, completed: 0, percent: 0, running: false, state: 'before' };
+            }
+        } else {
+            completed = list.filter(annotationCompleted).length;
+            running = list.some(patch => {
+                const workflow = this._patchWorkflowStatus(patch);
+                const status = patch.str_status || patch.status || '';
+                return workflow.annotation === 'in_progress' || status === 'in_progress';
+            });
+        }
+        const percent = total ? Math.round((completed / total) * 100) : 0;
+        let state = 'before';
+        if (total > 0 && completed >= total) state = 'completed';
+        else if (total > 0 || running) state = 'running';
+        return { total, completed, percent, running, state };
+    }
+
+    _ensureStepStateElement(button) {
+        if (!button) return null;
+        let stateIcon = button.nextElementSibling;
+        if (stateIcon?.classList?.contains('annotation-step-state')) return stateIcon;
+        stateIcon = document.createElement('span');
+        stateIcon.className = 'annotation-step-state';
+        button.insertAdjacentElement('afterend', stateIcon);
+        return stateIcon;
+    }
+
     _syncAnnotationStatusPanel() {
         const workflow = document.getElementById('annotation-status-workflow');
         const btn = workflow?.querySelector('[data-annotation-status="annotation"]');
         if (!workflow || !btn) return;
-        let stateIcon = btn.nextElementSibling;
-        if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) return;
         if (this.patchFocusActive && this.selectedPatch) {
             this._renderSelectedPatchWorkflowPanel(workflow);
             return;
         }
         workflow.classList.remove('is-patch-status');
+        workflow.classList.add('is-wsi-auto-status');
         workflow.dataset.patchWorkflow = '';
+        workflow.dataset.cellWsiAutoStatus = '1';
+        const stateMap = {
+            annotation: {
+                before: 'Annotation before: no required patches',
+                running: 'Annotation in progress: required patches exist',
+                completed: 'Annotation complete: all required patches completed',
+            },
+            review: {
+                before: 'Review before: patch annotation is not complete',
+                running: 'Review in progress',
+                completed: 'Review complete',
+            },
+            termination: {
+                before: 'Termination before: patch review is not complete',
+                running: 'Termination in progress',
+                completed: 'Termination complete',
+            },
+        };
         workflow.querySelectorAll('[data-annotation-status]').forEach((statusBtn) => {
+            const step = statusBtn.dataset.annotationStatus;
+            const label = step === 'annotation' ? 'Annotation' : (step === 'review' ? 'Review' : 'Termination');
+            const summary = this._wsiStepSummary(step);
+            statusBtn.innerHTML = `<span class="annotation-step-label">${label}</span>`;
+            statusBtn.onclick = null;
+            statusBtn.disabled = true;
+            statusBtn.classList.toggle('is-active', summary.state === 'before');
+            statusBtn.classList.toggle('is-running', summary.state === 'running');
+            statusBtn.classList.toggle('is-complete', summary.state === 'completed');
+            statusBtn.title = `${stateMap[step]?.[summary.state] || label} (${summary.completed}/${summary.total})`;
+            const icon = this._ensureStepStateElement(statusBtn);
+            icon.className = `annotation-step-state annotation-step-percent is-${summary.state}`;
+            icon.textContent = `${summary.percent}%`;
+            icon.title = `${summary.percent}% completed (${summary.completed}/${summary.total})`;
             statusBtn.onclick = null;
         });
-        const pct = this._patchCompletionPercent();
-        stateIcon.className = 'annotation-step-state annotation-step-percent';
-        stateIcon.textContent = `${pct}%`;
-        stateIcon.title = `Annotation completion: ${pct}%`;
     }
 
     syncAnnotationStatusPanel() {
@@ -709,7 +807,9 @@ export class CellPatchWorkflow {
     _renderSelectedPatchWorkflowPanel(workflow) {
         if (!workflow || !this.selectedPatch) return;
         workflow.classList.add('is-patch-status');
+        workflow.classList.remove('is-wsi-auto-status');
         workflow.dataset.patchWorkflow = '1';
+        workflow.dataset.cellWsiAutoStatus = '';
         const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
         const states = this._patchWorkflowStatus(patch);
         const boolLabeler = this._isLabelerRole();
@@ -736,8 +836,7 @@ export class CellPatchWorkflow {
                     this.setStatus(`Patch workflow update failed: ${err.message}`);
                 });
             };
-            let stateIcon = btn.nextElementSibling;
-            if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) return;
+            const stateIcon = this._ensureStepStateElement(btn);
             const iconState = this._workflowIconState(info.state);
             stateIcon.className = `annotation-step-state annotation-step-icon is-${iconState}`;
             stateIcon.textContent = '';
@@ -1062,7 +1161,7 @@ export class CellPatchWorkflow {
             };
         }
         this.selectedPatch = this._normalizePatchView(patch);
-        await this.editor.open(this.slideId, this.selectedPatch);
+        await this.editor.open(this.slideId, this.selectedPatch, { syncViewer: this.patchFocusActive });
         if (this.patchFocusActive) {
             this.viewer.setViewBounds?.(this.selectedPatch);
             this.focusLayer.setPatch(this.selectedPatch);
@@ -1128,6 +1227,7 @@ export class CellPatchWorkflow {
         if (this._isLabelerRole()) this.viewer.canEditDetectionResults = true;
         this.viewer.setViewBounds?.(this.selectedPatch);
         this.focusLayer.setPatch(this.selectedPatch);
+        this.editor.syncViewer?.();
         this._fitPatchView(this.selectedPatch);
         this.renderPatchList();
         this._syncToolbarToggle();
@@ -1135,11 +1235,21 @@ export class CellPatchWorkflow {
         this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
     }
 
+    async addPatchLabelFromAnnotation(annotation) {
+        if (!this.patchFocusActive || !this.selectedPatch) {
+            throw new Error('Patch view is not active.');
+        }
+        await this.editor.addAnnotationLabel(annotation);
+        this.updatePatch(this.selectedPatch);
+    }
+
     exitPatchView({ restore = true } = {}) {
         if (!this.patchFocusActive && !this.focusLayer.visible) return;
         this.patchFocusActive = false;
         if (this._isLabelerRole()) this.viewer.canEditDetectionResults = false;
         this.focusLayer.clear();
+        this.viewer.setDetectionResults?.([]);
+        this.editor.viewerSynced = false;
         if (this.layerVisibilityBeforePatchView) {
             this.required.visible = this.layerVisibilityBeforePatchView.required;
             this.status.visible = this.layerVisibilityBeforePatchView.status;
@@ -1196,7 +1306,14 @@ export class CellPatchWorkflow {
     }
 
     canApplyPendingRegions() {
-        return Boolean(this.slideId && this.pendingRegions.length);
+        return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
+    }
+
+    setPatchApplyProgress(label = '', percent = 0, active = true) {
+        this.patchApplyProgress = label
+            ? { label, percent: Math.max(0, Math.min(100, Number(percent) || 0)), active }
+            : null;
+        this.renderPatchList();
     }
 
     async undoLastRequiredRegion() {
@@ -1249,24 +1366,45 @@ export class CellPatchWorkflow {
             type: region.type,
             points: region.points,
         }));
-        await this.api.saveCellRequiredRegions(this.slideId, regions);
-        const recompute = await this.api.recomputeCellPatchStatus(this.slideId);
-        await this.api.saveCellRequiredRegions(this.slideId, []);
-        this.required.setRegions([]);
-        this.pendingRegions = [];
-        this._syncPendingPatchPreview();
-        this.lastRegionAction = null;
-        await this.refreshPatches();
-        if (Number(recompute?.required_count || 0) > 0) {
-            await this.onRequiredRegionSaved({ requiredCount: Number(recompute.required_count || 0) });
-        }
-        this.setStatus('Patch regions applied and patch list updated');
-        this.ensureLabelingAssistance({ silent: false }).catch((err) => {
-            if (!/disabled/i.test(err.message || '')) {
-                this.setStatus(`Labeling assistance failed: ${err.message}`);
+        try {
+            this.setPatchApplyProgress('Saving patch changes', 12, true);
+            await this.api.saveCellRequiredRegions(this.slideId, regions);
+            this.setPatchApplyProgress('Updating patch list', 38, true);
+            const recompute = await this.api.recomputeCellPatchStatus(this.slideId);
+            this.setPatchApplyProgress('Clearing region draft', 68, true);
+            await this.api.saveCellRequiredRegions(this.slideId, []);
+            this.required.setRegions([]);
+            this.pendingRegions = [];
+            this._syncPendingPatchPreview();
+            this.lastRegionAction = null;
+            this.setPatchApplyProgress('Refreshing patches', 86, true);
+            await this.refreshPatches();
+            if (Number(recompute?.required_count || 0) > 0) {
+                await this.onRequiredRegionSaved({ requiredCount: Number(recompute.required_count || 0) });
             }
-        });
-        return true;
+            const added = Number(recompute?.added_count || 0);
+            const removed = Number(recompute?.excluded_count || 0);
+            const detail = [
+                added ? `added ${added}` : '',
+                removed ? `removed ${removed}` : '',
+            ].filter(Boolean).join(', ');
+            this.setPatchApplyProgress(detail ? `Applied: ${detail}` : 'Applied', 100, false);
+            window.setTimeout(() => {
+                if (this.patchApplyProgress && !this.patchApplyProgress.active) {
+                    this.setPatchApplyProgress('', 0, false);
+                }
+            }, 1600);
+            this.setStatus('Patch regions applied and patch list updated');
+            this.ensureLabelingAssistance({ silent: false }).catch((err) => {
+                if (!/disabled/i.test(err.message || '')) {
+                    this.setStatus(`Labeling assistance failed: ${err.message}`);
+                }
+            });
+            return true;
+        } catch (err) {
+            this.setPatchApplyProgress('', 0, false);
+            throw err;
+        }
     }
 
     async ensureLabelingAssistance({ silent = false } = {}) {

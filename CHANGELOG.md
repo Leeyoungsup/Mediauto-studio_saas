@@ -2,6 +2,38 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.143] - 2026-05-28
+
+### Fixed
+
+- Ensure Cell Annotation WSI status indicators render in the right panel even when status icon elements are not prebuilt.
+- Apply read-only automatic percent summaries to WSI Annotation, Review, and Termination status steps.
+
+## [1.1.142] - 2026-05-28
+
+### Changed
+
+- Made Cell Annotation WSI status read-only and automatically derived from required patch progress.
+- Show WSI annotation state as before, running, or complete based on required patch count and completion percent.
+
+## [1.1.141] - 2026-05-28
+
+### Fixed
+
+- Separated Cell Annotation Patch View labels from WSI required/exclude region selection.
+- Preserved patch label geometry when saving patch cell annotations.
+
+## [1.1.140] - 2026-05-28
+
+### Fixed
+
+- Changed Cell Annotation exclude regions to remove only currently saved patches that overlap the exclude shape.
+- Prevented required-region Apply from replacing the whole patch list; it now adds/removes incrementally.
+
+### Added
+
+- Added a Patch List Apply progress bar for patch save, recompute, cleanup, and refresh steps.
+
 ## [1.1.139] - 2026-05-28
 
 ### Changed
