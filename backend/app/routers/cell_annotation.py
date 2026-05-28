@@ -32,6 +32,7 @@ TARGET_MPP = 0.5
 PATCH_PHYSICAL_UM = 512.0
 TARGET_PATCH_SIZE = int(round(PATCH_PHYSICAL_UM / TARGET_MPP))
 CELL_ANNOTATION_ROOT = Path(__file__).resolve().parents[2] / "cell_annotation"
+ASSISTANCE_LABEL_SCHEMA = ["x", "y", "width", "height", "center_x", "center_y", "class_id", "confidence"]
 PATCH_STATUSES = {
     "not_required",
     "required",
@@ -428,6 +429,14 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
 
 
+def _write_compact_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=_json_default),
+        encoding="utf-8",
+    )
+
+
 def _write_patch_image(info, patch: dict, out_path: Path) -> None:
     if out_path.exists():
         return
@@ -540,9 +549,88 @@ def _read_assistance_file(info) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    compacted, changed = _compact_assistance_payload(payload)
+    if changed:
+        try:
+            _write_compact_json(path, compacted)
+        except Exception as exc:
+            print(f"[cell_annotation] assistance compact rewrite failed: {exc}")
+    return compacted
+
+
+def _compact_assistance_label(label: Any) -> Optional[list]:
+    if isinstance(label, (list, tuple)) and len(label) >= 8:
+        try:
+            return [
+                round(float(label[0]), 2),
+                round(float(label[1]), 2),
+                round(float(label[2]), 2),
+                round(float(label[3]), 2),
+                round(float(label[4]), 2),
+                round(float(label[5]), 2),
+                str(label[6] or ""),
+                round(float(label[7]), 4),
+            ]
+        except Exception:
+            return None
+    if not isinstance(label, dict):
+        return None
+    try:
+        return [
+            round(float(label.get("x", 0.0)), 2),
+            round(float(label.get("y", 0.0)), 2),
+            round(float(label.get("width", 0.0)), 2),
+            round(float(label.get("height", 0.0)), 2),
+            round(float(label.get("center_x", 0.0)), 2),
+            round(float(label.get("center_y", 0.0)), 2),
+            str(label.get("class_id", "") or ""),
+            round(float(label.get("confidence", 0.0)), 4),
+        ]
+    except Exception:
+        return None
+
+
+def _compact_assistance_payload(payload: dict) -> tuple[dict, bool]:
+    if not isinstance(payload, dict):
+        return {}, False
+    labels = payload.get("labels")
+    if not isinstance(labels, list):
+        return payload, False
+    already_compact = payload.get("label_format") == "bbox_compact_v1" and (
+        not labels or isinstance(labels[0], list)
+    )
+    if already_compact:
+        payload["total_labels"] = len(labels)
+        payload["total_model_bbox_labels"] = int(payload.get("total_model_bbox_labels") or len(labels))
+        return payload, False
+    compact_labels = []
+    for label in labels:
+        compact = _compact_assistance_label(label)
+        if compact is not None:
+            compact_labels.append(compact)
+    compacted = dict(payload)
+    compacted["labels"] = compact_labels
+    compacted["label_format"] = "bbox_compact_v1"
+    compacted["label_schema"] = ASSISTANCE_LABEL_SCHEMA
+    compacted["bbox_source"] = "model" if compact_labels else ""
+    compacted["total_labels"] = len(compact_labels)
+    compacted["total_model_bbox_labels"] = len(compact_labels)
+    compacted.pop("fallback_bbox_size_px", None)
+    return compacted, True
+
+
+def _assistance_metadata(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    meta = {k: v for k, v in payload.items() if k != "labels"}
+    labels = payload.get("labels")
+    meta["total_labels"] = len(labels) if isinstance(labels, list) else int(meta.get("total_labels") or 0)
+    if "total_model_bbox_labels" not in meta:
+        meta["total_model_bbox_labels"] = meta["total_labels"] if meta.get("base_result_format") == "bbox" else 0
+    return meta
 
 
 def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float, Optional[tuple[float, float, float, float]]]]:
@@ -612,6 +700,8 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
             "Labeling assistance requires model bbox output, but the AI result only contains points. "
             "Remove the stale AI result cache and rerun annotation assistance."
         )
+    compact_labels = [_compact_assistance_label(label) for label in labels]
+    compact_labels = [label for label in compact_labels if label is not None]
     payload = {
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
@@ -619,12 +709,14 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
         "base_result_format": "bbox",
-        "label_format": "bbox",
-        "fallback_bbox_size_px": DEFAULT_ASSISTANCE_BOX_SIZE,
-        "total_labels": len(labels),
-        "labels": labels,
+        "label_format": "bbox_compact_v1",
+        "label_schema": ASSISTANCE_LABEL_SCHEMA,
+        "bbox_source": "model" if used_model_bbox else "",
+        "total_labels": len(compact_labels),
+        "total_model_bbox_labels": len(compact_labels) if used_model_bbox else 0,
+        "labels": compact_labels,
     }
-    _write_json(_assistance_path(info), payload)
+    _write_compact_json(_assistance_path(info), payload)
     return payload
 
 
@@ -927,13 +1019,20 @@ async def get_wsi_labeling_assistance_options(slide_id: str):
 
 
 @router.get("/{slide_id}/wsi-labeling-assistance")
-async def get_wsi_labeling_assistance(slide_id: str):
+async def get_wsi_labeling_assistance(
+    slide_id: str,
+    include_labels: bool = Query(False),
+):
     info = _slide_info(slide_id)
     payload = _read_assistance_file(info)
     if not payload:
         return {"slide_id": slide_id, "exists": False, "labels": []}
     payload["exists"] = True
-    return payload
+    if include_labels:
+        return payload
+    meta = _assistance_metadata(payload)
+    meta["exists"] = True
+    return meta
 
 
 @router.post("/{slide_id}/wsi-labeling-assistance/run", dependencies=[Depends(require_not_viewer)])

@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.136",
+  "version": "1.1.139",
   "channel": "production",
   "release_date": "2026-05-28",
-  "description": "Regenerates Cell Annotation WSI labeling assistance when the project Assist AI changes or only point results are available."
+  "description": "Preloads Cell Annotation WSI labeling assistance on slide open instead of waiting for required patches."
 }

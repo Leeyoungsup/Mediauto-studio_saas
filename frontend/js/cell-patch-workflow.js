@@ -1,6 +1,6 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-02';
-import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260527-01';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
+import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
 class PatchFocusLayer {
@@ -61,6 +61,8 @@ export class CellPatchWorkflow {
         this.lastRegionAction = null;
         this.pendingRegions = [];
         this.regionMode = 'required';
+        this.assistancePromise = null;
+        this.assistanceSlideId = '';
         this.selectedPatch = null;
         this.patchFocusActive = false;
         this.savedWsiView = null;
@@ -283,6 +285,16 @@ export class CellPatchWorkflow {
         this.required.setRegions(regionPayload.regions || []);
         await this.refreshPatches();
         this.viewer.requestRender();
+        this.preloadLabelingAssistance();
+    }
+
+    preloadLabelingAssistance() {
+        if (!this.slideId) return;
+        this.ensureLabelingAssistance({ silent: true }).catch((err) => {
+            if (!/disabled/i.test(err.message || '')) {
+                this.setStatus(`Labeling assistance preload failed: ${err.message}`);
+            }
+        });
     }
 
     async refreshPatches() {
@@ -458,6 +470,10 @@ export class CellPatchWorkflow {
             }
         }
         this.status.setPendingPatches([...previewMap.values()]);
+        if (this.required) {
+            this.required.setRegions(this.pendingRegions || []);
+            this.required.visible = !this.patchView && Boolean(this.pendingRegions?.length);
+        }
         this.viewer?.requestRender?.();
     }
 
@@ -1245,7 +1261,7 @@ export class CellPatchWorkflow {
             await this.onRequiredRegionSaved({ requiredCount: Number(recompute.required_count || 0) });
         }
         this.setStatus('Patch regions applied and patch list updated');
-        this.ensureLabelingAssistance().catch((err) => {
+        this.ensureLabelingAssistance({ silent: false }).catch((err) => {
             if (!/disabled/i.test(err.message || '')) {
                 this.setStatus(`Labeling assistance failed: ${err.message}`);
             }
@@ -1253,18 +1269,34 @@ export class CellPatchWorkflow {
         return true;
     }
 
-    async ensureLabelingAssistance() {
+    async ensureLabelingAssistance({ silent = false } = {}) {
         if (!this.slideId || !this.api?.startWsiLabelingAssistance) return;
+        const slideId = this.slideId;
+        if (this.assistancePromise && this.assistanceSlideId === slideId) {
+            return this.assistancePromise;
+        }
+        this.assistanceSlideId = slideId;
+        this.assistancePromise = this._ensureLabelingAssistanceForSlide(slideId, { silent })
+            .finally(() => {
+                if (this.assistanceSlideId === slideId) {
+                    this.assistancePromise = null;
+                    this.assistanceSlideId = '';
+                }
+            });
+        return this.assistancePromise;
+    }
+
+    async _ensureLabelingAssistanceForSlide(slideId, { silent = false } = {}) {
         const options = this.api.getWsiLabelingAssistanceOptions
-            ? await this.api.getWsiLabelingAssistanceOptions(this.slideId)
+            ? await this.api.getWsiLabelingAssistanceOptions(slideId)
             : null;
         const current = options?.current || {};
         if (!current.enabled || !current.key) {
-            this.setStatus('Annotation AI assistance is disabled for this project');
+            if (!silent) this.setStatus('Annotation AI assistance is disabled for this project');
             return;
         }
         const existing = this.api.getWsiLabelingAssistance
-            ? await this.api.getWsiLabelingAssistance(this.slideId)
+            ? await this.api.getWsiLabelingAssistance(slideId)
             : null;
         const sameAssistanceModel =
             existing?.annotation_ai?.key === current.key &&
@@ -1273,26 +1305,34 @@ export class CellPatchWorkflow {
         const hasModelBboxAssistance = existing?.exists &&
             sameAssistanceModel &&
             existing?.base_result_format === 'bbox' &&
-            (existing?.labels || []).some(label => label?.bbox_source === 'model');
+            (
+                Number(existing?.total_model_bbox_labels || 0) > 0 ||
+                existing?.bbox_source === 'model' ||
+                (existing?.labels || []).some(label => label?.bbox_source === 'model')
+            );
         if (hasModelBboxAssistance) {
             return;
         }
-        const start = await this.api.startWsiLabelingAssistance(this.slideId, current.key);
+        const start = await this.api.startWsiLabelingAssistance(slideId, current.key);
         const taskId = start?.task_id;
         if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
-        this.setStatus(`Labeling assistance started: ${start.annotation_ai?.label || 'Annotation AI'}`);
+        if (!silent) {
+            this.setStatus(`Labeling assistance started: ${start.annotation_ai?.label || 'Annotation AI'}`);
+        }
         for (let i = 0; i < 600; i += 1) {
             await new Promise(resolve => setTimeout(resolve, 1500));
             const task = await this.api.getWsiLabelingAssistanceTask(taskId);
             if (task.status === 'completed') {
                 const count = Number(task.result?.total_labels || 0);
-                this.setStatus(`Labeling assistance ready: ${count.toLocaleString()} bbox labels`);
+                if (!silent || this.slideId === slideId) {
+                    this.setStatus(`Labeling assistance ready: ${count.toLocaleString()} bbox labels`);
+                }
                 return;
             }
             if (task.status === 'error') {
                 throw new Error(task.error || 'Labeling assistance task failed');
             }
         }
-        this.setStatus('Labeling assistance is still running');
+        if (!silent) this.setStatus('Labeling assistance is still running');
     }
 }

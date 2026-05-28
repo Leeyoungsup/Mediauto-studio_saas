@@ -22,12 +22,14 @@ export class WsiRequiredRegionLayer {
         if (!this.visible || !viewer?.slideInfo) return;
         ctx.save();
         ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(244, 63, 94, 0.95)';
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.10)';
         ctx.setLineDash([8, 5]);
         for (const region of this.regions) {
             const points = region.list_points || region.points || region.coordinates || [];
             if (!points || points.length < 3) continue;
+            const type = region.str_type || region.type || 'annotation_required_region';
+            const isExclude = type === 'annotation_excluded_region';
+            ctx.strokeStyle = isExclude ? 'rgba(239, 68, 68, 0.95)' : 'rgba(34, 197, 94, 0.95)';
+            ctx.fillStyle = isExclude ? 'rgba(239, 68, 68, 0.10)' : 'rgba(34, 197, 94, 0.12)';
             ctx.beginPath();
             points.forEach((pt, idx) => {
                 const x = Array.isArray(pt) ? pt[0] : pt.x;

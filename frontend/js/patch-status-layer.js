@@ -1,12 +1,15 @@
 const STATUS_STYLE = {
     not_required: { fill: '148, 163, 184', stroke: 'rgba(148, 163, 184, 0.35)' },
-    required: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.9)' },
+    required: { fill: '245, 158, 11', stroke: 'rgba(217, 119, 6, 0.9)' },
     pending_required: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.98)' },
     pending_excluded: { fill: '239, 68, 68', stroke: 'rgba(239, 68, 68, 0.95)' },
-    in_progress: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.85)' },
+    in_progress: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.95)' },
     completed: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.85)' },
-    reviewed: { fill: '16, 185, 129', stroke: 'rgba(16, 185, 129, 0.95)' },
+    current: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.95)' },
+    reviewed: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.95)' },
     rejected: { fill: '239, 68, 68', stroke: 'rgba(239, 68, 68, 0.85)' },
+    termination_current: { fill: '139, 92, 246', stroke: 'rgba(139, 92, 246, 0.9)' },
+    terminated: { fill: '100, 116, 139', stroke: 'rgba(100, 116, 139, 0.9)' },
 };
 
 export class PatchStatusLayer {
@@ -55,8 +58,8 @@ export class PatchStatusLayer {
 
     _drawPatches(ctx, viewer, patches, pending) {
         for (const patch of patches) {
-            const status = patch.str_status || patch.status || 'required';
-            if (status === 'not_required') continue;
+            const status = pending ? (patch.str_status || patch.status || 'required') : this._displayStatus(patch);
+            if (status === 'not_required' || status === 'pending') continue;
             const x = Number(patch.int_x ?? patch.x ?? 0);
             const y = Number(patch.int_y ?? patch.y ?? 0);
             const w = Number(patch.int_w ?? patch.w ?? 0);
@@ -79,5 +82,24 @@ export class PatchStatusLayer {
             ctx.strokeRect(cx, cy, cw, ch);
         }
         ctx.setLineDash([]);
+    }
+
+    _displayStatus(patch) {
+        const base = String(patch.str_status || patch.status || 'required');
+        if (base === 'not_required') return 'not_required';
+
+        const annotation = String(patch.str_annotation_status || patch.annotation_status || '').toLowerCase();
+        const review = String(patch.str_review_status || patch.review_status || '').toLowerCase();
+        const termination = String(patch.str_termination_status || patch.termination_status || '').toLowerCase();
+
+        if (termination === 'completed') return 'terminated';
+        if (termination === 'current' || termination === 'in_progress') return 'termination_current';
+        if (review === 'rejected') return 'rejected';
+        if (review === 'reviewed') return 'reviewed';
+        if (review === 'current' || review === 'in_progress') return 'current';
+        if (annotation === 'completed' || base === 'completed') return 'completed';
+        if (annotation === 'in_progress' || annotation === 'current' || base === 'in_progress') return 'in_progress';
+        if (annotation === 'required' || base === 'required') return 'required';
+        return base;
     }
 }

@@ -2,6 +2,28 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.139] - 2026-05-28
+
+### Changed
+
+- Start Cell Annotation WSI labeling assistance preload when a slide opens, even before required patches are applied.
+- Reuse an in-flight labeling assistance preload per slide to avoid duplicate AI worker starts.
+
+## [1.1.138] - 2026-05-28
+
+### Changed
+
+- Store Cell Annotation `WSI_Labeling_assistance.json` labels in compact bbox array format.
+- Return WSI labeling assistance metadata without the full labels payload by default.
+- Auto-compact existing object-label assistance files when they are read.
+
+## [1.1.137] - 2026-05-28
+
+### Fixed
+
+- Show pending Cell Annotation required regions in green and exclude regions in red before Apply.
+- Color saved Cell Annotation patch overlays by workflow status instead of keeping required patches green.
+
 ## [1.1.136] - 2026-05-28
 
 ### Fixed
