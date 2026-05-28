@@ -43,12 +43,13 @@ class PatchFocusLayer {
 }
 
 export class CellPatchWorkflow {
-    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved } = {}) {
+    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved, onWorkflowSummaryChange } = {}) {
         this.api = api;
         this.viewer = viewer;
         this.canvas = canvas;
         this.setStatus = setStatus || (() => {});
         this.onRequiredRegionSaved = onRequiredRegionSaved || (() => {});
+        this.onWorkflowSummaryChange = onWorkflowSummaryChange || (() => {});
         this.slideId = '';
         this.grid = new PatchGridLayer();
         this.status = new PatchStatusLayer();
@@ -310,6 +311,7 @@ export class CellPatchWorkflow {
         this._syncPendingPatchPreview();
         this.renderPatchList();
         this._syncAnnotationStatusPanel();
+        this._notifyWorkflowSummaryChange();
         this.viewer.requestRender();
     }
 
@@ -328,6 +330,7 @@ export class CellPatchWorkflow {
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
         this._syncAnnotationStatusPanel();
+        this._notifyWorkflowSummaryChange();
         this.viewer.requestRender();
     }
 
@@ -740,6 +743,21 @@ export class CellPatchWorkflow {
         if (total > 0 && completed >= total) state = 'completed';
         else if (total > 0 || running) state = 'running';
         return { total, completed, percent, running, state };
+    }
+
+    getWsiStepSummaries() {
+        return {
+            annotation: this._wsiStepSummary('annotation'),
+            review: this._wsiStepSummary('review'),
+            termination: this._wsiStepSummary('termination'),
+        };
+    }
+
+    _notifyWorkflowSummaryChange() {
+        this.onWorkflowSummaryChange({
+            slideId: this.slideId,
+            summaries: this.getWsiStepSummaries(),
+        });
     }
 
     _ensureStepStateElement(button) {

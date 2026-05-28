@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.144] - 2026-05-28
+
+### Fixed
+
+- Synchronize Cell Annotation automatic patch workflow status summaries to the left slide list.
+
 ## [1.1.143] - 2026-05-28
 
 ### Fixed

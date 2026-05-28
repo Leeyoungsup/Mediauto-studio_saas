@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260528-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-15';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-16';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -325,6 +325,9 @@ cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
         canvas: $canvas,
         setStatus,
         onRequiredRegionSaved: () => _markAnnotationWorkflowInProgressIfIdle(),
+        onWorkflowSummaryChange: ({ slideId, summaries }) => {
+            _renderCellPatchWorkflowCellsForSlide(slideId, summaries);
+        },
     })
     : null;
 
@@ -981,6 +984,40 @@ function _applyViewerRoleRestrictions() {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use annotation features.';
     });
+}
+
+function _cellPatchSlideListState(summary) {
+    const state = summary?.state || 'before';
+    if (state === 'completed') return 'complete';
+    if (state === 'running') return 'running';
+    return 'active';
+}
+
+function _renderCellPatchWorkflowCells(item, summaries) {
+    if (!item || !summaries) return;
+    item.querySelectorAll('.slide-workflow-cell').forEach(el => el.remove());
+    const listSteps = [
+        ['annotation', 'Annotation'],
+        ['review', 'Review'],
+        ['termination', 'Termination'],
+    ];
+    for (const [step, label] of listSteps) {
+        const summary = summaries[step] || { state: 'before', percent: 0, completed: 0, total: 0 };
+        const state = _cellPatchSlideListState(summary);
+        const cell = document.createElement('span');
+        cell.className = `slide-workflow-cell is-${state}`;
+        cell.dataset.workflowStep = step;
+        cell.dataset.cellPatchAuto = '1';
+        cell.textContent = _annotationWorkflowStepSymbol(state);
+        cell.title = `${label}: ${summary.percent || 0}% (${summary.completed || 0}/${summary.total || 0})`;
+        item.appendChild(cell);
+    }
+}
+
+function _renderCellPatchWorkflowCellsForSlide(slideId, summaries) {
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !slideId || !$slideList || !summaries) return;
+    const item = $slideList.querySelector(`.slide-list-item[data-slide-id="${CSS.escape(String(slideId))}"]`);
+    if (item) _renderCellPatchWorkflowCells(item, summaries);
 }
 
 function _applyLabelerRoleRestrictions() {
@@ -5359,6 +5396,9 @@ async function loadSlideList() {
 
             // Annotation workflow columns
             _renderAnnotationWorkflowCells(item, strRawSlideStatus);
+            if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.slideId === s.slide_id) {
+                _renderCellPatchWorkflowCells(item, cellPatchWorkflow.getWsiStepSummaries?.());
+            }
 
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();

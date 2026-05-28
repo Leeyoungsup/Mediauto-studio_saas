@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.143",
+  "version": "1.1.144",
   "channel": "production",
   "release_date": "2026-05-28",
-  "description": "Applies automatic read-only WSI status summaries to Annotation, Review, and Termination."
+  "description": "Synchronizes Cell Annotation patch workflow status summaries to the left slide list."
 }
