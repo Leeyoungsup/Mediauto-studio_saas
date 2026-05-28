@@ -1,5 +1,5 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-01';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-02';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260527-01';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260527-01';
 
@@ -67,6 +67,7 @@ export class CellPatchWorkflow {
         this.lastWsiViewBeforePatchOpen = null;
         this.layerVisibilityBeforePatchView = null;
         this.toolbarToggle = null;
+        this.excludeToggle = null;
         this.patchContextMenu = null;
         this.editor = new CellAnnotationEditor({
             api,
@@ -76,6 +77,7 @@ export class CellPatchWorkflow {
             onSaved: (patch) => this.updatePatch(patch),
         });
         this._setupRightPanel();
+        this._setupExcludeToggle();
         this._setupToolbarToggle();
         this.viewer.addOverlayLayer(this.required);
         this.viewer.addOverlayLayer(this.status);
@@ -143,6 +145,55 @@ export class CellPatchWorkflow {
         toolbar.insertBefore(btn, spacer || null);
         this.toolbarToggle = btn;
         this._syncToolbarToggle();
+    }
+
+    _setupExcludeToggle() {
+        const toolbar = document.getElementById('toolbar') || document.querySelector('.viewer-toolbar, #viewer-toolbar, nav.toolbar');
+        if (!toolbar || document.getElementById('cell-patch-exclude-toggle')) return;
+        const btn = document.createElement('button');
+        btn.id = 'cell-patch-exclude-toggle';
+        btn.type = 'button';
+        btn.className = 'toolbar-btn toggle-btn cell-patch-exclude-toggle';
+        btn.title = 'Exclude patch region';
+        btn.setAttribute('aria-label', 'Exclude patch region');
+        btn.innerHTML = `
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 4.5h7.2l2.3 2.3-7.9 7.9H4.8L2.5 12.4 7 4.5z"/>
+                <path d="M8.7 14.7l-2.9-2.9"/>
+                <path d="M11.4 7.4l2.9 2.9"/>
+            </svg>
+        `;
+        btn.addEventListener('click', () => {
+            if (this._isLabelerRole()) {
+                this.setStatus('Labeler role cannot change WSI-level required regions.');
+                return;
+            }
+            this.regionMode = this.regionMode === 'exclude' ? 'required' : 'exclude';
+            this._syncExcludeToggle();
+            this.renderPatchList();
+            this.setStatus(this.regionMode === 'exclude'
+                ? 'Exclude mode: draw a region to remove patches.'
+                : 'Required mode: draw a region to add patches.');
+        });
+        const fixedGroupFirst = document.getElementById('btn-draw-rect-1mm2');
+        const insertBefore = fixedGroupFirst?.closest('.toolbar-group') || toolbar.querySelector('.toolbar-spacer');
+        const wrap = document.createElement('div');
+        wrap.className = 'toolbar-group cell-patch-exclude-group';
+        wrap.appendChild(btn);
+        toolbar.insertBefore(wrap, insertBefore || null);
+        const sep = document.createElement('div');
+        sep.className = 'toolbar-separator cell-patch-exclude-separator';
+        toolbar.insertBefore(sep, insertBefore || null);
+        this.excludeToggle = btn;
+        this._syncExcludeToggle();
+    }
+
+    _syncExcludeToggle() {
+        if (!this.excludeToggle) return;
+        const active = this.regionMode === 'exclude';
+        this.excludeToggle.classList.toggle('active', active);
+        this.excludeToggle.disabled = this._isLabelerRole();
+        this.excludeToggle.title = active ? 'Exclude mode ON' : 'Exclude mode OFF';
     }
 
     _syncToolbarToggle() {
@@ -224,6 +275,7 @@ export class CellPatchWorkflow {
         this._syncToolbarToggle();
         this.editor.close();
         this.renderPatchList();
+        this._syncExcludeToggle();
         if (!this.slideId) return;
         const config = await this.api.getCellGridConfig(slideId);
         this.grid.setConfig(config);
@@ -441,8 +493,6 @@ export class CellPatchWorkflow {
                     <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
                 </div>
                 <div class="patch-list-actions">
-                    <button type="button" class="patch-region-mode ${this.regionMode === 'required' ? 'active' : ''}" data-mode="required" ${this._isLabelerRole() ? 'disabled' : ''}>Required</button>
-                    <button type="button" class="patch-region-mode ${this.regionMode === 'exclude' ? 'active' : ''}" data-mode="exclude" ${this._isLabelerRole() ? 'disabled' : ''}>Exclude</button>
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
                     <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending region">Undo</button>
                 </div>
@@ -450,13 +500,6 @@ export class CellPatchWorkflow {
             ${pendingText}
             ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
-        this.patchListEl.querySelectorAll('.patch-region-mode').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.regionMode = btn.dataset.mode === 'exclude' ? 'exclude' : 'required';
-                this.renderPatchList();
-                this.setStatus(`${this.regionMode === 'exclude' ? 'Exclude' : 'Required'} region mode`);
-            });
-        });
         this.patchListEl.querySelector('.patch-region-apply')?.addEventListener('click', () => {
             this.applyPendingRegions().catch((err) => {
                 this.setStatus(`Patch region apply failed: ${err.message}`);
@@ -1212,16 +1255,6 @@ export class CellPatchWorkflow {
 
     async ensureLabelingAssistance() {
         if (!this.slideId || !this.api?.startWsiLabelingAssistance) return;
-        const existing = this.api.getWsiLabelingAssistance
-            ? await this.api.getWsiLabelingAssistance(this.slideId)
-            : null;
-        const hasModelBboxAssistance = existing?.exists &&
-            existing?.annotation_ai?.key &&
-            existing?.base_result_format === 'bbox' &&
-            (existing?.labels || []).some(label => label?.bbox_source === 'model');
-        if (hasModelBboxAssistance) {
-            return;
-        }
         const options = this.api.getWsiLabelingAssistanceOptions
             ? await this.api.getWsiLabelingAssistanceOptions(this.slideId)
             : null;
@@ -1230,7 +1263,21 @@ export class CellPatchWorkflow {
             this.setStatus('Annotation AI assistance is disabled for this project');
             return;
         }
-        const start = await this.api.startWsiLabelingAssistance(this.slideId);
+        const existing = this.api.getWsiLabelingAssistance
+            ? await this.api.getWsiLabelingAssistance(this.slideId)
+            : null;
+        const sameAssistanceModel =
+            existing?.annotation_ai?.key === current.key &&
+            existing?.annotation_ai?.variant === current.variant &&
+            Boolean(existing?.annotation_ai?.inherit_classes) === Boolean(current.inherit_classes);
+        const hasModelBboxAssistance = existing?.exists &&
+            sameAssistanceModel &&
+            existing?.base_result_format === 'bbox' &&
+            (existing?.labels || []).some(label => label?.bbox_source === 'model');
+        if (hasModelBboxAssistance) {
+            return;
+        }
+        const start = await this.api.startWsiLabelingAssistance(this.slideId, current.key);
         const taskId = start?.task_id;
         if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
         this.setStatus(`Labeling assistance started: ${start.annotation_ai?.label || 'Annotation AI'}`);

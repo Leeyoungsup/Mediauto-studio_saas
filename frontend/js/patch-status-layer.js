@@ -1,7 +1,7 @@
 const STATUS_STYLE = {
     not_required: { fill: '148, 163, 184', stroke: 'rgba(148, 163, 184, 0.35)' },
-    required: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.85)' },
-    pending_required: { fill: '245, 158, 11', stroke: 'rgba(245, 158, 11, 0.95)' },
+    required: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.9)' },
+    pending_required: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.98)' },
     pending_excluded: { fill: '239, 68, 68', stroke: 'rgba(239, 68, 68, 0.95)' },
     in_progress: { fill: '59, 130, 246', stroke: 'rgba(59, 130, 246, 0.85)' },
     completed: { fill: '34, 197, 94', stroke: 'rgba(34, 197, 94, 0.85)' },

@@ -2,6 +2,26 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.136] - 2026-05-28
+
+### Fixed
+
+- Regenerate Cell Annotation WSI labeling assistance when the current project Assist AI differs from the existing assistance file.
+- Prevent point-only AI results from being saved as Cell Annotation WSI bbox assistance.
+
+## [1.1.135] - 2026-05-28
+
+### Changed
+
+- Moved Cell Annotation required/exclude patch selection from the right panel to a toolbar eraser toggle.
+- Changed Cell Annotation required patch overlays to green and exclude previews to red.
+
+## [1.1.134] - 2026-05-28
+
+### Changed
+
+- Removed persisted `WSI_regions.json` files from the Cell Annotation workflow; WSI region selection is now only an Apply-time input.
+
 ## [1.1.133] - 2026-05-28
 
 ### Changed

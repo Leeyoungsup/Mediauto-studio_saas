@@ -2630,8 +2630,7 @@ body.cell-patch-workflow-page .annotation-list {
     gap: 5px;
 }
 .patch-region-undo,
-.patch-region-apply,
-.patch-region-mode {
+.patch-region-apply {
     flex: 0 0 auto;
     min-height: 26px;
     padding: 0 9px;
@@ -2648,14 +2647,8 @@ body.cell-patch-workflow-page .annotation-list {
     background: #6c5ce7;
     color: #fff;
 }
-.patch-region-mode.active {
-    border-color: #f59e0b;
-    background: #fff7ed;
-    color: #b45309;
-}
 .patch-region-undo:hover:not(:disabled),
-.patch-region-apply:hover:not(:disabled),
-.patch-region-mode:hover:not(:disabled) {
+.patch-region-apply:hover:not(:disabled) {
     border-color: #6c5ce7;
     background: #f8f7ff;
     color: #4f46e5;
@@ -2665,8 +2658,7 @@ body.cell-patch-workflow-page .annotation-list {
     color: #fff;
 }
 .patch-region-undo:disabled,
-.patch-region-apply:disabled,
-.patch-region-mode:disabled {
+.patch-region-apply:disabled {
     color: #9ca3af;
     cursor: not-allowed;
     opacity: 0.55;
@@ -2695,6 +2687,14 @@ body.cell-patch-workflow-page .annotation-list {
 .patch-view-toolbar-toggle:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+.cell-patch-exclude-toggle.active {
+    background: #ef4444;
+    color: #fff;
+}
+.cell-patch-exclude-toggle.active:hover:not(:disabled) {
+    background: #dc2626;
+    color: #fff;
 }
 .patch-list-counts,
 .patch-list-empty {

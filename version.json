@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.133",
+  "version": "1.1.136",
   "channel": "production",
   "release_date": "2026-05-28",
-  "description": "Treats Cell Annotation WSI selection regions as one-time Apply inputs and clears them after patch creation."
+  "description": "Regenerates Cell Annotation WSI labeling assistance when the project Assist AI changes or only point results are available."
 }

@@ -521,10 +521,7 @@ async def _export_cell_annotation_files(slide_id: str, info, regions: list[dict]
         "classes": _load_cell_classes_for_project(_slide_project_path(info)),
         "patches": info_patches,
     })
-    _write_json(root / "WSI_regions.json", {
-        "slide_id": slide_id,
-        "regions": regions,
-    })
+    (root / "WSI_regions.json").unlink(missing_ok=True)
 
 
 async def _project_annotation_ai_config(info) -> dict:
@@ -610,13 +607,18 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
 
 def _write_assistance_result(slide_id: str, info, config: dict, result: dict) -> dict:
     labels, used_model_bbox = _result_cells_to_bbox_labels(result, config)
+    if labels and not used_model_bbox:
+        raise ValueError(
+            "Labeling assistance requires model bbox output, but the AI result only contains points. "
+            "Remove the stale AI result cache and rerun annotation assistance."
+        )
     payload = {
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
         "slide_stem": Path(info.file_path).stem,
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
-        "base_result_format": "bbox" if used_model_bbox else "point",
+        "base_result_format": "bbox",
         "label_format": "bbox",
         "fallback_bbox_size_px": DEFAULT_ASSISTANCE_BOX_SIZE,
         "total_labels": len(labels),
@@ -759,10 +761,7 @@ async def save_required_regions(
         {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
         upsert=True,
     )
-    _write_json(_cell_annotation_slide_dir(info) / "WSI_regions.json", {
-        "slide_id": slide_id,
-        "regions": regions,
-    })
+    (_cell_annotation_slide_dir(info) / "WSI_regions.json").unlink(missing_ok=True)
     return {"status": "saved", "count": len(regions), "regions": regions}
 
 
