@@ -805,6 +805,21 @@ export const api = {
         return res.json();
     },
 
+    async loadCellAnnotationClasses(path) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/classes?path=${encodeURIComponent(path || '')}`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    async saveCellAnnotationClasses(path, classes) {
+        const form = new FormData();
+        form.append('path', path || '');
+        form.append('data', JSON.stringify({ classes }));
+        const res = await _authFetch(`${API_BASE}/cell-annotation/classes`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async saveUserPreferences(preferences = {}) {
         const res = await _authFetch(`${API_BASE}/users/me/preferences`, {
             method: 'POST',

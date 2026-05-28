@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260528-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260527-08';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260527-08';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-04';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-05';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -1551,11 +1551,13 @@ function _queueSaveAnnotationClasses() {
         const projectName = _getCurrentProjectName();
         if (!projectName) return;
         try {
-            const res = await api.saveAnnotationClasses(projectName, _annotationClasses);
+            const res = ANNOTATION_PAGE_KIND === 'cell'
+                ? await api.saveCellAnnotationClasses(projectName, _annotationClasses)
+                : await api.saveAnnotationClasses(projectName, _annotationClasses);
             if (Array.isArray(res.classes)) {
                 _annotationClasses = res.classes.map(_normalizeAnnotationClass);
             }
-            setStatus('Annotation classes saved');
+            setStatus(ANNOTATION_PAGE_KIND === 'cell' ? 'Cell annotation classes saved' : 'Annotation classes saved');
         } catch (err) {
             console.warn('Annotation class save failed:', err);
             setStatus(`Class save failed: ${err.message}`);
@@ -1580,7 +1582,9 @@ async function _loadAnnotationClassesForCurrentProject(force = false) {
     if (!force && _classesLoadedForProject === projectName) return;
     _classesLoadedForProject = projectName;
     try {
-        const res = await api.loadAnnotationClasses(projectName);
+        const res = ANNOTATION_PAGE_KIND === 'cell'
+            ? await api.loadCellAnnotationClasses(projectName)
+            : await api.loadAnnotationClasses(projectName);
         const list = Array.isArray(res.classes) ? res.classes : _DEFAULT_ANNOTATION_CLASSES;
         _annotationClasses = list.map((cls, idx) => _normalizeAnnotationClass(cls, idx + 1));
         if (!_annotationClasses.some(c => c.id === _activeAnnotationClassId)) {
@@ -1774,6 +1778,10 @@ async function _openProjectClassManager(project) {
 
     _projectClassModal?.remove();
     const projectTitle = _projectLabel(project) || path;
+    const isCellClassMode = ANNOTATION_PAGE_KIND === 'cell';
+    const classTitle = isCellClassMode ? 'Cell Class Management' : 'Class Management';
+    const classSubtitle = isCellClassMode ? `${projectTitle} · Cell Annotation` : projectTitle;
+    const classSavedMessage = isCellClassMode ? 'Cell annotation classes saved' : 'Project classes saved';
     let localClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
     let draggingProjectClassId = null;
 
@@ -1783,8 +1791,8 @@ async function _openProjectClassManager(project) {
         <div class="project-class-dialog" role="dialog" aria-modal="true" aria-labelledby="project-class-title">
             <div class="project-class-header">
                 <div>
-                    <h2 id="project-class-title">Class Management</h2>
-                    <p>${_esc(projectTitle)}</p>
+                    <h2 id="project-class-title">${_esc(classTitle)}</h2>
+                    <p>${_esc(classSubtitle)}</p>
                 </div>
                 <button type="button" class="project-class-close" aria-label="Close">x</button>
             </div>
@@ -1897,7 +1905,9 @@ async function _openProjectClassManager(project) {
         statusEl.textContent = 'Saving...';
         try {
             localClasses = _normalizeProjectClassList(localClasses);
-            const res = await api.saveAnnotationClasses(path, localClasses);
+            const res = isCellClassMode
+                ? await api.saveCellAnnotationClasses(path, localClasses)
+                : await api.saveAnnotationClasses(path, localClasses);
             localClasses = _normalizeProjectClassList(res.classes);
             if (_getCurrentProjectName() === path) {
                 _annotationClasses = localClasses.map(c => ({ ...c, color: [...c.color] }));
@@ -1910,7 +1920,7 @@ async function _openProjectClassManager(project) {
                 renderClassManagementPanel();
                 renderAnnotationPanel();
             }
-            setStatus('Project classes saved');
+            setStatus(classSavedMessage);
             close();
         } catch (err) {
             statusEl.textContent = `Save failed: ${err.message}`;
@@ -1920,7 +1930,9 @@ async function _openProjectClassManager(project) {
 
     render();
     try {
-        const res = await api.loadAnnotationClasses(path);
+        const res = isCellClassMode
+            ? await api.loadCellAnnotationClasses(path)
+            : await api.loadAnnotationClasses(path);
         localClasses = _normalizeProjectClassList(res.classes);
         statusEl.textContent = `${localClasses.length} classes`;
         render();

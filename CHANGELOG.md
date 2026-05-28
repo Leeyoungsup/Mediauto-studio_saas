@@ -2,6 +2,17 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.131] - 2026-05-28
+
+### Added
+
+- Added separate project-level Cell Annotation class management stored under the Cell Annotation workspace.
+
+### Fixed
+
+- Stopped saving non-required Cell Annotation patches as patch tasks in API responses and `info.json`.
+- Removed restore-on-click behavior for removed Cell Annotation patches.
+
 ## [1.1.130] - 2026-05-28
 
 ### Fixed
