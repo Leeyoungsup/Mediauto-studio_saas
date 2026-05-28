@@ -389,6 +389,10 @@ export const api = {
         for (const key of ['title', 'institution', 'department', 'owner', 'status', 'due_date', 'description']) {
             form.append(key, info[key] || '');
         }
+        form.append('project_ai_enabled', String(Boolean(info.project_ai_enabled)));
+        form.append('project_ai_tasks_json', info.project_ai_tasks_json || JSON.stringify(info.project_ai_tasks || []));
+        form.append('annotation_ai_enabled', String(Boolean(info.annotation_ai_enabled)));
+        form.append('annotation_ai_key', info.annotation_ai_key || info.annotation_ai?.key || '');
         const res = await _authFetch(`${API_BASE}/slides/project/create`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
@@ -400,6 +404,10 @@ export const api = {
         for (const key of ['title', 'institution', 'department', 'owner', 'status', 'due_date', 'description']) {
             form.append(key, info[key] || '');
         }
+        form.append('project_ai_enabled', String(Boolean(info.project_ai_enabled)));
+        form.append('project_ai_tasks_json', info.project_ai_tasks_json || JSON.stringify(info.project_ai_tasks || []));
+        form.append('annotation_ai_enabled', String(Boolean(info.annotation_ai_enabled)));
+        form.append('annotation_ai_key', info.annotation_ai_key || info.annotation_ai?.key || '');
         const res = await _authFetch(`${API_BASE}/slides/project/update`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

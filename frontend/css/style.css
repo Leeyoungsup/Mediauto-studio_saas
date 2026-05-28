@@ -2382,6 +2382,9 @@ body.annotation-page .project-gate-row {
 .annotation-status-workflow.is-patch-status {
     grid-template-columns: minmax(72px, 1fr) 16px minmax(68px, 0.86fr) 16px minmax(82px, 1.08fr) 16px;
 }
+.annotation-status-workflow.is-wsi-auto-status {
+    grid-template-columns: minmax(68px, 1fr) 30px minmax(58px, 0.86fr) 30px minmax(74px, 1.04fr) 30px;
+}
 .annotation-step {
     min-width: 0;
     min-height: 27px;
@@ -2492,6 +2495,15 @@ body.annotation-page .project-gate-row {
 }
 .annotation-status-workflow.is-wsi-auto-status .annotation-step {
     cursor: default;
+    padding: 0 4px;
+}
+.annotation-status-workflow.is-wsi-auto-status .annotation-step-label {
+    font-size: 10px;
+}
+.annotation-status-workflow.is-wsi-auto-status .annotation-step-percent {
+    min-width: 0;
+    width: 30px;
+    padding: 0 3px;
 }
 .annotation-status-workflow.is-wsi-auto-status .annotation-step:disabled {
     opacity: 1;
@@ -2713,6 +2725,12 @@ body.cell-patch-workflow-page .annotation-list {
     background: #6c5ce7;
     transition: width 180ms ease;
 }
+.patch-list-progress-detail {
+    color: #6b7280;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.25;
+}
 .patch-view-toolbar-toggle {
     width: auto;
     min-width: 82px;
@@ -2847,10 +2865,13 @@ body.cell-patch-workflow-page .annotation-list {
     color: #4f46e5;
 }
 .patch-task-step[data-step-status="required"] {
+    background: #eff6ff;
+    color: #2563eb;
+}
+.patch-task-step[data-step-status="in_progress"] {
     background: #fff7ed;
     color: #b45309;
 }
-.patch-task-step[data-step-status="in_progress"],
 .patch-task-step[data-step-status="current"] {
     background: #eff6ff;
     color: #2563eb;
@@ -3094,7 +3115,7 @@ body.cell-patch-workflow-page .annotation-list {
     background: rgba(12, 14, 28, 0.38);
 }
 .project-class-dialog {
-    width: min(560px, 92vw);
+    width: min(620px, 92vw);
     max-height: min(720px, 86vh);
     display: flex;
     flex-direction: column;
@@ -3137,6 +3158,44 @@ body.cell-patch-workflow-page .annotation-list {
 .project-class-body {
     padding: 14px 20px;
     overflow-y: auto;
+}
+.project-class-ai-section {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-light);
+}
+.project-class-ai-enable {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-bright);
+    font-size: 12px;
+    font-weight: 800;
+}
+.project-class-ai-enable input {
+    width: 15px;
+    height: 15px;
+}
+.project-class-ai-section p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.45;
+}
+.project-class-ai-select {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
 }
 .project-class-toolbar,
 .project-class-footer {

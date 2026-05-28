@@ -515,21 +515,44 @@ def _write_compact_json(path: Path, data: Any) -> None:
 
 
 def _write_patch_image(info, patch: dict, out_path: Path) -> None:
-    if out_path.exists():
-        return
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         import openslide
+        from app import tile_generator
+        from app.ndp_color_match import apply_ndp_fit, is_hamamatsu_slide
+        from app.slide_manager import build_color_corrector
 
         slide = openslide.OpenSlide(info.file_path)
+        image = None
+        image_rgb = None
+        image_color = None
+        image_out = None
         try:
             x = int(patch.get("int_x", 0))
             y = int(patch.get("int_y", 0))
             w = max(1, int(patch.get("int_w", 0)))
             h = max(1, int(patch.get("int_h", 0)))
-            image = slide.read_region((x, y), 0, (w, h)).convert("RGB")
-            image.save(out_path, "JPEG", quality=90, optimize=True)
+            image = slide.read_region((x, y), 0, (w, h))
+            image_rgb = tile_generator.image_to_white_rgb(image)
+            apply_color, _ = build_color_corrector(slide)
+            image_color = apply_color(image_rgb)
+
+            # Viewer paths auto-use the NDP-matched variant for Hamamatsu/NDPI.
+            # Exported patch JPEGs should match that visual pipeline, too.
+            suffix = Path(info.file_path).suffix.lower()
+            if suffix == ".ndpi" or is_hamamatsu_slide(slide.properties):
+                image_out = apply_ndp_fit(image_color)
+            else:
+                image_out = image_color
+
+            image_out.save(out_path, "JPEG", quality=90, optimize=True)
         finally:
+            for obj in (image_out, image_color, image_rgb, image):
+                try:
+                    if obj is not None:
+                        obj.close()
+                except Exception:
+                    pass
             slide.close()
     except Exception as exc:
         print(f"[cell_annotation] patch image export failed ({out_path.name}): {exc}")
@@ -1150,7 +1173,7 @@ async def start_wsi_labeling_assistance(
             raise HTTPException(400, f"Invalid annotation AI key: {override_key}")
         config = normalize_annotation_ai_config(True, override_key)
     if not config.get("enabled"):
-        raise HTTPException(400, "Annotation AI assistance is disabled for this project")
+        raise HTTPException(400, "Cell Annotation AI assistance is disabled for this project")
     task_id = uuid.uuid4().hex[:12]
     str_filename = Path(info.file_path).name
     with _tasks_lock:

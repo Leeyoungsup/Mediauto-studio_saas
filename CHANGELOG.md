@@ -2,6 +2,45 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.150] - 2026-05-28
+
+### Changed
+
+- Show selected required/excluded patch counts and saved patch totals in the Cell Annotation patch apply progress UI.
+
+## [1.1.149] - 2026-05-28
+
+### Fixed
+
+- Export Cell Annotation patch JPEGs through the same vendor-aware color pipeline used by the viewer.
+- Regenerate exported patch JPEGs on Cell Annotation export so older raw-color patch files are corrected.
+
+## [1.1.148] - 2026-05-28
+
+### Changed
+
+- Changed Cell Annotation patch list status colors so Required is blue and Running is orange.
+
+## [1.1.147] - 2026-05-28
+
+### Changed
+
+- Changed the Cell Annotation project action from Classes to Setting.
+- Added Cell Annotation AI assistance controls to the Cell Annotation project settings modal.
+- Preserved project AI settings when updating project metadata through the shared API client.
+
+## [1.1.146] - 2026-05-28
+
+### Changed
+
+- Renamed project Annotation AI assistance UI to Cell Annotation AI assistance.
+
+## [1.1.145] - 2026-05-28
+
+### Fixed
+
+- Prevented Cell Annotation WSI status percent badges from clipping in the right panel.
+
 ## [1.1.144] - 2026-05-28
 
 ### Fixed

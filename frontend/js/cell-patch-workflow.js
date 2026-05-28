@@ -500,11 +500,9 @@ export class CellPatchWorkflow {
         const countText = Object.entries(statusCounts)
             .map(([status, count]) => `${this._statusLabel(status)} ${count}`)
             .join(' / ');
-        const pendingPatches = this.status?.pendingPatches || [];
-        const pendingRequired = pendingPatches.filter(patch => patch.str_status === 'pending_required').length;
-        const pendingExcluded = pendingPatches.filter(patch => patch.str_status === 'pending_excluded').length;
-        const pendingText = pendingPatches.length
-            ? `<div class="patch-list-pending">Pending patches: ${pendingRequired} required / ${pendingExcluded} excluded</div>`
+        const pendingCounts = this._pendingPatchCounts();
+        const pendingText = pendingCounts.total
+            ? `<div class="patch-list-pending">Selected changes: ${pendingCounts.required} required / ${pendingCounts.excluded} excluded (${pendingCounts.total} total)</div>`
             : '';
         const progress = this.patchApplyProgress;
         const progressText = progress?.label
@@ -516,13 +514,14 @@ export class CellPatchWorkflow {
                 <div class="patch-list-progress-track">
                     <div class="patch-list-progress-fill" style="width:${Math.round(progress.percent)}%"></div>
                 </div>
+                ${progress.detail ? `<div class="patch-list-progress-detail">${this._escape(progress.detail)}</div>` : ''}
             </div>`
             : '';
         this.patchListEl.innerHTML = `
             <div class="patch-list-summary">
                 <div>
-                    <strong>${list.length}</strong>
-                    <span>${list.length === 1 ? 'patch requires labeling' : 'patches require labeling'}</span>
+                    <strong>${pendingCounts.total || list.length}</strong>
+                    <span>${pendingCounts.total ? 'pending patch changes' : (list.length === 1 ? 'patch requires labeling' : 'patches require labeling')}</span>
                 </div>
                 <div class="patch-list-actions">
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
@@ -1327,11 +1326,26 @@ export class CellPatchWorkflow {
         return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
     }
 
-    setPatchApplyProgress(label = '', percent = 0, active = true) {
+    setPatchApplyProgress(label = '', percent = 0, active = true, detail = '') {
         this.patchApplyProgress = label
-            ? { label, percent: Math.max(0, Math.min(100, Number(percent) || 0)), active }
+            ? { label, percent: Math.max(0, Math.min(100, Number(percent) || 0)), active, detail }
             : null;
         this.renderPatchList();
+    }
+
+    _pendingPatchCounts() {
+        const map = new Map();
+        for (const patch of this.status?.pendingPatches || []) {
+            const key = `${Math.round(Number(patch.int_x || patch.x || 0))}_${Math.round(Number(patch.int_y || patch.y || 0))}`;
+            map.set(key, patch);
+        }
+        let required = 0;
+        let excluded = 0;
+        for (const patch of map.values()) {
+            if (patch.str_status === 'pending_excluded') excluded += 1;
+            else if (patch.str_status === 'pending_required') required += 1;
+        }
+        return { required, excluded, total: required + excluded };
     }
 
     async undoLastRequiredRegion() {
@@ -1384,18 +1398,21 @@ export class CellPatchWorkflow {
             type: region.type,
             points: region.points,
         }));
+        const pendingCounts = this._pendingPatchCounts();
+        const selectedDetail = `${pendingCounts.required} required / ${pendingCounts.excluded} excluded selected`;
         try {
-            this.setPatchApplyProgress('Saving patch changes', 12, true);
+            this.setPatchApplyProgress('Saving region draft', 10, true, selectedDetail);
             await this.api.saveCellRequiredRegions(this.slideId, regions);
-            this.setPatchApplyProgress('Updating patch list', 38, true);
+            this.setPatchApplyProgress('Saving patch records and images', 38, true, selectedDetail);
             const recompute = await this.api.recomputeCellPatchStatus(this.slideId);
-            this.setPatchApplyProgress('Clearing region draft', 68, true);
+            const savedDetail = `Saved: ${Number(recompute?.added_count || 0)} added / ${Number(recompute?.excluded_count || 0)} removed / ${Number(recompute?.required_count || 0)} total required`;
+            this.setPatchApplyProgress('Clearing region draft', 68, true, savedDetail);
             await this.api.saveCellRequiredRegions(this.slideId, []);
             this.required.setRegions([]);
             this.pendingRegions = [];
             this._syncPendingPatchPreview();
             this.lastRegionAction = null;
-            this.setPatchApplyProgress('Refreshing patches', 86, true);
+            this.setPatchApplyProgress('Refreshing patch list', 86, true, savedDetail);
             await this.refreshPatches();
             if (Number(recompute?.required_count || 0) > 0) {
                 await this.onRequiredRegionSaved({ requiredCount: Number(recompute.required_count || 0) });
@@ -1406,7 +1423,7 @@ export class CellPatchWorkflow {
                 added ? `added ${added}` : '',
                 removed ? `removed ${removed}` : '',
             ].filter(Boolean).join(', ');
-            this.setPatchApplyProgress(detail ? `Applied: ${detail}` : 'Applied', 100, false);
+            this.setPatchApplyProgress(detail ? `Applied: ${detail}` : 'Applied', 100, false, savedDetail);
             window.setTimeout(() => {
                 if (this.patchApplyProgress && !this.patchApplyProgress.active) {
                     this.setPatchApplyProgress('', 0, false);
@@ -1448,7 +1465,7 @@ export class CellPatchWorkflow {
             : null;
         const current = options?.current || {};
         if (!current.enabled || !current.key) {
-            if (!silent) this.setStatus('Annotation AI assistance is disabled for this project');
+            if (!silent) this.setStatus('Cell Annotation AI assistance is disabled for this project');
             return;
         }
         const existing = this.api.getWsiLabelingAssistance
@@ -1473,7 +1490,7 @@ export class CellPatchWorkflow {
         const taskId = start?.task_id;
         if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
         if (!silent) {
-            this.setStatus(`Labeling assistance started: ${start.annotation_ai?.label || 'Annotation AI'}`);
+            this.setStatus(`Cell Annotation AI assistance started: ${start.annotation_ai?.label || 'Cell Annotation AI'}`);
         }
         for (let i = 0; i < 600; i += 1) {
             await new Promise(resolve => setTimeout(resolve, 1500));

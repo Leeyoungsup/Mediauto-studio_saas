@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260528-02';
+import { api } from './api.js?v=20260528-03';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-16';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-18';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -1808,6 +1808,64 @@ function _normalizeProjectClassList(list) {
     });
 }
 
+const CELL_ANNOTATION_AI_OPTIONS = [
+    { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI' },
+    { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI' },
+    { key: 'quanti_he_other', label: 'Quanti HE-other', group: 'Inherited AI' },
+    { key: 'quanti_pd_l1_stomach', label: 'Quanti PD-L1 - Stomach (CPS)', group: 'Inherited AI' },
+    { key: 'quanti_pd_l1_lung', label: 'Quanti PD-L1 - Lung (TPS)', group: 'Inherited AI' },
+    { key: 'quanti_ihc_her2', label: 'Quanti IHC - HER2', group: 'Inherited AI' },
+    { key: 'quanti_ihc_er_pr', label: 'Quanti IHC - ER/PR (Allred)', group: 'Inherited AI' },
+    { key: 'quanti_ihc_ki_67', label: 'Quanti IHC - KI-67', group: 'Inherited AI' },
+    { key: 'hne', label: 'HnE', group: 'Non-inherited AI' },
+    { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI' },
+    { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI' },
+];
+
+function _cellAnnotationAiSelectHtml(currentKey = '') {
+    const groups = [];
+    for (const opt of CELL_ANNOTATION_AI_OPTIONS) {
+        let group = groups.find(item => item.label === opt.group);
+        if (!group) {
+            group = { label: opt.group, items: [] };
+            groups.push(group);
+        }
+        group.items.push(opt);
+    }
+    return '<option value="">Select Cell Annotation AI</option>' + groups.map(group => `
+        <optgroup label="${_esc(group.label)}">
+            ${group.items.map(opt => `<option value="${_esc(opt.key)}"${opt.key === currentKey ? ' selected' : ''}>${_esc(opt.label)}</option>`).join('')}
+        </optgroup>
+    `).join('');
+}
+
+async function _saveProjectCellAnnotationAiSettings(project, enabled, key) {
+    const path = project?.path || project?.name || '';
+    const info = project?.info || {};
+    const payload = {
+        title: info.title || project?.name || path,
+        institution: info.institution || '',
+        department: info.department || '',
+        owner: info.owner || '',
+        status: info.status || 'active',
+        due_date: info.due_date || '',
+        description: info.description || '',
+        project_ai_enabled: Boolean(info.project_ai_enabled),
+        project_ai_tasks: Array.isArray(info.project_ai_tasks) ? info.project_ai_tasks : [],
+        annotation_ai_enabled: Boolean(enabled),
+        annotation_ai_key: key || '',
+    };
+    await api.updateProject(path, payload);
+    if (project?.info) {
+        project.info.annotation_ai_enabled = Boolean(enabled && key);
+        project.info.annotation_ai = {
+            ...(project.info.annotation_ai || {}),
+            enabled: Boolean(enabled && key),
+            key: enabled ? (key || '') : '',
+        };
+    }
+}
+
 async function _openProjectClassManager(project) {
     const path = project?.path || project?.name || '';
     if (!path) return;
@@ -1816,9 +1874,12 @@ async function _openProjectClassManager(project) {
     _projectClassModal?.remove();
     const projectTitle = _projectLabel(project) || path;
     const isCellClassMode = ANNOTATION_PAGE_KIND === 'cell';
-    const classTitle = isCellClassMode ? 'Cell Class Management' : 'Class Management';
-    const classSubtitle = isCellClassMode ? `${projectTitle} · Cell Annotation` : projectTitle;
-    const classSavedMessage = isCellClassMode ? 'Cell annotation classes saved' : 'Project classes saved';
+    const classTitle = isCellClassMode ? 'Cell Annotation Settings' : 'Class Management';
+    const classSubtitle = isCellClassMode ? `${projectTitle} - Cell Annotation` : projectTitle;
+    const classSavedMessage = isCellClassMode ? 'Cell annotation settings saved' : 'Project classes saved';
+    const annotationAi = project?.info?.annotation_ai || {};
+    const annotationAiKey = annotationAi.key || '';
+    const annotationAiEnabled = Boolean(project?.info?.annotation_ai_enabled && annotationAiKey);
     let localClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
     let draggingProjectClassId = null;
 
@@ -1834,6 +1895,16 @@ async function _openProjectClassManager(project) {
                 <button type="button" class="project-class-close" aria-label="Close">x</button>
             </div>
             <div class="project-class-body">
+                ${isCellClassMode ? `
+                <section class="project-class-ai-section">
+                    <label class="project-class-ai-enable">
+                        <input type="checkbox" class="project-class-ai-enabled"${annotationAiEnabled ? ' checked' : ''}>
+                        <span>Cell Annotation AI assistance</span>
+                    </label>
+                    <p>One model can assist patch-level cell labeling through WSI_Labeling_assistance.json.</p>
+                    <select class="project-class-ai-select">${_cellAnnotationAiSelectHtml(annotationAiKey)}</select>
+                </section>
+                ` : ''}
                 <div class="project-class-toolbar">
                     <button type="button" class="small-btn project-class-add">Add Class</button>
                     <span class="project-class-status">Loading...</span>
@@ -1852,6 +1923,12 @@ async function _openProjectClassManager(project) {
     const listEl = modal.querySelector('.project-class-list');
     const statusEl = modal.querySelector('.project-class-status');
     const saveBtn = modal.querySelector('.project-class-save');
+    const aiEnabledEl = modal.querySelector('.project-class-ai-enabled');
+    const aiSelectEl = modal.querySelector('.project-class-ai-select');
+    if (aiSelectEl) aiSelectEl.disabled = !annotationAiEnabled;
+    aiEnabledEl?.addEventListener('change', () => {
+        if (aiSelectEl) aiSelectEl.disabled = !aiEnabledEl.checked;
+    });
     const makeLocalClassId = (name) => {
         const base = String(name || 'Class')
             .trim()
@@ -1945,6 +2022,14 @@ async function _openProjectClassManager(project) {
             const res = isCellClassMode
                 ? await api.saveCellAnnotationClasses(path, localClasses)
                 : await api.saveAnnotationClasses(path, localClasses);
+            if (isCellClassMode) {
+                statusEl.textContent = 'Saving settings...';
+                await _saveProjectCellAnnotationAiSettings(
+                    project,
+                    Boolean(aiEnabledEl?.checked),
+                    aiSelectEl?.value || ''
+                );
+            }
             localClasses = _normalizeProjectClassList(res.classes);
             if (_getCurrentProjectName() === path) {
                 _annotationClasses = localClasses.map(c => ({ ...c, color: [...c.color] }));
@@ -5239,9 +5324,11 @@ function _renderProjectGate(list_projects) {
         const classBtn = document.createElement('button');
         classBtn.type = 'button';
         classBtn.className = 'project-gate-action secondary';
-        classBtn.textContent = 'Classes';
+        classBtn.textContent = ANNOTATION_PAGE_KIND === 'cell' ? 'Setting' : 'Classes';
         classBtn.disabled = !_canManageAnnotationClasses();
-        classBtn.title = _canManageAnnotationClasses() ? 'Manage classes' : 'Doctor/Admin only';
+        classBtn.title = _canManageAnnotationClasses()
+            ? (ANNOTATION_PAGE_KIND === 'cell' ? 'Manage Cell Annotation settings' : 'Manage classes')
+            : 'Doctor/Admin only';
         actionEl.append(openBtn, classBtn);
         actionEl.addEventListener('click', (e) => e.stopPropagation());
 
