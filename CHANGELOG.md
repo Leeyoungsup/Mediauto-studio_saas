@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.162] - 2026-05-29
+
+### Fixed
+
+- Normalize invalid user role values before rendering header badges and before applying frontend/backend role permissions.
+
 ## [1.1.161] - 2026-05-29
 
 ### Changed

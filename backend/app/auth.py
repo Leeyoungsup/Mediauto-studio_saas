@@ -21,6 +21,7 @@ from app.models import UserRole
 # ── text ──
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_REFRESH = "refresh"
+_VALID_USER_ROLES = {role.value for role in UserRole}
 
 # ── text text text text (text text text text text DB text text) ──
 _USER_CACHE: dict[str, tuple[dict, float]] = {}
@@ -42,6 +43,15 @@ def _set_cached_user(str_user_id: str, dict_user: dict):
             if float_ts < float_cutoff:
                 _USER_CACHE.pop(str_key, None)
     _USER_CACHE[str_user_id] = (dict_user, float_now)
+
+
+def _normalize_user_role(dict_user: dict) -> dict:
+    str_role = str(dict_user.get("str_role") or "").lower()
+    if str_role not in _VALID_USER_ROLES:
+        dict_user = {**dict_user, "str_role": UserRole.VIEWER.value}
+    else:
+        dict_user["str_role"] = str_role
+    return dict_user
 
 
 def invalidate_user_cache(str_user_id: str = ""):
@@ -185,6 +195,7 @@ async def get_current_user(request: Request) -> dict:
 
     # _idtext text text
     dict_user["_id"] = str(dict_user["_id"])
+    dict_user = _normalize_user_role(dict_user)
     _set_cached_user(str_user_id, dict_user)
     return dict_user
 
@@ -245,6 +256,7 @@ async def get_media_user(request: Request) -> dict:
         )
 
     dict_user["_id"] = str(dict_user["_id"])
+    dict_user = _normalize_user_role(dict_user)
     _set_cached_user(str_user_id, dict_user)
     return dict_user
 
@@ -258,10 +270,10 @@ def require_not_viewer(
     Admin, Doctor text text. Viewer text text text text text text/text text.
     """
     str_user_role = dict_current_user.get("str_role", "")
-    if str_user_role == UserRole.VIEWER.value:
+    if str_user_role not in {UserRole.ADMIN.value, UserRole.DOCTOR.value, UserRole.LABELER.value}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Viewer role cannot perform this action",
+            detail="This role cannot perform this action",
         )
     return dict_current_user
 

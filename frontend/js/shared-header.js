@@ -2,7 +2,12 @@
     'use strict';
 
     function labelForRole(role) {
-        return role || 'viewer';
+        return {
+            admin: 'Admin',
+            doctor: 'Doctor',
+            labeler: 'Labeler',
+            viewer: 'Viewer',
+        }[String(role || '').toLowerCase()] || 'Unknown';
     }
 
     function esc(value) {
@@ -78,7 +83,10 @@
 
         const user = options.user || {};
         const active = options.active || '';
-        const role = user.str_role || options.role || '';
+        const rawRole = user.str_role || options.role || '';
+        const role = ['admin', 'doctor', 'labeler', 'viewer'].includes(String(rawRole).toLowerCase())
+            ? String(rawRole).toLowerCase()
+            : 'viewer';
         const name = user.str_name || user.str_login_id || '';
         const showAdmin = options.showAdmin ?? role === 'admin';
         const canUseCellAnnotation = role === 'admin';

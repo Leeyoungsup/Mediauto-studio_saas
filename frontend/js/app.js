@@ -20,6 +20,20 @@ function _esc(s) {
 
 const $ = (sel) => document.querySelector(sel);
 
+function _normalizeUserRole(role) {
+    const value = String(role || '').toLowerCase();
+    return ['admin', 'doctor', 'labeler', 'viewer'].includes(value) ? value : 'viewer';
+}
+
+function _roleLabel(role) {
+    return {
+        admin: 'Admin',
+        doctor: 'Doctor',
+        labeler: 'Labeler',
+        viewer: 'Viewer',
+    }[_normalizeUserRole(role)] || 'Viewer';
+}
+
 const $canvas = $('#wsi-canvas');
 const $overlay = $('#overlay-canvas');
 const $slideName = $('#slide-name');
@@ -4768,23 +4782,24 @@ $btnVsSplit?.addEventListener('click', () => {
             $projectUserName.textContent = dict_me.str_name || dict_me.str_username || '';
         }
         if ($projectUserRole) {
-            $projectUserRole.textContent = dict_me.str_role || 'viewer';
+            $projectUserRole.textContent = _roleLabel(dict_me.str_role);
         }
-        if (dict_me.str_role === 'admin') {
+        const normalizedRole = _normalizeUserRole(dict_me.str_role);
+        if (normalizedRole === 'admin') {
             const $linkAdmin = document.getElementById('link-admin');
             if ($linkAdmin) $linkAdmin.hidden = false;
             if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
         window.MediautoHeader?.render({
             active: 'viewer',
-            user: dict_me,
-            showAdmin: dict_me.str_role === 'admin',
+            user: { ...dict_me, str_role: normalizedRole },
+            showAdmin: normalizedRole === 'admin',
             logout: () => {
                 _stopAiActivePolling();
                 api.logout();
             },
         });
-        window.__currentUserRole = dict_me.str_role || 'viewer';
+        window.__currentUserRole = normalizedRole;
         window.__currentUserId = String(dict_me._id || '');
         if (window.__currentUserRole === 'viewer') {
             _applyViewerRoleRestrictions();
