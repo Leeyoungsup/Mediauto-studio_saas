@@ -198,6 +198,12 @@ export class CellPatchWorkflow {
         this.excludeToggle.classList.toggle('active', active);
         this.excludeToggle.disabled = this._isLabelerRole();
         this.excludeToggle.title = active ? 'Exclude mode ON' : 'Exclude mode OFF';
+        this.syncWsiDrawColor();
+    }
+
+    syncWsiDrawColor() {
+        if (this.patchFocusActive || !this.viewer?.setAnnotationDrawColor) return;
+        this.viewer.setAnnotationDrawColor(this.regionMode === 'exclude' ? [239, 68, 68] : [34, 197, 94]);
     }
 
     _syncToolbarToggle() {
@@ -709,19 +715,32 @@ export class CellPatchWorkflow {
             const workflow = this._patchWorkflowStatus(patch);
             return ['reviewed', 'rejected'].includes(workflow.review);
         };
+        const reviewRejected = (patch) => {
+            const workflow = this._patchWorkflowStatus(patch);
+            return workflow.review === 'rejected';
+        };
         const terminationCompleted = (patch) => {
             const workflow = this._patchWorkflowStatus(patch);
             return workflow.termination === 'completed';
         };
         let completed = 0;
         let running = false;
+        let rejected = 0;
         if (step === 'review') {
             completed = list.filter(reviewCompleted).length;
+            rejected = list.filter(reviewRejected).length;
             running = list.some(patch => this._patchWorkflowStatus(patch).review === 'current');
             const annotationDone = total > 0 && list.every(annotationCompleted);
             if (!annotationDone) {
                 const percent = total ? Math.round((completed / total) * 100) : 0;
-                return { total, completed, percent, running: false, state: completed > 0 ? 'running' : 'before' };
+                return {
+                    total,
+                    completed,
+                    rejected,
+                    percent,
+                    running: false,
+                    state: rejected > 0 ? 'rejected' : (completed > 0 ? 'running' : 'before'),
+                };
             }
         } else if (step === 'termination') {
             completed = list.filter(terminationCompleted).length;
@@ -729,7 +748,7 @@ export class CellPatchWorkflow {
             const reviewDone = total > 0 && list.every(reviewCompleted);
             if (!reviewDone) {
                 const percent = total ? Math.round((completed / total) * 100) : 0;
-                return { total, completed, percent, running: false, state: completed > 0 ? 'running' : 'before' };
+                return { total, completed, rejected, percent, running: false, state: completed > 0 ? 'running' : 'before' };
             }
         } else {
             completed = list.filter(annotationCompleted).length;
@@ -741,9 +760,10 @@ export class CellPatchWorkflow {
         }
         const percent = total ? Math.round((completed / total) * 100) : 0;
         let state = 'before';
-        if (total > 0 && completed >= total) state = 'completed';
+        if (step === 'review' && rejected > 0) state = 'rejected';
+        else if (total > 0 && completed >= total) state = 'completed';
         else if (total > 0 || running) state = 'running';
-        return { total, completed, percent, running, state };
+        return { total, completed, rejected, percent, running, state };
     }
 
     getWsiStepSummaries() {
@@ -793,6 +813,7 @@ export class CellPatchWorkflow {
                 before: 'Review before: patch annotation is not complete',
                 running: 'Review in progress',
                 completed: 'Review complete',
+                rejected: 'Review rejected',
             },
             termination: {
                 before: 'Termination before: patch review is not complete',
@@ -810,11 +831,15 @@ export class CellPatchWorkflow {
             statusBtn.classList.toggle('is-active', summary.state === 'before');
             statusBtn.classList.toggle('is-running', summary.state === 'running');
             statusBtn.classList.toggle('is-complete', summary.state === 'completed');
-            statusBtn.title = `${stateMap[step]?.[summary.state] || label} (${summary.completed}/${summary.total})`;
+            statusBtn.classList.toggle('is-rejected', summary.state === 'rejected');
+            const rejectedText = summary.rejected ? ` / rejected ${summary.rejected}` : '';
+            statusBtn.title = `${stateMap[step]?.[summary.state] || label} (${summary.completed}/${summary.total}${rejectedText})`;
             const icon = this._ensureStepStateElement(statusBtn);
             icon.className = `annotation-step-state annotation-step-percent is-${summary.state}`;
-            icon.textContent = `${summary.percent}%`;
-            icon.title = `${summary.percent}% completed (${summary.completed}/${summary.total})`;
+            icon.textContent = summary.state === 'rejected' ? `${summary.rejected}R` : `${summary.percent}%`;
+            icon.title = summary.state === 'rejected'
+                ? `${summary.rejected} rejected / ${summary.completed} reviewed (${summary.total} total)`
+                : `${summary.percent}% completed (${summary.completed}/${summary.total})`;
             statusBtn.onclick = null;
         });
     }
@@ -845,6 +870,7 @@ export class CellPatchWorkflow {
             btn.classList.toggle('is-active', info.state === 'required' || info.state === 'in_progress' || info.state === 'current');
             btn.classList.toggle('is-complete', info.state === 'completed' || info.state === 'reviewed');
             btn.classList.toggle('is-running', info.state === 'in_progress');
+            btn.classList.toggle('is-rejected', info.state === 'rejected');
             const boolDisabled = boolLabeler && (step !== 'annotation' || boolLabelerLocked);
             btn.disabled = boolDisabled;
             btn.title = `Patch ${info.label}: ${this._workflowLabel(info.state)}`;
@@ -865,6 +891,7 @@ export class CellPatchWorkflow {
 
     _workflowIconState(state) {
         if (state === 'completed' || state === 'reviewed') return 'done';
+        if (state === 'rejected') return 'rejected';
         if (state === 'in_progress') return 'running';
         if (state === 'required' || state === 'current') return 'current';
         return 'pending';
@@ -1251,6 +1278,7 @@ export class CellPatchWorkflow {
         this.renderPatchList();
         this._syncToolbarToggle();
         this._syncAnnotationStatusPanel();
+        window.dispatchEvent(new CustomEvent('cellpatch:viewchange', { detail: { patchFocusActive: true } }));
         this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
     }
 
@@ -1288,7 +1316,9 @@ export class CellPatchWorkflow {
         this.viewer.requestRender();
         this.renderPatchList();
         this._syncToolbarToggle();
+        this.syncWsiDrawColor();
         this._syncAnnotationStatusPanel();
+        window.dispatchEvent(new CustomEvent('cellpatch:viewchange', { detail: { patchFocusActive: false } }));
         this.setStatus('WSI view restored');
     }
 

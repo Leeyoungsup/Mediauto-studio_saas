@@ -1328,6 +1328,11 @@ body.annotation-page .slide-workflow-cell.is-complete {
     border-color: rgba(46, 204, 113, 0.45);
     color: #6ee093;
 }
+body.annotation-page .slide-workflow-cell.is-rejected {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #ff8a8a;
+}
 body.annotation-page .slide-list.grid-view .slide-list-table-header,
 body.annotation-page .slide-list.grid-view .slide-workflow-cell {
     display: none;
@@ -2448,6 +2453,26 @@ body.annotation-page .project-gate-row {
     border-radius: 50%;
     background: #f59e0b;
 }
+.annotation-step-icon.is-rejected {
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
+}
+.annotation-step-icon.is-rejected::before,
+.annotation-step-icon.is-rejected::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 2px;
+    border-radius: 999px;
+    background: #fff;
+}
+.annotation-step-icon.is-rejected::before {
+    transform: rotate(45deg);
+}
+.annotation-step-icon.is-rejected::after {
+    transform: rotate(-45deg);
+}
 .annotation-step-icon.is-current::before,
 .annotation-step-icon.is-pending::before {
     content: "";
@@ -2494,6 +2519,10 @@ body.annotation-page .project-gate-row {
     background: #ecfdf3;
     color: #20a85a;
 }
+.annotation-step-percent.is-rejected {
+    background: #fef2f2;
+    color: #dc2626;
+}
 .annotation-status-workflow.is-wsi-auto-status .annotation-step {
     cursor: default;
     padding: 0 4px;
@@ -2524,13 +2553,19 @@ body.annotation-page .project-gate-row {
     background: #fff7e6;
     color: #9a6500;
 }
+.annotation-step.is-rejected {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
 .annotation-step:disabled {
     cursor: not-allowed;
     opacity: 0.48;
 }
 .annotation-step.is-active:disabled,
 .annotation-step.is-complete:disabled,
-.annotation-step.is-running:disabled {
+.annotation-step.is-running:disabled,
+.annotation-step.is-rejected:disabled {
     opacity: 1;
 }
 .annotation-step-connector {

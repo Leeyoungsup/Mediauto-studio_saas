@@ -2,6 +2,24 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.158] - 2026-05-29
+
+### Fixed
+
+- Keep Cell Annotation WSI required/exclude region drawing colors independent from the active cell class color.
+
+## [1.1.157] - 2026-05-29
+
+### Fixed
+
+- Show rejected Cell Annotation review status as a distinct red state in patch view, WSI status summaries, and the left slide workflow indicators.
+
+## [1.1.156] - 2026-05-29
+
+### Changed
+
+- Move Cell Annotation patch image/label/info export to a coalesced background task so patch status changes return immediately after the database update.
+
 ## [1.1.155] - 2026-05-29
 
 ### Fixed

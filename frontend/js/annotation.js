@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260528-03';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260529-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260529-04';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -288,6 +288,7 @@ function _annotationWorkflowStepState(status, step) {
 }
 
 function _annotationWorkflowStepSymbol(state) {
+    if (state === 'rejected') return 'X';
     if (state === 'complete') return '\u2713';
     if (state === 'running') return '...';
     if (state === 'active') return '\u25b6';
@@ -988,6 +989,7 @@ function _applyViewerRoleRestrictions() {
 
 function _cellPatchSlideListState(summary) {
     const state = summary?.state || 'before';
+    if (state === 'rejected') return 'rejected';
     if (state === 'completed') return 'complete';
     if (state === 'running') return 'running';
     return 'pending';
@@ -1009,7 +1011,8 @@ function _renderCellPatchWorkflowCells(item, summaries) {
         cell.dataset.workflowStep = step;
         cell.dataset.cellPatchAuto = '1';
         cell.textContent = _annotationWorkflowStepSymbol(state);
-        cell.title = `${label}: ${summary.percent || 0}% (${summary.completed || 0}/${summary.total || 0})`;
+        const rejectedText = summary.rejected ? ` / rejected ${summary.rejected}` : '';
+        cell.title = `${label}: ${summary.percent || 0}% (${summary.completed || 0}/${summary.total || 0}${rejectedText})`;
         item.appendChild(cell);
     }
 }
@@ -1442,9 +1445,17 @@ function _getAnnotationClass(classId) {
 }
 
 function _syncActiveAnnotationClassToViewer() {
+    if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow && !cellPatchWorkflow.patchFocusActive) {
+        cellPatchWorkflow.syncWsiDrawColor?.();
+        return;
+    }
     const cls = _getAnnotationClass(_activeAnnotationClassId);
     if (cls) viewer.setAnnotationDrawColor?.(cls.color);
 }
+
+window.addEventListener('cellpatch:viewchange', () => {
+    _syncActiveAnnotationClassToViewer();
+});
 
 function _syncHiddenAnnotationClassesToViewer() {
     const validIds = new Set(_annotationClasses.map(cls => cls.id));

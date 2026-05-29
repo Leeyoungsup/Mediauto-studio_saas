@@ -48,6 +48,8 @@ CELL_CLASSES_MAX_BYTES = 256 * 1024
 DEFAULT_CELL_CLASSES = [
     {"id": "cell", "name": "Cell", "color": [0, 255, 0]},
 ]
+_export_tasks: dict[str, asyncio.Task] = {}
+_export_requested: set[str] = set()
 
 
 def _now() -> datetime:
@@ -682,6 +684,30 @@ async def _export_cell_annotation_files(slide_id: str, info, regions: list[dict]
     (root / "WSI_regions.json").unlink(missing_ok=True)
 
 
+async def _cell_annotation_export_worker(slide_id: str) -> None:
+    try:
+        while slide_id in _export_requested:
+            _export_requested.discard(slide_id)
+            await asyncio.sleep(0.05)
+            try:
+                info = _slide_info(slide_id)
+                await _export_cell_annotation_files(slide_id, info, [])
+            except Exception as exc:
+                print(f"[cell_annotation] background export failed ({slide_id}): {exc}")
+    finally:
+        task = _export_tasks.get(slide_id)
+        if task is asyncio.current_task():
+            _export_tasks.pop(slide_id, None)
+
+
+def _schedule_cell_annotation_export(slide_id: str) -> None:
+    _export_requested.add(slide_id)
+    task = _export_tasks.get(slide_id)
+    if task and not task.done():
+        return
+    _export_tasks[slide_id] = asyncio.create_task(_cell_annotation_export_worker(slide_id))
+
+
 async def _project_annotation_ai_config(info) -> dict:
     project_path = _slide_project_path(info)
     if not project_path or not is_db_connected():
@@ -1130,7 +1156,7 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
             upsert=True,
         )
         added_count += 1
-    await _export_cell_annotation_files(slide_id, info, regions)
+    _schedule_cell_annotation_export(slide_id)
     total_required = await db.patch_annotation_status.count_documents({
         "str_slide_id": slide_id,
         "str_status": {"$ne": "not_required"},
@@ -1316,8 +1342,7 @@ async def save_patch_cells(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
         {"$set": patch_update},
     )
-    region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
-    await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
+    _schedule_cell_annotation_export(slide_id)
     updated_patch = await db.patch_annotation_status.find_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
         {"_id": 0},
@@ -1368,8 +1393,7 @@ async def update_patch_status(
             raise HTTPException(404, "Patch not found")
         await db.patch_annotation_status.delete_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
         await db.patch_cell_annotations.delete_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
-        region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
-        await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
+        _schedule_cell_annotation_export(slide_id)
         return {"status": "removed", "patch_id": patch_id}
     if existing:
         px = int(existing.get("int_px", 0))
@@ -1405,6 +1429,5 @@ async def update_patch_status(
         {"$set": doc, "$setOnInsert": {"dt_created_at": now}},
         upsert=True,
     )
-    region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
-    await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
+    _schedule_cell_annotation_export(slide_id)
     return {"status": "saved", "patch": doc}
