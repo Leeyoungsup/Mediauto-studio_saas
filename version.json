@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.164",
+  "version": "1.1.165",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Uses live patch summaries for Cell Annotation slide-list workflow status."
+  "description": "Separates Cell Annotation patch-view right panel from the WSI patch-list workflow."
 }

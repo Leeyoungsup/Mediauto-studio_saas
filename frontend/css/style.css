@@ -2630,18 +2630,71 @@ body.annotation-page .project-gate-row {
     opacity: 0.45;
     cursor: not-allowed;
 }
-body.cell-patch-workflow-page .class-management-panel,
-body.cell-patch-workflow-page .annotation-style-panel,
-body.cell-patch-workflow-page .annotation-group > .btn-row {
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .class-management-panel,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-group > .panel-header,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) #annotation-list,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-style-panel,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-group > .btn-row {
     display: none;
 }
-body.cell-patch-workflow-page .annotation-list {
+body.cell-patch-workflow-page .cell-patch-list {
     max-height: 280px;
     padding: 10px 12px;
     gap: 8px;
 }
+body.cell-patch-workflow-page.cell-patch-view-active .annotation-group {
+    min-height: 0;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .class-management-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-light);
+}
+body.cell-patch-workflow-page.cell-patch-view-active .class-management-header {
+    min-height: 24px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .class-management-header > span,
+body.cell-patch-workflow-page.cell-patch-view-active .panel-header {
+    font-size: 11px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .annotation-class-list {
+    gap: 4px;
+    max-height: 96px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .class-row {
+    min-height: 26px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active #annotation-list {
+    min-height: 180px;
+    max-height: 360px;
+    padding: 8px 10px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .annotation-style-panel,
+body.cell-patch-workflow-page.cell-patch-view-active .annotation-group > .btn-row {
+    display: none;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list-panel {
+    border-top: 1px solid var(--border-light);
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list {
+    max-height: 220px;
+    padding: 8px 10px;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
+    display: none;
+}
 .cell-patch-hidden-progress {
     display: none;
+}
+.cell-patch-list-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    background: #fff;
 }
 .cell-patch-display-panel {
     display: flex;
@@ -3385,6 +3438,20 @@ body.annotation-page .annotation-list {
     min-height: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
+}
+body.annotation-page.cell-patch-workflow-page .cell-patch-list {
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: 280px;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active #annotation-list {
+    flex: 1 1 auto;
+    min-height: 180px;
+    max-height: 360px;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list {
+    flex: 0 0 auto;
+    max-height: 220px;
 }
 .ann-list-header,
 .ann-item {

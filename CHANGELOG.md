@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.165] - 2026-05-29
+
+### Changed
+
+- Separate the Cell Annotation patch-view right panel so annotation list and compact class management are primary, while patch list becomes a read-only secondary list without WSI Apply/Clear controls.
+
 ## [1.1.164] - 2026-05-29
 
 ### Fixed

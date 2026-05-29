@@ -56,7 +56,8 @@ export class CellPatchWorkflow {
         this.required = new WsiRequiredRegionLayer({ visible: false });
         this.focusLayer = new PatchFocusLayer();
         this.patches = new Map();
-        this.patchListEl = document.getElementById('annotation-list');
+        this.patchListEl = null;
+        this.patchListPanelEl = null;
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
         this.displayPanel = null;
         this.lastRegionAction = null;
@@ -93,10 +94,28 @@ export class CellPatchWorkflow {
 
     _setupRightPanel() {
         document.body.classList.add('cell-patch-workflow-page');
-        if (this.patchHeaderEl) this.patchHeaderEl.textContent = 'Patch List';
         document.getElementById('progress-label')?.closest('.panel-section')?.classList.add('cell-patch-hidden-progress');
+        this._setupPatchListPanel();
         this._setupDisplayPanel();
         this.renderPatchList();
+    }
+
+    _setupPatchListPanel() {
+        const host = document.querySelector('.annotation-group');
+        if (!host) return;
+        let panel = document.getElementById('cell-patch-list-panel');
+        if (!panel) {
+            panel = document.createElement('section');
+            panel.id = 'cell-patch-list-panel';
+            panel.className = 'cell-patch-list-panel';
+            panel.innerHTML = `
+                <div class="panel-header">Patch List</div>
+                <div id="cell-patch-list" class="annotation-list cell-patch-list"></div>
+            `;
+            host.appendChild(panel);
+        }
+        this.patchListPanelEl = panel;
+        this.patchListEl = panel.querySelector('#cell-patch-list');
     }
 
     _setupDisplayPanel() {
@@ -280,6 +299,7 @@ export class CellPatchWorkflow {
         this.patches.clear();
         this.pendingRegions = [];
         this._syncPendingPatchPreview();
+        document.body.classList.remove('cell-patch-view-active');
         this.exitPatchView({ restore: false });
         this.selectedPatch = null;
         this.lastWsiViewBeforePatchOpen = null;
@@ -490,23 +510,16 @@ export class CellPatchWorkflow {
 
     renderPatchList() {
         if (!this.patchListEl) return;
+        const isPatchView = Boolean(this.patchFocusActive);
         const list = Array.from(this.patches.values())
             .filter(patch => (patch.str_status || patch.status || 'not_required') !== 'not_required')
             .sort((a, b) => this._comparePatchListItems(a, b));
-        const statusCounts = list.reduce((acc, patch) => {
-            const status = patch.str_status || patch.status || 'required';
-            acc[status] = (acc[status] || 0) + 1;
-            return acc;
-        }, {});
-        const countText = Object.entries(statusCounts)
-            .map(([status, count]) => `${this._statusLabel(status)} ${count}`)
-            .join(' / ');
         const pendingCounts = this._pendingPatchCounts();
-        const pendingText = pendingCounts.total
+        const pendingText = !isPatchView && pendingCounts.total
             ? `<div class="patch-list-pending">Selected changes: ${pendingCounts.required} required / ${pendingCounts.excluded} excluded (${pendingCounts.total} total)</div>`
             : '';
         const progress = this.patchApplyProgress;
-        const progressText = progress?.label
+        const progressText = !isPatchView && progress?.label
             ? `<div class="patch-list-progress" role="status" aria-live="polite">
                 <div class="patch-list-progress-meta">
                     <span>${this._escape(progress.label)}</span>
@@ -524,14 +537,13 @@ export class CellPatchWorkflow {
                     <strong>${pendingCounts.total || list.length}</strong>
                     <span>${pendingCounts.total ? 'pending patch changes' : (list.length === 1 ? 'patch requires labeling' : 'patches require labeling')}</span>
                 </div>
-                <div class="patch-list-actions">
+                ${isPatchView ? '' : `<div class="patch-list-actions">
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
                     <button type="button" class="patch-region-clear" ${this.canClearAppliedPatches() ? '' : 'disabled'} title="Delete all applied patches and annotations">Clear</button>
-                </div>
+                </div>`}
             </div>
             ${progressText}
             ${pendingText}
-            ${countText ? `<div class="patch-list-counts">${this._escape(countText)}</div>` : ''}
         `;
         this.patchListEl.querySelector('.patch-region-apply')?.addEventListener('click', () => {
             this.applyPendingRegions().catch((err) => {
@@ -548,7 +560,10 @@ export class CellPatchWorkflow {
             return;
         }
         if (!list.length) {
-            this.patchListEl.insertAdjacentHTML('beforeend', '<div class="patch-list-empty">No required patches. Draw a required region to create patch tasks.</div>');
+            const emptyText = isPatchView
+                ? 'No required patches in this slide.'
+                : 'No required patches. Draw a required region to create patch tasks.';
+            this.patchListEl.insertAdjacentHTML('beforeend', `<div class="patch-list-empty">${emptyText}</div>`);
             return;
         }
         const body = document.createElement('div');
@@ -1347,6 +1362,7 @@ export class CellPatchWorkflow {
             zoom: this.viewer.zoom,
         };
         this.patchFocusActive = true;
+        document.body.classList.add('cell-patch-view-active');
         this.layerVisibilityBeforePatchView = {
             required: this.required.visible,
             status: this.status.visible,
@@ -1378,6 +1394,7 @@ export class CellPatchWorkflow {
     exitPatchView({ restore = true } = {}) {
         if (!this.patchFocusActive && !this.focusLayer.visible) return;
         this.patchFocusActive = false;
+        document.body.classList.remove('cell-patch-view-active');
         if (this._isLabelerRole()) this.viewer.canEditDetectionResults = false;
         this.focusLayer.clear();
         this.viewer.setDetectionResults?.([]);
