@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.155] - 2026-05-29
+
+### Fixed
+
+- Return the updated Cell Annotation patch document after saving patch labels so the right panel, patch list, and slide workflow status refresh immediately.
+
 ## [1.1.154] - 2026-05-29
 
 ### Changed

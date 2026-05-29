@@ -172,7 +172,15 @@ export class CellAnnotationEditor {
         }));
         const result = await this.api.savePatchCells(this.slideId, this.patch.patch_id, cells);
         this.cells = cells;
-        this.patch.str_status = result.patch_status || 'completed';
+        this.patch = {
+            ...this.patch,
+            ...(result.patch || {}),
+            patch_id: this.patch.patch_id,
+            str_status: result.patch_status || result.patch?.str_status || 'completed',
+            str_annotation_status: result.patch?.str_annotation_status || 'completed',
+            str_review_status: result.patch?.str_review_status || this.patch.str_review_status || 'pending',
+            str_termination_status: result.patch?.str_termination_status || this.patch.str_termination_status || 'pending',
+        };
         this.onSaved(this.patch);
         this.onStatus(`Patch saved: ${this.patch.patch_id}`);
         this.render();

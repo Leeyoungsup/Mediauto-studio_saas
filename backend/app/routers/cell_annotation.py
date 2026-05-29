@@ -1306,18 +1306,33 @@ async def save_patch_cells(
         }, "$setOnInsert": {"dt_created_at": now}},
         upsert=True,
     )
+    patch_update = {
+        "str_status": "completed",
+        **_patch_workflow_fields("completed"),
+        "dt_updated_at": now,
+        "str_updated_by": str(user.get("_id", "")),
+    }
     await db.patch_annotation_status.update_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
-        {"$set": {
-            "str_status": "completed",
-            **_patch_workflow_fields("completed"),
-            "dt_updated_at": now,
-            "str_updated_by": str(user.get("_id", "")),
-        }},
+        {"$set": patch_update},
     )
     region_doc = await db.annotation_required_regions.find_one({"str_slide_id": slide_id}, {"_id": 0})
     await _export_cell_annotation_files(slide_id, info, (region_doc or {}).get("list_regions", []))
-    return {"status": "saved", "patch_status": "completed", "cell_count": len(cells)}
+    updated_patch = await db.patch_annotation_status.find_one(
+        {"str_slide_id": slide_id, "str_patch_id": patch_id},
+        {"_id": 0},
+    )
+    return {
+        "status": "saved",
+        "patch_status": "completed",
+        "cell_count": len(cells),
+        "patch": updated_patch or {
+            **(patch or {}),
+            **patch_update,
+            "str_slide_id": slide_id,
+            "str_patch_id": patch_id,
+        },
+    }
 
 
 @router.put("/{slide_id}/patches/{patch_id}/status", dependencies=[Depends(require_not_viewer)])
