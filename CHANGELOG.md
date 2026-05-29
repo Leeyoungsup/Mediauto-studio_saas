@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.160] - 2026-05-29
+
+### Changed
+
+- Keep Cell Annotation Patch List columns pinned while scrolling and add per-column sorting for patch, annotation, review, termination, and memo.
+
+## [1.1.159] - 2026-05-29
+
+### Changed
+
+- Keep the Cell Annotation Patch List Apply/Clear controls pinned while scrolling and replace the Undo button with Clear for pending patch region drafts.
+
 ## [1.1.158] - 2026-05-29
 
 ### Fixed

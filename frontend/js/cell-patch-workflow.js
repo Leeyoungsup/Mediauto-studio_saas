@@ -65,6 +65,7 @@ export class CellPatchWorkflow {
         this.assistancePromise = null;
         this.assistanceSlideId = '';
         this.patchApplyProgress = null;
+        this.patchListSort = { key: 'patch', dir: 'asc' };
         this.selectedPatch = null;
         this.patchFocusActive = false;
         this.savedWsiView = null;
@@ -491,13 +492,7 @@ export class CellPatchWorkflow {
         if (!this.patchListEl) return;
         const list = Array.from(this.patches.values())
             .filter(patch => (patch.str_status || patch.status || 'not_required') !== 'not_required')
-            .sort((a, b) => {
-                const ay = Number(a.int_py ?? a.py ?? 0);
-                const by = Number(b.int_py ?? b.py ?? 0);
-                const ax = Number(a.int_px ?? a.px ?? 0);
-                const bx = Number(b.int_px ?? b.px ?? 0);
-                return ay - by || ax - bx;
-            });
+            .sort((a, b) => this._comparePatchListItems(a, b));
         const statusCounts = list.reduce((acc, patch) => {
             const status = patch.str_status || patch.status || 'required';
             acc[status] = (acc[status] || 0) + 1;
@@ -531,7 +526,7 @@ export class CellPatchWorkflow {
                 </div>
                 <div class="patch-list-actions">
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
-                    <button type="button" class="patch-region-undo" ${this.canUndoRequiredRegion() && !this._isLabelerRole() ? '' : 'disabled'} title="Undo last pending region">Undo</button>
+                    <button type="button" class="patch-region-clear" ${this.canClearPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Clear pending patch regions">Clear</button>
                 </div>
             </div>
             ${progressText}
@@ -543,9 +538,9 @@ export class CellPatchWorkflow {
                 this.setStatus(`Patch region apply failed: ${err.message}`);
             });
         });
-        this.patchListEl.querySelector('.patch-region-undo')?.addEventListener('click', () => {
-            this.undoLastRequiredRegion().catch((err) => {
-                this.setStatus(`Patch region undo failed: ${err.message}`);
+        this.patchListEl.querySelector('.patch-region-clear')?.addEventListener('click', () => {
+            this.clearPendingRegions().catch((err) => {
+                this.setStatus(`Patch region clear failed: ${err.message}`);
             });
         });
         if (!this.slideId) {
@@ -561,12 +556,15 @@ export class CellPatchWorkflow {
         const header = document.createElement('div');
         header.className = 'patch-task-header';
         header.innerHTML = `
-            <span>Patch</span>
-            <span>Anno.</span>
-            <span>Review</span>
-            <span>Term.</span>
-            <span>Memo</span>
+            ${this._patchSortHeaderButton('patch', 'Patch')}
+            ${this._patchSortHeaderButton('annotation', 'Anno.')}
+            ${this._patchSortHeaderButton('review', 'Review')}
+            ${this._patchSortHeaderButton('termination', 'Term.')}
+            ${this._patchSortHeaderButton('memo', 'Memo')}
         `;
+        header.querySelectorAll('.patch-sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.setPatchListSort(btn.dataset.sortKey));
+        });
         body.appendChild(header);
         for (const patch of list) {
             const id = patch.str_patch_id || patch.patch_id;
@@ -638,6 +636,89 @@ export class CellPatchWorkflow {
             body.appendChild(row);
         }
         this.patchListEl.appendChild(body);
+    }
+
+    setPatchListSort(key) {
+        if (!key) return;
+        const current = this.patchListSort || { key: 'patch', dir: 'asc' };
+        this.patchListSort = {
+            key,
+            dir: current.key === key && current.dir === 'asc' ? 'desc' : 'asc',
+        };
+        this.renderPatchList();
+    }
+
+    _patchSortHeaderButton(key, label) {
+        const sort = this.patchListSort || { key: 'patch', dir: 'asc' };
+        const active = sort.key === key;
+        const icon = active ? (sort.dir === 'asc' ? '&#9650;' : '&#9660;') : '&#8645;';
+        const title = `Sort by ${label}`;
+        return `<button type="button" class="patch-sort-btn${active ? ' active' : ''}" data-sort-key="${this._escape(key)}" title="${this._escape(title)}">
+            <span>${this._escape(label)}</span>
+            <span class="patch-sort-icon">${icon}</span>
+        </button>`;
+    }
+
+    _comparePatchListItems(a, b) {
+        const sort = this.patchListSort || { key: 'patch', dir: 'asc' };
+        const dir = sort.dir === 'desc' ? -1 : 1;
+        const cmp = this._comparePatchSortValue(a, b, sort.key);
+        return (cmp || this._comparePatchSortValue(a, b, 'patch')) * dir;
+    }
+
+    _comparePatchSortValue(a, b, key) {
+        const av = this._patchSortValue(a, key);
+        const bv = this._patchSortValue(b, key);
+        if (Array.isArray(av) || Array.isArray(bv)) {
+            const aa = Array.isArray(av) ? av : [av];
+            const bb = Array.isArray(bv) ? bv : [bv];
+            const len = Math.max(aa.length, bb.length);
+            for (let i = 0; i < len; i += 1) {
+                const cmp = this._compareScalar(aa[i] ?? '', bb[i] ?? '');
+                if (cmp) return cmp;
+            }
+            return 0;
+        }
+        return this._compareScalar(av, bv);
+    }
+
+    _compareScalar(a, b) {
+        if (typeof a === 'number' && typeof b === 'number') return a - b;
+        return String(a ?? '').localeCompare(String(b ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+    }
+
+    _patchSortValue(patch, key) {
+        const workflow = this._patchWorkflowStatus(patch);
+        if (key === 'annotation') return [this._workflowSortRank(workflow.annotation), workflow.annotation || ''];
+        if (key === 'review') return [this._workflowSortRank(workflow.review), workflow.review || ''];
+        if (key === 'termination') return [this._workflowSortRank(workflow.termination), workflow.termination || ''];
+        if (key === 'memo') {
+            const memo = this._patchMemo(patch);
+            const history = this._patchMemoHistory(patch);
+            return [memo ? 0 : (history.length ? 1 : 2), memo || String(history.length || '')];
+        }
+        const id = patch.str_patch_id || patch.patch_id || '';
+        const match = String(id).match(/patch_(\d+)/);
+        const patchNum = match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+        return [
+            Number.isFinite(patchNum) ? patchNum : Number.MAX_SAFE_INTEGER,
+            Number(patch.int_y ?? patch.y ?? 0),
+            Number(patch.int_x ?? patch.x ?? 0),
+            id,
+        ];
+    }
+
+    _workflowSortRank(status) {
+        return {
+            required: 0,
+            in_progress: 1,
+            current: 2,
+            completed: 3,
+            reviewed: 4,
+            rejected: 5,
+            pending: 6,
+            not_required: 7,
+        }[status] ?? 8;
     }
 
     _patchWorkflowStatus(patch) {
@@ -1354,6 +1435,10 @@ export class CellPatchWorkflow {
         return Boolean(this.slideId && this.pendingRegions.length);
     }
 
+    canClearPendingRegions() {
+        return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
+    }
+
     canApplyPendingRegions() {
         return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
     }
@@ -1396,6 +1481,21 @@ export class CellPatchWorkflow {
             return true;
         }
         return false;
+    }
+
+    async clearPendingRegions() {
+        if (this._isLabelerRole()) {
+            this.setStatus('Labeler role cannot change WSI-level required regions.');
+            return false;
+        }
+        if (!this.pendingRegions.length) return false;
+        const count = this.pendingRegions.length;
+        this.pendingRegions = [];
+        this.lastRegionAction = null;
+        this._syncPendingPatchPreview();
+        this.renderPatchList();
+        this.setStatus(`Cleared ${count} pending patch region${count === 1 ? '' : 's'}`);
+        return true;
     }
 
     async addRequiredRegionFromAnnotation(annotation) {

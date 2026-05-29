@@ -2676,10 +2676,17 @@ body.cell-patch-workflow-page .annotation-list {
     text-align: right;
 }
 .patch-list-summary {
+    position: sticky;
+    top: -10px;
+    z-index: 4;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 6px;
+    margin: -10px -12px 0;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(219, 226, 241, 0.8);
+    background: #fff;
     color: #1f2a44;
     font-size: 12px;
 }
@@ -2696,7 +2703,7 @@ body.cell-patch-workflow-page .annotation-list {
     align-items: center;
     gap: 5px;
 }
-.patch-region-undo,
+.patch-region-clear,
 .patch-region-apply {
     flex: 0 0 auto;
     min-height: 26px;
@@ -2714,7 +2721,7 @@ body.cell-patch-workflow-page .annotation-list {
     background: #6c5ce7;
     color: #fff;
 }
-.patch-region-undo:hover:not(:disabled),
+.patch-region-clear:hover:not(:disabled),
 .patch-region-apply:hover:not(:disabled) {
     border-color: #6c5ce7;
     background: #f8f7ff;
@@ -2724,7 +2731,7 @@ body.cell-patch-workflow-page .annotation-list {
     background: #5b4de2;
     color: #fff;
 }
-.patch-region-undo:disabled,
+.patch-region-clear:disabled,
 .patch-region-apply:disabled {
     color: #9ca3af;
     cursor: not-allowed;
@@ -2805,17 +2812,55 @@ body.cell-patch-workflow-page .annotation-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    overflow: auto;
+    overflow: visible;
 }
 .patch-task-header {
+    position: sticky;
+    top: 43px;
+    z-index: 3;
     display: grid;
     grid-template-columns: minmax(88px, 1fr) 52px 50px 46px 40px;
     gap: 6px;
-    padding: 0 8px 2px;
+    margin: 0 -2px;
+    padding: 5px 10px 4px;
+    border-bottom: 1px solid rgba(219, 226, 241, 0.8);
+    background: #fff;
     color: #64748b;
     font-size: 9px;
     font-weight: 900;
     text-transform: uppercase;
+}
+.patch-sort-btn {
+    display: inline-flex;
+    min-width: 0;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+}
+.patch-sort-btn:first-child {
+    justify-content: flex-start;
+}
+.patch-sort-btn:hover,
+.patch-sort-btn.active {
+    color: #4f46e5;
+}
+.patch-sort-btn span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.patch-sort-icon {
+    flex: 0 0 auto;
+    font-size: 8px;
+    line-height: 1;
 }
 .patch-task-row {
     display: grid;
