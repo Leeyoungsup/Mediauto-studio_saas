@@ -526,7 +526,7 @@ export class CellPatchWorkflow {
                 </div>
                 <div class="patch-list-actions">
                     <button type="button" class="patch-region-apply" ${this.canApplyPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Apply pending patch regions">Apply</button>
-                    <button type="button" class="patch-region-clear" ${this.canClearPendingRegions() && !this._isLabelerRole() ? '' : 'disabled'} title="Clear pending patch regions">Clear</button>
+                    <button type="button" class="patch-region-clear" ${this.canClearAppliedPatches() ? '' : 'disabled'} title="Delete all applied patches and annotations">Clear</button>
                 </div>
             </div>
             ${progressText}
@@ -539,8 +539,8 @@ export class CellPatchWorkflow {
             });
         });
         this.patchListEl.querySelector('.patch-region-clear')?.addEventListener('click', () => {
-            this.clearPendingRegions().catch((err) => {
-                this.setStatus(`Patch region clear failed: ${err.message}`);
+            this.clearAppliedPatches().catch((err) => {
+                this.setStatus(`Patch clear failed: ${err.message}`);
             });
         });
         if (!this.slideId) {
@@ -732,6 +732,10 @@ export class CellPatchWorkflow {
 
     _isLabelerRole() {
         return window.__currentUserRole === 'labeler';
+    }
+
+    _canManageWsiPatchRegions() {
+        return window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
     }
 
     _labelerPatchWorkflowLocked(patch) {
@@ -1439,6 +1443,15 @@ export class CellPatchWorkflow {
         return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
     }
 
+    canClearAppliedPatches() {
+        return Boolean(
+            this.slideId &&
+            this._canManageWsiPatchRegions() &&
+            this.patches.size &&
+            !this.patchApplyProgress?.active
+        );
+    }
+
     canApplyPendingRegions() {
         return Boolean(this.slideId && this.pendingRegions.length && !this.patchApplyProgress?.active);
     }
@@ -1496,6 +1509,91 @@ export class CellPatchWorkflow {
         this.renderPatchList();
         this.setStatus(`Cleared ${count} pending patch region${count === 1 ? '' : 's'}`);
         return true;
+    }
+
+    async clearAppliedPatches() {
+        if (!this._canManageWsiPatchRegions()) {
+            this.setStatus('Only admin and doctor roles can clear applied patches.');
+            return false;
+        }
+        if (!this.slideId || !this.patches.size) return false;
+        const confirmed = await this._confirmClearAppliedPatches();
+        if (!confirmed) return false;
+        try {
+            this.setPatchApplyProgress('Deleting patches and annotations', 20, true, `${this.patches.size} patches selected for deletion`);
+            const result = await this.api.clearCellPatches(this.slideId);
+            this.setPatchApplyProgress('Refreshing patch list', 72, true, `Deleted ${Number(result?.patch_count || 0)} patches`);
+            this.pendingRegions = [];
+            this.lastRegionAction = null;
+            this.selectedPatch = null;
+            this.editor.close();
+            this.exitPatchView({ restore: true });
+            this.required.setRegions([]);
+            this.status.setPendingPatches([]);
+            this.status.setPatches([]);
+            this.patches.clear();
+            await this.refreshPatches();
+            this.setPatchApplyProgress('Cleared', 100, false, `Deleted ${Number(result?.patch_images || 0)} patch images and ${Number(result?.label_files || 0)} label files`);
+            window.setTimeout(() => {
+                if (this.patchApplyProgress && !this.patchApplyProgress.active) {
+                    this.setPatchApplyProgress('', 0, false);
+                }
+            }, 1600);
+            this.setStatus('All applied patches and annotations were deleted');
+            return true;
+        } catch (err) {
+            this.setPatchApplyProgress('', 0, false);
+            throw err;
+        }
+    }
+
+    _confirmClearAppliedPatches() {
+        return new Promise((resolve) => {
+            const existing = document.querySelector('.patch-clear-modal');
+            if (existing) existing.remove();
+            let seconds = 5;
+            const modal = document.createElement('div');
+            modal.className = 'patch-clear-modal';
+            modal.innerHTML = `
+                <div class="patch-clear-dialog" role="dialog" aria-modal="true" aria-labelledby="patch-clear-title">
+                    <div class="patch-clear-header">
+                        <strong id="patch-clear-title">Clear Applied Patches</strong>
+                        <button type="button" class="patch-clear-close" aria-label="Close">x</button>
+                    </div>
+                    <p>All current annotations and patch images will be deleted. Delete them?</p>
+                    <div class="patch-clear-warning">This action cannot be undone.</div>
+                    <div class="patch-clear-actions">
+                        <button type="button" class="patch-clear-cancel">Cancel</button>
+                        <button type="button" class="patch-clear-confirm" disabled>Delete (${seconds})</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            const confirmBtn = modal.querySelector('.patch-clear-confirm');
+            const close = (value) => {
+                window.clearInterval(timer);
+                modal.remove();
+                resolve(value);
+            };
+            const timer = window.setInterval(() => {
+                seconds -= 1;
+                if (seconds <= 0) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Delete';
+                    window.clearInterval(timer);
+                    return;
+                }
+                confirmBtn.textContent = `Delete (${seconds})`;
+            }, 1000);
+            modal.querySelector('.patch-clear-close')?.addEventListener('click', () => close(false));
+            modal.querySelector('.patch-clear-cancel')?.addEventListener('click', () => close(false));
+            confirmBtn?.addEventListener('click', () => {
+                if (!confirmBtn.disabled) close(true);
+            });
+            modal.addEventListener('mousedown', (event) => {
+                if (event.target === modal) close(false);
+            });
+        });
     }
 
     async addRequiredRegionFromAnnotation(annotation) {

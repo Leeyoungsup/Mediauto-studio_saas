@@ -708,6 +708,27 @@ def _schedule_cell_annotation_export(slide_id: str) -> None:
     _export_tasks[slide_id] = asyncio.create_task(_cell_annotation_export_worker(slide_id))
 
 
+def _clear_cell_annotation_patch_files(slide_id: str, info) -> dict:
+    root = _cell_annotation_slide_dir(info)
+    counts = {"patch_images": 0, "label_files": 0}
+    for subdir, key in (("patches", "patch_images"), ("labels", "label_files")):
+        path_dir = root / subdir
+        if not path_dir.exists():
+            path_dir.mkdir(parents=True, exist_ok=True)
+            continue
+        for path in path_dir.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                path.unlink()
+                counts[key] += 1
+            except Exception:
+                pass
+    (root / "WSI_regions.json").unlink(missing_ok=True)
+    _write_cell_annotation_info(slide_id, info, [])
+    return counts
+
+
 async def _project_annotation_ai_config(info) -> dict:
     project_path = _slide_project_path(info)
     if not project_path or not is_db_connected():
@@ -1204,6 +1225,29 @@ async def get_patches(slide_id: str, status: str = Query("")):
                 {"$set": {"str_patch_key": patch_key}},
             )
     return {"slide_id": slide_id, "patches": patches}
+
+
+@router.delete("/{slide_id}/patches", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+async def clear_all_patches(slide_id: str):
+    info = _slide_info(slide_id)
+    db = _require_db()
+    patch_count = await db.patch_annotation_status.count_documents({"str_slide_id": slide_id})
+    cell_doc_count = await db.patch_cell_annotations.count_documents({"str_slide_id": slide_id})
+    await db.patch_annotation_status.delete_many({"str_slide_id": slide_id})
+    await db.patch_cell_annotations.delete_many({"str_slide_id": slide_id})
+    await db.annotation_required_regions.delete_many({"str_slide_id": slide_id})
+    _export_requested.discard(slide_id)
+    task = _export_tasks.pop(slide_id, None)
+    if task and not task.done():
+        task.cancel()
+    file_counts = _clear_cell_annotation_patch_files(slide_id, info)
+    return {
+        "status": "cleared",
+        "slide_id": slide_id,
+        "patch_count": patch_count,
+        "cell_annotation_count": cell_doc_count,
+        **file_counts,
+    }
 
 
 @router.get("/{slide_id}/wsi-labeling-assistance/options")

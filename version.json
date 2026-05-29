@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.160",
+  "version": "1.1.161",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Adds sticky sortable Cell Annotation patch list columns."
+  "description": "Changes Cell Annotation Clear into a protected full patch deletion action."
 }

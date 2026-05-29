@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.161] - 2026-05-29
+
+### Changed
+
+- Change Cell Annotation Patch List Clear into an admin/doctor-only full patch deletion flow with a 5-second confirmation dialog.
+
 ## [1.1.160] - 2026-05-29
 
 ### Changed

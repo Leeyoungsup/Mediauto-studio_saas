@@ -770,6 +770,14 @@ export const api = {
         return res.json();
     },
 
+    async clearCellPatches(slideId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches`, {
+            method: 'DELETE',
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async getPatchCells(slideId, patchId) {
         const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`);
         if (!res.ok) throw new Error(await res.text());
