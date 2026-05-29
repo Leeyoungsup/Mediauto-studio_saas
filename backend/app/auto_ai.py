@@ -172,8 +172,9 @@ async def _run_auto_inference(
             print(f"[auto_ai] unsupported model: {str_model}")
 
     print(f"[auto_ai] inferring {str_model}/{str_variant} on {str_filename}")
+    from app.cpu_layout import ai_executor
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _dispatch)
+    await loop.run_in_executor(ai_executor, _dispatch)
     print(f"[auto_ai] done {str_model}/{str_variant} on {str_filename}")
 
 

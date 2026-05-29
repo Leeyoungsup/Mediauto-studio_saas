@@ -601,7 +601,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         tissue_count = 0
         bs = batch_size
-        io_workers = min(max(2, os.cpu_count() or 4), 8)
+        from app.cpu_layout import INT_AI
+        io_workers = max(1, min(INT_AI, 4))
         tissue_batch = []   # [(px, py, tensor, input_np), ...]
 
         icc_tf = info.icc_transform

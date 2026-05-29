@@ -246,8 +246,9 @@ def run_marker_detection_pipeline(
         output_mpp = 0.5
         origin_mpp = info.mpp
 
+        from app.cpu_layout import INT_AI
         BATCH_SIZE = 8
-        IO_WORKERS = min(max(2, os.cpu_count() or 4), 8)
+        IO_WORKERS = max(1, min(INT_AI, 4))
         PREFETCH_BATCHES = 3
 
         class_thresholds = {i: 0.01 for i in range(int_num_classes)}

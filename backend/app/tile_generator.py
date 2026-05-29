@@ -244,12 +244,8 @@ def start_generation(filename: str, file_path: str):
         if filename in _progress and _progress[filename].status == "generating":
             return  # text text text
 
-    thread = threading.Thread(
-        target=_generate_tiles,
-        args=(filename, file_path),
-        daemon=True,
-    )
-    thread.start()
+    from app.cpu_layout import tile_executor
+    tile_executor.submit(_generate_tiles, filename, file_path)
 
 
 def _generate_tiles(filename: str, file_path: str):

@@ -9,7 +9,6 @@ import asyncio
 import hashlib
 import json
 import sys
-import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -20,6 +19,7 @@ from fastapi.responses import FileResponse, Response
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
+from app.cpu_layout import ai_executor
 from app.slide_manager import slide_manager
 
 # text AI text text text — ai_pipelines text text ai/ text import text text text text.
@@ -61,6 +61,11 @@ router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_not_
 # Virtual stain text text text text — <img src> text ?mt= text text.
 # main.py text text prefix("/api/ai") text text include text.
 media_router = APIRouter(dependencies=[Depends(get_media_user)])
+
+
+def _submit_ai_job(func, *args) -> None:
+    """Queue CPU/GPU-heavy AI work on the AI executor."""
+    ai_executor.submit(func, *args)
 
 
 def _find_and_open_slide(slide_id: str):
@@ -141,12 +146,7 @@ async def start_detection(
             "model": "Quanti HE", "variant": tissue_type,
         }
 
-    t = threading.Thread(
-        target=_run_detection,
-        args=(task_id, slide_id, polygons, tissue_type),
-        daemon=True,
-    )
-    t.start()
+    _submit_ai_job(_run_detection, task_id, slide_id, polygons, tissue_type)
 
     await _log_ai_analyze(request, dict_user, "Quanti HE", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
@@ -179,12 +179,7 @@ async def start_pd_score(
             "model": "Quanti PD-L1", "variant": tissue_type,
         }
 
-    t = threading.Thread(
-        target=_run_pd_score,
-        args=(task_id, slide_id, polygons, tissue_type),
-        daemon=True,
-    )
-    t.start()
+    _submit_ai_job(_run_pd_score, task_id, slide_id, polygons, tissue_type)
 
     await _log_ai_analyze(request, dict_user, "Quanti PD-L1", tissue_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
@@ -217,12 +212,7 @@ async def start_precise_ihc(
             "model": "Quanti IHC", "variant": marker,
         }
 
-    t = threading.Thread(
-        target=_run_precise_ihc,
-        args=(task_id, slide_id, polygons, marker),
-        daemon=True,
-    )
-    t.start()
+    _submit_ai_job(_run_precise_ihc, task_id, slide_id, polygons, marker)
 
     await _log_ai_analyze(request, dict_user, "Quanti IHC", marker, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
@@ -315,7 +305,7 @@ async def get_task_result(task_id: str):
         raise HTTPException(410, "AI task result has already been released from memory. Run the analysis again or load the cached result.")
     loop = asyncio.get_running_loop()
     bytes_body = await loop.run_in_executor(
-        None, lambda: json.dumps(obj_result, separators=(',', ':')).encode("utf-8")
+        ai_executor, lambda: json.dumps(obj_result, separators=(',', ':')).encode("utf-8")
     )
     release_task_result(task_id)
     return Response(content=bytes_body, media_type="application/json")
@@ -355,12 +345,7 @@ async def start_virtual_stain(
             "model": "VS IHC", "variant": stain_type,
         }
 
-    t = threading.Thread(
-        target=_run_virtual_stain,
-        args=(task_id, slide_id, polygons, stain_type, target_mpp),
-        daemon=True,
-    )
-    t.start()
+    _submit_ai_job(_run_virtual_stain, task_id, slide_id, polygons, stain_type, target_mpp)
     await _log_ai_analyze(request, dict_user, "VS IHC", stain_type, slide_id, str_filename, task_id)
     return {"task_id": task_id, "status": "queued"}
 

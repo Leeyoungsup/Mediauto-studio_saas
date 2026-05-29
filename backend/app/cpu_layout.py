@@ -1,47 +1,37 @@
-"""CPU text text — viewer / AI / background tile_worker text.
+"""CPU worker layout for viewer, AI, tiling, upload, and cell patch jobs.
 
-text text text text text text text CPU set text text, text text
-ThreadPoolExecutor text worker thread text text `os.sched_setaffinity` text
-text text text.
+The app runs several CPU-heavy workloads in one backend process.  Thread
+affinity is not perfect isolation, but it prevents long-running background
+jobs from freely competing with tile serving and the FastAPI event loop.
 
-text text: **text text affinity text AI cores text text**text text.
-- viewer / bg pool text initializer text text cores text override
-- text text text thread (uvicorn worker, AI text raw threading.Thread text
-  text ThreadPoolExecutor) text text AI cores text text.
-
-text text text — text text text text N text (text text text):
-    ai     = max(2, round(N / 6))       ~17%
-    bg     = max(2, round(N / 6))       ~17%  (AItext text, text)
-    viewer = N - ai - bg                ~67%  (text text + HTTP text)
-
-text:
-    N=48 → viewer=32 / ai=8  / bg=8
-    N=24 → viewer=16 / ai=4  / bg=4
-    N=16 → viewer=10 / ai=3  / bg=3
-    N=12 → viewer=8  / ai=2  / bg=2
-    N=8  → viewer=4  / ai=2  / bg=2
-
-text text text:
-- bg text ai text text text **text text text**. 4text text text
-  text text text text AI text text text text.
-- viewer text text(~67%)text text 1/3 text ai/bg text text.
-
-Linux text text (`os.sched_setaffinity`). text OS text text noop text
-fallback text worker count text text.
+Environment overrides:
+    MEDIAUTO_CPU_WEB
+    MEDIAUTO_CPU_VIEWER
+    MEDIAUTO_CPU_TILE
+    MEDIAUTO_CPU_AI
+    MEDIAUTO_CPU_PATCH
+    MEDIAUTO_CPU_UPLOAD
 """
 
+from __future__ import annotations
+
+import ctypes
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from typing import FrozenSet, List
+from typing import FrozenSet, Iterable, List
 
 
-def _has_affinity_api() -> bool:
+def _has_linux_affinity_api() -> bool:
     return sys.platform.startswith("linux") and hasattr(os, "sched_setaffinity")
 
 
+def _has_windows_affinity_api() -> bool:
+    return sys.platform.startswith("win")
+
+
 def _initial_cpus() -> List[int]:
-    if _has_affinity_api():
+    if _has_linux_affinity_api():
         try:
             return sorted(os.sched_getaffinity(0))
         except Exception:
@@ -53,35 +43,117 @@ def _initial_cpus() -> List[int]:
 list_all_cpus: List[int] = _initial_cpus()
 INT_TOTAL: int = len(list_all_cpus)
 
-# ── text text: text text text ──
-# ai/bg text ~17%, viewer text ~67%
-# bgtext aitext text — text text AI text text text
-INT_AI: int = max(2, round(INT_TOTAL / 6))
-INT_BG: int = max(2, round(INT_TOTAL / 6))
-INT_VIEWER: int = max(2, INT_TOTAL - INT_AI - INT_BG)
 
-# text text: [viewer | bg | ai] — text text NUMA/cache text
-list_viewer_cpus: List[int] = list_all_cpus[:INT_VIEWER]
-list_bg_cpus: List[int] = list_all_cpus[INT_VIEWER:INT_VIEWER + INT_BG]
-list_ai_cpus: List[int] = list_all_cpus[INT_VIEWER + INT_BG:]
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, default)))
+    except Exception:
+        return default
 
-# text text text text (text text text)
-INT_VIEWER = len(list_viewer_cpus)
-INT_BG = len(list_bg_cpus)
-INT_AI = len(list_ai_cpus)
 
+def _default_counts(total: int) -> dict[str, int]:
+    if total <= 1:
+        return {"web": 1, "viewer": 1, "tile": 1, "ai": 1, "patch": 1, "upload": 1}
+    counts = {
+        "web": 2 if total >= 12 else 1,
+        "ai": max(1, round(total * 0.18)),
+        "tile": max(1, round(total * 0.14)),
+        "patch": max(1, round(total * 0.12)),
+        "upload": 1,
+    }
+    used = sum(counts.values())
+    counts["viewer"] = max(2 if total >= 8 else 1, total - used)
+    while sum(counts.values()) > total:
+        for key in ("viewer", "tile", "patch", "ai", "web", "upload"):
+            min_value = 2 if key == "viewer" and total >= 8 else 1
+            if counts[key] > min_value:
+                counts[key] -= 1
+                break
+        else:
+            break
+    return counts
+
+
+_counts = _default_counts(INT_TOTAL)
+_counts["web"] = _env_int("MEDIAUTO_CPU_WEB", _counts["web"])
+_counts["viewer"] = _env_int("MEDIAUTO_CPU_VIEWER", _counts["viewer"])
+_counts["tile"] = _env_int("MEDIAUTO_CPU_TILE", _counts["tile"])
+_counts["ai"] = _env_int("MEDIAUTO_CPU_AI", _counts["ai"])
+_counts["patch"] = _env_int("MEDIAUTO_CPU_PATCH", _counts["patch"])
+_counts["upload"] = _env_int("MEDIAUTO_CPU_UPLOAD", _counts["upload"])
+
+# Keep native numeric libraries from oversubscribing every core inside one job.
+_native_threads = str(max(1, min(4, _counts["ai"])))
+for _env_name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_env_name, _native_threads)
+
+
+def _take(cursor: int, count: int) -> tuple[list[int], int]:
+    if not list_all_cpus:
+        return [0], cursor
+    count = max(1, int(count))
+    out = []
+    for idx in range(count):
+        out.append(list_all_cpus[(cursor + idx) % len(list_all_cpus)])
+    return out, cursor + count
+
+
+_cursor = 0
+list_web_cpus, _cursor = _take(_cursor, _counts["web"])
+list_viewer_cpus, _cursor = _take(_cursor, _counts["viewer"])
+list_tile_cpus, _cursor = _take(_cursor, _counts["tile"])
+list_ai_cpus, _cursor = _take(_cursor, _counts["ai"])
+list_patch_cpus, _cursor = _take(_cursor, _counts["patch"])
+list_upload_cpus, _cursor = _take(_cursor, _counts["upload"])
+
+frozenset_web_cpus: FrozenSet[int] = frozenset(list_web_cpus)
 frozenset_viewer_cpus: FrozenSet[int] = frozenset(list_viewer_cpus)
+frozenset_tile_cpus: FrozenSet[int] = frozenset(list_tile_cpus)
 frozenset_ai_cpus: FrozenSet[int] = frozenset(list_ai_cpus)
-frozenset_bg_cpus: FrozenSet[int] = frozenset(list_bg_cpus)
+frozenset_patch_cpus: FrozenSet[int] = frozenset(list_patch_cpus)
+frozenset_upload_cpus: FrozenSet[int] = frozenset(list_upload_cpus)
+
+INT_WEB = len(frozenset_web_cpus)
+INT_VIEWER = len(frozenset_viewer_cpus)
+INT_TILE = len(frozenset_tile_cpus)
+INT_AI = len(frozenset_ai_cpus)
+INT_PATCH = len(frozenset_patch_cpus)
+INT_UPLOAD = len(frozenset_upload_cpus)
+
+# Backwards-compatible aliases.
+list_bg_cpus = list_tile_cpus
+frozenset_bg_cpus = frozenset_tile_cpus
+INT_BG = INT_TILE
+
+
+def _windows_affinity_mask(cpus: Iterable[int]) -> int:
+    mask = 0
+    for cpu in cpus:
+        if 0 <= int(cpu) < ctypes.sizeof(ctypes.c_size_t) * 8:
+            mask |= 1 << int(cpu)
+    return mask or 1
 
 
 def _pin_to(set_cpus: FrozenSet[int]) -> None:
-    if not _has_affinity_api():
+    if not set_cpus:
         return
-    try:
-        os.sched_setaffinity(0, set_cpus)
-    except Exception as e:
-        print(f"[cpu_layout] pin failed: {e}")
+    if _has_linux_affinity_api():
+        try:
+            os.sched_setaffinity(0, set_cpus)
+        except Exception as exc:
+            print(f"[cpu_layout] linux pin failed: {exc}")
+        return
+    if _has_windows_affinity_api():
+        try:
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetThreadAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+            kernel32.SetThreadAffinityMask.restype = ctypes.c_size_t
+            kernel32.SetThreadAffinityMask(
+                kernel32.GetCurrentThread(),
+                ctypes.c_size_t(_windows_affinity_mask(set_cpus)),
+            )
+        except Exception as exc:
+            print(f"[cpu_layout] windows pin failed: {exc}")
 
 
 def _make_initializer(set_cpus: FrozenSet[int]):
@@ -91,28 +163,53 @@ def _make_initializer(set_cpus: FrozenSet[int]):
 
 
 def setup_process_affinity() -> None:
-    """text (text thread) affinity text AI cores text text.
-
-    text text text thread text text override text text text text set text text.
-    """
-    _pin_to(frozenset_ai_cpus)
+    """Pin the main event-loop thread to the web cores."""
+    _pin_to(frozenset_web_cpus)
     print(
         f"[cpu_layout] total={INT_TOTAL} "
-        f"viewer={INT_VIEWER}({sorted(list_viewer_cpus)}) "
-        f"bg={INT_BG}({sorted(list_bg_cpus)}) "
-        f"ai={INT_AI}({sorted(list_ai_cpus)})"
+        f"web={INT_WEB}({sorted(frozenset_web_cpus)}) "
+        f"viewer={INT_VIEWER}({sorted(frozenset_viewer_cpus)}) "
+        f"tile={INT_TILE}({sorted(frozenset_tile_cpus)}) "
+        f"ai={INT_AI}({sorted(frozenset_ai_cpus)}) "
+        f"patch={INT_PATCH}({sorted(frozenset_patch_cpus)}) "
+        f"upload={INT_UPLOAD}({sorted(frozenset_upload_cpus)})"
     )
 
 
-# text executor text — text import text 1text text
 viewer_executor = ThreadPoolExecutor(
     max_workers=INT_VIEWER,
     thread_name_prefix="viewer",
     initializer=_make_initializer(frozenset_viewer_cpus),
 )
 
-bg_executor = ThreadPoolExecutor(
-    max_workers=INT_BG,
+tile_executor = ThreadPoolExecutor(
+    max_workers=INT_TILE,
     thread_name_prefix="tile_worker",
-    initializer=_make_initializer(frozenset_bg_cpus),
+    initializer=_make_initializer(frozenset_tile_cpus),
 )
+
+ai_executor = ThreadPoolExecutor(
+    max_workers=INT_AI,
+    thread_name_prefix="ai_worker",
+    initializer=_make_initializer(frozenset_ai_cpus),
+)
+
+patch_executor = ThreadPoolExecutor(
+    max_workers=INT_PATCH,
+    thread_name_prefix="cell_patch",
+    initializer=_make_initializer(frozenset_patch_cpus),
+)
+
+upload_executor = ThreadPoolExecutor(
+    max_workers=INT_UPLOAD,
+    thread_name_prefix="upload",
+    initializer=_make_initializer(frozenset_upload_cpus),
+)
+
+# Backwards-compatible name used by older code paths.
+bg_executor = tile_executor
+
+
+def shutdown_executors() -> None:
+    for executor in (viewer_executor, tile_executor, ai_executor, patch_executor, upload_executor):
+        executor.shutdown(wait=False, cancel_futures=True)

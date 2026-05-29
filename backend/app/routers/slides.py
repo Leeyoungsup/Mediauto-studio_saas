@@ -45,12 +45,38 @@ from app.slide_manager import slide_manager
 from app import tile_generator
 from app import slide_store
 from app import auto_ai
-from app.cpu_layout import bg_executor
+from app.cpu_layout import bg_executor, upload_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # ??????????????? ??? ??? ???????Bearer JWT ??? ?mt= ??? ???.
 # ???router ? ??? prefix("/api/slides") ??main.py ??? ??? include ???.
+
+
+def _hash_file(path: Path) -> str:
+    sha256_hash = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            bytes_block = f.read(1024 * 1024)
+            if not bytes_block:
+                break
+            sha256_hash.update(bytes_block)
+    return sha256_hash.hexdigest()
+
+
+def _join_upload_chunks(chunk_dir: Path, final_path: Path, total_chunks: int) -> str:
+    sha256_hash = hashlib.sha256()
+    with open(final_path, "wb") as out:
+        for i in range(total_chunks):
+            chunk_path = chunk_dir / f"chunk_{i:06d}"
+            with open(chunk_path, "rb") as cf:
+                while True:
+                    bytes_block = cf.read(1024 * 1024)
+                    if not bytes_block:
+                        break
+                    out.write(bytes_block)
+                    sha256_hash.update(bytes_block)
+    return sha256_hash.hexdigest()
 
 
 def _slide_response(slide_id: str, info, filename: str):
@@ -595,8 +621,8 @@ async def upload_chunk(
 
         chunk_path = chunk_dir / f"chunk_{chunk_index:06d}"
         content = await chunk.read()
-        with open(chunk_path, "wb") as f:
-            f.write(content)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(upload_executor, chunk_path.write_bytes, content)
 
         return {"chunk_index": chunk_index, "size": len(content)}
     finally:
@@ -663,31 +689,21 @@ async def upload_complete(
         if final_path.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
         else:
-            sha256_hash = hashlib.sha256()
-            with open(final_path, "wb") as out:
-                for i in range(total_chunks):
-                    chunk_path = chunk_dir / f"chunk_{i:06d}"
-                    with open(chunk_path, "rb") as cf:
-                        while True:
-                            bytes_block = cf.read(8192)
-                            if not bytes_block:
-                                break
-                            out.write(bytes_block)
-                            sha256_hash.update(bytes_block)
-            str_sha256 = sha256_hash.hexdigest()
+            loop = asyncio.get_running_loop()
+            str_sha256 = await loop.run_in_executor(
+                upload_executor,
+                _join_upload_chunks,
+                chunk_dir,
+                final_path,
+                total_chunks,
+            )
             shutil.rmtree(chunk_dir, ignore_errors=True)
             bool_newly_written = True
 
         # ??? ??????????? ??? (DB???????? ???)
         if not str_sha256 and final_path.exists():
-            sha256_hash = hashlib.sha256()
-            with open(final_path, "rb") as f:
-                while True:
-                    bytes_block = f.read(8192)
-                    if not bytes_block:
-                        break
-                    sha256_hash.update(bytes_block)
-            str_sha256 = sha256_hash.hexdigest()
+            loop = asyncio.get_running_loop()
+            str_sha256 = await loop.run_in_executor(upload_executor, _hash_file, final_path)
 
         slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
         bool_wait = wait_tiles.lower() in ("true", "1", "yes")

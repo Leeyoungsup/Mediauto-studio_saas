@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.154] - 2026-05-29
+
+### Changed
+
+- Split backend CPU-heavy work into dedicated web, viewer tile serving, tile generation, AI, Cell Annotation patch export, and upload executor pools.
+- Added Windows thread affinity support and reduced AI internal I/O workers to avoid CPU oversubscription.
+
 ## [1.1.153] - 2026-05-29
 
 ### Fixed

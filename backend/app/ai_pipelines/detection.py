@@ -215,8 +215,9 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         origin_mpp = info.mpp
         original_size = int(image_size * output_mpp / origin_mpp)
 
+        from app.cpu_layout import INT_AI
         BATCH_SIZE = 8
-        IO_WORKERS = min(max(2, os.cpu_count() or 4), 8)
+        IO_WORKERS = max(1, min(INT_AI, 4))
         PREFETCH_BATCHES = 3
 
         class_thresholds = {

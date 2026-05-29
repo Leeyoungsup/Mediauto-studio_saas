@@ -1,11 +1,11 @@
 """Patch-based cell annotation workflow endpoints."""
 
+import asyncio
 from datetime import datetime, timezone
 import json
 from math import ceil, floor
 from pathlib import Path
 import re
-import threading
 import uuid
 from typing import Any, Optional
 
@@ -24,6 +24,7 @@ from app.ai_pipelines.marker_pipeline import (
 )
 from app.ai_pipelines.task_state import _tasks, _tasks_lock, cleanup_old_tasks, release_task_result, update_task
 from app.config import settings
+from app.cpu_layout import ai_executor, patch_executor
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -641,7 +642,14 @@ async def _export_cell_annotation_files(slide_id: str, info, regions: list[dict]
         patch_id = patch.get("str_patch_id")
         if not patch_id:
             continue
-        _write_patch_image(info, patch, patches_dir / f"{patch_id}.jpeg")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            patch_executor,
+            _write_patch_image,
+            info,
+            patch,
+            patches_dir / f"{patch_id}.jpeg",
+        )
         cells_doc = await db.patch_cell_annotations.find_one(
             {"str_slide_id": slide_id, "str_patch_id": patch_id},
             {"_id": 0},
@@ -1229,12 +1237,7 @@ async def start_wsi_labeling_assistance(
             "model": "WSI Labeling Assistance",
             "variant": config.get("label", ""),
         }
-    thread = threading.Thread(
-        target=_run_labeling_assistance_task,
-        args=(task_id, slide_id, info.file_path, config),
-        daemon=True,
-    )
-    thread.start()
+    ai_executor.submit(_run_labeling_assistance_task, task_id, slide_id, info.file_path, config)
     return {"task_id": task_id, "status": "queued", "annotation_ai": config}
 
 

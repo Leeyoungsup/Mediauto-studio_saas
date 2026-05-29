@@ -143,6 +143,7 @@ async def lifespan(app: FastAPI):
     # text text text text text
     from app.slide_manager import slide_manager
     slide_manager.close_all()
+    cpu_layout.shutdown_executors()
     # MongoDB text text
     await disconnect_db()
     print("[MeDIAuto SaaS] Shutdown complete")
