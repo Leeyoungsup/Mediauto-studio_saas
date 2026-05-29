@@ -71,7 +71,7 @@
                 link.classList.add('disabled');
                 link.setAttribute('aria-disabled', 'true');
                 link.setAttribute('tabindex', '-1');
-                link.setAttribute('title', 'Admin only');
+                link.setAttribute('title', 'Unavailable');
                 link.addEventListener('click', (event) => event.preventDefault());
             }
         });
@@ -89,7 +89,7 @@
             : 'viewer';
         const name = user.str_name || user.str_login_id || '';
         const showAdmin = options.showAdmin ?? role === 'admin';
-        const canUseCellAnnotation = role === 'admin';
+        const canUseCellAnnotation = true;
         const annotationActive = active === 'annotation' || active === 'tissue-annotation' || active === 'cell-annotation';
         const cellClass = [
             'shared-nav-subitem',
@@ -98,7 +98,7 @@
         ].filter(Boolean).join(' ');
         const cellAttrs = canUseCellAnnotation
             ? 'href="/cell-annotation"'
-            : 'href="#" aria-disabled="true" tabindex="-1" title="Admin only"';
+            : 'href="#" aria-disabled="true" tabindex="-1" title="Unavailable"';
 
         root.innerHTML = `
             <header class="shared-header">

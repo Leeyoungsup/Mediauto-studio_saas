@@ -178,6 +178,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             status_msg=f"Loaded cached result ({cached.get('total_cells', 0)} cells)",
                             result=cached)
                 return
+            except ValueError as e:
+                print(f"Quanti HE/{tissue_type} cache skipped: {e}")
             except Exception as e:
                 import traceback
                 print(f"Cache load failed, running fresh inference: {e}\n{traceback.format_exc()}")

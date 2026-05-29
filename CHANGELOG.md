@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.172] - 2026-05-29
+
+### Fixed
+
+- Re-enabled the Cell Annotation entry in the shared Annotation menu and static navigation fallbacks.
+
+## [1.1.171] - 2026-05-29
+
+### Fixed
+
+- Treat stale Quanti HE caches without bbox data as a normal cache miss and avoid printing traceback noise before fresh inference.
+
 ## [1.1.170] - 2026-05-29
 
 ### Fixed

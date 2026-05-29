@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.170",
+  "version": "1.1.172",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Replaces broken AI progress messages with stable English status text."
+  "description": "Re-enables the Cell Annotation navigation entry for all signed-in roles."
 }
