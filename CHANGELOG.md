@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.153] - 2026-05-29
+
+### Fixed
+
+- Keep pending Cell Annotation review and termination workflow indicators inactive until their prerequisite step has progressed.
+
+## [1.1.152] - 2026-05-29
+
+### Fixed
+
+- Compact the annotation slide list workflow columns so filenames and status icons fit cleanly in the left panel.
+
 ## [1.1.151] - 2026-05-29
 
 ### Fixed

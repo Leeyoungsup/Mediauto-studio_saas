@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260528-03';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260528-18';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260529-01';
 import { showVisualization } from './visualization.js';
 
 if (!localStorage.getItem('access_token')) {
@@ -990,7 +990,7 @@ function _cellPatchSlideListState(summary) {
     const state = summary?.state || 'before';
     if (state === 'completed') return 'complete';
     if (state === 'running') return 'running';
-    return 'active';
+    return 'pending';
 }
 
 function _renderCellPatchWorkflowCells(item, summaries) {

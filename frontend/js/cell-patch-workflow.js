@@ -719,15 +719,17 @@ export class CellPatchWorkflow {
             completed = list.filter(reviewCompleted).length;
             running = list.some(patch => this._patchWorkflowStatus(patch).review === 'current');
             const annotationDone = total > 0 && list.every(annotationCompleted);
-            if (!annotationDone && completed === 0 && !running) {
-                return { total, completed: 0, percent: 0, running: false, state: 'before' };
+            if (!annotationDone) {
+                const percent = total ? Math.round((completed / total) * 100) : 0;
+                return { total, completed, percent, running: false, state: completed > 0 ? 'running' : 'before' };
             }
         } else if (step === 'termination') {
             completed = list.filter(terminationCompleted).length;
             running = list.some(patch => this._patchWorkflowStatus(patch).termination === 'current');
             const reviewDone = total > 0 && list.every(reviewCompleted);
-            if (!reviewDone && completed === 0 && !running) {
-                return { total, completed: 0, percent: 0, running: false, state: 'before' };
+            if (!reviewDone) {
+                const percent = total ? Math.round((completed / total) * 100) : 0;
+                return { total, completed, percent, running: false, state: completed > 0 ? 'running' : 'before' };
             }
         } else {
             completed = list.filter(annotationCompleted).length;
