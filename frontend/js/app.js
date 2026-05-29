@@ -4787,7 +4787,11 @@ $btnVsSplit?.addEventListener('click', () => {
         const normalizedRole = _normalizeUserRole(dict_me.str_role);
         if (normalizedRole === 'admin') {
             const $linkAdmin = document.getElementById('link-admin');
-            if ($linkAdmin) $linkAdmin.hidden = false;
+            if ($linkAdmin) {
+                $linkAdmin.textContent = 'Admin';
+                $linkAdmin.title = 'Admin';
+                $linkAdmin.hidden = false;
+            }
             if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
         window.MediautoHeader?.render({

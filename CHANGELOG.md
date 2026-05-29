@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.163] - 2026-05-29
+
+### Fixed
+
+- Replace the legacy viewer Admin button placeholder text with a stable English label and refresh viewer script cache keys.
+
 ## [1.1.162] - 2026-05-29
 
 ### Fixed
