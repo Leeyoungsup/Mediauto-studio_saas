@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.170] - 2026-05-29
+
+### Fixed
+
+- Replace broken AI progress messages in Quanti HE, Quanti PD-L1, and Quanti IHC pipelines with stable English status text.
+- Hide stale placeholder progress text from already-running AI tasks in the frontend progress bar.
+
 ## [1.1.169] - 2026-05-29
 
 ### Fixed

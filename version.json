@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.169",
+  "version": "1.1.170",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Queues stale AI result caches and Cell Annotation AI assistance models for automatic bbox refresh."
+  "description": "Replaces broken AI progress messages with stable English status text."
 }
