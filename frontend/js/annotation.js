@@ -1009,6 +1009,15 @@ function _cellPatchSlideListState(summary) {
     return 'pending';
 }
 
+function _emptyCellPatchWorkflowSummaries() {
+    const zero = { state: 'before', percent: 0, completed: 0, total: 0, rejected: 0 };
+    return {
+        annotation: { ...zero },
+        review: { ...zero },
+        termination: { ...zero },
+    };
+}
+
 function _renderCellPatchWorkflowCells(item, summaries) {
     if (!item || !summaries) return;
     item.querySelectorAll('.slide-workflow-cell').forEach(el => el.remove());
@@ -5470,7 +5479,9 @@ async function loadSlideList() {
         for (const s of data.slides) {
             const item = document.createElement('div');
             item.className = 'slide-list-item';
-            const strRawSlideStatus = _browseAnnotationStatus(s) || 'annotation';
+            const strRawSlideStatus = ANNOTATION_PAGE_KIND === 'cell'
+                ? ''
+                : (_browseAnnotationStatus(s) || 'annotation');
             const strSlideStatus = _normalizeAnnotationWorkflowStatus(strRawSlideStatus);
             item.classList.add(`status-${strSlideStatus}`);
             item.dataset.filename = s.filename;
@@ -5506,10 +5517,13 @@ async function loadSlideList() {
                 item.appendChild(memoBadge);
             }
 
-            // Annotation workflow columns
-            _renderAnnotationWorkflowCells(item, strRawSlideStatus);
-            if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.slideId === s.slide_id) {
-                _renderCellPatchWorkflowCells(item, cellPatchWorkflow.getWsiStepSummaries?.());
+            if (ANNOTATION_PAGE_KIND === 'cell') {
+                const summaries = cellPatchWorkflow?.slideId === s.slide_id
+                    ? cellPatchWorkflow.getWsiStepSummaries?.()
+                    : (s.cell_annotation_summary || _emptyCellPatchWorkflowSummaries());
+                _renderCellPatchWorkflowCells(item, summaries);
+            } else {
+                _renderAnnotationWorkflowCells(item, strRawSlideStatus);
             }
 
             item.addEventListener('contextmenu', (e) => {

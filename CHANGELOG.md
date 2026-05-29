@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.164] - 2026-05-29
+
+### Fixed
+
+- Render Cell Annotation slide-list workflow icons from live patch summaries instead of stale slide status fields.
+
 ## [1.1.163] - 2026-05-29
 
 ### Fixed

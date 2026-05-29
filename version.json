@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.163",
+  "version": "1.1.164",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Fixes the legacy viewer Admin button label and bumps frontend cache keys."
+  "description": "Uses live patch summaries for Cell Annotation slide-list workflow status."
 }

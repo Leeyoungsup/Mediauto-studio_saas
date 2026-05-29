@@ -273,6 +273,135 @@ async def dashboard(include_storage: bool = Query(False)):
     }
 
 
+def _empty_cell_annotation_summary() -> dict:
+    zero = {
+        "total": 0,
+        "completed": 0,
+        "rejected": 0,
+        "percent": 0,
+        "running": False,
+        "state": "before",
+    }
+    return {
+        "annotation": dict(zero),
+        "review": dict(zero),
+        "termination": dict(zero),
+    }
+
+
+def _cell_summary_from_patches(patches: list[dict]) -> dict:
+    total = len(patches)
+
+    def workflow(patch: dict) -> tuple[str, str, str]:
+        status = str(patch.get("str_status") or "")
+        annotation = str(patch.get("str_annotation_status") or "")
+        review = str(patch.get("str_review_status") or "")
+        termination = str(patch.get("str_termination_status") or "")
+        if not annotation:
+            if status == "completed":
+                annotation = "completed"
+                review = review or "current"
+            elif status == "reviewed":
+                annotation = "completed"
+                review = review or "reviewed"
+                termination = termination or "current"
+            elif status == "rejected":
+                annotation = "completed"
+                review = review or "rejected"
+                termination = termination or "current"
+            elif status == "in_progress":
+                annotation = "in_progress"
+            elif status == "required":
+                annotation = "required"
+        return annotation or "required", review or "pending", termination or "pending"
+
+    def percent(count: int) -> int:
+        return round((count / total) * 100) if total else 0
+
+    annotation_completed = [p for p in patches if workflow(p)[0] in {"completed", "reviewed", "rejected"}]
+    annotation_running = any(workflow(p)[0] == "in_progress" or p.get("str_status") == "in_progress" for p in patches)
+    review_completed = [p for p in patches if workflow(p)[1] in {"reviewed", "rejected"}]
+    review_rejected = [p for p in patches if workflow(p)[1] == "rejected"]
+    review_running = any(workflow(p)[1] == "current" for p in patches)
+    termination_completed = [p for p in patches if workflow(p)[2] == "completed"]
+    termination_running = any(workflow(p)[2] == "current" for p in patches)
+
+    annotation_state = "before"
+    if total and len(annotation_completed) >= total:
+        annotation_state = "completed"
+    elif total or annotation_running:
+        annotation_state = "running"
+
+    review_state = "before"
+    if review_rejected:
+        review_state = "rejected"
+    elif total and len(review_completed) >= total:
+        review_state = "completed"
+    elif total and len(annotation_completed) >= total and (review_running or review_completed):
+        review_state = "running"
+
+    termination_state = "before"
+    if total and len(termination_completed) >= total:
+        termination_state = "completed"
+    elif total and len(review_completed) >= total and (termination_running or termination_completed):
+        termination_state = "running"
+
+    return {
+        "annotation": {
+            "total": total,
+            "completed": len(annotation_completed),
+            "rejected": 0,
+            "percent": percent(len(annotation_completed)),
+            "running": annotation_running,
+            "state": annotation_state,
+        },
+        "review": {
+            "total": total,
+            "completed": len(review_completed),
+            "rejected": len(review_rejected),
+            "percent": percent(len(review_completed)),
+            "running": review_running,
+            "state": review_state,
+        },
+        "termination": {
+            "total": total,
+            "completed": len(termination_completed),
+            "rejected": 0,
+            "percent": percent(len(termination_completed)),
+            "running": termination_running,
+            "state": termination_state,
+        },
+    }
+
+
+async def _cell_annotation_summaries_for_slides(db, slide_ids: list[str]) -> dict[str, dict]:
+    if not slide_ids:
+        return {}
+    grouped: dict[str, list[dict]] = {slide_id: [] for slide_id in slide_ids}
+    cursor = db.patch_annotation_status.find(
+        {
+            "str_slide_id": {"$in": slide_ids},
+            "str_status": {"$ne": "not_required"},
+        },
+        {
+            "_id": 0,
+            "str_slide_id": 1,
+            "str_status": 1,
+            "str_annotation_status": 1,
+            "str_review_status": 1,
+            "str_termination_status": 1,
+        },
+    )
+    async for patch in cursor:
+        slide_id = patch.get("str_slide_id")
+        if slide_id in grouped:
+            grouped[slide_id].append(patch)
+    return {
+        slide_id: _cell_summary_from_patches(patches) if patches else _empty_cell_annotation_summary()
+        for slide_id, patches in grouped.items()
+    }
+
+
 @router.get("/browse")
 async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
     """??? ???????? ??? + ?????? ??? ??? (DB ??ai_results ????????)"""
@@ -289,6 +418,7 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
         if f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS
     }
     dict_case_clinical = {}
+    dict_cell_annotation_summaries = {}
 
     # DB ??? ??? ??? ?????? ??? ????? ???
     dict_db_slides = await slide_store.list_slides_in_folder(path)
@@ -308,6 +438,12 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
             dict_clinical = dict_doc.get("dict_clinical_info") or {}
             if str_case not in dict_case_clinical and _has_clinical_info(dict_clinical):
                 dict_case_clinical[str_case] = dict_clinical
+        list_slide_ids = [
+            hashlib.md5(f.name.encode()).hexdigest()[:12]
+            for f in list_entries
+            if f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS
+        ]
+        dict_cell_annotation_summaries = await _cell_annotation_summaries_for_slides(db, list_slide_ids)
 
     for f in list_entries:
         if f.name.startswith("_chunks_") or f.name.startswith("."):
@@ -348,6 +484,7 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
                     or ""
                 )
                 dict_item["cell_annotation_status"] = dict_db.get("str_cell_annotation_status") or ""
+                dict_item["cell_annotation_summary"] = dict_cell_annotation_summaries.get(slide_id) or _empty_cell_annotation_summary()
                 dict_clinical = dict_db.get("dict_clinical_info") or dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
                 dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)
@@ -358,6 +495,7 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
                 dict_item["annotation_status"] = ""
                 dict_item["tissue_annotation_status"] = ""
                 dict_item["cell_annotation_status"] = ""
+                dict_item["cell_annotation_summary"] = dict_cell_annotation_summaries.get(slide_id) or _empty_cell_annotation_summary()
                 dict_clinical = dict_case_clinical.get(dict_item["case_name"], {})
                 dict_item["clinical_info"] = dict_clinical
                 dict_item["has_clinical_info"] = _has_clinical_info(dict_clinical)
