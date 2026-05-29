@@ -514,6 +514,58 @@ def _write_compact_json(path: Path, data: Any) -> None:
     )
 
 
+def _cell_annotation_info_payload(slide_id: str, info, info_patches: list[dict]) -> dict:
+    return {
+        "slide_id": slide_id,
+        "slide_filename": Path(info.file_path).name,
+        "slide_stem": Path(info.file_path).stem,
+        "target_mpp": TARGET_MPP,
+        "target_patch_size": TARGET_PATCH_SIZE,
+        "patch_physical_um": PATCH_PHYSICAL_UM,
+        "slide_mpp": getattr(info, "mpp", None),
+        "patch_size_slide_px": _patch_slide_size(info),
+        "classes": _load_cell_classes_for_project(_slide_project_path(info)),
+        "patches": info_patches,
+    }
+
+
+def _write_cell_annotation_info(slide_id: str, info, info_patches: Optional[list[dict]] = None) -> None:
+    root = _cell_annotation_slide_dir(info)
+    (root / "patches").mkdir(parents=True, exist_ok=True)
+    (root / "labels").mkdir(parents=True, exist_ok=True)
+    _write_json(root / "info.json", _cell_annotation_info_payload(slide_id, info, info_patches or []))
+
+
+async def _ensure_cell_annotation_layout(slide_id: str, info) -> None:
+    info_patches = []
+    if is_db_connected():
+        db = get_db()
+        patches = await db.patch_annotation_status.find(
+            {"str_slide_id": slide_id, "str_status": {"$ne": "not_required"}},
+            {"_id": 0},
+        ).sort([("int_py", 1), ("int_px", 1)]).to_list(length=200000)
+        for patch in patches:
+            patch_id = patch.get("str_patch_id")
+            if not patch_id:
+                continue
+            info_patches.append({
+                "patch_id": patch_id,
+                "patch_key": patch.get("str_patch_key", ""),
+                "grid_x": patch.get("int_px"),
+                "grid_y": patch.get("int_py"),
+                "x": patch.get("int_x"),
+                "y": patch.get("int_y"),
+                "width": patch.get("int_w"),
+                "height": patch.get("int_h"),
+                "status": patch.get("str_status"),
+                "annotation_status": patch.get("str_annotation_status"),
+                "review_status": patch.get("str_review_status"),
+                "termination_status": patch.get("str_termination_status"),
+                "memo": patch.get("str_memo", ""),
+            })
+    _write_cell_annotation_info(slide_id, info, info_patches)
+
+
 def _write_patch_image(info, patch: dict, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -618,18 +670,7 @@ async def _export_cell_annotation_files(slide_id: str, info, regions: list[dict]
             "memo": patch.get("str_memo", ""),
         })
 
-    _write_json(root / "info.json", {
-        "slide_id": slide_id,
-        "slide_filename": Path(info.file_path).name,
-        "slide_stem": Path(info.file_path).stem,
-        "target_mpp": TARGET_MPP,
-        "target_patch_size": TARGET_PATCH_SIZE,
-        "patch_physical_um": PATCH_PHYSICAL_UM,
-        "slide_mpp": getattr(info, "mpp", None),
-        "patch_size_slide_px": _patch_slide_size(info),
-        "classes": _load_cell_classes_for_project(_slide_project_path(info)),
-        "patches": info_patches,
-    })
+    _write_cell_annotation_info(slide_id, info, info_patches)
     (root / "WSI_regions.json").unlink(missing_ok=True)
 
 
@@ -913,6 +954,7 @@ async def save_cell_annotation_classes(
 @router.get("/{slide_id}/grid-config")
 async def get_grid_config(slide_id: str):
     info = _slide_info(slide_id)
+    await _ensure_cell_annotation_layout(slide_id, info)
     patch_size = _patch_slide_size(info)
     width, height = info.dimensions
     return {

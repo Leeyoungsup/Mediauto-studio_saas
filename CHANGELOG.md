@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.151] - 2026-05-29
+
+### Fixed
+
+- Initialize Cell Annotation slide folders, labels, patches, and base info.json when a slide is opened, even before any patch is created.
+
 ## [1.1.150] - 2026-05-28
 
 ### Changed
