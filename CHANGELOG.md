@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.167] - 2026-05-29
+
+### Fixed
+
+- Tighten the Cell Annotation Patch List summary-to-column spacing after removing the redundant status count line.
+
+## [1.1.166] - 2026-05-29
+
+### Fixed
+
+- Restore Cell Annotation WSI patch-list panel sizing and remove the redundant patch status count line above the patch table.
+
 ## [1.1.165] - 2026-05-29
 
 ### Changed

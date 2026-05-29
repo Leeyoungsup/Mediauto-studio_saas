@@ -2737,7 +2737,7 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
     align-items: baseline;
     gap: 6px;
     margin: -10px -12px 0;
-    padding: 10px 12px 8px;
+    padding: 8px 12px 2px;
     border-bottom: 1px solid rgba(219, 226, 241, 0.8);
     background: #fff;
     color: #1f2a44;
@@ -2869,13 +2869,13 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
 }
 .patch-task-header {
     position: sticky;
-    top: 43px;
+    top: 34px;
     z-index: 3;
     display: grid;
     grid-template-columns: minmax(88px, 1fr) 52px 50px 46px 40px;
     gap: 6px;
     margin: 0 -2px;
-    padding: 5px 10px 4px;
+    padding: 2px 10px 4px;
     border-bottom: 1px solid rgba(219, 226, 241, 0.8);
     background: #fff;
     color: #64748b;
@@ -3440,9 +3440,9 @@ body.annotation-page .annotation-list {
     scrollbar-gutter: stable;
 }
 body.annotation-page.cell-patch-workflow-page .cell-patch-list {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-height: 0;
-    max-height: 280px;
+    max-height: none;
 }
 body.annotation-page.cell-patch-workflow-page.cell-patch-view-active #annotation-list {
     flex: 1 1 auto;

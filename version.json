@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.165",
+  "version": "1.1.167",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Separates Cell Annotation patch-view right panel from the WSI patch-list workflow."
+  "description": "Tightens Cell Annotation patch-list summary and column header spacing."
 }
