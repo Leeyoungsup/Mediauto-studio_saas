@@ -12,6 +12,7 @@ Claude.md text text (str_/int_/bool_/list_/dict_/dt_ text).
 
 import asyncio
 import hashlib
+import json
 import re
 import threading
 import time
@@ -29,6 +30,7 @@ _activity_lock = threading.Lock()
 _last_ai_activity_ts: float = 0.0   # 0 → "idle" text text text startup text now text text
 _upload_in_progress: int = 0
 _worker_task: Optional[asyncio.Task] = None
+_marker_cache_quality_cache: dict = {}
 
 
 # ═══════════════════════════
@@ -194,6 +196,118 @@ def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
     return bool_tiles_ok or bool_png_legacy
 
 
+def _cell_has_bbox(cell) -> bool:
+    if isinstance(cell, (list, tuple)):
+        return len(cell) >= 8 and all(isinstance(cell[i], (int, float)) for i in range(4, 8))
+    if isinstance(cell, dict):
+        return all(k in cell for k in ("x0", "y0", "x1", "y1"))
+    return False
+
+
+def _marker_cache_path(str_full_path: str, str_model: str, str_variant: str) -> Optional[Path]:
+    from app.ai_pipelines.cache_paths import (
+        get_ai_cache_path,
+        get_pd_score_cache_path,
+        get_precise_ihc_cache_path,
+    )
+
+    if str_model in ("Quanti HE", "HE-Fit"):
+        return get_ai_cache_path(str_full_path, str_variant)
+    if str_model in ("Quanti PD-L1", "PD-Score"):
+        return get_pd_score_cache_path(str_full_path, str_variant)
+    if str_model in ("Quanti IHC", "Precise-IHC"):
+        return get_precise_ihc_cache_path(str_full_path, str_variant)
+    return None
+
+
+def _marker_cache_requires_excluded_cells(str_model: str, str_variant: str) -> bool:
+    try:
+        if str_model in ("Quanti PD-L1", "PD-Score"):
+            from app.ai_pipelines.scoring import PD_SCORE_CONFIG
+            return bool((PD_SCORE_CONFIG.get(str_variant) or {}).get("exclude_classes"))
+        if str_model in ("Quanti IHC", "Precise-IHC"):
+            from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG
+            return bool((PRECISE_IHC_CONFIG.get(str_variant) or {}).get("exclude_classes"))
+    except Exception:
+        return False
+    return False
+
+
+def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant: str) -> bool:
+    cache_path = _marker_cache_path(str_full_path, str_model, str_variant)
+    if not cache_path or not cache_path.exists():
+        return False
+
+    try:
+        stat = cache_path.stat()
+        tuple_cache_state = (stat.st_mtime_ns, stat.st_size)
+        tuple_cache_key = (str(cache_path), str_model, str_variant)
+        tuple_cached_quality = _marker_cache_quality_cache.get(tuple_cache_key)
+        if tuple_cached_quality and tuple_cached_quality[:2] == tuple_cache_state:
+            return bool(tuple_cached_quality[2])
+    except Exception:
+        tuple_cache_state = None
+        tuple_cache_key = None
+
+    bool_needs_refresh = False
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+    except Exception as exc:
+        print(f"[auto_ai] unreadable cache queued for refresh: {cache_path.name} ({exc})")
+        bool_needs_refresh = True
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+        return bool_needs_refresh
+
+    if not isinstance(cached, dict):
+        print(f"[auto_ai] invalid cache queued for refresh: {cache_path.name}")
+        bool_needs_refresh = True
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+        return bool_needs_refresh
+
+    if _marker_cache_requires_excluded_cells(str_model, str_variant) and "excluded_cells" not in cached:
+        print(f"[auto_ai] stale cache missing excluded cells queued for refresh: {cache_path.name}")
+        bool_needs_refresh = True
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+        return bool_needs_refresh
+
+    cells = cached.get("cells")
+    if isinstance(cells, list) and cells and not _cell_has_bbox(cells[0]):
+        print(f"[auto_ai] stale cache missing bbox queued for refresh: {cache_path.name}")
+        bool_needs_refresh = True
+
+    if tuple_cache_state and tuple_cache_key:
+        _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+    return bool_needs_refresh
+
+
+async def _stale_marker_cache_candidates(str_rel_path: str, str_model: str, str_variant: str) -> list:
+    from app import slide_store
+
+    if str_model not in ("Quanti HE", "HE-Fit", "Quanti PD-L1", "PD-Score", "Quanti IHC", "Precise-IHC"):
+        return []
+
+    dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
+    list_out = []
+    for dict_slide in dict_slides.values():
+        str_full_path = dict_slide.get("str_full_path") or ""
+        if str_full_path and Path(str_full_path).exists() and _marker_cache_needs_refresh(str_full_path, str_model, str_variant):
+            list_out.append(dict_slide)
+    return list_out
+
+
+def _merge_slide_candidates(*lists_candidates: list) -> list:
+    dict_merged = {}
+    for list_candidates in lists_candidates:
+        for dict_slide in list_candidates or []:
+            str_key = dict_slide.get("str_full_path") or dict_slide.get("str_filename") or str(id(dict_slide))
+            dict_merged[str_key] = dict_slide
+    return list(dict_merged.values())
+
+
 async def _scan_and_infer_once() -> None:
     """1 text — text text folder config text text text text text text.
 
@@ -228,9 +342,35 @@ async def _scan_and_infer_once() -> None:
         if dict_cfg.get("bool_enabled"):
             list_configs.append(dict_cfg)
 
-    async for dict_project in db.project_infos.find({"bool_project_ai_enabled": True}):
+    async for dict_project in db.project_infos.find({
+        "$or": [
+            {"bool_project_ai_enabled": True},
+            {"bool_annotation_ai_enabled": True},
+        ],
+    }):
         str_project_path = (dict_project.get("str_project_path") or "").replace("\\", "/").strip("/")
-        list_tasks = dict_project.get("list_project_ai_tasks") or []
+        list_tasks = []
+        if dict_project.get("bool_project_ai_enabled"):
+            list_tasks.extend(dict_project.get("list_project_ai_tasks") or [])
+        if dict_project.get("bool_annotation_ai_enabled"):
+            from app.project_utils import normalize_annotation_ai_config
+            dict_annotation_ai = normalize_annotation_ai_config(
+                True,
+                dict_project.get("str_annotation_ai_key", ""),
+            )
+            if dict_annotation_ai.get("enabled"):
+                list_tasks.append({
+                    "model": dict_annotation_ai.get("base_model", ""),
+                    "variant": dict_annotation_ai.get("variant", ""),
+                    "source": "cell_annotation_ai_assistance",
+                })
+        dict_unique_tasks = {}
+        for dict_task in list_tasks:
+            str_model_key = dict_task.get("model") or ""
+            str_variant_key = dict_task.get("variant") or ""
+            if str_model_key and str_variant_key:
+                dict_unique_tasks[(str_model_key, str_variant_key)] = dict_task
+        list_tasks = list(dict_unique_tasks.values())
         if not str_project_path or not list_tasks:
             continue
 
@@ -278,9 +418,13 @@ async def _scan_and_infer_once() -> None:
                 dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
                 list_candidates = list(dict_slides.values())
             else:
-                list_candidates = await slide_store.list_slides_missing_variant(
+                list_missing_candidates = await slide_store.list_slides_missing_variant(
                     str_rel_path, str_model, str_variant
                 )
+                list_stale_candidates = await _stale_marker_cache_candidates(
+                    str_rel_path, str_model, str_variant
+                )
+                list_candidates = _merge_slide_candidates(list_missing_candidates, list_stale_candidates)
 
             for dict_slide in list_candidates:
                 str_full_path = dict_slide.get("str_full_path") or ""

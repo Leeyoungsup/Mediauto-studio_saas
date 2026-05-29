@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.167",
+  "version": "1.1.169",
   "channel": "production",
   "release_date": "2026-05-29",
-  "description": "Tightens Cell Annotation patch-list summary and column header spacing."
+  "description": "Queues stale AI result caches and Cell Annotation AI assistance models for automatic bbox refresh."
 }

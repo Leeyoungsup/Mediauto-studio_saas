@@ -147,7 +147,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         info = slide_manager.get(slide_id)
         if not info:
-            update_task(task_id, status="error", error="text text text text")
+            update_task(task_id, status="error", error="Slide is not open")
             return
 
         # ── text AI text text (text/ROI text — text text text) ──
@@ -194,7 +194,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         model_path = Path(settings.MODEL_DIR) / "HnE_detection.pt"
         if not model_path.exists():
-            update_task(task_id, status="error", error=f"text text text: {model_path}")
+            update_task(task_id, status="error", error=f"Model file not found: {model_path}")
             return
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -226,7 +226,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         }
 
         # ── text text (text text) ──
-        update_task(task_id, progress=4, status_msg="text text text text...")
+        update_task(task_id, progress=4, status_msg="Creating tissue mask...")
         thumb_mask = create_tissue_mask(slide, icc_transform=info.icc_transform)
         update_task(task_id, progress=5)
 
@@ -253,7 +253,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 valid_patch_list.append((px, py))
 
         n_valid = len(valid_patch_list)
-        update_task(task_id, progress=6, status_msg=f"text text {n_valid}text text")
+        update_task(task_id, progress=6, status_msg=f"Queued {n_valid} tissue patches")
 
         if n_valid == 0:
             update_task(task_id, status="completed", progress=100, result={

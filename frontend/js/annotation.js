@@ -4781,11 +4781,17 @@ function _rerunOriginalInference(aiMode, variant) {
 $btnLoadResults?.addEventListener('click', _openLoadUserEditDialog);
 
 // Utilities
+function normalizeProgressMessage(statusMsg, pct) {
+    const msg = String(statusMsg || '').trim();
+    if (!msg || /\btext\b/i.test(msg)) return `${Math.round(pct)}%`;
+    return msg;
+}
+
 function setProgress(pct, statusMsg = '') {
     $progressBar.querySelector('.progress-fill').style.width = `${pct}%`;
     const $text = $('#progress-text');
     if (pct > 0 && pct < 100) {
-        $text.textContent = statusMsg || `${pct}%`;
+        $text.textContent = normalizeProgressMessage(statusMsg, pct);
     } else if (pct >= 100) {
         $text.textContent = 'Complete';
     } else {

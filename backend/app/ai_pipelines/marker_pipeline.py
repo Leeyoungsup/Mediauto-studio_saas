@@ -123,7 +123,7 @@ def run_marker_detection_pipeline(
 
         info = slide_manager.get(slide_id)
         if not info:
-            update_task(task_id, status="error", error="text text text text")
+            update_task(task_id, status="error", error="Slide is not open")
             return
 
         dict_class_names = dict_config["class_names"]
@@ -205,7 +205,7 @@ def run_marker_detection_pipeline(
 
         model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
         if not model_path.exists():
-            update_task(task_id, status="error", error=f"text text text: {model_path}")
+            update_task(task_id, status="error", error=f"Model file not found: {model_path}")
             return
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -254,7 +254,7 @@ def run_marker_detection_pipeline(
         class_thresholds = {i: 0.01 for i in range(int_num_classes)}
 
         # ── text text ──
-        update_task(task_id, progress=4, status_msg="text text text text...")
+        update_task(task_id, progress=4, status_msg="Creating tissue mask...")
         thumb_mask = create_tissue_mask(slide, icc_transform=info.icc_transform)
         update_task(task_id, progress=5)
 
@@ -280,7 +280,7 @@ def run_marker_detection_pipeline(
                 valid_patch_list.append((px, py))
 
         n_valid = len(valid_patch_list)
-        update_task(task_id, progress=6, status_msg=f"text text {n_valid}text text")
+        update_task(task_id, progress=6, status_msg=f"Queued {n_valid} tissue patches")
 
         if n_valid == 0:
             empty_score = score_fn(np.empty(0, dtype=np.int32))
@@ -577,7 +577,7 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
     dict_config = PD_SCORE_CONFIG[tissue_type]
     info = slide_manager.get(slide_id)
     if not info:
-        update_task(task_id, status="error", error="text text text text")
+        update_task(task_id, status="error", error="Slide is not open")
         return
     cache_path = get_pd_score_cache_path(info.file_path, tissue_type)
     run_marker_detection_pipeline(
@@ -598,12 +598,12 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
 def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
     """Quanti IHC text wrapper — HER2 / ER_PR / KI_67 text."""
     if marker not in PRECISE_IHC_CONFIG:
-        update_task(task_id, status="error", error=f"text text marker: {marker}")
+        update_task(task_id, status="error", error=f"Unsupported marker: {marker}")
         return
     dict_config = PRECISE_IHC_CONFIG[marker]
     info = slide_manager.get(slide_id)
     if not info:
-        update_task(task_id, status="error", error="text text text text")
+        update_task(task_id, status="error", error="Slide is not open")
         return
     cache_path = get_precise_ihc_cache_path(info.file_path, marker)
 

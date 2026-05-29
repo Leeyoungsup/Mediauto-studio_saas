@@ -2,6 +2,19 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.169] - 2026-05-29
+
+### Fixed
+
+- Queue stale Quanti HE, Quanti PD-L1, and Quanti IHC caches for automatic refresh when existing result files are missing model bbox data or excluded-cell data.
+- Include project-level Cell Annotation AI assistance models in the auto worker scan so bbox-capable caches are prepared before patch labeling uses them.
+
+## [1.1.168] - 2026-05-29
+
+### Fixed
+
+- Remove the remaining Cell Annotation Patch List gap between the summary row and sticky column header.
+
 ## [1.1.167] - 2026-05-29
 
 ### Fixed
