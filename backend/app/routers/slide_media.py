@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import get_media_user
 from app.path_utils import safe_filename, safe_subpath
+from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.resource_utils import close_many
 from app.slide_manager import build_color_corrector, slide_manager
 from app import tile_generator
@@ -57,7 +58,10 @@ async def get_thumbnail_by_name(
     thumb_rgb = None
     thumb_ndp = None
     try:
-        slide = openslide.OpenSlide(str(file_path))
+        if is_philips_isyntax(file_path):
+            slide = PhilipsSlideProxy(str(file_path))
+        else:
+            slide = openslide.OpenSlide(str(file_path))
         thumb = slide.get_thumbnail((int_size, int_size))
         thumb_rgb = tile_generator.image_to_white_rgb(thumb)
         apply_color, _ = build_color_corrector(slide)

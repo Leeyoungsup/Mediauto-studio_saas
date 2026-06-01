@@ -114,6 +114,7 @@ class Settings:
     SUPPORTED_EXTENSIONS: set = {
         ".svs", ".ndpi", ".vms", ".vmu", ".scn",
         ".mrxs", ".tiff", ".tif", ".png", ".jpg", ".jpeg",
+        ".isyntax",
     }
 
     # ── MongoDB text (On-Premise) ──

@@ -32,6 +32,7 @@ import openslide
 from PIL import Image
 
 from app.config import settings
+from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.slide_manager import (
     STAGE_READ_SIZE,
     STAGE_COUNT,
@@ -42,6 +43,12 @@ from app.slide_manager import (
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
 
 TILE_SIZE = TILE_SIZE_OUT
+
+
+def _open_slide(file_path: str):
+    if is_philips_isyntax(file_path):
+        return PhilipsSlideProxy(file_path)
+    return openslide.OpenSlide(file_path)
 
 # .complete marker schema version. Bump when the on-disk tile format changes
 # in a way that requires regeneration.
@@ -149,7 +156,7 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     if dict_marker.get("version") != COMPLETE_MARKER_VERSION:
         return False
     try:
-        slide = openslide.OpenSlide(file_path)
+        slide = _open_slide(file_path)
     except Exception as e:
         print(f"[tile_generator] tiles_are_valid: OpenSlide text ({filename}): {e}")
         return True  # text text — text text text
@@ -258,7 +265,7 @@ def _generate_tiles(filename: str, file_path: str):
     bool_completed = False
 
     try:
-        slide = openslide.OpenSlide(file_path)
+        slide = _open_slide(file_path)
 
         # text text text callable (ICC → NDP LUT → raw text).
         # text text ICC text "text text text" text — transform text
