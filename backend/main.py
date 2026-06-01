@@ -237,7 +237,10 @@ _DICT_PAGE_ROUTES = {
 
 
 def _frontend_page_response(str_page: str) -> FileResponse:
-    return FileResponse(FRONTEND_DIR / _DICT_PAGE_ROUTES[str_page])
+    return FileResponse(
+        FRONTEND_DIR / _DICT_PAGE_ROUTES[str_page],
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 for _clean_path, _html_file in _DICT_PAGE_ROUTES.items():
