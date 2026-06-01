@@ -243,7 +243,7 @@
             Drag & drop slide files here<br>
             or <strong id="browse-btn">browse files</strong>
         </div>
-        <input type="file" id="file-input" multiple accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn,.png,.jpg,.jpeg">
+        <input type="file" id="file-input" multiple accept=".svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn,.isyntax,.i2syntax,.png,.jpg,.jpeg">
     </div>
 
     <div class="file-list" id="file-list"></div>
@@ -266,7 +266,7 @@
 
         const API_BASE = '/api';
         const CHUNK_SIZE = 5 * 1024 * 1024;
-        const SUPPORTED = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg)$/i;
+        const SUPPORTED = /\.(svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|isyntax|i2syntax|png|jpg|jpeg)$/i;
 
         if (!localStorage.getItem('access_token')) { window.close(); return; }
 

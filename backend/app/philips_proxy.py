@@ -27,7 +27,7 @@ PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
 
 
 def is_philips_isyntax(file_path: str | Path) -> bool:
-    return Path(file_path).suffix.lower() == ".isyntax"
+    return Path(file_path).suffix.lower() in {".isyntax", ".i2syntax"}
 
 
 def _base_command() -> list[str]:
@@ -71,7 +71,7 @@ def smoke_test() -> dict[str, Any]:
 
 
 class PhilipsSlideProxy:
-    """OpenSlide-like proxy used by SlideInfo for .isyntax files."""
+    """OpenSlide-like proxy used by SlideInfo for Philips iSyntax files."""
 
     def __init__(self, file_path: str):
         self.file_path = str(file_path)

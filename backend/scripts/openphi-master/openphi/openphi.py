@@ -43,7 +43,7 @@ class OpenPhi:
         try:
             assert (isinstance(view, (str)) and (view == 'source' or view == 'display')), "view must be 'source' or 'display'!"
             assert (path.isfile(inputfilename)), "Input " + inputfilename + " is not a file!"
-            assert (path.splitext(inputfilename)[1] == ".isyntax"), "Input " + inputfilename + " is not an .isyntax file!"
+            assert (path.splitext(inputfilename)[1].lower() in (".isyntax", ".i2syntax")), "Input " + inputfilename + " is not an iSyntax file!"
                     
             render_context = softwarerendercontext.SoftwareRenderContext()
             render_backend = softwarerenderbackend.SoftwareRenderBackend()
