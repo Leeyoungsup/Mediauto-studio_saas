@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.172",
+  "version": "1.1.173",
   "channel": "production",
-  "release_date": "2026-05-29",
-  "description": "Re-enables the Cell Annotation navigation entry for all signed-in roles."
+  "release_date": "2026-06-02",
+  "description": "Allows Philips iSyntax uploads and refreshes upload file filters for routed frontend pages."
 }
