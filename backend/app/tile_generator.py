@@ -39,7 +39,6 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
     build_color_corrector,
 )
-from app.priority import wait_if_viewer_busy
 
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
 
@@ -632,7 +631,6 @@ def _generate_tiles(filename: str, file_path: str):
                 int_sx = tx2 * int_read_size2
                 int_sy = ty2 * int_read_size2
 
-                wait_if_viewer_busy()
                 obj_region = slide.read_region(
                     (int_sx, int_sy), 0, (int_read_size2, int_read_size2)
                 )

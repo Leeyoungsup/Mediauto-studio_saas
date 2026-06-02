@@ -3,5 +3,5 @@
   "version": "1.1.177",
   "channel": "production",
   "release_date": "2026-06-02",
-  "description": "Improves Philips upload and on-demand tile stability and latency by separating upload rate limits, hardening priority tile saves, generating viewer-requested tiles directly, and isolating the Philips bridge on tile CPUs."
+  "description": "Improves Philips upload and on-demand tile stability and latency by separating upload rate limits, hardening priority tile saves, generating viewer-requested tiles directly, and separating Philips viewer/tile bridge workers."
 }

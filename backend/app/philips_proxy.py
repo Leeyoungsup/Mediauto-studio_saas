@@ -72,12 +72,6 @@ def _server_command() -> list[str]:
 
 def _subprocess_env(cmd: list[str]) -> dict[str, str]:
     env = os.environ.copy()
-    if not env.get("PHILIPS_BRIDGE_AFFINITY"):
-        try:
-            from app.cpu_layout import list_tile_cpus
-            env["PHILIPS_BRIDGE_AFFINITY"] = ",".join(str(int(cpu)) for cpu in list_tile_cpus)
-        except Exception:
-            pass
     path_python = Path(cmd[0])
     if path_python.name.lower() == "python.exe" and path_python.parent.name.lower() == PHILIPS_CONDA_ENV.lower():
         path_env = path_python.parent
@@ -198,7 +192,36 @@ class _PersistentPhilipsBridge:
             pass
 
 
-_PERSISTENT_BRIDGE = _PersistentPhilipsBridge()
+_PERSISTENT_BRIDGES: dict[str, _PersistentPhilipsBridge] = {}
+_PERSISTENT_BRIDGES_LOCK = threading.Lock()
+
+
+def _bridge_key_for_current_thread() -> str:
+    name = threading.current_thread().name.lower()
+    if name.startswith("viewer"):
+        return "viewer"
+    if name.startswith("tile_worker"):
+        return "tile"
+    if name.startswith("ai_worker") or name.startswith("cell_patch"):
+        return "ai"
+    return "default"
+
+
+def _get_persistent_bridge() -> _PersistentPhilipsBridge:
+    key = _bridge_key_for_current_thread()
+    with _PERSISTENT_BRIDGES_LOCK:
+        bridge = _PERSISTENT_BRIDGES.get(key)
+        if bridge is None:
+            bridge = _PersistentPhilipsBridge()
+            _PERSISTENT_BRIDGES[key] = bridge
+        return bridge
+
+
+def _close_slide_on_persistent_bridges(slide_path: str, view: str) -> None:
+    with _PERSISTENT_BRIDGES_LOCK:
+        bridges = list(_PERSISTENT_BRIDGES.values())
+    for bridge in bridges:
+        bridge.close_slide(slide_path, view)
 
 
 def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
@@ -221,7 +244,7 @@ def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
 
 
 def _request_persistent(payload: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
-    return _PERSISTENT_BRIDGE.request(payload, timeout=timeout or PHILIPS_TIMEOUT_SECONDS)
+    return _get_persistent_bridge().request(payload, timeout=timeout or PHILIPS_TIMEOUT_SECONDS)
 
 
 def _run_bridge(payload: dict[str, Any], cli_args: list[str], timeout: int | None = None) -> dict[str, Any]:
@@ -406,7 +429,7 @@ class PhilipsSlideProxy:
 
     def close(self) -> None:
         if not self._closed and PHILIPS_BRIDGE_MODE != "cli":
-            _PERSISTENT_BRIDGE.close_slide(self.file_path, PHILIPS_VIEW)
+            _close_slide_on_persistent_bridges(self.file_path, PHILIPS_VIEW)
         self._closed = True
 
     def _ensure_open(self) -> None:
