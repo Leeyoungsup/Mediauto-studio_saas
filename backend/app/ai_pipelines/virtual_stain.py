@@ -25,6 +25,7 @@ from app.ai_pipelines.task_state import (
     update_task,
 )
 from app.config import settings
+from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.priority import wait_if_viewer_busy
 from app.resource_utils import close_safely, collect_garbage
 from app.slide_manager import slide_manager
@@ -461,7 +462,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
         update_task(task_id, progress=3, status_msg="Opening slide...")
 
         slide_path = info.file_path
-        slide = openslide.OpenSlide(slide_path)
+        slide = PhilipsSlideProxy(slide_path) if is_philips_isyntax(slide_path) else openslide.OpenSlide(slide_path)
 
         # target_mpp is provided as parameter
         patch_size = 512

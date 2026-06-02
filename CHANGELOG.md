@@ -2,12 +2,21 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.177] - 2026-06-02
+
+### Fixed
+
+- Move slide upload endpoints onto a separate high-capacity rate limit bucket so large chunked Philips uploads do not exhaust the general API request limit.
+- Exempt slide dashboard, project list, and folder tree refresh endpoints from the general limiter during upload workflows.
+
 ## [1.1.176] - 2026-06-02
 
 ### Fixed
 
 - Use Philips data envelope rectangles to build Quanti HE, Quanti PD-L1, and Quanti IHC patch queues without generating a thumbnail tissue mask when valid slide data regions are available.
 - Keep the existing thumbnail tissue mask path as a fallback for OpenSlide slides and Philips slides without envelope metadata.
+- Open Philips iSyntax/i2Syntax slides through the Philips bridge in VS-IHC and read VS patches through PhilipsSlideProxy instead of OpenSlide.
+- Use Philips data envelope rectangles as the VS-IHC tissue grid when available, avoiding an extra thumbnail tissue-mask pass.
 
 ## [1.1.175] - 2026-06-02
 

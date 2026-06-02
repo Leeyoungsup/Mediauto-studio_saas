@@ -106,12 +106,28 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
     Applies ICC color profile and Aperio calibration if provided."""
     # text text text text text — text text text, SaaS text no-op
 
-    import openslide as _openslide
-    if (not hasattr(_vs_thread_local, 'slide') or
-            _vs_thread_local.image_path != image_path):
-        _vs_thread_local.slide = _openslide.OpenSlide(image_path)
-        _vs_thread_local.image_path = image_path
-    slide = _vs_thread_local.slide
+    try:
+        from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
+        if is_philips_isyntax(image_path):
+            if (not hasattr(_vs_thread_local, 'philips_slide') or
+                    _vs_thread_local.philips_image_path != image_path):
+                _vs_thread_local.philips_slide = PhilipsSlideProxy(image_path)
+                _vs_thread_local.philips_image_path = image_path
+            slide = _vs_thread_local.philips_slide
+        else:
+            import openslide as _openslide
+            if (not hasattr(_vs_thread_local, 'slide') or
+                    _vs_thread_local.image_path != image_path):
+                _vs_thread_local.slide = _openslide.OpenSlide(image_path)
+                _vs_thread_local.image_path = image_path
+            slide = _vs_thread_local.slide
+    except Exception:
+        import openslide as _openslide
+        if (not hasattr(_vs_thread_local, 'slide') or
+                _vs_thread_local.image_path != image_path):
+            _vs_thread_local.slide = _openslide.OpenSlide(image_path)
+            _vs_thread_local.image_path = image_path
+        slide = _vs_thread_local.slide
 
     region = slide.read_region((x0, y0), best_level, (level_read, level_read))
     # RGBA → text text text (text text text text text text text text)
@@ -449,6 +465,31 @@ class VirtualStainWorker(QThread):
             tissue_full: (out_h, out_w) bool — pixel-level tissue mask.
         """
         import cv2 as _cv2
+        rects = [
+            tuple(int(v) for v in rect)
+            for rect in getattr(slide, "data_envelope_rectangles", [])
+            if len(rect) == 4
+        ]
+        if rects:
+            tissue_full = np.zeros((out_h, out_w), dtype=bool)
+            scale_x = out_w / max(canvas_l0_w, 1)
+            scale_y = out_h / max(canvas_l0_h, 1)
+            for rx0, rx1, ry0, ry1 in rects:
+                ix0 = max(0, min(out_w, int((rx0 - x_min) * scale_x)))
+                ix1 = max(0, min(out_w, int(np.ceil((rx1 - x_min + 1) * scale_x))))
+                iy0 = max(0, min(out_h, int((ry0 - y_min) * scale_y)))
+                iy1 = max(0, min(out_h, int(np.ceil((ry1 - y_min + 1) * scale_y))))
+                if ix1 > ix0 and iy1 > iy0:
+                    tissue_full[iy0:iy1, ix0:ix1] = True
+
+            grid = np.zeros((n_py, n_px), dtype=bool)
+            for yi in range(n_py):
+                for xi in range(n_px):
+                    px = xi * stride
+                    py = yi * stride
+                    block = tissue_full[py:py + ps, px:px + ps]
+                    grid[yi, xi] = block.size > 0 and block.mean() > 0.1
+            return grid, tissue_full
 
         # ── text downsample text mask text (target_mpp text) ──
         # patch-level (is_tissue text) text /64 text text. text out_w text text

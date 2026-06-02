@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.176",
+  "version": "1.1.177",
   "channel": "production",
   "release_date": "2026-06-02",
-  "description": "Uses Philips data envelope metadata to skip thumbnail tissue-mask generation for AI patch queueing when valid slide regions are available."
+  "description": "Separates slide upload rate limiting so large chunked Philips uploads do not exhaust the general API limiter."
 }

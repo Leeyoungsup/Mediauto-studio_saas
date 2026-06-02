@@ -53,6 +53,7 @@ class _FixedWindowCounter:
 # ── text text text ──
 _LOGIN_LIMITER = _FixedWindowCounter(int_window_seconds=300, int_max_requests=10)
 _API_LIMITER = _FixedWindowCounter(int_window_seconds=60, int_max_requests=200)
+_UPLOAD_LIMITER = _FixedWindowCounter(int_window_seconds=60, int_max_requests=2000)
 
 # text text text
 _int_request_count = 0
@@ -135,7 +136,12 @@ class RateLimitMiddleware:
 
         if (str_path.startswith("/api/tiles/")
                 or "/thumbnail" in str_path
-                or "/virtual-stain/" in str_path):
+                or "/virtual-stain/" in str_path
+                or str_path in {
+                    "/api/slides/dashboard",
+                    "/api/slides/projects",
+                    "/api/slides/folder-tree",
+                }):
             await self.app(scope, receive, send)
             return
 
@@ -153,6 +159,13 @@ class RateLimitMiddleware:
         if str_path.rstrip("/") in ("/api/auth/login", "/api/auth/register"):
             if not _LOGIN_LIMITER.is_allowed(str_ip):
                 await _send_429("300")(send)
+                return
+            await self.app(scope, receive, send)
+            return
+
+        if str_path.startswith("/api/slides/upload/"):
+            if not _UPLOAD_LIMITER.is_allowed(str_ip):
+                await _send_429("60")(send)
                 return
             await self.app(scope, receive, send)
             return
