@@ -1,18 +1,18 @@
-"""
-text text — 3text stage text level 0 text text text.
+﻿"""
+text text ??3text stage text level 0 text text text.
 
 text:
   tiles/{slide_id}/
-    ├── 0/{tx}_{ty}.jpeg    ← stage 0 (downsample 1, text text)
-    ├── 1/{tx}_{ty}.jpeg    ← stage 1 (downsample 4, level0→4096px text 1024 text)
-    ├── 2/{tx}_{ty}.jpeg    ← stage 2 (downsample 8, level0→8192px text 1024 text)
-    ├── thumbnail.jpeg
-    └── .complete           ← text text text (JSON: text/ICC text/text text)
+    ?쒋?? 0/{tx}_{ty}.jpeg    ??stage 0 (downsample 1, text text)
+    ?쒋?? 1/{tx}_{ty}.jpeg    ??stage 1 (downsample 4, level0??096px text 1024 text)
+    ?쒋?? 2/{tx}_{ty}.jpeg    ??stage 2 (downsample 8, level0??192px text 1024 text)
+    ?쒋?? thumbnail.jpeg
+    ?붴?? .complete           ??text text text (JSON: text/ICC text/text text)
 
 text text:
   stage 2 text text(8192x8192 at level 0) text text text text text
-    - stage 2 tile 1text (text 8192→1024 text)
-    - stage 1 tile 4text (4text 4096 text → text 1024 text)
+    - stage 2 tile 1text (text 8192??024 text)
+    - stage 1 tile 4text (4text 4096 text ??text 1024 text)
     - stage 0 tile 64text (8x8 text, 1024 text)
   text 69text text text text read_region text text. I/O text.
 """
@@ -52,10 +52,11 @@ def _open_slide(file_path: str):
 
 # .complete marker schema version. Bump when the on-disk tile format changes
 # in a way that requires regeneration.
-# v2: 3text stage text (level 0 text) — text level-index text text text
-# v3: Hamamatsu NDP.view2 text gamma=1.8 + Target.White.Intensity LUT text —
+# v2: 3text stage text (level 0 text) ??text level-index text text text
+# v3: Hamamatsu NDP.view2 text gamma=1.8 + Target.White.Intensity LUT text ??
 #     text raw-pass-through text text text text text text.
-COMPLETE_MARKER_VERSION = 4
+# v5: stage 1/0 generated from 4096 reads; stage 2 derived from stage-1 tiles.
+COMPLETE_MARKER_VERSION = 5
 COMPLETE_MARKER_NAME = ".complete"
 
 
@@ -158,10 +159,10 @@ def _save_jpeg(obj_img: Image.Image, path: Path, quality: int) -> None:
 def tiles_are_valid(filename: str, file_path: str) -> bool:
     """text text text text text text text.
 
-    - text text / text touch text / text text → False (text text)
-    - text icc_hash text text text ICC text text → False
-    - text icc_applied=False text text text ICC text text → False
-    - text text text → True (text text text; text text)
+    - text text / text touch text / text text ??False (text text)
+    - text icc_hash text text text ICC text text ??False
+    - text icc_applied=False text text text ICC text text ??False
+    - text text text ??True (text text text; text text)
 
     text: text text text text text text text. text text _generate_tiles text
     text text, text text text text text text.
@@ -197,13 +198,13 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
 
 
 def invalidate_tiles(filename: str) -> None:
-    """text text text text — text text text."""
+    """text text text text ??text text text."""
     tiles_dir = get_tiles_dir(filename)
     if tiles_dir.exists():
         shutil.rmtree(tiles_dir, ignore_errors=True)
 
 
-# ── text text ──
+# ?? text text ??
 
 class TileGenProgress:
     __slots__ = ("total_tiles", "generated_tiles", "current_level", "status", "error")
@@ -235,8 +236,8 @@ class TileGenProgress:
 _progress: dict[str, TileGenProgress] = {}
 _progress_lock = threading.Lock()
 _priority_lock = threading.Lock()
-_priority_stage2: dict[str, set[tuple[int, int]]] = {}
 _priority_block_locks: dict[tuple[str, int, int], threading.Lock] = {}
+_priority_stage1: dict[str, set[tuple[int, int]]] = {}
 
 
 def get_tiles_dir(filename: str) -> Path:
@@ -285,6 +286,14 @@ def _stage2_coord_for_tile(level: int, tile_x: int, tile_y: int) -> tuple[int, i
     return tile_x, tile_y
 
 
+def _stage1_coord_for_tile(level: int, tile_x: int, tile_y: int) -> tuple[int, int]:
+    if level <= 0:
+        return tile_x // 4, tile_y // 4
+    if level == 1:
+        return tile_x, tile_y
+    return tile_x * 2, tile_y * 2
+
+
 def _target_tile_path(filename: str, level: int, tile_x: int, tile_y: int) -> Path:
     return get_tiles_dir(filename) / str(level) / f"{tile_x}_{tile_y}.jpeg"
 
@@ -300,22 +309,27 @@ def _get_priority_block_lock(filename: str, tx2: int, ty2: int) -> threading.Loc
 
 
 def request_priority_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> None:
-    """Prioritize the stage-2 block that contains a viewer-requested tile."""
+    """Prioritize the stage-1 block(s) that contain a viewer-requested tile."""
     if tiles_ready(filename):
         return
-    int_tx2, int_ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
     with _priority_lock:
-        _priority_stage2.setdefault(filename, set()).add((int_tx2, int_ty2))
+        set_priority = _priority_stage1.setdefault(filename, set())
+        if level == 2:
+            for sub_ty in range(2):
+                for sub_tx in range(2):
+                    set_priority.add((tile_x * 2 + sub_tx, tile_y * 2 + sub_ty))
+        else:
+            set_priority.add(_stage1_coord_for_tile(level, tile_x, tile_y))
     start_generation(filename, file_path)
 
 
-def _next_stage2_coord(
+def _next_stage1_coord(
     filename: str,
     list_all_coords: list[tuple[int, int]],
     set_done: set[tuple[int, int]],
 ) -> tuple[int, int] | None:
     with _priority_lock:
-        set_priority = _priority_stage2.setdefault(filename, set())
+        set_priority = _priority_stage1.setdefault(filename, set())
         for coord in list(set_priority):
             if coord in set_done:
                 set_priority.discard(coord)
@@ -355,6 +369,25 @@ def _stage2_coords_with_data(slide, int_nx2: int, int_ny2: int, int_read_size2: 
     return coords
 
 
+def _stage1_coords_with_data(slide, int_nx1: int, int_ny1: int, int_read_size1: int) -> list[tuple[int, int]]:
+    rects = [
+        tuple(int(v) for v in rect)
+        for rect in getattr(slide, "data_envelope_rectangles", [])
+        if len(rect) == 4
+    ]
+    if not rects:
+        return [(tx1, ty1) for ty1 in range(int_ny1) for tx1 in range(int_nx1)]
+    coords = []
+    for ty1 in range(int_ny1):
+        for tx1 in range(int_nx1):
+            x0 = tx1 * int_read_size1
+            y0 = ty1 * int_read_size1
+            block = (x0, x0 + int_read_size1 - 1, y0, y0 + int_read_size1 - 1)
+            if any(_rects_intersect(block, rect) for rect in rects):
+                coords.append((tx1, ty1))
+    return coords
+
+
 def _tile_intersects_data_envelope(slide, level: int, tile_x: int, tile_y: int) -> bool:
     rects = [
         tuple(int(v) for v in rect)
@@ -368,6 +401,119 @@ def _tile_intersects_data_envelope(slide, level: int, tile_x: int, tile_y: int) 
     y0 = tile_y * int_read_size
     tile_rect = (x0, x0 + int_read_size - 1, y0, y0 + int_read_size - 1)
     return any(_rects_intersect(tile_rect, rect) for rect in rects)
+
+
+def _generate_stage1_block(
+    slide,
+    _to_srgb,
+    stage0_dir: Path,
+    stage1_dir: Path,
+    tx1: int,
+    ty1: int,
+    int_nx0: int,
+    int_ny0: int,
+) -> tuple[bool, int, int]:
+    int_read_size1 = STAGE_READ_SIZE[1]
+    int_tile_out = TILE_SIZE_OUT
+    path_tile1 = stage1_dir / f"{tx1}_{ty1}.jpeg"
+    bool_stage1_saved = path_tile1.exists()
+    int_stage0_count = 0
+
+    obj_region = slide.read_region(
+        (tx1 * int_read_size1, ty1 * int_read_size1),
+        0,
+        (int_read_size1, int_read_size1),
+    )
+    obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
+    try:
+        if not path_tile1.exists():
+            obj_tile1 = obj_rgb.resize((int_tile_out, int_tile_out), Image.LANCZOS)
+            try:
+                if _image_has_visible_content(obj_tile1):
+                    _save_jpeg(obj_tile1, path_tile1, settings.TILE_QUALITY)
+                    bool_stage1_saved = True
+            finally:
+                obj_tile1.close()
+
+        for sub_ty in range(4):
+            for sub_tx in range(4):
+                tx0 = tx1 * 4 + sub_tx
+                ty0 = ty1 * 4 + sub_ty
+                if tx0 >= int_nx0 or ty0 >= int_ny0:
+                    continue
+                path_tile0 = stage0_dir / f"{tx0}_{ty0}.jpeg"
+                if path_tile0.exists():
+                    int_stage0_count += 1
+                    continue
+                int_bx = sub_tx * int_tile_out
+                int_by = sub_ty * int_tile_out
+                obj_tile0 = obj_rgb.crop(
+                    (int_bx, int_by, int_bx + int_tile_out, int_by + int_tile_out)
+                )
+                try:
+                    if _image_has_visible_content(obj_tile0):
+                        _save_jpeg(obj_tile0, path_tile0, settings.TILE_QUALITY)
+                        int_stage0_count += 1
+                finally:
+                    obj_tile0.close()
+        return path_tile1.exists(), int_stage0_count, 1
+    finally:
+        obj_region.close()
+        try:
+            obj_rgb.close()
+        except Exception:
+            pass
+
+
+def _compose_stage2_from_stage1(
+    stage1_dir: Path,
+    stage2_dir: Path,
+    tx2: int,
+    ty2: int,
+    int_nx1: int,
+    int_ny1: int,
+    *,
+    require_all_children: bool,
+) -> bool:
+    path_tile2 = stage2_dir / f"{tx2}_{ty2}.jpeg"
+    if path_tile2.exists():
+        return True
+
+    int_tile_out = TILE_SIZE_OUT
+    list_children: list[tuple[int, int, Path]] = []
+    for sub_ty in range(2):
+        for sub_tx in range(2):
+            tx1 = tx2 * 2 + sub_tx
+            ty1 = ty2 * 2 + sub_ty
+            if tx1 >= int_nx1 or ty1 >= int_ny1:
+                continue
+            path_child = stage1_dir / f"{tx1}_{ty1}.jpeg"
+            if require_all_children and not path_child.exists():
+                return False
+            if path_child.exists():
+                list_children.append((sub_tx, sub_ty, path_child))
+
+    if not list_children:
+        return False
+
+    obj_canvas = Image.new("RGB", (int_tile_out * 2, int_tile_out * 2), (255, 255, 255))
+    try:
+        for sub_tx, sub_ty, path_child in list_children:
+            with Image.open(str(path_child)) as obj_child:
+                obj_rgb = obj_child.convert("RGB")
+                try:
+                    obj_canvas.paste(obj_rgb, (sub_tx * int_tile_out, sub_ty * int_tile_out))
+                finally:
+                    obj_rgb.close()
+        obj_tile2 = obj_canvas.resize((int_tile_out, int_tile_out), Image.LANCZOS)
+        try:
+            if _image_has_visible_content(obj_tile2):
+                _save_jpeg(obj_tile2, path_tile2, settings.TILE_QUALITY)
+        finally:
+            obj_tile2.close()
+        return path_tile2.exists()
+    finally:
+        obj_canvas.close()
 
 
 def generate_priority_single_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
@@ -428,7 +574,7 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
 
 
 def generate_priority_tile_block(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
-    """Generate the stage-2 block for a viewer-requested tile immediately."""
+    """Generate the stage-1 block(s) needed for a requested tile immediately."""
     path_target = _target_tile_path(filename, level, tile_x, tile_y)
     if path_target.exists():
         return True
@@ -451,16 +597,6 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
                 list_stage_nx.append(max(1, math.ceil(int_w0 / int_scene_tile)))
                 list_stage_ny.append(max(1, math.ceil(int_h0 / int_scene_tile)))
 
-            int_nx2 = list_stage_nx[2]
-            int_ny2 = list_stage_ny[2]
-            if tx2 < 0 or ty2 < 0 or tx2 >= int_nx2 or ty2 >= int_ny2:
-                return False
-
-            int_read_size2 = STAGE_READ_SIZE[2]
-            list_stage2_coords = _stage2_coords_with_data(slide, int_nx2, int_ny2, int_read_size2)
-            if (tx2, ty2) not in list_stage2_coords:
-                return False
-
             tiles_dir = get_tiles_dir(filename)
             for int_stage in range(STAGE_COUNT):
                 (tiles_dir / str(int_stage)).mkdir(parents=True, exist_ok=True)
@@ -469,71 +605,55 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
             stage2_dir = tiles_dir / "2"
 
             int_read_size1 = STAGE_READ_SIZE[1]
-            int_tile_out = TILE_SIZE_OUT
             int_nx1 = list_stage_nx[1]
             int_ny1 = list_stage_ny[1]
             int_nx0 = list_stage_nx[0]
             int_ny0 = list_stage_ny[0]
+            list_stage1_coords = _stage1_coords_with_data(slide, int_nx1, int_ny1, int_read_size1)
+            set_stage1_coords = set(list_stage1_coords)
 
-            obj_region = slide.read_region(
-                (tx2 * int_read_size2, ty2 * int_read_size2),
-                0,
-                (int_read_size2, int_read_size2),
-            )
-            obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
-            try:
-                path_tile2 = stage2_dir / f"{tx2}_{ty2}.jpeg"
-                if not path_tile2.exists():
-                    obj_tile2 = obj_rgb.resize((int_tile_out, int_tile_out), Image.LANCZOS)
-                    if _image_has_visible_content(obj_tile2):
-                        _save_jpeg(obj_tile2, path_tile2, settings.TILE_QUALITY)
-                    obj_tile2.close()
+            if level == 2:
+                coords_needed = [
+                    (tile_x * 2 + sub_tx, tile_y * 2 + sub_ty)
+                    for sub_ty in range(2)
+                    for sub_tx in range(2)
+                    if tile_x * 2 + sub_tx < int_nx1 and tile_y * 2 + sub_ty < int_ny1
+                ]
+            else:
+                coords_needed = [_stage1_coord_for_tile(level, tile_x, tile_y)]
 
-                for sub_ty in range(2):
-                    for sub_tx in range(2):
-                        tx1 = tx2 * 2 + sub_tx
-                        ty1 = ty2 * 2 + sub_ty
-                        if tx1 >= int_nx1 or ty1 >= int_ny1:
-                            continue
-                        path_tile1 = stage1_dir / f"{tx1}_{ty1}.jpeg"
-                        if path_tile1.exists():
-                            continue
-                        int_bx = sub_tx * int_read_size1
-                        int_by = sub_ty * int_read_size1
-                        obj_sub = obj_rgb.crop(
-                            (int_bx, int_by, int_bx + int_read_size1, int_by + int_read_size1)
-                        )
-                        obj_tile1 = obj_sub.resize((int_tile_out, int_tile_out), Image.LANCZOS)
-                        if _image_has_visible_content(obj_tile1):
-                            _save_jpeg(obj_tile1, path_tile1, settings.TILE_QUALITY)
-                        obj_tile1.close()
-                        obj_sub.close()
+            bool_generated_any = False
+            for tx1, ty1 in coords_needed:
+                if tx1 < 0 or ty1 < 0 or tx1 >= int_nx1 or ty1 >= int_ny1:
+                    continue
+                if (tx1, ty1) not in set_stage1_coords:
+                    continue
+                _generate_stage1_block(slide, _to_srgb, stage0_dir, stage1_dir, tx1, ty1, int_nx0, int_ny0)
+                bool_generated_any = True
 
-                for sub_ty in range(8):
-                    for sub_tx in range(8):
-                        tx0 = tx2 * 8 + sub_tx
-                        ty0 = ty2 * 8 + sub_ty
-                        if tx0 >= int_nx0 or ty0 >= int_ny0:
-                            continue
-                        path_tile0 = stage0_dir / f"{tx0}_{ty0}.jpeg"
-                        if path_tile0.exists():
-                            continue
-                        int_bx = sub_tx * int_tile_out
-                        int_by = sub_ty * int_tile_out
-                        obj_tile0 = obj_rgb.crop(
-                            (int_bx, int_by, int_bx + int_tile_out, int_by + int_tile_out)
-                        )
-                        if _image_has_visible_content(obj_tile0):
-                            _save_jpeg(obj_tile0, path_tile0, settings.TILE_QUALITY)
-                        obj_tile0.close()
+            if level == 2:
+                _compose_stage2_from_stage1(
+                    stage1_dir,
+                    stage2_dir,
+                    tile_x,
+                    tile_y,
+                    int_nx1,
+                    int_ny1,
+                    require_all_children=False,
+                )
+            else:
+                parent_tx2, parent_ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
+                _compose_stage2_from_stage1(
+                    stage1_dir,
+                    stage2_dir,
+                    parent_tx2,
+                    parent_ty2,
+                    int_nx1,
+                    int_ny1,
+                    require_all_children=True,
+                )
 
-                return path_target.exists()
-            finally:
-                obj_region.close()
-                try:
-                    obj_rgb.close()
-                except Exception:
-                    pass
+            return path_target.exists() or bool_generated_any
         finally:
             try:
                 slide.close()
@@ -542,7 +662,7 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
 
 
 def _generate_tiles(filename: str, file_path: str):
-    """text text text — text text(text text)text text text text text text text"""
+    """text text text ??text text(text text)text text text text text text text"""
     progress = TileGenProgress()
     with _progress_lock:
         _progress[filename] = progress
@@ -553,17 +673,17 @@ def _generate_tiles(filename: str, file_path: str):
     try:
         slide = _open_slide(file_path)
 
-        # text text text callable (ICC → NDP LUT → raw text).
-        # text text ICC text "text text text" text — transform text
+        # text text text callable (ICC ??NDP LUT ??raw text).
+        # text text ICC text "text text text" text ??transform text
         # text text text text text text.
         str_icc_hash = _slide_icc_hash(slide)
         _to_srgb, dict_color_meta = build_color_corrector(slide)
         bool_icc_applied = bool(dict_color_meta.get("icc_applied"))
         if str_icc_hash is not None and not bool_icc_applied:
             print(f"[tile_generator] WARN {filename}: ICC profile detected but no color transform was applied")
-        # NDP LUT text text text text text text text — text.
+        # NDP LUT text text text text text text text ??text.
 
-        # 3text stage text — text level 0 text text downsample [1, 4, 8] text text
+        # 3text stage text ??text level 0 text text downsample [1, 4, 8] text text
         int_w0, int_h0 = slide.dimensions
 
         # text stage text text text (nx, ny) text
@@ -608,7 +728,6 @@ def _generate_tiles(filename: str, file_path: str):
 
         int_read_size2 = STAGE_READ_SIZE[2]   # 8192
         int_read_size1 = STAGE_READ_SIZE[1]   # 4096
-        int_tile_out = TILE_SIZE_OUT          # 1024
         int_nx2 = list_stage_nx[2]
         int_ny2 = list_stage_ny[2]
         int_nx1 = list_stage_nx[1]
@@ -616,104 +735,53 @@ def _generate_tiles(filename: str, file_path: str):
         int_nx0 = list_stage_nx[0]
         int_ny0 = list_stage_ny[0]
 
-        # stage 2 text text — text text level 0 text 8192x8192 text text text
-        # stage 2/1/0 text text text text (69 tile / 1 read).
-        list_stage2_coords = _stage2_coords_with_data(slide, int_nx2, int_ny2, int_read_size2)
-        set_done_stage2: set[tuple[int, int]] = set()
-        while len(set_done_stage2) < len(list_stage2_coords):
-            coord_stage2 = _next_stage2_coord(filename, list_stage2_coords, set_done_stage2)
-            if coord_stage2 is None:
+        list_stage1_coords = _stage1_coords_with_data(slide, int_nx1, int_ny1, int_read_size1)
+        set_done_stage1: set[tuple[int, int]] = set()
+        while len(set_done_stage1) < len(list_stage1_coords):
+            coord_stage1 = _next_stage1_coord(filename, list_stage1_coords, set_done_stage1)
+            if coord_stage1 is None:
                 break
-            tx2, ty2 = coord_stage2
-            set_done_stage2.add(coord_stage2)
-            if True:
-                progress.current_level = 2
-                int_sx = tx2 * int_read_size2
-                int_sy = ty2 * int_read_size2
+            tx1, ty1 = coord_stage1
+            set_done_stage1.add(coord_stage1)
 
-                obj_region = slide.read_region(
-                    (int_sx, int_sy), 0, (int_read_size2, int_read_size2)
-                )
-                obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
+            progress.current_level = 1
+            _generate_stage1_block(slide, _to_srgb, stage0_dir, stage1_dir, tx1, ty1, int_nx0, int_ny0)
+            progress.generated_tiles += 1
 
-                # ── stage 2 tile (8192 → 1024) ──
-                tile_path2 = stage2_dir / f"{tx2}_{ty2}.jpeg"
-                if not tile_path2.exists():
-                    obj_tile2 = obj_rgb.resize(
-                        (int_tile_out, int_tile_out), Image.LANCZOS
-                    )
-                    if _image_has_visible_content(obj_tile2):
-                        _save_jpeg(obj_tile2, tile_path2, settings.TILE_QUALITY)
-                    obj_tile2.close()
-                progress.generated_tiles += 1
-
-                # ── stage 1 sub-tiles (2x2, text 4096 → 1024) ──
-                progress.current_level = 1
-                for sub_ty in range(2):
-                    for sub_tx in range(2):
-                        tx1 = tx2 * 2 + sub_tx
-                        ty1 = ty2 * 2 + sub_ty
-                        if tx1 >= int_nx1 or ty1 >= int_ny1:
-                            continue
-                        tile_path1 = stage1_dir / f"{tx1}_{ty1}.jpeg"
-                        if not tile_path1.exists():
-                            int_bx = sub_tx * int_read_size1
-                            int_by = sub_ty * int_read_size1
-                            obj_sub = obj_rgb.crop(
-                                (int_bx, int_by,
-                                 int_bx + int_read_size1,
-                                 int_by + int_read_size1)
-                            )
-                            obj_tile1 = obj_sub.resize(
-                                (int_tile_out, int_tile_out), Image.LANCZOS
-                            )
-                            if _image_has_visible_content(obj_tile1):
-                                _save_jpeg(obj_tile1, tile_path1, settings.TILE_QUALITY)
-                            obj_tile1.close()
-                            obj_sub.close()
+            progress.current_level = 0
+            for sub_ty in range(4):
+                for sub_tx in range(4):
+                    tx0 = tx1 * 4 + sub_tx
+                    ty0 = ty1 * 4 + sub_ty
+                    if tx0 < int_nx0 and ty0 < int_ny0:
                         progress.generated_tiles += 1
 
-                # ── stage 0 sub-tiles (8x8, text 1024 text) ──
-                progress.current_level = 0
-                for sub_ty in range(8):
-                    for sub_tx in range(8):
-                        tx0 = tx2 * 8 + sub_tx
-                        ty0 = ty2 * 8 + sub_ty
-                        if tx0 >= int_nx0 or ty0 >= int_ny0:
-                            continue
-                        tile_path0 = stage0_dir / f"{tx0}_{ty0}.jpeg"
-                        if not tile_path0.exists():
-                            int_bx = sub_tx * int_tile_out
-                            int_by = sub_ty * int_tile_out
-                            obj_tile0 = obj_rgb.crop(
-                                (int_bx, int_by,
-                                 int_bx + int_tile_out,
-                                 int_by + int_tile_out)
-                            )
-                            if _image_has_visible_content(obj_tile0):
-                                _save_jpeg(obj_tile0, tile_path0, settings.TILE_QUALITY)
-                            obj_tile0.close()
-                        progress.generated_tiles += 1
+        progress.current_level = 2
+        list_stage2_coords = _stage2_coords_with_data(slide, int_nx2, int_ny2, int_read_size2)
+        for tx2, ty2 in list_stage2_coords:
+            _compose_stage2_from_stage1(
+                stage1_dir,
+                stage2_dir,
+                tx2,
+                ty2,
+                int_nx1,
+                int_ny1,
+                require_all_children=False,
+            )
+            progress.generated_tiles += 1
 
-                # text text text text — text text text text text
-                obj_region.close()
-                try:
-                    obj_rgb.close()
-                except Exception:
-                    pass
-                del obj_region, obj_rgb
-
-        # text text — text text ICC text + text text text text
+        # text text ??text text ICC text + text text text text
         _write_complete_marker(
             tiles_dir,
             str_icc_hash=str_icc_hash,
             bool_icc_applied=bool_icc_applied,
         )
         bool_completed = True
+        progress.generated_tiles = progress.total_tiles
         progress.status = "completed"
         slide.close()
 
-        # DB text text (text text → text text text)
+        # DB text text (text text ??text text text)
         try:
             from app import slide_store
             slide_store.mark_tiles_ready_threadsafe(file_path)
@@ -724,7 +792,7 @@ def _generate_tiles(filename: str, file_path: str):
         progress.status = "error"
         progress.error = str(e)
     finally:
-        # text text text — text text text text text .complete text
+        # text text text ??text text text text text .complete text
         # text text text text. text text tiles_are_valid text
         # False text text invalidate_tiles text text text, text text
         # text 404/text text text text text text text text text.

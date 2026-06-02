@@ -13,6 +13,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Use separate persistent Philips bridge processes for viewer, tile worker, and AI callers so background tiling does not serialize viewer tile reads behind the same bridge lock.
 - Split persistent Philips bridges per worker thread so concurrent viewer tile requests are not serialized through a single viewer bridge.
 - Rebalance the default CPU layout dynamically with reserved system headroom and capped background worker pools, while keeping explicit `MEDIAUTO_CPU_*` overrides available.
+- Generate OpenSlide and Philips background tiles from 4096px stage-1 reads, then derive stage-2 tiles by composing stage-1 children so image processing remains cached while avoiding 8192px worker reads.
 
 ## [1.1.176] - 2026-06-02
 
