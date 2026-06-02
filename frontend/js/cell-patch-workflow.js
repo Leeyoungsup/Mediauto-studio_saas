@@ -67,6 +67,7 @@ export class CellPatchWorkflow {
         this.assistanceSlideId = '';
         this.patchApplyProgress = null;
         this.patchListSort = { key: 'patch', dir: 'asc' };
+        this.patchListRenderLimit = 500;
         this.selectedPatch = null;
         this.patchFocusActive = false;
         this.savedWsiView = null;
@@ -581,7 +582,19 @@ export class CellPatchWorkflow {
             btn.addEventListener('click', () => this.setPatchListSort(btn.dataset.sortKey));
         });
         body.appendChild(header);
-        for (const patch of list) {
+        const selectedId = this.selectedPatchId();
+        const visibleList = list.slice(0, this.patchListRenderLimit);
+        if (selectedId && !visibleList.some(p => (p.str_patch_id || p.patch_id) === selectedId)) {
+            const selectedPatch = list.find(p => (p.str_patch_id || p.patch_id) === selectedId);
+            if (selectedPatch) visibleList.push(selectedPatch);
+        }
+        if (list.length > visibleList.length) {
+            const notice = document.createElement('div');
+            notice.className = 'patch-list-empty';
+            notice.textContent = `Showing ${visibleList.length.toLocaleString()} of ${list.length.toLocaleString()} patches. Sort or use the canvas overlay to navigate the rest.`;
+            body.appendChild(notice);
+        }
+        for (const patch of visibleList) {
             const id = patch.str_patch_id || patch.patch_id;
             const status = patch.str_status || patch.status || 'required';
             const workflow = this._patchWorkflowStatus(patch);

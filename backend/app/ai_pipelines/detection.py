@@ -25,8 +25,10 @@ from app.ai_pipelines.task_state import (
 )
 from app.ai_pipelines.tissue_mask import create_tissue_mask
 from app.config import settings
+from app.philips_proxy import is_philips_isyntax
 from app.priority import wait_if_viewer_busy
 from app.slide_manager import slide_manager
+from app.tile_generator import generate_priority_tile_block, get_tiles_dir, image_to_white_rgb
 from app.thread_slide_pool import get_thread_slide
 
 
@@ -273,21 +275,49 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         # ── I/O → text text text (text text OpenSlide) ──
         icc_tf = info.icc_transform
+        bool_philips_slide = is_philips_isyntax(slide_path)
+        path_level0_tiles = get_tiles_dir(Path(slide_path).name) / "0" if bool_philips_slide else None
+
+        def _tensor_from_rgb_image(patch_rgb):
+            patch_np = np.asarray(patch_rgb)
+            patch_resized = cv2.resize(patch_np, (512, 512))
+            return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
+
+        def _read_cached_tile_tensor(patch_x, patch_y):
+            if path_level0_tiles is None:
+                return None
+            tile_x = patch_x // image_size
+            tile_y = patch_y // image_size
+            path_tile = path_level0_tiles / f"{tile_x}_{tile_y}.jpeg"
+            if not path_tile.exists():
+                wait_if_viewer_busy()
+                generate_priority_tile_block(Path(slide_path).name, slide_path, 0, tile_x, tile_y)
+                if not path_tile.exists():
+                    return None
+            from PIL import Image
+            with Image.open(str(path_tile)) as obj_tile:
+                obj_rgb = obj_tile.convert("RGB")
+                try:
+                    return _tensor_from_rgb_image(obj_rgb)
+                finally:
+                    obj_rgb.close()
         def _read_patch_tensor(patch_x, patch_y):
             patch = None
             patch_rgb = None
             try:
+                if bool_philips_slide:
+                    tensor_cached = _read_cached_tile_tensor(patch_x, patch_y)
+                    if tensor_cached is not None:
+                        return tensor_cached
                 wait_if_viewer_busy()
                 local_slide = get_thread_slide(slide_id, slide_path)
 
                 patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
-                patch_rgb = patch.convert('RGB')
+                patch_rgb = image_to_white_rgb(patch)
                 if icc_tf is not None:
                     from PIL import ImageCms
                     ImageCms.applyTransform(patch_rgb, icc_tf, inPlace=True)
-                patch_np = np.asarray(patch_rgb)
-                patch_resized = cv2.resize(patch_np, (512, 512))
-                return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
+                return _tensor_from_rgb_image(patch_rgb)
             except Exception as e:
                 return None
             finally:

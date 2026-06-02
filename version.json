@@ -3,5 +3,5 @@
   "version": "1.1.174",
   "channel": "production",
   "release_date": "2026-06-02",
-  "description": "Fixes Philips bridge parallel execution, immediately generates viewed Philips tiles, and returns blank responses for empty regions."
+  "description": "Fixes Philips tile serving and speeds up Philips AI patch processing."
 }

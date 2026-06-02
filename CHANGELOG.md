@@ -12,6 +12,8 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Avoid slow on-demand Philips bridge renders for missing tiles without caching white placeholder images over pending viewer regions.
 - Generate viewer-requested Philips tile blocks immediately when a tile is missing, then return the new JPEG instead of only queuing background tiling.
 - Skip header-reported empty Philips regions plus near-white generated subtiles so blank areas do not get cached as tile images, while still returning an in-memory blank JPEG response to the viewer.
+- Speed up cell annotation patch loading by making patch-list reads query-only and limiting the DOM-rendered task list for large patch sets.
+- Speed up Philips Quanti HE detection patch processing by reusing generated level-0 tile JPEGs and generating missing tile blocks before falling back to direct bridge reads.
 
 ## [1.1.173] - 2026-06-02
 

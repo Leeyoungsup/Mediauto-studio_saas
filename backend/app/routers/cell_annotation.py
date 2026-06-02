@@ -1194,35 +1194,37 @@ async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current
 async def get_patches(slide_id: str, status: str = Query("")):
     info = _slide_info(slide_id)
     db = _require_db()
-    await db.patch_annotation_status.delete_many({"str_slide_id": slide_id, "str_status": "not_required"})
     query: dict[str, Any] = {"str_slide_id": slide_id}
     if status:
         query["str_status"] = status
     else:
         query["str_status"] = {"$ne": "not_required"}
-    cursor = db.patch_annotation_status.find(query, {"_id": 0}).sort([("int_py", 1), ("int_px", 1)])
+    projection = {
+        "_id": 0,
+        "str_slide_id": 1,
+        "str_patch_id": 1,
+        "str_patch_key": 1,
+        "int_px": 1,
+        "int_py": 1,
+        "int_x": 1,
+        "int_y": 1,
+        "int_w": 1,
+        "int_h": 1,
+        "str_status": 1,
+        "str_annotation_status": 1,
+        "str_review_status": 1,
+        "str_termination_status": 1,
+        "str_memo": 1,
+        "str_updated_by": 1,
+        "dt_updated_at": 1,
+    }
+    cursor = db.patch_annotation_status.find(query, projection).sort([("int_py", 1), ("int_px", 1)])
     patches = await cursor.to_list(length=200000)
-    allocated_ids: dict[str, str] = {}
     for patch in patches:
-        old_id = patch.get("str_patch_id")
-        patch_key = patch.get("str_patch_key") or _patch_key_from_xy(int(patch.get("int_x", 0)), int(patch.get("int_y", 0)))
-        expected_id = await _patch_id_for_key(db, slide_id, patch_key, allocated_ids)
-        if old_id and expected_id and old_id != expected_id:
-            patch["str_patch_id"] = expected_id
-            patch["str_patch_key"] = patch_key
-            await db.patch_annotation_status.update_one(
-                {"str_slide_id": slide_id, "str_patch_id": old_id},
-                {"$set": {"str_patch_id": expected_id, "str_patch_key": patch_key}},
-            )
-            await db.patch_cell_annotations.update_many(
-                {"str_slide_id": slide_id, "str_patch_id": old_id},
-                {"$set": {"str_patch_id": expected_id}},
-            )
-        elif patch_key and not patch.get("str_patch_key"):
-            patch["str_patch_key"] = patch_key
-            await db.patch_annotation_status.update_one(
-                {"str_slide_id": slide_id, "str_patch_id": old_id},
-                {"$set": {"str_patch_key": patch_key}},
+        if not patch.get("str_patch_key"):
+            patch["str_patch_key"] = _patch_key_from_xy(
+                int(patch.get("int_x", 0)),
+                int(patch.get("int_y", 0)),
             )
     return {"slide_id": slide_id, "patches": patches}
 
