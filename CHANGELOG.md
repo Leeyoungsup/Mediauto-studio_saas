@@ -11,6 +11,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Ensure Philips priority tile generation recreates missing stage directories before every JPEG save and returns a blank tile instead of a 500 response if on-demand generation races with cleanup.
 - Generate only the viewer-requested Philips tile on the viewer executor for on-demand misses instead of waiting for a full 8192px priority block, while background tiling continues on the tile worker.
 - Use separate persistent Philips bridge processes for viewer, tile worker, and AI callers so background tiling does not serialize viewer tile reads behind the same bridge lock.
+- Rebalance the default CPU layout dynamically with reserved system headroom and capped background worker pools, while keeping explicit `MEDIAUTO_CPU_*` overrides available.
 
 ## [1.1.176] - 2026-06-02
 

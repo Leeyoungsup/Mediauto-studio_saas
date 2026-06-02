@@ -5,6 +5,7 @@ affinity is not perfect isolation, but it prevents long-running background
 jobs from freely competing with tile serving and the FastAPI event loop.
 
 Environment overrides:
+    MEDIAUTO_CPU_RESERVE
     MEDIAUTO_CPU_WEB
     MEDIAUTO_CPU_VIEWER
     MEDIAUTO_CPU_TILE
@@ -54,15 +55,30 @@ def _env_int(name: str, default: int) -> int:
 def _default_counts(total: int) -> dict[str, int]:
     if total <= 1:
         return {"web": 1, "viewer": 1, "tile": 1, "ai": 1, "patch": 1, "upload": 1}
+
+    reserve = _env_int("MEDIAUTO_CPU_RESERVE", max(1, round(total * 0.25)))
+    usable = max(1, total - reserve)
     counts = {
-        "web": 2 if total >= 12 else 1,
-        "ai": max(1, round(total * 0.18)),
-        "tile": max(1, round(total * 0.14)),
-        "patch": max(1, round(total * 0.12)),
+        "web": 2 if usable >= 10 else 1,
+        "ai": max(1, min(max(1, usable // 5), round(usable * 0.18))),
+        "tile": max(1, min(max(1, usable // 8), round(usable * 0.10))),
+        "patch": max(1, min(max(1, usable // 10), round(usable * 0.10))),
         "upload": 1,
     }
     used = sum(counts.values())
-    counts["viewer"] = max(2 if total >= 8 else 1, total - used)
+    counts["viewer"] = max(2 if usable >= 8 else 1, usable - used)
+    while sum(counts.values()) > usable:
+        for key in ("viewer", "tile", "patch", "ai", "web", "upload"):
+            min_value = 2 if key == "viewer" and usable >= 8 else 1
+            if counts[key] > min_value:
+                counts[key] -= 1
+                break
+        else:
+            break
+    return counts
+
+
+def _trim_counts_to_total(counts: dict[str, int], total: int) -> None:
     while sum(counts.values()) > total:
         for key in ("viewer", "tile", "patch", "ai", "web", "upload"):
             min_value = 2 if key == "viewer" and total >= 8 else 1
@@ -71,7 +87,6 @@ def _default_counts(total: int) -> dict[str, int]:
                 break
         else:
             break
-    return counts
 
 
 _counts = _default_counts(INT_TOTAL)
@@ -81,6 +96,7 @@ _counts["tile"] = _env_int("MEDIAUTO_CPU_TILE", _counts["tile"])
 _counts["ai"] = _env_int("MEDIAUTO_CPU_AI", _counts["ai"])
 _counts["patch"] = _env_int("MEDIAUTO_CPU_PATCH", _counts["patch"])
 _counts["upload"] = _env_int("MEDIAUTO_CPU_UPLOAD", _counts["upload"])
+_trim_counts_to_total(_counts, INT_TOTAL)
 
 # Keep native numeric libraries from oversubscribing every core inside one job.
 _native_threads = str(max(1, min(4, _counts["ai"])))
@@ -105,6 +121,7 @@ list_tile_cpus, _cursor = _take(_cursor, _counts["tile"])
 list_ai_cpus, _cursor = _take(_cursor, _counts["ai"])
 list_patch_cpus, _cursor = _take(_cursor, _counts["patch"])
 list_upload_cpus, _cursor = _take(_cursor, _counts["upload"])
+list_reserved_cpus = list_all_cpus[_cursor:] if _cursor < len(list_all_cpus) else []
 
 frozenset_web_cpus: FrozenSet[int] = frozenset(list_web_cpus)
 frozenset_viewer_cpus: FrozenSet[int] = frozenset(list_viewer_cpus)
@@ -112,6 +129,7 @@ frozenset_tile_cpus: FrozenSet[int] = frozenset(list_tile_cpus)
 frozenset_ai_cpus: FrozenSet[int] = frozenset(list_ai_cpus)
 frozenset_patch_cpus: FrozenSet[int] = frozenset(list_patch_cpus)
 frozenset_upload_cpus: FrozenSet[int] = frozenset(list_upload_cpus)
+frozenset_reserved_cpus: FrozenSet[int] = frozenset(list_reserved_cpus)
 
 INT_WEB = len(frozenset_web_cpus)
 INT_VIEWER = len(frozenset_viewer_cpus)
@@ -119,6 +137,7 @@ INT_TILE = len(frozenset_tile_cpus)
 INT_AI = len(frozenset_ai_cpus)
 INT_PATCH = len(frozenset_patch_cpus)
 INT_UPLOAD = len(frozenset_upload_cpus)
+INT_RESERVED = len(frozenset_reserved_cpus)
 
 # Backwards-compatible aliases.
 list_bg_cpus = list_tile_cpus
@@ -172,7 +191,8 @@ def setup_process_affinity() -> None:
         f"tile={INT_TILE}({sorted(frozenset_tile_cpus)}) "
         f"ai={INT_AI}({sorted(frozenset_ai_cpus)}) "
         f"patch={INT_PATCH}({sorted(frozenset_patch_cpus)}) "
-        f"upload={INT_UPLOAD}({sorted(frozenset_upload_cpus)})"
+        f"upload={INT_UPLOAD}({sorted(frozenset_upload_cpus)}) "
+        f"reserved={INT_RESERVED}({sorted(frozenset_reserved_cpus)})"
     )
 
 
