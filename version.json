@@ -3,5 +3,5 @@
   "version": "1.1.174",
   "channel": "production",
   "release_date": "2026-06-02",
-  "description": "Fixes Philips tile serving and speeds up Philips AI patch processing."
+  "description": "Unifies Philips AI patch reads with the existing OpenSlide pipeline through shared tile-cache backed readers."
 }

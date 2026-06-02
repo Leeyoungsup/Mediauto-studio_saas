@@ -21,6 +21,7 @@ from app.ai_pipelines.cache_paths import (
     get_pd_score_cache_path,
     get_precise_ihc_cache_path,
 )
+from app.ai_pipelines.patch_reader import AIPatchReader
 from ai.quanti_ihc import (
     PRECISE_IHC_CONFIG,
     compute_allred_score,
@@ -37,9 +38,7 @@ from app.ai_pipelines.task_state import (
 )
 from app.ai_pipelines.tissue_mask import create_tissue_mask
 from app.config import settings
-from app.priority import wait_if_viewer_busy
 from app.slide_manager import slide_manager
-from app.thread_slide_pool import get_thread_slide
 
 
 def _compact_cell(cell: dict) -> dict:
@@ -301,35 +300,16 @@ def run_marker_detection_pipeline(
         detected_count = 0
         processed_valid = 0
 
-        icc_tf = info.icc_transform
-        def _read_patch_tensor(patch_x, patch_y):
-            patch = None
-            patch_rgb = None
-            try:
-                wait_if_viewer_busy()
-                local_slide = get_thread_slide(slide_id, slide_path)
+        patch_reader = AIPatchReader(
+            slide_id=slide_id,
+            slide_path=slide_path,
+            image_size=image_size,
+            output_size=512,
+            icc_transform=info.icc_transform,
+        )
 
-                patch = local_slide.read_region((patch_x, patch_y), 0, (image_size, image_size))
-                patch_rgb = patch.convert('RGB')
-                if icc_tf is not None:
-                    from PIL import ImageCms
-                    ImageCms.applyTransform(patch_rgb, icc_tf, inPlace=True)
-                patch_np = np.asarray(patch_rgb)
-                patch_resized = cv2.resize(patch_np, (512, 512))
-                return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
-            except Exception:
-                return None
-            finally:
-                if patch_rgb is not None:
-                    try:
-                        patch_rgb.close()
-                    except Exception:
-                        pass
-                if patch is not None:
-                    try:
-                        patch.close()
-                    except Exception:
-                        pass
+        def _read_patch_tensor(patch_x, patch_y):
+            return patch_reader.read_tensor(patch_x, patch_y)
 
         def _infer_batch(batch_coords, batch_tensors):
             bx, by, bcls, bconf = [], [], [], []

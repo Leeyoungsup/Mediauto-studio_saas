@@ -348,7 +348,7 @@ class WSISegmentationModel:
             try:
                 # text text text text text — SaaS text no-op
 
-                if image_path:
+                if image_path and slide.__class__.__name__ != "PhilipsSlideProxy":
                     if getattr(_seg_thread_local, 'path', None) != image_path:
                         _seg_thread_local.slide = openslide.OpenSlide(image_path)
                         _seg_thread_local.path = image_path

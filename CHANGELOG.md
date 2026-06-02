@@ -14,6 +14,8 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Skip header-reported empty Philips regions plus near-white generated subtiles so blank areas do not get cached as tile images, while still returning an in-memory blank JPEG response to the viewer.
 - Speed up cell annotation patch loading by making patch-list reads query-only and limiting the DOM-rendered task list for large patch sets.
 - Speed up Philips Quanti HE detection patch processing by reusing generated level-0 tile JPEGs and generating missing tile blocks before falling back to direct bridge reads.
+- Route Quanti HE, Quanti PD-L1, and Quanti IHC patch reads through a shared AI patch reader so Philips slides reuse tile/block cache while OpenSlide slides keep the existing thread-local read path.
+- Align Philips slide proxy with the OpenSlide interface used by segmentation overlays and avoid reopening Philips files through OpenSlide during epithelial reclassification.
 
 ## [1.1.173] - 2026-06-02
 

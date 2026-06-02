@@ -182,6 +182,21 @@ class PhilipsSlideProxy:
             except OSError:
                 pass
 
+    def get_best_level_for_downsample(self, downsample: float) -> int:
+        self._ensure_open()
+        try:
+            target = float(downsample)
+        except Exception:
+            target = 1.0
+        best_level = 0
+        best_delta = float("inf")
+        for idx, value in enumerate(self.level_downsamples):
+            delta = abs(float(value) - target)
+            if delta < best_delta:
+                best_delta = delta
+                best_level = idx
+        return best_level
+
     def close(self) -> None:
         self._closed = True
 
