@@ -100,7 +100,7 @@ def _slide_icc_hash(slide) -> Optional[str]:
         str_desc = ImageCms.getProfileDescription(obj_profile) or ""
         return hashlib.md5(("desc:" + str_desc).encode("utf-8")).hexdigest()
     except Exception as e:
-        print(f"[tile_generator] icc hash text text: {e}")
+        print(f"[tile_generator] ICC hash check failed: {e}")
         return None
 
 
@@ -158,8 +158,8 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     try:
         slide = _open_slide(file_path)
     except Exception as e:
-        print(f"[tile_generator] tiles_are_valid: OpenSlide text ({filename}): {e}")
-        return True  # text text — text text text
+        print(f"[tile_generator] tiles_are_valid: slide open failed ({filename}): {e}")
+        return True  # Avoid invalidating existing tiles when the slide cannot be opened.
     try:
         str_current_hash = _slide_icc_hash(slide)
     finally:
@@ -274,7 +274,7 @@ def _generate_tiles(filename: str, file_path: str):
         _to_srgb, dict_color_meta = build_color_corrector(slide)
         bool_icc_applied = bool(dict_color_meta.get("icc_applied"))
         if str_icc_hash is not None and not bool_icc_applied:
-            print(f"[tile_generator] WARN {filename}: ICC text text transform text text — ICC text")
+            print(f"[tile_generator] WARN {filename}: ICC profile detected but no color transform was applied")
         # NDP LUT text text text text text text text — text.
 
         # 3text stage text — text level 0 text text downsample [1, 4, 8] text text
@@ -442,9 +442,9 @@ def _generate_tiles(filename: str, file_path: str):
         if not bool_completed and tiles_dir.exists():
             try:
                 shutil.rmtree(tiles_dir, ignore_errors=True)
-                print(f"[tile_generator] text text → {tiles_dir} text")
+                print(f"[tile_generator] removed incomplete tile directory: {tiles_dir}")
             except Exception as exc_cleanup:
-                print(f"[tile_generator] cleanup text ({filename}): {exc_cleanup}")
+                print(f"[tile_generator] cleanup failed ({filename}): {exc_cleanup}")
 
         # text text text text text progress text
         def _cleanup():
