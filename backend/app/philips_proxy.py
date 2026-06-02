@@ -72,6 +72,12 @@ def _server_command() -> list[str]:
 
 def _subprocess_env(cmd: list[str]) -> dict[str, str]:
     env = os.environ.copy()
+    if not env.get("PHILIPS_BRIDGE_AFFINITY"):
+        try:
+            from app.cpu_layout import list_tile_cpus
+            env["PHILIPS_BRIDGE_AFFINITY"] = ",".join(str(int(cpu)) for cpu in list_tile_cpus)
+        except Exception:
+            pass
     path_python = Path(cmd[0])
     if path_python.name.lower() == "python.exe" and path_python.parent.name.lower() == PHILIPS_CONDA_ENV.lower():
         path_env = path_python.parent

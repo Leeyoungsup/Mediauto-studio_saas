@@ -12,7 +12,9 @@ huge JSON lines over stdout.
 
 import json
 import base64
+import ctypes
 import io
+import os
 import sys
 import mmap
 from pathlib import Path
@@ -22,6 +24,48 @@ from philips_cli import _json_default, _load_openphi, _prime_sdk_dll_paths
 
 _prime_sdk_dll_paths()
 _SLIDES = {}
+
+
+def _apply_bridge_affinity():
+    value = os.environ.get("PHILIPS_BRIDGE_AFFINITY", "").strip()
+    if not value:
+        return
+    cpus = []
+    for part in value.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            cpu = int(part)
+        except ValueError:
+            continue
+        if cpu >= 0:
+            cpus.append(cpu)
+    if not cpus:
+        return
+    try:
+        if sys.platform.startswith("linux") and hasattr(os, "sched_setaffinity"):
+            os.sched_setaffinity(0, set(cpus))
+            return
+        if sys.platform.startswith("win"):
+            mask = 0
+            for cpu in cpus:
+                if cpu < ctypes.sizeof(ctypes.c_size_t) * 8:
+                    mask |= 1 << cpu
+            if not mask:
+                return
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+            kernel32.SetProcessAffinityMask.restype = ctypes.c_int
+            kernel32.SetProcessAffinityMask(
+                kernel32.GetCurrentProcess(),
+                ctypes.c_size_t(mask),
+            )
+    except Exception:
+        pass
+
+
+_apply_bridge_affinity()
 
 
 def _emit(payload):

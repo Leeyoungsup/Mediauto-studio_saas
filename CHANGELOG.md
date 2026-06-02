@@ -10,6 +10,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Exempt slide dashboard, project list, and folder tree refresh endpoints from the general limiter during upload workflows.
 - Ensure Philips priority tile generation recreates missing stage directories before every JPEG save and returns a blank tile instead of a 500 response if on-demand generation races with cleanup.
 - Generate only the viewer-requested Philips tile for on-demand misses instead of waiting for a full 8192px priority block, and make background tiling yield briefly while the viewer is active.
+- Pin the persistent Philips Python 3.7 bridge process to the tile CPU set so SDK rendering does not freely contend with web, viewer, AI, and upload workers.
 
 ## [1.1.176] - 2026-06-02
 
