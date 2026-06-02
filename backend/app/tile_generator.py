@@ -39,6 +39,7 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
     build_color_corrector,
 )
+from app.priority import wait_if_viewer_busy
 
 _thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
 
@@ -355,6 +356,78 @@ def _stage2_coords_with_data(slide, int_nx2: int, int_ny2: int, int_read_size2: 
     return coords
 
 
+def _tile_intersects_data_envelope(slide, level: int, tile_x: int, tile_y: int) -> bool:
+    rects = [
+        tuple(int(v) for v in rect)
+        for rect in getattr(slide, "data_envelope_rectangles", [])
+        if len(rect) == 4
+    ]
+    if not rects:
+        return True
+    int_read_size = STAGE_READ_SIZE[level]
+    x0 = tile_x * int_read_size
+    y0 = tile_y * int_read_size
+    tile_rect = (x0, x0 + int_read_size - 1, y0, y0 + int_read_size - 1)
+    return any(_rects_intersect(tile_rect, rect) for rect in rects)
+
+
+def generate_priority_single_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
+    """Generate only the viewer-requested tile instead of a whole stage-2 block."""
+    path_target = _target_tile_path(filename, level, tile_x, tile_y)
+    if path_target.exists():
+        return True
+    if level < 0 or level >= STAGE_COUNT:
+        return False
+
+    tx2, ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
+    lock = _get_priority_block_lock(filename, tx2, ty2)
+    with lock:
+        if path_target.exists():
+            return True
+
+        slide = _open_slide(file_path)
+        try:
+            _to_srgb, _ = build_color_corrector(slide)
+            int_w0, int_h0 = slide.dimensions
+            int_read_size = STAGE_READ_SIZE[level]
+            int_nx = max(1, math.ceil(int_w0 / int_read_size))
+            int_ny = max(1, math.ceil(int_h0 / int_read_size))
+            if tile_x < 0 or tile_y < 0 or tile_x >= int_nx or tile_y >= int_ny:
+                return False
+            if not _tile_intersects_data_envelope(slide, level, tile_x, tile_y):
+                return False
+
+            obj_region = slide.read_region(
+                (tile_x * int_read_size, tile_y * int_read_size),
+                0,
+                (int_read_size, int_read_size),
+            )
+            obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
+            try:
+                if int_read_size != TILE_SIZE_OUT:
+                    obj_tile = obj_rgb.resize((TILE_SIZE_OUT, TILE_SIZE_OUT), Image.LANCZOS)
+                else:
+                    obj_tile = obj_rgb
+                try:
+                    if _image_has_visible_content(obj_tile):
+                        _save_jpeg(obj_tile, path_target, settings.TILE_QUALITY)
+                finally:
+                    if obj_tile is not obj_rgb:
+                        obj_tile.close()
+                return path_target.exists()
+            finally:
+                obj_region.close()
+                try:
+                    obj_rgb.close()
+                except Exception:
+                    pass
+        finally:
+            try:
+                slide.close()
+            except Exception:
+                pass
+
+
 def generate_priority_tile_block(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
     """Generate the stage-2 block for a viewer-requested tile immediately."""
     path_target = _target_tile_path(filename, level, tile_x, tile_y)
@@ -559,6 +632,7 @@ def _generate_tiles(filename: str, file_path: str):
                 int_sx = tx2 * int_read_size2
                 int_sy = ty2 * int_read_size2
 
+                wait_if_viewer_busy()
                 obj_region = slide.read_region(
                     (int_sx, int_sy), 0, (int_read_size2, int_read_size2)
                 )

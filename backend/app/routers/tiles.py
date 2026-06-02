@@ -28,7 +28,7 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
 )
 from app.tile_generator import (
-    generate_priority_tile_block,
+    generate_priority_single_tile,
     get_tiles_dir,
     image_to_white_rgb,
     request_priority_tile,
@@ -94,7 +94,7 @@ async def _ensure_philips_tile(info, filename: str, level: int, tile_x: int, til
     try:
         await loop.run_in_executor(
             viewer_executor,
-            generate_priority_tile_block,
+            generate_priority_single_tile,
             filename,
             info.file_path,
             level,
