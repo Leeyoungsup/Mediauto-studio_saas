@@ -199,11 +199,11 @@ _PERSISTENT_BRIDGES_LOCK = threading.Lock()
 def _bridge_key_for_current_thread() -> str:
     name = threading.current_thread().name.lower()
     if name.startswith("viewer"):
-        return "viewer"
+        return f"viewer:{name}"
     if name.startswith("tile_worker"):
-        return "tile"
+        return f"tile:{name}"
     if name.startswith("ai_worker") or name.startswith("cell_patch"):
-        return "ai"
+        return f"ai:{name}"
     return "default"
 
 
