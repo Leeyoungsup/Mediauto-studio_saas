@@ -3,5 +3,5 @@
   "version": "1.1.177",
   "channel": "production",
   "release_date": "2026-06-02",
-  "description": "Separates slide upload rate limiting so large chunked Philips uploads do not exhaust the general API limiter."
+  "description": "Improves Philips upload and on-demand tile stability by separating upload rate limits and hardening priority tile saves."
 }

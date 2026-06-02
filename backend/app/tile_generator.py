@@ -150,6 +150,11 @@ def _write_complete_marker(
     )
 
 
+def _save_jpeg(obj_img: Image.Image, path: Path, quality: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    obj_img.save(str(path), "JPEG", quality=quality)
+
+
 def tiles_are_valid(filename: str, file_path: str) -> bool:
     """text text text text text text text.
 
@@ -409,7 +414,7 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
                 if not path_tile2.exists():
                     obj_tile2 = obj_rgb.resize((int_tile_out, int_tile_out), Image.LANCZOS)
                     if _image_has_visible_content(obj_tile2):
-                        obj_tile2.save(str(path_tile2), "JPEG", quality=settings.TILE_QUALITY)
+                        _save_jpeg(obj_tile2, path_tile2, settings.TILE_QUALITY)
                     obj_tile2.close()
 
                 for sub_ty in range(2):
@@ -428,7 +433,7 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
                         )
                         obj_tile1 = obj_sub.resize((int_tile_out, int_tile_out), Image.LANCZOS)
                         if _image_has_visible_content(obj_tile1):
-                            obj_tile1.save(str(path_tile1), "JPEG", quality=settings.TILE_QUALITY)
+                            _save_jpeg(obj_tile1, path_tile1, settings.TILE_QUALITY)
                         obj_tile1.close()
                         obj_sub.close()
 
@@ -447,7 +452,7 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
                             (int_bx, int_by, int_bx + int_tile_out, int_by + int_tile_out)
                         )
                         if _image_has_visible_content(obj_tile0):
-                            obj_tile0.save(str(path_tile0), "JPEG", quality=settings.TILE_QUALITY)
+                            _save_jpeg(obj_tile0, path_tile0, settings.TILE_QUALITY)
                         obj_tile0.close()
 
                 return path_target.exists()
@@ -566,9 +571,7 @@ def _generate_tiles(filename: str, file_path: str):
                         (int_tile_out, int_tile_out), Image.LANCZOS
                     )
                     if _image_has_visible_content(obj_tile2):
-                        obj_tile2.save(
-                            str(tile_path2), "JPEG", quality=settings.TILE_QUALITY
-                        )
+                        _save_jpeg(obj_tile2, tile_path2, settings.TILE_QUALITY)
                     obj_tile2.close()
                 progress.generated_tiles += 1
 
@@ -593,9 +596,7 @@ def _generate_tiles(filename: str, file_path: str):
                                 (int_tile_out, int_tile_out), Image.LANCZOS
                             )
                             if _image_has_visible_content(obj_tile1):
-                                obj_tile1.save(
-                                    str(tile_path1), "JPEG", quality=settings.TILE_QUALITY
-                                )
+                                _save_jpeg(obj_tile1, tile_path1, settings.TILE_QUALITY)
                             obj_tile1.close()
                             obj_sub.close()
                         progress.generated_tiles += 1
@@ -618,9 +619,7 @@ def _generate_tiles(filename: str, file_path: str):
                                  int_by + int_tile_out)
                             )
                             if _image_has_visible_content(obj_tile0):
-                                obj_tile0.save(
-                                    str(tile_path0), "JPEG", quality=settings.TILE_QUALITY
-                                )
+                                _save_jpeg(obj_tile0, tile_path0, settings.TILE_QUALITY)
                             obj_tile0.close()
                         progress.generated_tiles += 1
 

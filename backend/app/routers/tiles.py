@@ -91,15 +91,19 @@ async def _ensure_philips_tile(info, filename: str, level: int, tile_x: int, til
         return False
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
-        viewer_executor,
-        generate_priority_tile_block,
-        filename,
-        info.file_path,
-        level,
-        tile_x,
-        tile_y,
-    )
+    try:
+        await loop.run_in_executor(
+            viewer_executor,
+            generate_priority_tile_block,
+            filename,
+            info.file_path,
+            level,
+            tile_x,
+            tile_y,
+        )
+    except Exception as exc:
+        print(f"[tiles] Philips priority tile failed ({filename} S{level} {tile_x},{tile_y}): {exc}")
+        return False
     return tile_path.exists()
 
 
