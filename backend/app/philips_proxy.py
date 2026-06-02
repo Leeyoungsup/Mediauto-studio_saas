@@ -30,10 +30,44 @@ def is_philips_isyntax(file_path: str | Path) -> bool:
     return Path(file_path).suffix.lower() in {".isyntax", ".i2syntax"}
 
 
+def _find_conda_env_python() -> str:
+    candidates: list[Path] = []
+    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
+    if conda_prefix:
+        candidates.append(Path(conda_prefix).parent / PHILIPS_CONDA_ENV / "python.exe")
+    user_profile = os.environ.get("USERPROFILE", "").strip()
+    if user_profile:
+        candidates.append(Path(user_profile) / ".conda" / "envs" / PHILIPS_CONDA_ENV / "python.exe")
+    candidates.append(Path("C:/ProgramData/anaconda3/envs") / PHILIPS_CONDA_ENV / "python.exe")
+    candidates.append(Path("C:/ProgramData/miniconda3/envs") / PHILIPS_CONDA_ENV / "python.exe")
+    for path_python in candidates:
+        if path_python.exists():
+            return str(path_python)
+    return ""
+
+
 def _base_command() -> list[str]:
     if PHILIPS_PYTHON:
         return [PHILIPS_PYTHON, str(PHILIPS_CLI)]
+    str_env_python = _find_conda_env_python()
+    if str_env_python:
+        return [str_env_python, str(PHILIPS_CLI)]
     return ["conda", "run", "-n", PHILIPS_CONDA_ENV, "python", str(PHILIPS_CLI)]
+
+
+def _subprocess_env(cmd: list[str]) -> dict[str, str]:
+    env = os.environ.copy()
+    path_python = Path(cmd[0])
+    if path_python.name.lower() == "python.exe" and path_python.parent.name.lower() == PHILIPS_CONDA_ENV.lower():
+        path_env = path_python.parent
+        env["CONDA_PREFIX"] = str(path_env)
+        extra_path = [
+            str(path_env),
+            str(path_env / "Library" / "bin"),
+            str(path_env / "DLLs"),
+        ]
+        env["PATH"] = os.pathsep.join(extra_path + [env.get("PATH", "")])
+    return env
 
 
 def _extract_json(stdout: str) -> dict[str, Any]:
@@ -56,6 +90,7 @@ def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
         text=True,
         timeout=timeout or PHILIPS_TIMEOUT_SECONDS,
         cwd=str(BACKEND_DIR),
+        env=_subprocess_env(cmd),
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
@@ -82,6 +117,10 @@ class PhilipsSlideProxy:
         self.level_count = int(data["level_count"])
         self.level_dimensions = [tuple(int(v) for v in item) for item in data["level_dimensions"]]
         self.level_downsamples = [float(v) for v in data["level_downsamples"]]
+        self.data_envelope_rectangles = [
+            tuple(int(v) for v in rect)
+            for rect in data.get("data_envelope_rectangles", [])
+        ]
         self.properties = dict(data.get("properties") or {})
         self.properties.setdefault("openslide.vendor", "PHILIPS")
         self.color_profile = None

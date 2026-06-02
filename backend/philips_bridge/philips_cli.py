@@ -46,7 +46,7 @@ def _prime_sdk_dll_paths():
             path_obj = Path(root) / name
             if path_obj.exists():
                 candidates.append(str(path_obj))
-    conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    conda_prefix = os.environ.get("CONDA_PREFIX", "") or sys.prefix
     if conda_prefix:
         candidates.append(str(Path(conda_prefix) / "Library" / "bin"))
         candidates.append(str(Path(conda_prefix) / "DLLs"))
@@ -106,6 +106,14 @@ def cmd_info(args) -> int:
     OpenPhi = _load_openphi()
     slide = OpenPhi(args.slide, view=args.view)
     try:
+        data_envelope_rectangles = []
+        try:
+            data_envelope_rectangles = [
+                [int(value) for value in rect]
+                for rect in slide.view_wsi.data_envelopes(0).as_rectangles()
+            ]
+        except Exception:
+            data_envelope_rectangles = []
         _emit({
             "ok": True,
             "dimensions": list(slide.dimensions),
@@ -113,6 +121,7 @@ def cmd_info(args) -> int:
             "level_dimensions": [list(item) for item in slide.level_dimensions],
             "level_downsamples": [float(item) for item in slide.level_downsamples],
             "properties": dict(slide.properties),
+            "data_envelope_rectangles": data_envelope_rectangles,
             "associated_images": {
                 name: list(image.size)
                 for name, image in getattr(slide, "associated_images", {}).items()

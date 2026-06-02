@@ -28,11 +28,12 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
 )
 from app.tile_generator import (
-    COMPLETE_MARKER_VERSION,
+    generate_priority_tile_block,
     get_tiles_dir,
     image_to_white_rgb,
-    read_complete_marker,
+    request_priority_tile,
 )
+from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
 from app.cpu_layout import viewer_executor
 from app.thread_slide_pool import get_thread_slide
@@ -42,11 +43,84 @@ from app.thread_slide_pool import get_thread_slide
 router = APIRouter()
 
 TILE_SIZE = TILE_SIZE_OUT
+_BLANK_TILE_BYTES: bytes | None = None
 
 
-def _tile_cache_is_current(filename: str) -> bool:
-    dict_marker = read_complete_marker(filename)
-    return bool(dict_marker and dict_marker.get("version") == COMPLETE_MARKER_VERSION)
+def _blank_tile_bytes() -> bytes:
+    global _BLANK_TILE_BYTES
+    if _BLANK_TILE_BYTES is None:
+        obj_img = Image.new("RGB", (TILE_SIZE, TILE_SIZE), (255, 255, 255))
+        buf = io.BytesIO()
+        obj_img.save(buf, format="JPEG", quality=85)
+        obj_img.close()
+        _BLANK_TILE_BYTES = buf.getvalue()
+    return _BLANK_TILE_BYTES
+
+
+def _blank_tile_response(cache_control: str = "no-store") -> Response:
+    return Response(
+        content=_blank_tile_bytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": cache_control},
+    )
+
+
+def _rects_intersect(rect_a: tuple[int, int, int, int], rect_b: tuple[int, int, int, int]) -> bool:
+    ax0, ax1, ay0, ay1 = rect_a
+    bx0, bx1, by0, by1 = rect_b
+    return ax0 <= bx1 and bx0 <= ax1 and ay0 <= by1 and by0 <= ay1
+
+
+def _tile_intersects_data_envelope(info, level: int, tile_x: int, tile_y: int) -> bool:
+    rects = [
+        tuple(int(v) for v in rect)
+        for rect in getattr(info.slide, "data_envelope_rectangles", [])
+        if len(rect) == 4
+    ]
+    if not rects:
+        return True
+    int_read_size = STAGE_READ_SIZE[level]
+    x0 = tile_x * int_read_size
+    y0 = tile_y * int_read_size
+    tile_rect = (x0, x0 + int_read_size - 1, y0, y0 + int_read_size - 1)
+    return any(_rects_intersect(tile_rect, rect) for rect in rects)
+
+
+async def _ensure_philips_tile(info, filename: str, level: int, tile_x: int, tile_y: int, tile_path: Path) -> bool:
+    if not _tile_intersects_data_envelope(info, level, tile_x, tile_y):
+        return False
+    request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        viewer_executor,
+        generate_priority_tile_block,
+        filename,
+        info.file_path,
+        level,
+        tile_x,
+        tile_y,
+    )
+    return tile_path.exists()
+
+
+async def _missing_philips_tile_response(
+    info,
+    filename: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+    tile_path: Path,
+) -> Response:
+    bool_intersects_data = _tile_intersects_data_envelope(info, level, tile_x, tile_y)
+    if await _ensure_philips_tile(info, filename, level, tile_x, tile_y, tile_path):
+        return FileResponse(
+            tile_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+    if bool_intersects_data:
+        return _blank_tile_response("no-store")
+    return _blank_tile_response("public, max-age=604800")
 
 
 # ── LRU text text touch (janitor text) ──
@@ -128,8 +202,7 @@ async def get_tile_ndp(
     _touch_slide_access(slide_id, tiles_root)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
-    bool_current_tile_cache = _tile_cache_is_current(filename)
-    if path_ndp_tile.exists() and bool_current_tile_cache:
+    if path_ndp_tile.exists():
         return FileResponse(
             path_ndp_tile,
             media_type="image/jpeg",
@@ -139,10 +212,15 @@ async def get_tile_ndp(
     # raw text text (text text text text text)
     path_raw_tile = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     int_read_size = STAGE_READ_SIZE[level]
+    if is_philips_isyntax(info.file_path) and not path_raw_tile.exists():
+        if not await _ensure_philips_tile(info, filename, level, tile_x, tile_y, path_raw_tile):
+            if _tile_intersects_data_envelope(info, level, tile_x, tile_y):
+                return _blank_tile_response("no-store")
+            return _blank_tile_response("public, max-age=604800")
 
     def _make_ndp_variant() -> bytes:
         # (1) raw text text
-        if not path_raw_tile.exists() or not bool_current_tile_cache:
+        if not path_raw_tile.exists():
             obj_slide = get_thread_slide(slide_id, info.file_path)
             obj_region = obj_slide.read_region(
                 (tile_x * int_read_size, tile_y * int_read_size),
@@ -217,7 +295,7 @@ async def get_tile(
     _touch_slide_access(slide_id, tiles_root)
 
     # 1) text text text text text
-    if tile_path.exists() and _tile_cache_is_current(filename):
+    if tile_path.exists():
         return FileResponse(
             tile_path,
             media_type="image/jpeg",
@@ -231,6 +309,8 @@ async def get_tile(
     int_read_size = STAGE_READ_SIZE[level]  # 1024 / 4096 / 8192
     int_sx = tile_x * int_read_size
     int_sy = tile_y * int_read_size
+    if is_philips_isyntax(info.file_path):
+        return await _missing_philips_tile_response(info, filename, level, tile_x, tile_y, tile_path)
 
     def _render_and_save() -> bytes:
         # thread-local text read — text text text text text text text

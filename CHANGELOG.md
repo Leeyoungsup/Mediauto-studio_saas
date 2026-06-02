@@ -2,6 +2,17 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.174] - 2026-06-02
+
+### Fixed
+
+- Run the Philips Python 3.7 bridge through the environment `python.exe` directly to avoid parallel `conda run` temporary-file collisions during thumbnail and tile requests.
+- Load Philips SDK DLL paths explicitly for direct bridge subprocesses.
+- Serve existing tile JPEGs even when a generation marker is missing so partially completed Philips tile sets can still render in the viewer.
+- Avoid slow on-demand Philips bridge renders for missing tiles without caching white placeholder images over pending viewer regions.
+- Generate viewer-requested Philips tile blocks immediately when a tile is missing, then return the new JPEG instead of only queuing background tiling.
+- Skip header-reported empty Philips regions plus near-white generated subtiles so blank areas do not get cached as tile images, while still returning an in-memory blank JPEG response to the viewer.
+
 ## [1.1.173] - 2026-06-02
 
 ### Fixed
