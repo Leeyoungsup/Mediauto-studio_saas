@@ -2,6 +2,22 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.176] - 2026-06-02
+
+### Fixed
+
+- Use Philips data envelope rectangles to build Quanti HE, Quanti PD-L1, and Quanti IHC patch queues without generating a thumbnail tissue mask when valid slide data regions are available.
+- Keep the existing thumbnail tissue mask path as a fallback for OpenSlide slides and Philips slides without envelope metadata.
+
+## [1.1.175] - 2026-06-02
+
+### Fixed
+
+- Return small Philips thumbnails and regions as PNG bytes from the persistent Python 3.7 bridge to avoid temporary image file I/O on viewer and AI patch reads.
+- Return large Philips region reads through Windows shared memory to avoid temporary PNG file I/O and oversized stdout JSON payloads during priority tile-block generation.
+- Add configurable `PHILIPS_BYTES_MAX_PIXELS` and `PHILIPS_SHARED_MEMORY` controls for choosing bytes, shared memory, or file fallback in the Philips slide proxy.
+- Re-benchmark Philips versus OpenSlide priority tile-block generation after the bridge bytes optimization.
+
 ## [1.1.174] - 2026-06-02
 
 ### Fixed
@@ -16,6 +32,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Speed up Philips Quanti HE detection patch processing by reusing generated level-0 tile JPEGs and generating missing tile blocks before falling back to direct bridge reads.
 - Route Quanti HE, Quanti PD-L1, and Quanti IHC patch reads through a shared AI patch reader so Philips slides reuse tile/block cache while OpenSlide slides keep the existing thread-local read path.
 - Align Philips slide proxy with the OpenSlide interface used by segmentation overlays and avoid reopening Philips files through OpenSlide during epithelial reclassification.
+- Add a persistent Python 3.7 Philips bridge process with CLI fallback to avoid starting a new bridge subprocess for every metadata, thumbnail, or region request.
 
 ## [1.1.173] - 2026-06-02
 

@@ -8,10 +8,15 @@ separate Python 3.7 environment.
 
 from __future__ import annotations
 
+import base64
+import io
 import json
+import mmap
 import os
 import subprocess
 import tempfile
+import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +25,14 @@ from PIL import Image
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PHILIPS_CLI = BACKEND_DIR / "philips_bridge" / "philips_cli.py"
+PHILIPS_SERVER = BACKEND_DIR / "philips_bridge" / "philips_server.py"
 PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", "philips-sdk-py37")
 PHILIPS_PYTHON = os.environ.get("PHILIPS_PYTHON", "").strip()
 PHILIPS_VIEW = os.environ.get("PHILIPS_VIEW", "display").strip() or "display"
 PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
+PHILIPS_BRIDGE_MODE = os.environ.get("PHILIPS_BRIDGE_MODE", "auto").strip().lower() or "auto"
+PHILIPS_BYTES_MAX_PIXELS = int(os.environ.get("PHILIPS_BYTES_MAX_PIXELS", str(2048 * 2048)))
+PHILIPS_SHARED_MEMORY = os.environ.get("PHILIPS_SHARED_MEMORY", "1").strip().lower() not in {"0", "false", "no"}
 
 
 def is_philips_isyntax(file_path: str | Path) -> bool:
@@ -55,6 +64,12 @@ def _base_command() -> list[str]:
     return ["conda", "run", "-n", PHILIPS_CONDA_ENV, "python", str(PHILIPS_CLI)]
 
 
+def _server_command() -> list[str]:
+    cmd = _base_command()
+    cmd[-1] = str(PHILIPS_SERVER)
+    return cmd
+
+
 def _subprocess_env(cmd: list[str]) -> dict[str, str]:
     env = os.environ.copy()
     path_python = Path(cmd[0])
@@ -82,6 +97,104 @@ def _extract_json(stdout: str) -> dict[str, Any]:
     raise RuntimeError(f"Philips bridge returned no JSON: {stdout[:500]}")
 
 
+class _PersistentPhilipsBridge:
+    def __init__(self):
+        self._proc: subprocess.Popen | None = None
+        self._lock = threading.RLock()
+
+    def request(self, payload: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+        with self._lock:
+            proc = self._ensure_started(timeout=timeout)
+            try:
+                assert proc.stdin is not None
+                assert proc.stdout is not None
+                proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                proc.stdin.flush()
+                data = self._read_json_response(proc)
+                if not data.get("ok"):
+                    raise RuntimeError(f"Philips bridge error: {data}")
+                return data
+            except Exception:
+                if proc.poll() is not None:
+                    self._stop_locked()
+                raise
+
+    def close_slide(self, slide_path: str, view: str) -> None:
+        try:
+            self.request({"command": "close", "slide": slide_path, "view": view}, timeout=10)
+        except Exception:
+            pass
+
+    def _ensure_started(self, timeout: int | None = None) -> subprocess.Popen:
+        if self._proc is not None and self._proc.poll() is None:
+            return self._proc
+        cmd = _server_command()
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(BACKEND_DIR),
+            env=_subprocess_env(cmd),
+            bufsize=1,
+        )
+        self._proc = proc
+        assert proc.stdout is not None
+        ready_line = proc.stdout.readline()
+        if not ready_line:
+            detail = ""
+            try:
+                detail = proc.stderr.read() if proc.stderr is not None else ""
+            except Exception:
+                detail = ""
+            self._stop_locked()
+            raise RuntimeError(f"Philips persistent bridge did not start: {detail.strip()}")
+        ready = json.loads(ready_line)
+        if not ready.get("ok") or not ready.get("ready"):
+            self._stop_locked()
+            raise RuntimeError(f"Philips persistent bridge bad ready response: {ready}")
+        return proc
+
+    def _read_json_response(self, proc: subprocess.Popen) -> dict[str, Any]:
+        assert proc.stdout is not None
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                detail = ""
+                try:
+                    detail = proc.stderr.read() if proc.stderr is not None else ""
+                except Exception:
+                    detail = ""
+                self._stop_locked()
+                raise RuntimeError(f"Philips persistent bridge stopped: {detail.strip()}")
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                return data
+
+    def _stop_locked(self) -> None:
+        proc = self._proc
+        self._proc = None
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None and proc.stdin is not None:
+                proc.stdin.write(json.dumps({"command": "shutdown"}) + "\n")
+                proc.stdin.flush()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
+_PERSISTENT_BRIDGE = _PersistentPhilipsBridge()
+
+
 def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
     cmd = _base_command() + args
     proc = subprocess.run(
@@ -101,17 +214,67 @@ def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
     return data
 
 
+def _request_persistent(payload: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+    return _PERSISTENT_BRIDGE.request(payload, timeout=timeout or PHILIPS_TIMEOUT_SECONDS)
+
+
+def _run_bridge(payload: dict[str, Any], cli_args: list[str], timeout: int | None = None) -> dict[str, Any]:
+    if PHILIPS_BRIDGE_MODE == "cli":
+        return _run_cli(cli_args, timeout=timeout)
+    try:
+        return _request_persistent(payload, timeout=timeout)
+    except Exception:
+        if PHILIPS_BRIDGE_MODE == "persistent":
+            raise
+        return _run_cli(cli_args, timeout=timeout)
+
+
+def _image_from_bridge_response(
+    data: dict[str, Any],
+    fallback_path: str,
+    shm_map: mmap.mmap | None = None,
+) -> Image.Image:
+    if data.get("encoding") == "raw_rgba_shm" and shm_map is not None:
+        size = tuple(int(v) for v in data.get("size", (0, 0)))
+        byte_count = int(data.get("byte_count") or 0)
+        if size[0] > 0 and size[1] > 0 and byte_count > 0:
+            shm_map.seek(0)
+            raw = shm_map.read(byte_count)
+            return Image.frombytes("RGBA", size, raw)
+    image_b64 = data.get("image_b64")
+    if image_b64:
+        raw = base64.b64decode(str(image_b64))
+        with Image.open(io.BytesIO(raw)) as image:
+            return image.copy()
+    with Image.open(fallback_path) as image:
+        return image.copy()
+
+
+def _can_use_shared_memory(width: int, height: int) -> bool:
+    return (
+        os.name == "nt"
+        and PHILIPS_SHARED_MEMORY
+        and PHILIPS_BRIDGE_MODE != "cli"
+        and width > 0
+        and height > 0
+        and width * height > PHILIPS_BYTES_MAX_PIXELS
+    )
+
+
 def smoke_test() -> dict[str, Any]:
-    return _run_cli(["smoke"], timeout=30)
+    return _run_bridge({"command": "smoke"}, ["smoke"], timeout=30)
 
 
 class PhilipsSlideProxy:
     """OpenSlide-like proxy used by SlideInfo for Philips iSyntax files."""
 
     def __init__(self, file_path: str):
-        self.file_path = str(file_path)
+        self.file_path = str(Path(file_path).resolve())
         self._closed = False
-        data = _run_cli(["info", self.file_path, "--view", PHILIPS_VIEW])
+        data = _run_bridge(
+            {"command": "info", "slide": self.file_path, "view": PHILIPS_VIEW},
+            ["info", self.file_path, "--view", PHILIPS_VIEW],
+        )
         self._metadata = data
         self.dimensions = tuple(int(v) for v in data["dimensions"])
         self.level_count = int(data["level_count"])
@@ -131,19 +294,28 @@ class PhilipsSlideProxy:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             out_path = tmp.name
         try:
-            _run_cli([
-                "thumbnail",
-                self.file_path,
-                out_path,
-                "--width",
-                str(width),
-                "--height",
-                str(height),
-                "--view",
-                PHILIPS_VIEW,
-            ])
-            with Image.open(out_path) as image:
-                return image.copy()
+            data = _run_bridge(
+                {
+                    "command": "thumbnail",
+                    "slide": self.file_path,
+                    "width": width,
+                    "height": height,
+                    "view": PHILIPS_VIEW,
+                    "return_image": True,
+                },
+                [
+                    "thumbnail",
+                    self.file_path,
+                    out_path,
+                    "--width",
+                    str(width),
+                    "--height",
+                    str(height),
+                    "--view",
+                    PHILIPS_VIEW,
+                ],
+            )
+            return _image_from_bridge_response(data, out_path)
         finally:
             try:
                 os.unlink(out_path)
@@ -154,29 +326,58 @@ class PhilipsSlideProxy:
         self._ensure_open()
         x, y = int(location[0]), int(location[1])
         width, height = int(size[0]), int(size[1])
+        return_image = width * height <= PHILIPS_BYTES_MAX_PIXELS and PHILIPS_BRIDGE_MODE != "cli"
+        use_shm = _can_use_shared_memory(width, height)
+        shm_map: mmap.mmap | None = None
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             out_path = tmp.name
         try:
-            _run_cli([
-                "region",
-                self.file_path,
-                out_path,
-                "--x",
-                str(x),
-                "--y",
-                str(y),
-                "--level",
-                str(int(level)),
-                "--width",
-                str(width),
-                "--height",
-                str(height),
-                "--view",
-                PHILIPS_VIEW,
-            ])
-            with Image.open(out_path) as image:
-                return image.copy()
+            payload = {
+                "command": "region",
+                "slide": self.file_path,
+                "x": x,
+                "y": y,
+                "level": int(level),
+                "width": width,
+                "height": height,
+                "view": PHILIPS_VIEW,
+                "return_image": return_image,
+            }
+            if use_shm:
+                shm_name = f"MediautoPhilips_{uuid.uuid4().hex}"
+                shm_size = width * height * 4
+                shm_map = mmap.mmap(-1, shm_size, tagname=shm_name, access=mmap.ACCESS_WRITE)
+                payload["shm_name"] = shm_name
+                payload["shm_size"] = shm_size
+            if not return_image and not use_shm:
+                payload["output"] = out_path
+            data = _run_bridge(
+                payload,
+                [
+                    "region",
+                    self.file_path,
+                    out_path,
+                    "--x",
+                    str(x),
+                    "--y",
+                    str(y),
+                    "--level",
+                    str(int(level)),
+                    "--width",
+                    str(width),
+                    "--height",
+                    str(height),
+                    "--view",
+                    PHILIPS_VIEW,
+                ],
+            )
+            return _image_from_bridge_response(data, out_path, shm_map=shm_map)
         finally:
+            if shm_map is not None:
+                try:
+                    shm_map.close()
+                except OSError:
+                    pass
             try:
                 os.unlink(out_path)
             except OSError:
@@ -198,6 +399,8 @@ class PhilipsSlideProxy:
         return best_level
 
     def close(self) -> None:
+        if not self._closed and PHILIPS_BRIDGE_MODE != "cli":
+            _PERSISTENT_BRIDGE.close_slide(self.file_path, PHILIPS_VIEW)
         self._closed = True
 
     def _ensure_open(self) -> None:

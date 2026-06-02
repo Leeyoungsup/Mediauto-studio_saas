@@ -125,3 +125,57 @@ def create_tissue_mask(slide, icc_transform=None):
     except Exception:
         w, h = slide.dimensions
         return np.ones((h // 64, w // 64), dtype=np.uint8) * 255
+
+
+def _rects_intersect(rect_a, rect_b) -> bool:
+    ax0, ax1, ay0, ay1 = rect_a
+    bx0, bx1, by0, by1 = rect_b
+    return ax0 <= bx1 and bx0 <= ax1 and ay0 <= by1 and by0 <= ay1
+
+
+def _patch_in_roi(px: int, py: int, image_size: int, roi_polygons) -> bool:
+    if not roi_polygons:
+        return True
+    cx, cy = px + image_size // 2, py + image_size // 2
+    return any(
+        min(p[0] for p in poly) <= cx <= max(p[0] for p in poly) and
+        min(p[1] for p in poly) <= cy <= max(p[1] for p in poly)
+        for poly in roi_polygons
+    )
+
+
+def build_valid_patch_list(slide, width: int, height: int, image_size: int,
+                           roi_polygons=None, icc_transform=None):
+    """Return AI patch origins, using Philips data envelopes when available."""
+    rects = [
+        tuple(int(v) for v in rect)
+        for rect in getattr(slide, "data_envelope_rectangles", [])
+        if len(rect) == 4
+    ]
+    valid_patch_list = []
+
+    if rects:
+        for pr in range(width // image_size - 1):
+            for pc in range(height // image_size - 1):
+                px, py = pr * image_size, pc * image_size
+                patch_rect = (px, px + image_size - 1, py, py + image_size - 1)
+                if not any(_rects_intersect(patch_rect, rect) for rect in rects):
+                    continue
+                if not _patch_in_roi(px, py, image_size, roi_polygons):
+                    continue
+                valid_patch_list.append((px, py))
+        return valid_patch_list, "data_envelope"
+
+    thumb_mask = create_tissue_mask(slide, icc_transform=icc_transform)
+    for pr in range(width // image_size - 1):
+        for pc in range(height // image_size - 1):
+            mx = (pr * image_size) // 64
+            my = (pc * image_size) // 64
+            if np.sum(thumb_mask[my:my + image_size // 64,
+                                 mx:mx + image_size // 64]) == 0:
+                continue
+            px, py = pr * image_size, pc * image_size
+            if not _patch_in_roi(px, py, image_size, roi_polygons):
+                continue
+            valid_patch_list.append((px, py))
+    return valid_patch_list, "tissue_mask"

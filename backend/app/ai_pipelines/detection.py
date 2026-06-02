@@ -24,7 +24,7 @@ from app.ai_pipelines.task_state import (
     is_cancel_requested,
     update_task,
 )
-from app.ai_pipelines.tissue_mask import create_tissue_mask
+from app.ai_pipelines.tissue_mask import build_valid_patch_list
 from app.config import settings
 from app.slide_manager import slide_manager
 
@@ -226,35 +226,24 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             3: 0.01, 4: 0.01, 5: 0.01,
         }
 
-        # ── text text (text text) ──
-        update_task(task_id, progress=4, status_msg="Creating tissue mask...")
-        thumb_mask = create_tissue_mask(slide, icc_transform=info.icc_transform)
+        has_envelope = bool(getattr(slide, "data_envelope_rectangles", []))
+        update_task(
+            task_id,
+            progress=4,
+            status_msg="Using slide data envelopes..." if has_envelope else "Creating tissue mask...",
+        )
+        valid_patch_list, patch_source = build_valid_patch_list(
+            slide,
+            width,
+            height,
+            image_size,
+            roi_polygons=roi_polygons,
+            icc_transform=info.icc_transform,
+        )
         update_task(task_id, progress=5)
 
-        # ── Pre-scan: text text text ──
-        valid_patch_list = []
-        for pr in range(width // image_size - 1):
-            for pc in range(height // image_size - 1):
-                mx = (pr * image_size) // 64
-                my = (pc * image_size) // 64
-                if np.sum(thumb_mask[my:my + image_size // 64,
-                                     mx:mx + image_size // 64]) == 0:
-                    continue
-                px, py = pr * image_size, pc * image_size
-                # ROI text (text text)
-                if roi_polygons:
-                    cx, cy = px + image_size // 2, py + image_size // 2
-                    in_roi = any(
-                        min(p[0] for p in poly) <= cx <= max(p[0] for p in poly) and
-                        min(p[1] for p in poly) <= cy <= max(p[1] for p in poly)
-                        for poly in roi_polygons
-                    )
-                    if not in_roi:
-                        continue
-                valid_patch_list.append((px, py))
-
         n_valid = len(valid_patch_list)
-        update_task(task_id, progress=6, status_msg=f"Queued {n_valid} tissue patches")
+        update_task(task_id, progress=6, status_msg=f"Queued {n_valid} {patch_source} patches")
 
         if n_valid == 0:
             update_task(task_id, status="completed", progress=100, result={
