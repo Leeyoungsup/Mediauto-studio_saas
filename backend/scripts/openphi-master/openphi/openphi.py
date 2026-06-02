@@ -60,8 +60,16 @@ class OpenPhi:
                 self.view_wsi = self.pe["in"]['WSI'].display_view
                 self.view_wsi.load_default_parameters()
             
-            self.view_label = self.pe["in"]['LABELIMAGE'].source_view
-            self.view_macro = self.pe["in"]['MACROIMAGE'].source_view
+            self.view_label = None
+            self.view_macro = None
+            try:
+                self.view_label = self.pe["in"]['LABELIMAGE'].source_view
+            except Exception:
+                pass
+            try:
+                self.view_macro = self.pe["in"]['MACROIMAGE'].source_view
+            except Exception:
+                pass
 
             # Find out what numerical indices correspond to.
             self.__init_indices()
@@ -82,6 +90,9 @@ class OpenPhi:
 
     # Get indices of images and dimensions in iSyntax file.
     def __init_indices(self):
+        self.wsiind = None
+        self.labelind = None
+        self.macroind = None
         # Figure out which index corresponds to which image.
         for i in range(self.pe["in"].num_images):
             if self.pe["in"][i].image_type == 'WSI':
@@ -175,8 +186,16 @@ class OpenPhi:
     def __init_associated_images(self):
         self.associated_images = dict()
         # Get the JPEG-compressed bytestream, then decompress as PIL.Image.
-        self.associated_images['label'] = Image.open(BytesIO(self.pe["in"][self.labelind].image_data))
-        self.associated_images['macro'] = Image.open(BytesIO(self.pe["in"][self.macroind].image_data))
+        if self.labelind is not None:
+            try:
+                self.associated_images['label'] = Image.open(BytesIO(self.pe["in"][self.labelind].image_data))
+            except Exception:
+                pass
+        if self.macroind is not None:
+            try:
+                self.associated_images['macro'] = Image.open(BytesIO(self.pe["in"][self.macroind].image_data))
+            except Exception:
+                pass
 
     def get_best_level_for_downsample(self, downsample):
         """Method returns the index of best level to use for a given downsampling factor.
@@ -353,8 +372,8 @@ class OpenPhi:
 
         # Get the final dimensions of the image in pixels.
         x_start, x_end, y_start, y_end, level = regions[0].range
-        patch_width = int(1 + (x_end - x_start) / step)
-        patch_height = int(1 + (y_end - y_start) / step)
+        patch_width = int(np.ceil(1 + (x_end - x_start) / step))
+        patch_height = int(np.ceil(1 + (y_end - y_start) / step))
 
         # Create empty buffer of correct size.
         pixels = np.empty(int(patch_width * patch_height * len(channels)), dtype=np.uint8)

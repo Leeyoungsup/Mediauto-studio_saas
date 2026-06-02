@@ -874,14 +874,15 @@ async def upload_complete(
                 },
             )
             return resp
-        except HTTPException:
-            # OpenSlide ??? ??? ?????/??? ????????, ??? ?????? ??????????
+        except HTTPException as exc:
+            # OpenSlide/Philips open failures mean the uploaded payload is not usable.
             if bool_newly_written and final_path.exists():
                 try:
                     final_path.unlink()
                 except Exception:
                     pass
-            raise HTTPException(400, "Unsupported slide file or OpenSlide could not open it")
+            detail = str(exc.detail) if getattr(exc, "detail", None) else "Unsupported slide file"
+            raise HTTPException(400, detail)
     finally:
         auto_ai.upload_exit()
 

@@ -22,7 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 PHILIPS_CLI = BACKEND_DIR / "philips_bridge" / "philips_cli.py"
 PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", "philips-sdk-py37")
 PHILIPS_PYTHON = os.environ.get("PHILIPS_PYTHON", "").strip()
-PHILIPS_VIEW = os.environ.get("PHILIPS_VIEW", "source").strip() or "source"
+PHILIPS_VIEW = os.environ.get("PHILIPS_VIEW", "display").strip() or "display"
 PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
 
 
