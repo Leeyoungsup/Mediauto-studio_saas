@@ -243,7 +243,7 @@
             Drag & drop slide files here<br>
             or <strong id="browse-btn">browse files</strong>
         </div>
-        <input type="file" id="file-input" multiple accept=".isyntax,.i2syntax,.svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn,.png,.jpg,.jpeg">
+        <input type="file" id="file-input" multiple>
     </div>
 
     <div class="file-list" id="file-list"></div>
@@ -266,7 +266,6 @@
 
         const API_BASE = '/api';
         const CHUNK_SIZE = 5 * 1024 * 1024;
-        const ACCEPTED_EXTENSIONS = '.isyntax,.i2syntax,.svs,.ndpi,.tif,.tiff,.mrxs,.vms,.vmu,.scn,.png,.jpg,.jpeg';
         const SUPPORTED = /\.(isyntax|i2syntax|svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg)$/i;
 
         if (!localStorage.getItem('access_token')) { window.close(); return; }
@@ -485,11 +484,9 @@
         // ── File selection ──
         document.getElementById('browse-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            $fileInput.accept = ACCEPTED_EXTENSIONS;
             $fileInput.click();
         });
         $dropZone.addEventListener('click', () => {
-            $fileInput.accept = ACCEPTED_EXTENSIONS;
             $fileInput.click();
         });
         $fileInput.addEventListener('change', (e) => addFiles(e.target.files));

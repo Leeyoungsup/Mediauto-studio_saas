@@ -7,7 +7,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 ### Fixed
 
 - Allow Philips iSyntax uploads by accepting `.isyntax` and compatible `.i2syntax` files in frontend upload filters and backend extension validation.
-- Refresh upload page file filters reliably by prioritizing Philips extensions and disabling cached HTML responses for routed frontend pages.
+- Refresh upload selection reliably by removing OS-level file picker filters, keeping app-side extension validation, and disabling cached HTML responses for routed frontend pages.
 
 ## [1.1.172] - 2026-05-29
 
