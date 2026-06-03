@@ -308,7 +308,10 @@ class VirtualStainWorker(QThread):
             tissue_batch = []   # [(px, py, tensor, region_np), ...]
             processed = 0
 
-            with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
+            with torch.inference_mode(), ThreadPoolExecutor(
+                max_workers=io_workers,
+                thread_name_prefix="ai_worker_vs",
+            ) as pool:
                 # text text text submittext future text text
                 futures = []
                 for (xi, yi, x0, y0, px, py_c, is_tissue) in all_patches:

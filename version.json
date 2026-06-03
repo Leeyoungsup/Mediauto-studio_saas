@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.177",
+  "version": "1.1.178",
   "channel": "production",
-  "release_date": "2026-06-02",
-  "description": "Improves tile generation stability and latency with 4096px worker reads, derived stage-2 tiles, direct viewer tile generation, separated Philips bridge workers, and dynamic CPU headroom."
+  "release_date": "2026-06-04",
+  "description": "Improves Philips VS-IHC patch prefetching by routing virtual-stain I/O workers through per-worker bridge processes."
 }

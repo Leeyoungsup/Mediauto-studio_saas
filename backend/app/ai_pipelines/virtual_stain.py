@@ -636,7 +636,10 @@ def run_virtual_stain(task_id: str, slide_id: str,
             del fake_batch, batch, tensors
             return len(list_batch)
 
-        with torch.inference_mode(), ThreadPoolExecutor(max_workers=io_workers) as pool:
+        with torch.inference_mode(), ThreadPoolExecutor(
+            max_workers=io_workers,
+            thread_name_prefix="ai_worker_vs",
+        ) as pool:
             # Keep only a small read-ahead window. Submitting every patch at once
             # lets completed numpy regions pile up in memory during large VS IHC jobs.
             int_default_prefetch = max(io_workers * 2, bs * 2)

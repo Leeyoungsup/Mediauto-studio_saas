@@ -2,6 +2,12 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.178] - 2026-06-04
+
+### Fixed
+
+- Name VS-IHC patch prefetch threads as AI workers so Philips patch reads use per-worker bridge processes instead of serializing through the default bridge.
+
 ## [1.1.177] - 2026-06-02
 
 ### Fixed
