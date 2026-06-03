@@ -142,7 +142,9 @@ async def lifespan(app: FastAPI):
     await tile_worker.stop_tile_worker()
     # text text text text text
     from app.slide_manager import slide_manager
+    from app.philips_proxy import shutdown_persistent_bridges
     slide_manager.close_all()
+    shutdown_persistent_bridges()
     cpu_layout.shutdown_executors()
     # MongoDB text text
     await disconnect_db()

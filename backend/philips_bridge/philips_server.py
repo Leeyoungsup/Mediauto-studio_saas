@@ -13,8 +13,10 @@ huge JSON lines over stdout.
 import json
 import base64
 import io
+import os
 import sys
 import mmap
+import time
 from pathlib import Path
 
 from philips_cli import _json_default, _load_openphi, _prime_sdk_dll_paths
@@ -22,6 +24,12 @@ from philips_cli import _json_default, _load_openphi, _prime_sdk_dll_paths
 
 _prime_sdk_dll_paths()
 _SLIDES = {}
+_BOOL_LOG_COMMANDS = os.environ.get("PHILIPS_SERVER_LOG_COMMANDS", "0").lower() in ("1", "true", "yes")
+
+
+def _log(message):
+    sys.stderr.write("[philips_server] %s\n" % message)
+    sys.stderr.flush()
 
 
 def _emit(payload):
@@ -173,20 +181,27 @@ def _close(req):
 
 def _handle(req):
     command = req.get("command")
+    start = time.time()
+    if _BOOL_LOG_COMMANDS:
+        _log("command start: %s" % command)
     if command == "smoke":
-        return _smoke(req)
-    if command == "info":
-        return _info(req)
-    if command == "thumbnail":
-        return _thumbnail(req)
-    if command == "region":
-        return _region(req)
-    if command == "close":
-        return _close(req)
-    if command == "shutdown":
+        resp = _smoke(req)
+    elif command == "info":
+        resp = _info(req)
+    elif command == "thumbnail":
+        resp = _thumbnail(req)
+    elif command == "region":
+        resp = _region(req)
+    elif command == "close":
+        resp = _close(req)
+    elif command == "shutdown":
         _close({})
-        return {"ok": True, "shutdown": True}
-    return {"ok": False, "error": "unknown command: %s" % command, "type": "ValueError"}
+        resp = {"ok": True, "shutdown": True}
+    else:
+        resp = {"ok": False, "error": "unknown command: %s" % command, "type": "ValueError"}
+    if _BOOL_LOG_COMMANDS:
+        _log("command end: %s %.3fs ok=%s" % (command, time.time() - start, resp.get("ok")))
+    return resp
 
 
 def main():
@@ -200,6 +215,7 @@ def main():
             resp = _handle(req)
         except Exception as exc:
             resp = {"ok": False, "error": str(exc), "type": type(exc).__name__}
+            _log("command error: %s: %s" % (type(exc).__name__, exc))
         _emit(resp)
         if resp.get("shutdown"):
             break

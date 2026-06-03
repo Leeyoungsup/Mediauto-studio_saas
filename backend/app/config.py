@@ -129,6 +129,7 @@ class Settings:
         "JWT_SECRET_KEY",
         _dict_persistent_secrets["jwt_secret_key"],
     )
+    MEDIA_SIGNING_KEY: str = os.environ.get("MEDIA_SIGNING_KEY", "")
     JWT_ALGORITHM: str = "HS256"
     # text text text = main text text 15text/7text.
     # on-premise text text text text env text text: text) ACCESS_TOKEN_EXPIRE_MINUTES=360

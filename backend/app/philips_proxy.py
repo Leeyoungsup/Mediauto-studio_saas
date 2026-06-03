@@ -11,17 +11,23 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import mmap
 import os
+import queue
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PHILIPS_CLI = BACKEND_DIR / "philips_bridge" / "philips_cli.py"
@@ -33,6 +39,10 @@ PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
 PHILIPS_BRIDGE_MODE = os.environ.get("PHILIPS_BRIDGE_MODE", "auto").strip().lower() or "auto"
 PHILIPS_BYTES_MAX_PIXELS = int(os.environ.get("PHILIPS_BYTES_MAX_PIXELS", str(2048 * 2048)))
 PHILIPS_SHARED_MEMORY = os.environ.get("PHILIPS_SHARED_MEMORY", "1").strip().lower() not in {"0", "false", "no"}
+PHILIPS_START_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_START_TIMEOUT_SECONDS", "30"))
+PHILIPS_STOP_GRACE_SECONDS = float(os.environ.get("PHILIPS_STOP_GRACE_SECONDS", "3"))
+PHILIPS_STDERR_TAIL_LINES = int(os.environ.get("PHILIPS_STDERR_TAIL_LINES", "80"))
+PHILIPS_LOG_STDERR = os.environ.get("PHILIPS_LOG_STDERR", "1").strip().lower() not in {"0", "false", "no"}
 
 
 def is_philips_isyntax(file_path: str | Path) -> bool:
@@ -101,6 +111,8 @@ class _PersistentPhilipsBridge:
     def __init__(self):
         self._proc: subprocess.Popen | None = None
         self._lock = threading.RLock()
+        self._stdout_queue: queue.Queue[dict[str, Any] | str] = queue.Queue()
+        self._stderr_tail: deque[str] = deque(maxlen=max(1, PHILIPS_STDERR_TAIL_LINES))
 
     def request(self, payload: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
         with self._lock:
@@ -110,10 +122,14 @@ class _PersistentPhilipsBridge:
                 assert proc.stdout is not None
                 proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
                 proc.stdin.flush()
-                data = self._read_json_response(proc)
+                command = str(payload.get("command") or "unknown")
+                data = self._read_json_response(proc, timeout or PHILIPS_TIMEOUT_SECONDS, command)
                 if not data.get("ok"):
                     raise RuntimeError(f"Philips bridge error: {data}")
                 return data
+            except TimeoutError:
+                self._stop_locked(force=True)
+                raise
             except Exception:
                 if proc.poll() is not None:
                     self._stop_locked()
@@ -129,6 +145,8 @@ class _PersistentPhilipsBridge:
         if self._proc is not None and self._proc.poll() is None:
             return self._proc
         cmd = _server_command()
+        self._stdout_queue = queue.Queue()
+        self._stderr_tail.clear()
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -140,56 +158,102 @@ class _PersistentPhilipsBridge:
             bufsize=1,
         )
         self._proc = proc
-        assert proc.stdout is not None
-        ready_line = proc.stdout.readline()
-        if not ready_line:
-            detail = ""
-            try:
-                detail = proc.stderr.read() if proc.stderr is not None else ""
-            except Exception:
-                detail = ""
+        self._start_pipe_readers(proc)
+        try:
+            start_timeout = min(float(timeout or PHILIPS_START_TIMEOUT_SECONDS), float(PHILIPS_START_TIMEOUT_SECONDS))
+            ready = self._wait_for_json(proc, start_timeout, "startup")
+        except TimeoutError:
             self._stop_locked()
-            raise RuntimeError(f"Philips persistent bridge did not start: {detail.strip()}")
-        ready = json.loads(ready_line)
+            raise RuntimeError(
+                "Philips persistent bridge startup timed out. "
+                f"stderr tail: {self._stderr_detail()}"
+            )
         if not ready.get("ok") or not ready.get("ready"):
             self._stop_locked()
             raise RuntimeError(f"Philips persistent bridge bad ready response: {ready}")
+        logger.info("Philips persistent bridge started: %s", " ".join(cmd))
         return proc
 
-    def _read_json_response(self, proc: subprocess.Popen) -> dict[str, Any]:
-        assert proc.stdout is not None
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                detail = ""
+    def _start_pipe_readers(self, proc: subprocess.Popen) -> None:
+        def _read_stdout() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
                 try:
-                    detail = proc.stderr.read() if proc.stderr is not None else ""
-                except Exception:
-                    detail = ""
-                self._stop_locked()
-                raise RuntimeError(f"Philips persistent bridge stopped: {detail.strip()}")
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(data, dict):
-                return data
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    self._stdout_queue.put(line)
+                    continue
+                if isinstance(data, dict):
+                    self._stdout_queue.put(data)
 
-    def _stop_locked(self) -> None:
+        def _read_stderr() -> None:
+            assert proc.stderr is not None
+            for line in proc.stderr:
+                line = line.rstrip()
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+                if PHILIPS_LOG_STDERR:
+                    logger.warning("Philips bridge stderr: %s", line)
+
+        threading.Thread(target=_read_stdout, name="philips-stdout-reader", daemon=True).start()
+        threading.Thread(target=_read_stderr, name="philips-stderr-reader", daemon=True).start()
+
+    def _read_json_response(self, proc: subprocess.Popen, timeout: int, command: str) -> dict[str, Any]:
+        return self._wait_for_json(proc, timeout, command)
+
+    def _wait_for_json(self, proc: subprocess.Popen, timeout: int | float, context: str) -> dict[str, Any]:
+        deadline = time.monotonic() + max(0.1, float(timeout))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Philips persistent bridge timed out during {context} "
+                    f"after {timeout}s. stderr tail: {self._stderr_detail()}"
+                )
+            if proc.poll() is not None:
+                self._stop_locked()
+                raise RuntimeError(
+                    f"Philips persistent bridge stopped during {context}. "
+                    f"stderr tail: {self._stderr_detail()}"
+                )
+            try:
+                item = self._stdout_queue.get(timeout=min(0.25, remaining))
+            except queue.Empty:
+                continue
+            if isinstance(item, dict):
+                return item
+
+    def _stderr_detail(self) -> str:
+        detail = "\n".join(self._stderr_tail)
+        return detail.strip() or "(empty)"
+
+    def _stop_locked(self, force: bool = False) -> None:
         proc = self._proc
         self._proc = None
         if proc is None:
             return
         try:
-            if proc.poll() is None and proc.stdin is not None:
+            if not force and proc.poll() is None and proc.stdin is not None:
                 proc.stdin.write(json.dumps({"command": "shutdown"}) + "\n")
                 proc.stdin.flush()
         except Exception:
             pass
         try:
-            proc.terminate()
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=PHILIPS_STOP_GRACE_SECONDS)
         except Exception:
-            pass
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=PHILIPS_STOP_GRACE_SECONDS)
+            except Exception:
+                pass
+        logger.info("Philips persistent bridge stopped")
 
 
 _PERSISTENT_BRIDGES: dict[str, _PersistentPhilipsBridge] = {}
@@ -224,19 +288,38 @@ def _close_slide_on_persistent_bridges(slide_path: str, view: str) -> None:
         bridge.close_slide(slide_path, view)
 
 
+def shutdown_persistent_bridges() -> None:
+    """Stop every persistent Philips bridge process owned by this FastAPI process."""
+    with _PERSISTENT_BRIDGES_LOCK:
+        bridges = list(_PERSISTENT_BRIDGES.values())
+        _PERSISTENT_BRIDGES.clear()
+    for bridge in bridges:
+        with bridge._lock:
+            bridge._stop_locked()
+
+
 def _run_cli(args: list[str], timeout: int | None = None) -> dict[str, Any]:
     cmd = _base_command() + args
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout or PHILIPS_TIMEOUT_SECONDS,
-        cwd=str(BACKEND_DIR),
-        env=_subprocess_env(cmd),
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout or PHILIPS_TIMEOUT_SECONDS,
+            cwd=str(BACKEND_DIR),
+            env=_subprocess_env(cmd),
+        )
+    except subprocess.TimeoutExpired as exc:
+        detail = (exc.stderr or exc.stdout or "")
+        raise TimeoutError(
+            f"Philips CLI bridge timed out after {timeout or PHILIPS_TIMEOUT_SECONDS}s: "
+            f"{str(detail)[:1000]}"
+        ) from exc
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
         raise RuntimeError(f"Philips bridge failed ({proc.returncode}): {detail}")
+    if proc.stderr and PHILIPS_LOG_STDERR:
+        logger.warning("Philips CLI stderr: %s", proc.stderr.strip()[:2000])
     data = _extract_json(proc.stdout)
     if not data.get("ok"):
         raise RuntimeError(f"Philips bridge error: {data}")

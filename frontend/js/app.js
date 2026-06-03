@@ -6,32 +6,11 @@
 import { api } from './api.js?v=20260526-01';
 import { AiViewer } from './ai-viewer.js?v=20260528-01';
 import { showVisualization } from './visualization.js';
+import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
     window.location.replace('/login');
     throw new Error('Not authenticated - redirecting to /login');
-}
-
-function _esc(s) {
-    return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-const $ = (sel) => document.querySelector(sel);
-
-function _normalizeUserRole(role) {
-    const value = String(role || '').toLowerCase();
-    return ['admin', 'doctor', 'labeler', 'viewer'].includes(value) ? value : 'viewer';
-}
-
-function _roleLabel(role) {
-    return {
-        admin: 'Admin',
-        doctor: 'Doctor',
-        labeler: 'Labeler',
-        viewer: 'Viewer',
-    }[_normalizeUserRole(role)] || 'Viewer';
 }
 
 const $canvas = $('#wsi-canvas');
