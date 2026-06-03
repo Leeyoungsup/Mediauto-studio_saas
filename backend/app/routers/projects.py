@@ -17,6 +17,7 @@ from app.project_utils import (
     list_project_dirs,
     parse_ai_tasks_json,
     project_public_info,
+    sync_project_cell_annotation_classes,
     upsert_project_info,
 )
 
@@ -162,6 +163,7 @@ async def create_project(
         bool_annotation_ai_enabled=annotation_ai_enabled,
         str_annotation_ai_key=annotation_ai_key,
     )
+    list_cell_classes = sync_project_cell_annotation_classes(name, annotation_ai_enabled, annotation_ai_key)
     await _log_event(
         request,
         dict_user,
@@ -181,6 +183,7 @@ async def create_project(
             "project_ai_tasks": list_project_ai_tasks,
             "annotation_ai_enabled": bool(annotation_ai_enabled),
             "annotation_ai_key": annotation_ai_key,
+            "cell_annotation_classes": list_cell_classes,
         },
     )
     return {"status": "created", "name": name, "path": name}
@@ -226,6 +229,7 @@ async def update_project(
         bool_annotation_ai_enabled=annotation_ai_enabled,
         str_annotation_ai_key=annotation_ai_key,
     )
+    list_cell_classes = sync_project_cell_annotation_classes(name, annotation_ai_enabled, annotation_ai_key)
     await _log_event(
         request,
         dict_user,
@@ -246,6 +250,7 @@ async def update_project(
             "project_ai_tasks": list_project_ai_tasks,
             "annotation_ai_enabled": bool(annotation_ai_enabled),
             "annotation_ai_key": annotation_ai_key,
+            "cell_annotation_classes": list_cell_classes,
         },
     )
     return {"status": "saved", "name": name, "path": name}

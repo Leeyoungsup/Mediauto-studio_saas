@@ -103,6 +103,74 @@ ANNOTATION_AI_OPTIONS = [
 ]
 
 ANNOTATION_AI_OPTION_BY_KEY = {item["key"]: item for item in ANNOTATION_AI_OPTIONS}
+CELL_ANNOTATION_ROOT = Path(__file__).resolve().parents[1] / "cell_annotation"
+OTHER_CELL_CLASS = {"id": "other", "name": "Other", "color": [149, 165, 166]}
+
+
+def _hex_to_rgb(value: str) -> list[int]:
+    raw = str(value or "").strip().lstrip("#")
+    if len(raw) != 6:
+        return [149, 165, 166]
+    try:
+        return [int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)]
+    except Exception:
+        return [149, 165, 166]
+
+
+def _classes_from_model_metadata(class_names: dict, class_colors: dict) -> list[dict]:
+    classes = []
+    for class_id in sorted(int(key) for key in class_names):
+        str_class_id = str(class_id)
+        classes.append({
+            "id": str_class_id,
+            "name": str(class_names.get(class_id, class_names.get(str_class_id, ""))),
+            "color": _hex_to_rgb(class_colors.get(class_id, class_colors.get(str_class_id, "#95a5a6"))),
+        })
+    return classes or [dict(OTHER_CELL_CLASS)]
+
+
+def cell_annotation_classes_for_ai(enabled: bool, key: str) -> list[dict]:
+    dict_config = normalize_annotation_ai_config(enabled, key)
+    if not dict_config.get("enabled"):
+        return []
+    if not dict_config.get("inherit_classes"):
+        return [dict(OTHER_CELL_CLASS)]
+    str_base_model = dict_config.get("base_model")
+    str_variant = dict_config.get("variant")
+    if str_base_model == "Quanti HE":
+        from ai.quanti_he import CLASS_COLORS, CLASS_NAMES
+
+        return _classes_from_model_metadata(CLASS_NAMES, CLASS_COLORS)
+    if str_base_model == "Quanti PD-L1":
+        from app.ai_pipelines.scoring import PD_SCORE_CONFIG
+
+        dict_model = PD_SCORE_CONFIG.get(str_variant) or {}
+        return _classes_from_model_metadata(
+            dict_model.get("class_names") or {},
+            dict_model.get("class_colors") or {},
+        )
+    if str_base_model == "Quanti IHC":
+        from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG
+
+        dict_model = PRECISE_IHC_CONFIG.get(str_variant) or {}
+        return _classes_from_model_metadata(
+            dict_model.get("class_names") or {},
+            dict_model.get("class_colors") or {},
+        )
+    return [dict(OTHER_CELL_CLASS)]
+
+
+def sync_project_cell_annotation_classes(str_project_path: str, enabled: bool, key: str) -> list[dict]:
+    classes = cell_annotation_classes_for_ai(enabled, key)
+    if not classes:
+        return []
+    str_project = str(str_project_path or "").replace("\\", "/").split("/")[0].strip()
+    if not str_project:
+        return []
+    path_classes = CELL_ANNOTATION_ROOT / "_projects" / str_project / "classes.json"
+    path_classes.parent.mkdir(parents=True, exist_ok=True)
+    path_classes.write_text(json.dumps({"classes": classes}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return classes
 
 
 def list_project_dirs() -> list[Path]:

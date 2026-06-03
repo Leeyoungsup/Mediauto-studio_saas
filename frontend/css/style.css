@@ -1620,6 +1620,12 @@ body.right-panel-collapsed #right-panel-resizer.dragging {
     height: 14px;
     transition: transform 0.15s;
 }
+.panel-group.panel-group-collapsed > :not(.panel-header) {
+    display: none !important;
+}
+.panel-group.panel-group-collapsed .panel-minimize-btn svg {
+    transform: rotate(-90deg);
+}
 .ai-analysis-group.vs-panel-collapsed .panel-minimize-btn svg {
     transform: rotate(-90deg);
 }

@@ -382,7 +382,7 @@
                 <div class="panel-header">
                     <span>VS IHC</span>
                     <span id="ai-help-icon" class="help-icon" tabindex="0" aria-label="AI analysis help">?</span>
-                    <button id="btn-vs-panel-minimize" class="panel-minimize-btn" type="button" title="Minimize VS IHC" aria-label="Minimize VS IHC" aria-expanded="true">
+                    <button id="btn-vs-panel-minimize" class="panel-minimize-btn" type="button" title="Minimize VS IHC" aria-label="Minimize VS IHC" aria-expanded="true" data-panel-collapse="ai" data-panel-label="VS IHC">
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                             <path d="M4 6l4 4 4-4"/>
                         </svg>
@@ -476,6 +476,14 @@
 
             <!-- Annotation text -->
             <div class="panel-group annotation-group">
+                <div class="panel-header">
+                    <span>Cell Annotation</span>
+                    <button class="panel-minimize-btn" type="button" title="Minimize Cell Annotation" aria-label="Minimize Cell Annotation" aria-expanded="true" data-panel-collapse="annotation" data-panel-label="Cell Annotation">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M4 6l4 4 4-4"/>
+                        </svg>
+                    </button>
+                </div>
                 <div class="annotation-status-panel">
                     <label id="annotation-status-label">Annotation Status</label>
                     <div id="annotation-status-workflow" class="annotation-status-workflow" role="group" aria-labelledby="annotation-status-label">
@@ -537,7 +545,14 @@
 
             <!-- Detection Results text -->
             <div class="panel-group results-group">
-                <div class="panel-header">Detection Results</div>
+                <div class="panel-header">
+                    <span>Detection Results</span>
+                    <button class="panel-minimize-btn" type="button" title="Minimize Detection Results" aria-label="Minimize Detection Results" aria-expanded="true" data-panel-collapse="results" data-panel-label="Detection Results">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M4 6l4 4 4-4"/>
+                        </svg>
+                    </button>
+                </div>
                 <div id="result-list" class="result-list"></div>
 
 

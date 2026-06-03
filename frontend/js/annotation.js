@@ -958,7 +958,7 @@ function _applyViewerRoleRestrictions() {
     });
 
     document.querySelectorAll(
-        '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button:not(#btn-vs-panel-minimize)'
+        '#right-panel .panel-group:first-child input, #right-panel .panel-group:first-child button:not(.panel-minimize-btn)'
     ).forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use AI analysis features.';
@@ -974,7 +974,7 @@ function _applyViewerRoleRestrictions() {
         }
     });
 
-    document.querySelectorAll('.annotation-group button, .annotation-group input, .annotation-group select').forEach(el => {
+    document.querySelectorAll('.annotation-group button:not(.panel-minimize-btn), .annotation-group input, .annotation-group select').forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use annotation features.';
     });
@@ -1824,18 +1824,76 @@ function _normalizeProjectClassList(list) {
 }
 
 const CELL_ANNOTATION_AI_OPTIONS = [
-    { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI' },
-    { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI' },
-    { key: 'quanti_he_other', label: 'Quanti HE-other', group: 'Inherited AI' },
-    { key: 'quanti_pd_l1_stomach', label: 'Quanti PD-L1 - Stomach (CPS)', group: 'Inherited AI' },
-    { key: 'quanti_pd_l1_lung', label: 'Quanti PD-L1 - Lung (TPS)', group: 'Inherited AI' },
-    { key: 'quanti_ihc_her2', label: 'Quanti IHC - HER2', group: 'Inherited AI' },
-    { key: 'quanti_ihc_er_pr', label: 'Quanti IHC - ER/PR (Allred)', group: 'Inherited AI' },
-    { key: 'quanti_ihc_ki_67', label: 'Quanti IHC - KI-67', group: 'Inherited AI' },
-    { key: 'hne', label: 'HnE', group: 'Non-inherited AI' },
-    { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI' },
-    { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI' },
+    { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
+    { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
+    { key: 'quanti_he_other', label: 'Quanti HE-other', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
+    { key: 'quanti_pd_l1_stomach', label: 'Quanti PD-L1 - Stomach (CPS)', group: 'Inherited AI', inheritClasses: true, preset: 'pd_l1_stomach' },
+    { key: 'quanti_pd_l1_lung', label: 'Quanti PD-L1 - Lung (TPS)', group: 'Inherited AI', inheritClasses: true, preset: 'pd_l1_lung' },
+    { key: 'quanti_ihc_her2', label: 'Quanti IHC - HER2', group: 'Inherited AI', inheritClasses: true, preset: 'ihc_her2' },
+    { key: 'quanti_ihc_er_pr', label: 'Quanti IHC - ER/PR (Allred)', group: 'Inherited AI', inheritClasses: true, preset: 'ihc_er_pr' },
+    { key: 'quanti_ihc_ki_67', label: 'Quanti IHC - KI-67', group: 'Inherited AI', inheritClasses: true, preset: 'ihc_ki_67' },
+    { key: 'hne', label: 'HnE', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
+    { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
+    { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
 ];
+
+const CELL_ANNOTATION_CLASS_PRESETS = {
+    other: [
+        { id: 'other', name: 'Other', color: [149, 165, 166] },
+    ],
+    quanti_he: [
+        { id: '0', name: 'Neutrophil', color: [255, 69, 0] },
+        { id: '1', name: 'Epithelial', color: [0, 255, 0] },
+        { id: '2', name: 'Lymphocyte', color: [0, 0, 255] },
+        { id: '3', name: 'Plasma', color: [255, 255, 0] },
+        { id: '4', name: 'Eosinophil', color: [138, 43, 226] },
+        { id: '5', name: 'Stromal cell', color: [128, 128, 128] },
+        { id: '6', name: 'Tumor Epithelial', color: [255, 0, 0] },
+        { id: '7', name: 'Benign Epithelial', color: [0, 255, 0] },
+    ],
+    pd_l1_stomach: [
+        { id: '0', name: 'Negative Epithelial', color: [30, 132, 73] },
+        { id: '1', name: 'Negative Lymphocyte', color: [39, 174, 96] },
+        { id: '2', name: 'Negative Macrophage', color: [22, 160, 133] },
+        { id: '3', name: 'Positive Epithelial', color: [146, 43, 33] },
+        { id: '4', name: 'Positive Lymphocyte', color: [231, 76, 60] },
+        { id: '5', name: 'Positive Macrophage', color: [236, 112, 99] },
+        { id: '6', name: 'Other', color: [149, 165, 166] },
+    ],
+    pd_l1_lung: [
+        { id: '0', name: 'PD-L1 Negative Tumor', color: [52, 152, 219] },
+        { id: '1', name: 'PD-L1 Positive Tumor', color: [231, 76, 60] },
+        { id: '2', name: 'Non-Tumor Cell', color: [149, 165, 166] },
+    ],
+    ihc_her2: [
+        { id: '0', name: 'HER2 0+', color: [39, 174, 96] },
+        { id: '1', name: 'HER2 1+', color: [241, 196, 15] },
+        { id: '2', name: 'HER2 2+', color: [230, 126, 34] },
+        { id: '3', name: 'HER2 3+', color: [192, 57, 43] },
+        { id: '4', name: 'Other', color: [149, 165, 166] },
+    ],
+    ihc_er_pr: [
+        { id: '0', name: 'ER/PR 0+', color: [39, 174, 96] },
+        { id: '1', name: 'ER/PR 1+', color: [241, 196, 15] },
+        { id: '2', name: 'ER/PR 2+', color: [230, 126, 34] },
+        { id: '3', name: 'ER/PR 3+', color: [192, 57, 43] },
+        { id: '4', name: 'Other', color: [149, 165, 166] },
+    ],
+    ihc_ki_67: [
+        { id: '0', name: 'Negative', color: [39, 174, 96] },
+        { id: '1', name: 'Positive (1+)', color: [230, 126, 34] },
+        { id: '2', name: 'Positive (2+)', color: [231, 76, 60] },
+        { id: '3', name: 'Positive (3+)', color: [192, 57, 43] },
+        { id: '4', name: 'Other', color: [149, 165, 166] },
+    ],
+};
+
+function _cellAnnotationPresetClasses(key) {
+    const opt = CELL_ANNOTATION_AI_OPTIONS.find(item => item.key === key);
+    if (!opt) return [];
+    const preset = CELL_ANNOTATION_CLASS_PRESETS[opt.preset] || CELL_ANNOTATION_CLASS_PRESETS.other;
+    return preset.map(cls => ({ ...cls, color: [...cls.color] }));
+}
 
 function _cellAnnotationAiSelectHtml(currentKey = '') {
     const groups = [];
@@ -1873,10 +1931,14 @@ async function _saveProjectCellAnnotationAiSettings(project, enabled, key) {
     await api.updateProject(path, payload);
     if (project?.info) {
         project.info.annotation_ai_enabled = Boolean(enabled && key);
+        const opt = CELL_ANNOTATION_AI_OPTIONS.find(item => item.key === key);
         project.info.annotation_ai = {
             ...(project.info.annotation_ai || {}),
             enabled: Boolean(enabled && key),
             key: enabled ? (key || '') : '',
+            label: opt?.label || '',
+            group: opt?.group === 'Inherited AI' ? 'inherited' : 'non_inherited',
+            inherit_classes: Boolean(opt?.inheritClasses),
         };
     }
 }
@@ -1941,9 +2003,6 @@ async function _openProjectClassManager(project) {
     const aiEnabledEl = modal.querySelector('.project-class-ai-enabled');
     const aiSelectEl = modal.querySelector('.project-class-ai-select');
     if (aiSelectEl) aiSelectEl.disabled = !annotationAiEnabled;
-    aiEnabledEl?.addEventListener('change', () => {
-        if (aiSelectEl) aiSelectEl.disabled = !aiEnabledEl.checked;
-    });
     const makeLocalClassId = (name) => {
         const base = String(name || 'Class')
             .trim()
@@ -2019,6 +2078,25 @@ async function _openProjectClassManager(project) {
         });
     };
 
+    const applyCellAnnotationAiPreset = () => {
+        if (!isCellClassMode) return;
+        const enabled = Boolean(aiEnabledEl?.checked);
+        const key = aiSelectEl?.value || '';
+        if (aiSelectEl) aiSelectEl.disabled = !enabled;
+        if (!enabled || !key) return;
+        const presetClasses = _cellAnnotationPresetClasses(key);
+        if (!presetClasses.length) return;
+        localClasses = _normalizeProjectClassList(presetClasses);
+        const opt = CELL_ANNOTATION_AI_OPTIONS.find(item => item.key === key);
+        statusEl.textContent = opt?.inheritClasses
+            ? `${localClasses.length} inherited classes`
+            : '1 non-inherited class';
+        render();
+    };
+
+    aiEnabledEl?.addEventListener('change', applyCellAnnotationAiPreset);
+    aiSelectEl?.addEventListener('change', applyCellAnnotationAiPreset);
+
     modal.querySelector('.project-class-close').addEventListener('click', close);
     modal.querySelector('.project-class-cancel').addEventListener('click', close);
     modal.addEventListener('mousedown', (e) => {
@@ -2071,6 +2149,12 @@ async function _openProjectClassManager(project) {
             ? await api.loadCellAnnotationClasses(path)
             : await api.loadAnnotationClasses(path);
         localClasses = _normalizeProjectClassList(res.classes);
+        if (isCellClassMode && annotationAiEnabled && annotationAiKey) {
+            const presetClasses = _cellAnnotationPresetClasses(annotationAiKey);
+            if (presetClasses.length) {
+                localClasses = _normalizeProjectClassList(presetClasses);
+            }
+        }
         statusEl.textContent = `${localClasses.length} classes`;
         render();
     } catch (err) {
@@ -6413,23 +6497,47 @@ $vsMppSlider?.addEventListener('input', () => {
 });
 
 const VS_PANEL_COLLAPSED_KEY = `mediauto:${ANNOTATION_PAGE_KIND}:vs-panel-collapsed`;
-function _setVsPanelCollapsed(collapsed, persist = true) {
-    if (!$aiAnalysisGroup || !$btnVsPanelMinimize) return;
-    $aiAnalysisGroup.classList.toggle('vs-panel-collapsed', !!collapsed);
-    $btnVsPanelMinimize.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    $btnVsPanelMinimize.title = collapsed ? 'Expand VS IHC' : 'Minimize VS IHC';
-    $btnVsPanelMinimize.setAttribute('aria-label', collapsed ? 'Expand VS IHC' : 'Minimize VS IHC');
-    if (persist) localStorage.setItem(VS_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+function _rightPanelSectionStorageKey(sectionKey) {
+    if (sectionKey === 'ai') return VS_PANEL_COLLAPSED_KEY;
+    return `mediauto:${ANNOTATION_PAGE_KIND}:right-panel-section:${sectionKey}:collapsed`;
 }
 
-if ($btnVsPanelMinimize) {
-    const savedVsPanelState = localStorage.getItem(VS_PANEL_COLLAPSED_KEY);
-    _setVsPanelCollapsed(savedVsPanelState == null ? true : savedVsPanelState === '1', false);
-    $btnVsPanelMinimize.addEventListener('click', () => {
-        const collapsed = !$aiAnalysisGroup?.classList.contains('vs-panel-collapsed');
-        _setVsPanelCollapsed(collapsed);
+function _setRightPanelSectionCollapsed(button, collapsed, persist = true) {
+    const panel = button?.closest('.panel-group');
+    if (!panel || !button) return;
+    const sectionKey = button.dataset.panelCollapse || 'panel';
+    const label = button.dataset.panelLabel || 'Panel';
+    panel.classList.toggle('panel-group-collapsed', !!collapsed);
+    if (sectionKey === 'ai') {
+        panel.classList.toggle('vs-panel-collapsed', !!collapsed);
+    }
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    button.title = collapsed ? `Expand ${label}` : `Minimize ${label}`;
+    button.setAttribute('aria-label', collapsed ? `Expand ${label}` : `Minimize ${label}`);
+    if (persist) {
+        localStorage.setItem(_rightPanelSectionStorageKey(sectionKey), collapsed ? '1' : '0');
+    }
+}
+
+function _initRightPanelSectionToggles() {
+    document.querySelectorAll('.panel-minimize-btn[data-panel-collapse]').forEach((button) => {
+        const sectionKey = button.dataset.panelCollapse || 'panel';
+        const savedState = localStorage.getItem(_rightPanelSectionStorageKey(sectionKey));
+        const defaultCollapsed = sectionKey === 'ai';
+        _setRightPanelSectionCollapsed(
+            button,
+            savedState == null ? defaultCollapsed : savedState === '1',
+            false,
+        );
+        button.addEventListener('click', () => {
+            const panel = button.closest('.panel-group');
+            const collapsed = !panel?.classList.contains('panel-group-collapsed');
+            _setRightPanelSectionCollapsed(button, collapsed);
+        });
     });
 }
+
+_initRightPanelSectionToggles();
 
 $btnVsMembrane?.addEventListener('click', () => startVirtualStain('ihc_membrane'));
 
