@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260604-07';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260604-10';
 
 class PatchFocusLayer {
     constructor() {
@@ -67,6 +67,7 @@ export class CellPatchWorkflow {
         this.assistanceSlideId = '';
         this.assistanceProgress = null;
         this.aiAssistanceEnabled = localStorage.getItem('mediauto:cell-patch:ai-assistance-enabled') !== '0';
+        this.cellDisplayMode = localStorage.getItem('mediauto:cell-patch:display-mode') || 'bbox';
         this.aiAssistanceToggle = null;
         this.aiAssistanceProgressEl = null;
         this.patchApplyProgress = null;
@@ -94,16 +95,127 @@ export class CellPatchWorkflow {
         this.viewer.addOverlayLayer(this.status);
         this.viewer.addOverlayLayer(this.grid);
         this.viewer.addOverlayLayer(this.focusLayer);
+        this.viewer.cellAnnotationDisplayMode = this.cellDisplayMode;
+        this.viewer.cellAnnotationPatchViewActive = false;
         this._bindEvents();
     }
 
     _setupRightPanel() {
         document.body.classList.add('cell-patch-workflow-page');
         document.getElementById('progress-label')?.closest('.panel-section')?.classList.add('cell-patch-hidden-progress');
+        this._setupCellPanelSections();
         this._setupAssistanceToggle();
         this._setupPatchListPanel();
         this._setupDisplayPanel();
+        this._arrangeCellPanelSections();
+        this._syncCellPanelVisibility();
         this.renderPatchList();
+    }
+
+    _panelStorageKey(key) {
+        return `mediauto:cell-annotation:right-panel-section:${key}:collapsed`;
+    }
+
+    _setupPanelToggle(panel, key, label) {
+        const button = panel?.querySelector('.panel-minimize-btn[data-cell-panel-collapse]');
+        if (!button) return;
+        const apply = (collapsed, persist = true) => {
+            panel.classList.toggle('panel-group-collapsed', Boolean(collapsed));
+            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            button.title = collapsed ? `Expand ${label}` : `Minimize ${label}`;
+            button.setAttribute('aria-label', collapsed ? `Expand ${label}` : `Minimize ${label}`);
+            if (persist) localStorage.setItem(this._panelStorageKey(key), collapsed ? '1' : '0');
+        };
+        if (!button.dataset.bound) {
+            button.addEventListener('click', () => apply(!panel.classList.contains('panel-group-collapsed')));
+            button.dataset.bound = '1';
+        }
+        apply(localStorage.getItem(this._panelStorageKey(key)) === '1', false);
+    }
+
+    _ensureCellPanel(id, title, key) {
+        const right = document.getElementById('right-panel');
+        if (!right) return null;
+        let panel = document.getElementById(id);
+        if (!panel) {
+            panel = document.createElement('section');
+            panel.id = id;
+            panel.className = `panel-group ${id}`;
+            panel.innerHTML = `
+                <div class="panel-header">
+                    <span>${this._escape(title)}</span>
+                    <button class="panel-minimize-btn" type="button" title="Minimize ${this._escape(title)}" aria-label="Minimize ${this._escape(title)}" aria-expanded="true" data-cell-panel-collapse="${this._escape(key)}">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M4 6l4 4 4-4"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+            right.insertBefore(panel, right.querySelector('.results-group'));
+        }
+        this._setupPanelToggle(panel, key, title);
+        return panel;
+    }
+
+    _setupCellPanelSections() {
+        const workflow = document.querySelector('.annotation-group');
+        if (workflow) {
+            workflow.classList.add('cell-workflow-panel');
+            const title = workflow.querySelector(':scope > .panel-header > span');
+            if (title) title.textContent = 'Cell Workflow';
+        }
+        this.classPanel = this._ensureCellPanel('cell-classes-panel', 'Cell Classes', 'cell-classes');
+        this.displaySectionPanel = this._ensureCellPanel('cell-display-section', 'Cell Display', 'cell-display');
+        this.annotationsPanel = this._ensureCellPanel('cell-annotations-panel', 'Cell Annotations', 'cell-annotations');
+        this.patchListSectionPanel = this._ensureCellPanel('cell-patch-list-section', 'Patch List', 'cell-patch-list');
+    }
+
+    _arrangeCellPanelSections() {
+        const workflow = document.querySelector('.annotation-group');
+        const classPanel = document.querySelector('.class-management-panel');
+        if (classPanel && this.classPanel && classPanel.parentElement !== this.classPanel) {
+            this.classPanel.appendChild(classPanel);
+        }
+        const displayPanel = document.getElementById('cell-patch-display-panel');
+        if (displayPanel && this.displaySectionPanel && displayPanel.parentElement !== this.displaySectionPanel) {
+            this.displaySectionPanel.appendChild(displayPanel);
+        }
+        const oldAnnotationsHeader = workflow ? [...workflow.children].find(el => (
+            el.classList?.contains('panel-header') &&
+            String(el.textContent || '').trim().toLowerCase() === 'annotations'
+        )) : null;
+        oldAnnotationsHeader?.remove();
+        const annList = document.getElementById('annotation-list');
+        const stylePanel = document.getElementById('annotation-style-panel');
+        const annButtons = document.getElementById('btn-ann-clear')?.closest('.btn-row');
+        [annList, stylePanel, annButtons].forEach(el => {
+            if (el && this.annotationsPanel && el.parentElement !== this.annotationsPanel) {
+                this.annotationsPanel.appendChild(el);
+            }
+        });
+        const patchListPanel = document.getElementById('cell-patch-list-panel');
+        if (patchListPanel && this.patchListSectionPanel && patchListPanel.parentElement !== this.patchListSectionPanel) {
+            this.patchListSectionPanel.appendChild(patchListPanel);
+            patchListPanel.querySelector(':scope > .panel-header')?.remove();
+        }
+    }
+
+    _setPanelVisible(panel, visible) {
+        if (!panel) return;
+        panel.hidden = !visible;
+        panel.style.display = visible ? 'flex' : 'none';
+    }
+
+    _syncCellPanelVisibility() {
+        const patchView = Boolean(this.patchFocusActive);
+        document.body.classList.toggle('cell-patch-view-active', patchView);
+        if (this.viewer) this.viewer.cellAnnotationPatchViewActive = patchView;
+        this._setPanelVisible(this.classPanel || document.getElementById('cell-classes-panel'), patchView);
+        this._setPanelVisible(this.displaySectionPanel || document.getElementById('cell-display-section'), patchView);
+        this._setPanelVisible(this.annotationsPanel || document.getElementById('cell-annotations-panel'), patchView);
+        this._setPanelVisible(this.patchListSectionPanel || document.getElementById('cell-patch-list-section'), true);
+        const patchListPanel = document.getElementById('cell-patch-list-panel');
+        if (patchListPanel) patchListPanel.style.display = 'flex';
     }
 
     _setupAssistanceToggle() {
@@ -207,17 +319,24 @@ export class CellPatchWorkflow {
         panel.id = 'cell-patch-display-panel';
         panel.className = 'cell-patch-display-panel';
         panel.innerHTML = `
-            <div class="cell-patch-display-title">Patch Overlay</div>
-            <label class="cell-patch-display-row">
+            <div class="cell-patch-display-title">Display</div>
+            <label class="cell-patch-display-row cell-patch-overlay-control">
                 <span>Patch border</span>
                 <input id="cell-patch-border-width" type="range" min="0.5" max="6" step="0.5" value="1">
                 <output id="cell-patch-border-width-value">1 px</output>
             </label>
-            <label class="cell-patch-display-row">
+            <label class="cell-patch-display-row cell-patch-overlay-control">
                 <span>Patch fill</span>
                 <input id="cell-patch-fill-opacity" type="range" min="0" max="60" step="5" value="5">
                 <output id="cell-patch-fill-opacity-value">5%</output>
             </label>
+            <div class="cell-patch-display-row cell-display-mode-control">
+                <span>Cell display</span>
+                <div class="cell-display-mode-buttons" role="group" aria-label="Cell display mode">
+                    <button type="button" data-cell-display-mode="bbox">BBox</button>
+                    <button type="button" data-cell-display-mode="point">Point</button>
+                </div>
+            </div>
         `;
         host.appendChild(panel);
         this.displayPanel = panel;
@@ -232,7 +351,32 @@ export class CellPatchWorkflow {
             this.viewer?.requestRender?.();
         };
         panel.querySelectorAll('input').forEach(input => input.addEventListener('input', apply));
+        panel.querySelectorAll('[data-cell-display-mode]').forEach(btn => {
+            btn.addEventListener('click', () => this.setCellDisplayMode(btn.dataset.cellDisplayMode));
+        });
         apply();
+        this._syncCellDisplayModeButtons();
+    }
+
+    setCellDisplayMode(mode = 'bbox') {
+        this.cellDisplayMode = mode === 'point' ? 'point' : 'bbox';
+        localStorage.setItem('mediauto:cell-patch:display-mode', this.cellDisplayMode);
+        if (this.viewer) {
+            this.viewer.cellAnnotationDisplayMode = this.cellDisplayMode;
+            this.viewer.cellAnnotationPatchViewActive = Boolean(this.patchFocusActive);
+            this.viewer.setDetectionResults?.([]);
+        }
+        if (this.patchFocusActive) this.editor.syncViewer?.();
+        this._syncCellDisplayModeButtons();
+        this.viewer?.requestRender?.();
+    }
+
+    _syncCellDisplayModeButtons() {
+        this.displayPanel?.querySelectorAll('[data-cell-display-mode]').forEach(btn => {
+            const active = btn.dataset.cellDisplayMode === this.cellDisplayMode;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
     }
 
     _setupToolbarToggle() {
@@ -408,6 +552,7 @@ export class CellPatchWorkflow {
         this.status.setPatches(Array.from(this.patches.values()));
         this._syncPendingPatchPreview();
         this.renderPatchList();
+        this._syncCellPanelVisibility();
         this._syncAnnotationStatusPanel();
         this._notifyPatchViewStateChange();
         this._notifyWorkflowSummaryChange();
@@ -437,6 +582,7 @@ export class CellPatchWorkflow {
         }
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
+        this._syncCellPanelVisibility();
         this._syncAnnotationStatusPanel();
         this._notifyPatchViewStateChange();
         this._notifyWorkflowSummaryChange();
@@ -1420,6 +1566,9 @@ export class CellPatchWorkflow {
             };
         }
         this.selectedPatch = this._normalizePatchView(patch);
+        if (!this.patchFocusActive) {
+            this.editor.clearViewerAnnotations?.();
+        }
         await this.editor.open(this.slideId, this.selectedPatch, { syncViewer: this.patchFocusActive });
         if (this.patchFocusActive) {
             this.viewer.setViewBounds?.(this.selectedPatch);
@@ -1469,7 +1618,11 @@ export class CellPatchWorkflow {
     }
 
     enterPatchView() {
-        if (!this.selectedPatch || this.patchFocusActive) return;
+        if (!this.selectedPatch) return;
+        if (this.patchFocusActive) {
+            this._syncCellPanelVisibility();
+            return;
+        }
         this.savedWsiView = this.lastWsiViewBeforePatchOpen || {
             viewCenterX: this.viewer.viewCenterX,
             viewCenterY: this.viewer.viewCenterY,
@@ -1477,6 +1630,8 @@ export class CellPatchWorkflow {
         };
         this.patchFocusActive = true;
         document.body.classList.add('cell-patch-view-active');
+        this._syncCellPanelVisibility();
+        if (this.viewer) this.viewer.cellAnnotationDisplayMode = this.cellDisplayMode;
         this.layerVisibilityBeforePatchView = {
             required: this.required.visible,
             status: this.status.visible,
@@ -1545,6 +1700,16 @@ export class CellPatchWorkflow {
         this.updatePatch(this.selectedPatch);
     }
 
+    updatePatchLabelFromAnnotation(annotation) {
+        if (!this.patchFocusActive || !this.selectedPatch) return null;
+        return this.editor.updateAnnotationLabel?.(annotation) || null;
+    }
+
+    removePatchLabelFromAnnotation(annotationOrId) {
+        if (!this.patchFocusActive || !this.selectedPatch) return false;
+        return Boolean(this.editor.removeAnnotationLabel?.(annotationOrId));
+    }
+
     async saveSelectedPatchAnnotations({ complete = false } = {}) {
         if (!this.patchFocusActive || !this.selectedPatch) {
             throw new Error('Patch view is not active.');
@@ -1555,9 +1720,18 @@ export class CellPatchWorkflow {
     }
 
     exitPatchView({ restore = true } = {}) {
-        if (!this.patchFocusActive && !this.focusLayer.visible) return;
+        if (!this.patchFocusActive && !this.focusLayer.visible) {
+            this.editor.clearViewerAnnotations?.();
+            this.viewer.setDetectionResults?.([]);
+            this.viewer.setViewBounds?.(null);
+            this.viewer.requestRender?.();
+            this._syncCellPanelVisibility();
+            this._notifyPatchViewStateChange();
+            return;
+        }
         this.patchFocusActive = false;
         document.body.classList.remove('cell-patch-view-active');
+        this._syncCellPanelVisibility();
         if (this._isLabelerRole()) this.viewer.canEditDetectionResults = false;
         this.focusLayer.clear();
         this.viewer.setDetectionResults?.([]);

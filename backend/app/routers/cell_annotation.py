@@ -803,8 +803,11 @@ def _assistance_metadata(payload: dict) -> dict:
     return meta
 
 
-def _assistance_class_lookup(info) -> dict[str, dict]:
+def _assistance_class_lookup(info, payload: Optional[dict] = None) -> dict[str, dict]:
     classes = _load_cell_classes_for_project(_slide_project_path(info))
+    payload_classes = (payload or {}).get("classes") if isinstance(payload, dict) else None
+    if isinstance(payload_classes, list):
+        classes = _merge_cell_classes(classes, payload_classes)
     lookup = {str(cls.get("id", "")): cls for cls in classes if cls.get("id") is not None}
     other = next((cls for cls in classes if str(cls.get("name", "")).lower() == "other"), None)
     if other:
@@ -924,7 +927,9 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
     default_class_name = str(OTHER_CELL_CLASS.get("name", "Other"))
     labels = []
     used_model_bbox = False
-    for idx, cell in enumerate((result or {}).get("cells") or [], start=1):
+    source_cells = list((result or {}).get("cells") or [])
+    source_cells.extend(list((result or {}).get("excluded_cells") or []))
+    for idx, cell in enumerate(source_cells, start=1):
         parsed = _cell_tuple_values(cell)
         if parsed is None:
             continue
@@ -1440,7 +1445,7 @@ async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
             "reason": "assistance_missing",
             "cells": [],
         }
-    class_lookup = _assistance_class_lookup(info)
+    class_lookup = _assistance_class_lookup(info, payload)
     cells = []
     for idx, label in enumerate(labels, start=1):
         cell = _assistance_label_to_cell(label, patch, idx, class_lookup)

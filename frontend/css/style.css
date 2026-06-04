@@ -2637,11 +2637,23 @@ body.annotation-page .project-gate-row {
     cursor: not-allowed;
 }
 body.cell-patch-workflow-page:not(.cell-patch-view-active) .class-management-panel,
-body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-group > .panel-header,
 body.cell-patch-workflow-page:not(.cell-patch-view-active) #annotation-list,
 body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-style-panel,
 body.cell-patch-workflow-page:not(.cell-patch-view-active) .annotation-group > .btn-row {
     display: none;
+}
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-classes-panel,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-annotations-panel,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-display-section {
+    display: none;
+}
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-patch-list-section {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 220px;
+}
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-patch-list-panel {
+    flex: 1 1 auto;
 }
 body.cell-patch-workflow-page .cell-patch-list {
     max-height: 280px;
@@ -2698,15 +2710,22 @@ body.cell-patch-workflow-page .cell-patch-list {
 body.cell-patch-workflow-page.cell-patch-view-active .annotation-group {
     min-height: 0;
 }
+body.cell-patch-workflow-page.cell-patch-view-active .cell-ai-assistance-panel {
+    display: none;
+}
 body.cell-patch-workflow-page.cell-patch-view-active .class-management-panel {
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-light);
+    border-bottom: 0;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .class-management-header {
-    min-height: 24px;
+    min-height: 26px;
+    align-items: center;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .class-management-actions {
+    margin-left: auto;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .class-management-header > span,
 body.cell-patch-workflow-page.cell-patch-view-active .panel-header {
@@ -2714,30 +2733,53 @@ body.cell-patch-workflow-page.cell-patch-view-active .panel-header {
 }
 body.cell-patch-workflow-page.cell-patch-view-active .annotation-class-list {
     gap: 4px;
-    max-height: 96px;
+    max-height: 180px;
+    width: 100%;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .class-row {
+    width: 100%;
     min-height: 26px;
     padding-top: 2px;
     padding-bottom: 2px;
 }
+body.cell-patch-workflow-page.cell-patch-view-active .cell-classes-panel,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-display-section,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-annotations-panel,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list-section {
+    flex-direction: column;
+    flex: 0 0 auto;
+    overflow: visible;
+}
 body.cell-patch-workflow-page.cell-patch-view-active #annotation-list {
-    min-height: 180px;
+    min-height: 260px;
     max-height: 360px;
     padding: 8px 10px;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .annotation-style-panel,
-body.cell-patch-workflow-page.cell-patch-view-active .annotation-group > .btn-row {
+body.cell-patch-workflow-page.cell-patch-view-active .annotation-group > .btn-row,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-annotations-panel > .btn-row {
     display: none;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list-panel {
-    border-top: 1px solid var(--border-light);
+    border-top: 0;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-classes-panel,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-display-section,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-annotations-panel,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list-section {
+    display: flex;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list {
     max-height: 220px;
     padding: 8px 10px;
 }
 body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
+    display: flex;
+    border-top: 0;
+    border-bottom: 0;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-overlay-control,
+body.cell-patch-workflow-page:not(.cell-patch-view-active) .cell-display-mode-control {
     display: none;
 }
 .cell-patch-hidden-progress {
@@ -2748,6 +2790,25 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
     min-height: 0;
     flex-direction: column;
     background: #fff;
+}
+.cell-workflow-panel,
+.cell-classes-panel,
+.cell-display-section,
+.cell-annotations-panel,
+.cell-patch-list-section {
+    flex: 0 0 auto;
+    min-height: auto;
+}
+.panel-group.panel-group-collapsed.cell-classes-panel > :not(.panel-header),
+.panel-group.panel-group-collapsed.cell-display-section > :not(.panel-header),
+.panel-group.panel-group-collapsed.cell-annotations-panel > :not(.panel-header),
+.panel-group.panel-group-collapsed.cell-patch-list-section > :not(.panel-header) {
+    display: none !important;
+}
+.cell-annotations-panel,
+.cell-patch-list-section {
+    display: flex;
+    flex-direction: column;
 }
 .cell-patch-display-panel {
     display: flex;
@@ -2763,6 +2824,33 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
     font-weight: 900;
     letter-spacing: 0;
     text-transform: uppercase;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-display-section .cell-patch-display-panel {
+    padding: 10px 14px 12px;
+}
+.cell-display-mode-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+}
+.cell-display-mode-control {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+}
+.cell-display-mode-buttons button {
+    min-height: 26px;
+    border: 1px solid #d8d5ff;
+    border-radius: 6px;
+    background: #fff;
+    color: #4f46e5;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.cell-display-mode-buttons button.active {
+    border-color: #6c5ce7;
+    background: #6c5ce7;
+    color: #fff;
 }
 .cell-patch-display-row {
     display: grid;
@@ -2907,6 +2995,10 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-display-panel {
 .cell-patch-exclude-toggle.active:hover:not(:disabled) {
     background: #dc2626;
     color: #fff;
+}
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-exclude-group,
+body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-exclude-separator {
+    display: none;
 }
 .patch-list-counts,
 .patch-list-empty {
@@ -3479,11 +3571,26 @@ body.annotation-page .annotation-group {
     height: 100%;
     overflow: hidden;
 }
+body.cell-patch-workflow-page.cell-patch-view-active .cell-display-mode-control > span {
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+body.annotation-page.cell-patch-workflow-page .annotation-group {
+    flex: 0 0 auto;
+    height: auto;
+    overflow: visible;
+}
 body.annotation-page .annotation-status-panel,
 body.annotation-page .class-management-panel,
 body.annotation-page .annotation-group > .panel-header,
+body.annotation-page .cell-classes-panel > .panel-header,
+body.annotation-page .cell-display-section > .panel-header,
+body.annotation-page .cell-annotations-panel > .panel-header,
+body.annotation-page .cell-patch-list-section > .panel-header,
 body.annotation-page .annotation-style-panel,
-body.annotation-page .annotation-group > .btn-row {
+body.annotation-page .annotation-group > .btn-row,
+body.annotation-page .cell-annotations-panel > .btn-row {
     flex: 0 0 auto;
 }
 body.annotation-page .annotation-list {
@@ -3499,9 +3606,21 @@ body.annotation-page.cell-patch-workflow-page .cell-patch-list {
     max-height: none;
 }
 body.annotation-page.cell-patch-workflow-page.cell-patch-view-active #annotation-list {
-    flex: 1 1 auto;
-    min-height: 180px;
+    flex: 0 0 auto;
+    min-height: 260px;
     max-height: 360px;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-annotations-panel {
+    flex: 0 0 auto;
+    min-height: 340px;
+    overflow: visible;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .panel-group-collapsed.cell-annotations-panel,
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .panel-group-collapsed.cell-classes-panel,
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .panel-group-collapsed.cell-display-section,
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .panel-group-collapsed.cell-patch-list-section {
+    min-height: 0;
+    overflow: hidden;
 }
 body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-patch-list {
     flex: 0 0 auto;
@@ -3513,6 +3632,79 @@ body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-patch
     grid-template-columns: 34px minmax(82px, 1fr) 42px 42px 34px;
     align-items: center;
     gap: 5px;
+}
+.cell-ann-bulk-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) minmax(92px, 1fr) 42px;
+    gap: 5px;
+    align-items: center;
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border-light);
+    background: #fff;
+}
+.cell-ann-select-all {
+    display: flex;
+    min-width: 0;
+    gap: 5px;
+    align-items: center;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 800;
+}
+.cell-ann-select-all input,
+.cell-ann-check input {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+}
+.cell-ann-bulk-class,
+.cell-ann-bulk-delete {
+    min-width: 0;
+    height: 26px;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 800;
+}
+.cell-ann-bulk-delete {
+    color: #e74c3c;
+    cursor: pointer;
+}
+.cell-ann-bulk-class:disabled,
+.cell-ann-bulk-delete:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.ann-list-header.cell-ann-list-header,
+.ann-item.cell-ann-item {
+    grid-template-columns: 20px 34px minmax(82px, 1fr) 42px 42px 34px;
+}
+.ann-list-header.cell-ann-list-header {
+    top: 37px;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-ann-bulk-bar,
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .ann-list-header.cell-ann-list-header {
+    position: static;
+    top: auto;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .cell-ann-bulk-bar {
+    margin: 0;
+}
+body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .ann-list-header.cell-ann-list-header {
+    margin: 0;
+    border-top: 0;
+}
+.cell-ann-check {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.ann-item.bulk-selected {
+    background: rgba(108, 92, 231, 0.1);
 }
 .ann-list-header {
     position: sticky;

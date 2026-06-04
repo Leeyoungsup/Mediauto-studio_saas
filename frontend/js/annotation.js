@@ -4,8 +4,8 @@
 
 import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260604-01';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260604-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-11';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260604-05';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-18';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -980,7 +980,23 @@ function _applyViewerRoleRestrictions() {
         }
     });
 
-    document.querySelectorAll('.annotation-group button:not(.panel-minimize-btn), .annotation-group input, .annotation-group select').forEach(el => {
+    document.querySelectorAll([
+        '.annotation-group button:not(.panel-minimize-btn)',
+        '.annotation-group input',
+        '.annotation-group select',
+        '.cell-classes-panel button:not(.panel-minimize-btn)',
+        '.cell-classes-panel input',
+        '.cell-classes-panel select',
+        '.cell-annotations-panel button:not(.panel-minimize-btn)',
+        '.cell-annotations-panel input',
+        '.cell-annotations-panel select',
+        '.cell-display-section button:not(.panel-minimize-btn)',
+        '.cell-display-section input',
+        '.cell-display-section select',
+        '.cell-patch-list-section button:not(.panel-minimize-btn)',
+        '.cell-patch-list-section input',
+        '.cell-patch-list-section select',
+    ].join(',')).forEach(el => {
         el.disabled = true;
         if (!el.title) el.title = 'Viewer role cannot use annotation features.';
     });
@@ -1513,6 +1529,7 @@ let _annotationDisplayStyle = { strokeWidth: 2, fillOpacity: 0.1 };
 let _classManagementMode = 'apply';
 let _hiddenAnnotationClassIds = new Set();
 let _annotationListSort = { key: 'id', dir: 'asc' };
+let _annotationBulkSelection = new Set();
 
 function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
@@ -2642,8 +2659,68 @@ function renderAnnotationPanel() {
         return;
     }
     $annList.innerHTML = '';
+    const isCellPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
+    const currentIds = new Set((viewer.annotations || []).map(ann => ann.id));
+    _annotationBulkSelection = new Set([..._annotationBulkSelection].filter(id => currentIds.has(id)));
+    if (isCellPatchView) {
+        const bulk = document.createElement('div');
+        bulk.className = 'cell-ann-bulk-bar';
+        const selectedCount = _annotationBulkSelection.size;
+        bulk.innerHTML = `
+            <label class="cell-ann-select-all">
+                <input type="checkbox" ${selectedCount > 0 && selectedCount === currentIds.size ? 'checked' : ''}>
+                <span>${selectedCount ? `${selectedCount} selected` : 'Select'}</span>
+            </label>
+            <select class="cell-ann-bulk-class" ${selectedCount ? '' : 'disabled'} title="Apply class to selected cells">
+                <option value="">Class</option>
+                ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}">${_esc(cls.name)}</option>`).join('')}
+            </select>
+            <button type="button" class="cell-ann-bulk-delete" ${selectedCount ? '' : 'disabled'}>Del</button>
+        `;
+        bulk.querySelector('.cell-ann-select-all input')?.addEventListener('change', (event) => {
+            _annotationBulkSelection = event.target.checked
+                ? new Set((viewer.annotations || []).map(ann => ann.id))
+                : new Set();
+            renderAnnotationPanel();
+        });
+        bulk.querySelector('.cell-ann-bulk-class')?.addEventListener('change', (event) => {
+            const classId = event.target.value;
+            if (!classId || !_annotationBulkSelection.size) return;
+            if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
+            viewer.pushAnnotationUndo?.();
+            const selected = new Set(_annotationBulkSelection);
+            for (const ann of viewer.annotations || []) {
+                if (!selected.has(ann.id)) continue;
+                _applyClassToAnnotation(ann, classId);
+                if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
+            }
+            viewer.requestRender();
+            renderClassManagementPanel();
+            renderAnnotationPanel();
+        });
+        bulk.querySelector('.cell-ann-bulk-delete')?.addEventListener('click', () => {
+            if (!_annotationBulkSelection.size) return;
+            if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
+            viewer.pushAnnotationUndo?.();
+            const selected = new Set(_annotationBulkSelection);
+            const removed = (viewer.annotations || []).filter(ann => selected.has(ann.id));
+            viewer.annotations = (viewer.annotations || []).filter(ann => !selected.has(ann.id));
+            if (selected.has(viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
+            removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+            _annotationBulkSelection = new Set();
+            viewer.requestRender();
+            renderClassManagementPanel();
+            renderAnnotationPanel();
+        });
+        $annList.appendChild(bulk);
+    }
     const header = document.createElement('div');
-    header.className = 'ann-list-header';
+    header.className = 'ann-list-header' + (isCellPatchView ? ' cell-ann-list-header' : '');
+    if (isCellPatchView) {
+        const cell = document.createElement('span');
+        cell.textContent = '';
+        header.appendChild(cell);
+    }
     _ANNOTATION_LIST_COLUMNS.forEach(({ key, label }) => {
         const cell = document.createElement('span');
         cell.className = 'ann-sort-header' + (_annotationListSort.key === key ? ' active' : '');
@@ -2672,9 +2749,10 @@ function renderAnnotationPanel() {
         const memoTitle = memo ? memo : (memoHistory.length ? `${memoHistory.length} previous memo(s)` : 'No memo');
         const memoClass = memo ? ' has-memo' : (hasAnsweredMemo ? ' has-history' : '');
         const el = document.createElement('div');
-        el.className = 'ann-item' + (ann.selected ? ' selected' : '');
+        el.className = 'ann-item' + (ann.selected ? ' selected' : '') + (_annotationBulkSelection.has(ann.id) ? ' bulk-selected' : '') + (isCellPatchView ? ' cell-ann-item' : '');
         el.dataset.id = ann.id;
         el.innerHTML = `
+            ${isCellPatchView ? `<label class="cell-ann-check" title="Select cell"><input type="checkbox" ${_annotationBulkSelection.has(ann.id) ? 'checked' : ''}></label>` : ''}
             <span class="ann-id" title="Double-click to center">${_esc(displayId)}</span>
             <span class="ann-class-wrap" style="--ann-class-color: rgb(${_normalizeColor(annClass.color).join(',')})">
                 <select class="ann-class-select" title="Annotation class">
@@ -2695,10 +2773,17 @@ function renderAnnotationPanel() {
                 annDeleteButton.title = readOnlyTitle;
             }
         }
+        el.querySelector('.cell-ann-check input')?.addEventListener('change', (e) => {
+            e.stopPropagation();
+            if (e.target.checked) _annotationBulkSelection.add(ann.id);
+            else _annotationBulkSelection.delete(ann.id);
+            renderAnnotationPanel();
+        });
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-btn-memo') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') ||
-                e.target.closest('.ann-class-select')) return;
+                e.target.closest('.ann-class-select') ||
+                e.target.closest('.cell-ann-check')) return;
             viewer.selectAnnotation(ann.id);
         });
         el.addEventListener('contextmenu', (e) => {
@@ -2879,10 +2964,16 @@ viewer.onAnnotationSelected = (ann) => {
     renderAnnotationPanel();
 };
 viewer.onAnnotationDeleted = (ann) => {
+    if (cellPatchWorkflow?.patchFocusActive) {
+        cellPatchWorkflow.removePatchLabelFromAnnotation?.(ann);
+    }
     renderAnnotationPanel();
     _setSlideListMemoIndicator();
 };
 viewer.onAnnotationChanged = (ann) => {
+    if (cellPatchWorkflow?.patchFocusActive) {
+        cellPatchWorkflow.updatePatchLabelFromAnnotation?.(ann);
+    }
 };
 viewer.onAnnotationContextMenu = (ann) => {
     _editAnnotationMemo(ann);
@@ -2892,6 +2983,7 @@ const _origDelete = viewer.deleteAnnotation.bind(viewer);
 viewer.deleteAnnotation = (id) => {
     const ann = viewer.annotations.find(a => a.id === id);
     _origDelete(id);
+    _annotationBulkSelection.delete(id);
     if (ann && viewer.onAnnotationDeleted) viewer.onAnnotationDeleted(ann);
 };
 
@@ -2949,6 +3041,25 @@ function _cellEditKeydown(e) {
 
 function _doDeleteCell() {
     if (!_cellEditCtx) return;
+    if (_cellEditCtx.patchAnnotations) {
+        viewer.pushAnnotationUndo?.();
+        const indices = _cellEditCtx.multi
+            ? [..._cellEditCtx.indices].sort((a, b) => b - a)
+            : [_cellEditCtx.idx];
+        const removed = [];
+        for (const idx of indices) {
+            if (idx < 0 || idx >= viewer.annotations.length) continue;
+            const [ann] = viewer.annotations.splice(idx, 1);
+            if (ann) removed.push(ann);
+        }
+        if (removed.some(ann => ann.id === viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
+        removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+        viewer.requestRender();
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+        _closeCellEditPopup();
+        return;
+    }
     if (_cellEditCtx.hiddenOther) {
         _closeCellEditPopup();
         return;
@@ -2963,6 +3074,21 @@ function _doDeleteCell() {
 
 function _doChangeClass(newClsId) {
     if (!_cellEditCtx) return;
+    if (_cellEditCtx.patchAnnotations) {
+        viewer.pushAnnotationUndo?.();
+        const indices = _cellEditCtx.multi ? _cellEditCtx.indices : [_cellEditCtx.idx];
+        for (const idx of indices) {
+            const ann = viewer.annotations[idx];
+            if (!ann) continue;
+            _applyClassToAnnotation(ann, newClsId);
+            viewer.onAnnotationChanged?.(ann);
+        }
+        viewer.requestRender();
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+        _closeCellEditPopup();
+        return;
+    }
     const name = _cellEditCtx.classNames[String(newClsId)] || `Class ${newClsId}`;
     if (_cellEditCtx.hiddenOther) {
         viewer.promoteHiddenCells?.(_cellEditCtx.indices, newClsId, name);
@@ -3734,6 +3860,190 @@ function _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, optio
 viewer.onCellsMultiEditRequested = _showMultiCellEditPopup;
 viewer.onHiddenCellsMultiEditRequested = (listIndices, listCells, screenX, screenY) =>
     _showMultiCellEditPopup(listIndices, listCells, screenX, screenY, { hiddenOther: true });
+
+function _patchCellEditClassMaps() {
+    const classNames = {};
+    const classColors = {};
+    for (const cls of _annotationClasses) {
+        classNames[String(cls.id)] = cls.name;
+        classColors[String(cls.id)] = _normalizeColor(cls.color);
+    }
+    return { classNames, classColors };
+}
+
+function _patchCellDisplayClass(ann) {
+    const cls = _getAnnotationClass(ann?.class_id || ann?.properties?.class_id);
+    return {
+        id: cls.id,
+        name: cls.name,
+        color: _normalizeColor(cls.color),
+    };
+}
+
+function _placeCellEditPopup(popup, screenX, screenY) {
+    document.body.appendChild(popup);
+    const pw = popup.offsetWidth;
+    const ph = popup.offsetHeight;
+    let px = screenX;
+    let py = screenY;
+    if (px + pw > window.innerWidth) px = window.innerWidth - pw - 8;
+    if (py + ph > window.innerHeight) py = window.innerHeight - ph - 8;
+    popup.style.left = `${Math.max(4, px)}px`;
+    popup.style.top = `${Math.max(4, py)}px`;
+}
+
+function _makePatchCellClassButton(cls, keyLabel = '') {
+    const color = _normalizeColor(cls.color);
+    const colorCss = `rgb(${color.join(',')})`;
+    const btn = document.createElement('button');
+    btn.style.cssText = `
+        display:flex;align-items:center;gap:0;
+        width:100%;margin:3px 0;padding:0;
+        background:#f0f0f0;color:#222;
+        border:1px solid #ccc;border-radius:4px;
+        font-size:12px;cursor:pointer;text-align:left;
+        box-sizing:border-box;overflow:hidden;
+        min-height:30px;
+    `;
+    btn.onmouseover = () => { btn.style.background = '#4a90d9'; btn.style.color = '#fff'; };
+    btn.onmouseout = () => { btn.style.background = '#f0f0f0'; btn.style.color = '#222'; };
+    const stripe = document.createElement('span');
+    stripe.style.cssText = `flex:0 0 12px;align-self:stretch;background:${colorCss};display:block;`;
+    const sw = document.createElement('span');
+    sw.style.cssText = `flex:0 0 16px;height:16px;border-radius:3px;background:${colorCss};border:1px solid #333;display:inline-block;margin-left:8px;`;
+    const text = document.createElement('span');
+    text.textContent = keyLabel ? `[${keyLabel}] ${cls.name}` : cls.name;
+    text.style.cssText = 'flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    btn.append(stripe, sw, text);
+    btn.addEventListener('click', () => _doChangeClass(cls.id));
+    return btn;
+}
+
+function _showPatchCellEditPopup(idx, ann, screenX, screenY) {
+    if (!cellPatchWorkflow?.patchFocusActive || !cellPatchWorkflow.canAnnotateSelectedPatch?.()) return;
+    _closeCellEditPopup();
+    const cur = _patchCellDisplayClass(ann);
+    const popup = document.createElement('div');
+    popup.className = 'cell-edit-popup';
+    popup.style.cssText = `
+        position: fixed; z-index: 9999;
+        background: #ffffff; color: #222;
+        border: 1px solid #ccc; border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        padding: 10px 12px; min-width: 200px;
+        font-family: sans-serif; font-size: 12px;
+        user-select: none;
+    `;
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    const swatch = document.createElement('span');
+    swatch.style.cssText = `display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #888;background:rgb(${cur.color.join(',')});`;
+    const label = document.createElement('span');
+    label.innerHTML = `<b>${_esc(cur.name)}</b>`;
+    header.append(swatch, label);
+    popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep);
+    const title = document.createElement('div');
+    title.textContent = 'Change Class:';
+    title.style.cssText = 'margin-bottom:4px;';
+    popup.appendChild(title);
+    const classButtonOrder = [];
+    _annotationClasses.forEach((cls, i) => {
+        if (cls.id === cur.id) return;
+        const keyLabel = classButtonOrder.length < 10 ? String((classButtonOrder.length + 1) % 10) : '';
+        popup.appendChild(_makePatchCellClassButton(cls, keyLabel));
+        classButtonOrder.push(cls.id);
+    });
+    const sep2 = document.createElement('div');
+    sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep2);
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete Cell  (Del / D)';
+    delBtn.style.cssText = 'display:block;width:100%;padding:7px 10px;background:#fdecea;color:#c0392b;border:1px solid #e74c3c;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;';
+    delBtn.onmouseover = () => { delBtn.style.background = '#e74c3c'; delBtn.style.color = '#fff'; };
+    delBtn.onmouseout = () => { delBtn.style.background = '#fdecea'; delBtn.style.color = '#c0392b'; };
+    delBtn.addEventListener('click', _doDeleteCell);
+    popup.appendChild(delBtn);
+    _placeCellEditPopup(popup, screenX, screenY);
+    const { classNames, classColors } = _patchCellEditClassMaps();
+    _cellEditPopupEl = popup;
+    _cellEditCtx = { patchAnnotations: true, idx, classNames, classColors, classButtonOrder };
+    setTimeout(() => {
+        document.addEventListener('mousedown', _outsideCellEditClick, true);
+        document.addEventListener('keydown', _cellEditKeydown, true);
+    }, 0);
+}
+
+function _showPatchMultiCellEditPopup(indices, annotations, screenX, screenY) {
+    if (!cellPatchWorkflow?.patchFocusActive || !cellPatchWorkflow.canAnnotateSelectedPatch?.()) return;
+    _closeCellEditPopup();
+    if (!Array.isArray(indices) || !indices.length) return;
+    const popup = document.createElement('div');
+    popup.className = 'cell-edit-popup';
+    popup.style.cssText = `
+        position: fixed; z-index: 9999;
+        background: #ffffff; color: #222;
+        border: 1px solid #ccc; border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        padding: 10px 12px; min-width: 220px;
+        width: min(360px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+        box-sizing: border-box;
+        font-family: sans-serif; font-size: 12px;
+        user-select: none;
+    `;
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    header.innerHTML = `<b>${indices.length} cells selected</b>`;
+    popup.appendChild(header);
+    _makeCellEditPopupDraggable(popup, header);
+    const counts = {};
+    for (const ann of annotations || []) {
+        const cls = _patchCellDisplayClass(ann);
+        counts[cls.id] = (counts[cls.id] || 0) + 1;
+    }
+    const breakdown = document.createElement('div');
+    breakdown.style.cssText = 'font-size:11px;color:#666;margin-bottom:6px;max-height:60px;overflow-y:auto;white-space:normal;word-break:break-word;line-height:1.35;';
+    breakdown.textContent = Object.entries(counts).map(([id, count]) => `${_getAnnotationClass(id).name}: ${count}`).join(' · ');
+    popup.appendChild(breakdown);
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep);
+    const title = document.createElement('div');
+    title.textContent = 'Change All To:';
+    title.style.cssText = 'margin-bottom:4px;';
+    popup.appendChild(title);
+    const classButtonOrder = [];
+    _annotationClasses.forEach((cls) => {
+        const keyLabel = classButtonOrder.length < 10 ? String((classButtonOrder.length + 1) % 10) : '';
+        popup.appendChild(_makePatchCellClassButton(cls, keyLabel));
+        classButtonOrder.push(cls.id);
+    });
+    const sep2 = document.createElement('div');
+    sep2.style.cssText = 'height:1px;background:#ddd;margin:6px 0;';
+    popup.appendChild(sep2);
+    const delBtn = document.createElement('button');
+    delBtn.textContent = `Delete ${indices.length} Cells  (Del / D)`;
+    delBtn.style.cssText = 'display:block;width:100%;padding:7px 10px;background:#fdecea;color:#c0392b;border:1px solid #e74c3c;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;';
+    delBtn.onmouseover = () => { delBtn.style.background = '#e74c3c'; delBtn.style.color = '#fff'; };
+    delBtn.onmouseout = () => { delBtn.style.background = '#fdecea'; delBtn.style.color = '#c0392b'; };
+    delBtn.addEventListener('click', _doDeleteCell);
+    popup.appendChild(delBtn);
+    _placeCellEditPopup(popup, screenX, screenY);
+    const { classNames, classColors } = _patchCellEditClassMaps();
+    _cellEditPopupEl = popup;
+    _cellEditCtx = { patchAnnotations: true, multi: true, indices: [...indices], classNames, classColors, classButtonOrder };
+    setTimeout(() => {
+        document.addEventListener('mousedown', _outsideCellEditClick, true);
+        document.addEventListener('keydown', _cellEditKeydown, true);
+    }, 0);
+}
+
+viewer.onPatchCellEditRequested = _showPatchCellEditPopup;
+viewer.onPatchCellsMultiEditRequested = _showPatchMultiCellEditPopup;
 
 viewer.onCellEdited = () => {
     if (_lastDetectionResult) {

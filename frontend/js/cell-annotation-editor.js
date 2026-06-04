@@ -99,6 +99,18 @@ export class CellAnnotationEditor {
         return { class_id: String(classId || ''), class_name: String(className || '') };
     }
 
+    _normalizeCellColor(value, classId = '', className = '') {
+        const arr = Array.isArray(value) ? value : null;
+        if (arr && arr.length >= 3) {
+            const rgb = arr.slice(0, 3).map(Number);
+            if (rgb.every(Number.isFinite)) return rgb.map(v => Math.max(0, Math.min(255, Math.round(v))));
+        }
+        const name = String(className || '').trim().toLowerCase();
+        const id = String(classId || '').trim().toLowerCase();
+        if (id === 'other' || name === 'other') return [149, 165, 166];
+        return [149, 165, 166];
+    }
+
     _status() {
         return String(this.patch?.str_status || this.patch?.status || 'required').toLowerCase();
     }
@@ -125,6 +137,7 @@ export class CellAnnotationEditor {
     }
 
     _cellToAnnotation(cell, idx = 0) {
+        const bbox = cell?.bbox || {};
         const coords = Array.isArray(cell?.coordinates) && cell.coordinates.length
             ? cell.coordinates
             : (Array.isArray(cell?.local_coordinates) ? cell.local_coordinates.map(([x, y]) => {
@@ -135,17 +148,26 @@ export class CellAnnotationEditor {
             .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : [Number(point.x), Number(point.y)])
             .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
         if (!coordinates.length && cell?.bbox) {
-            const x = Number(cell.bbox.x ?? cell.bbox.x0);
-            const y = Number(cell.bbox.y ?? cell.bbox.y0);
-            const w = Math.max(1, Number(cell.bbox.width ?? (Number(cell.bbox.x1) - x)));
-            const h = Math.max(1, Number(cell.bbox.height ?? (Number(cell.bbox.y1) - y)));
+            const x = Number(bbox.x ?? bbox.x0);
+            const y = Number(bbox.y ?? bbox.y0);
+            const w = Math.max(1, Number(bbox.width ?? (Number(bbox.x1) - x)));
+            const h = Math.max(1, Number(bbox.height ?? (Number(bbox.y1) - y)));
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) {
                 coordinates = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
             }
         }
         const classId = String(cell?.class_id ?? cell?.classId ?? '');
         const className = String(cell?.class_name ?? cell?.className ?? '');
-        const color = cell?.color || cell?.class_color || cell?.properties?.color || [0, 255, 0];
+        const color = this._normalizeCellColor(
+            cell?.color || cell?.class_color || cell?.properties?.color,
+            classId,
+            className,
+        );
+        const center = [
+            Number(cell?.x ?? cell?.center_x ?? bbox.center_x ?? 0),
+            Number(cell?.y ?? cell?.center_y ?? bbox.center_y ?? 0),
+        ];
+        const source = cell?.source || 'patch_cell_annotation';
         return {
             id: String(cell?.id || `patch_cell_${idx + 1}`),
             name: String(idx + 1),
@@ -156,12 +178,16 @@ export class CellAnnotationEditor {
             selected: false,
             class_id: classId,
             class_name: className,
-            source: cell?.source || 'patch_cell_annotation',
+            source,
+            cell_center: center,
+            cell_bbox: bbox,
             properties: {
                 ...(cell?.properties || {}),
                 class_id: classId,
                 class_name: className,
-                source: cell?.source || 'patch_cell_annotation',
+                source,
+                cell_center: center,
+                cell_bbox: bbox,
             },
         };
     }
@@ -227,6 +253,33 @@ export class CellAnnotationEditor {
         this.onStatus(`Patch label added: ${this.patch.patch_id}`);
         this.render();
         return cell;
+    }
+
+    updateAnnotationLabel(annotation) {
+        if (!this.slideId || !this.patch || !annotation) return null;
+        const cell = this._annotationToPatchCell(annotation);
+        const annotationId = String(annotation.id || cell.id || '');
+        let updated = false;
+        this.cells = (this.cells || []).map((item) => {
+            if (String(item?.id || '') !== annotationId) return item;
+            updated = true;
+            return { ...item, ...cell, id: annotationId || cell.id };
+        });
+        if (!updated) {
+            this.cells = [...(this.cells || []), { ...cell, id: annotationId || cell.id }];
+        }
+        this.render();
+        return cell;
+    }
+
+    removeAnnotationLabel(annotationOrId) {
+        const annotationId = String(annotationOrId?.id ?? annotationOrId ?? '');
+        if (!annotationId) return false;
+        const before = (this.cells || []).length;
+        this.cells = (this.cells || []).filter(cell => String(cell?.id || '') !== annotationId);
+        const changed = this.cells.length !== before;
+        if (changed) this.render();
+        return changed;
     }
 
     clearViewerAnnotations() {

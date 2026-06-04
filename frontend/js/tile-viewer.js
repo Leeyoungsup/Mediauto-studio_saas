@@ -142,6 +142,8 @@ export class TileViewer {
         this.onHiddenCellsMultiEditRequested = null; // (indices, hidden cells, screenX, screenY) callback
         this.onCellAddRequested = null;  // (sx, sy, screenX, screenY) callback for Alt+right-click
         this.onCellEdited = null;        // text text text
+        this.onPatchCellEditRequested = null;
+        this.onPatchCellsMultiEditRequested = null;
         // Alt+Drag text text
         this._altPending = null;   // { sx, sy, cx, cy, clientX, clientY }
         this._lassoActive = false;
@@ -178,6 +180,7 @@ export class TileViewer {
 
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
+        this.cellAnnotationDisplayMode = 'bbox';
         this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
         this._drawingPoints = [];     // text text text text (scene)
         this._drawingStart = null;    // text text (scene)
@@ -685,7 +688,7 @@ export class TileViewer {
                 }
             }
 
-            if (e.button === 0 && e.altKey && !this.drawMode) {
+            if (e.button === 0 && e.altKey && !this.drawMode && !this.cellAnnotationPatchViewActive) {
                 const insertHit = this._findPolygonEdgeInsertTarget(sx, sy);
                 if (insertHit) {
                     this._insertVertexAtEdge(insertHit);
@@ -694,10 +697,12 @@ export class TileViewer {
                 }
             }
 
-            if (this.canEditDetectionResults && e.altKey && e.button === 0 && this.detectionCells.length > 0) {
+            if (this.canEditDetectionResults && e.altKey && e.button === 0 &&
+                    (this.detectionCells.length > 0 || this._cellAnnotationEditModeActive())) {
                 this._altPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
+                    patchAnnotations: !this.detectionCells.length && this._cellAnnotationEditModeActive(),
                 };
                 this._lassoActive = false;
                 this._lassoPoints = [];
@@ -808,7 +813,7 @@ export class TileViewer {
                     return;
                 }
             }
-            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
+            if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode && !this.cellAnnotationPatchViewActive) {
                 this._setInsertVertexPreview(e.altKey ? this._findPolygonEdgeInsertTarget(sx, sy) : null);
                 if (this._insertVertexPreview) {
                     this.canvas.style.cursor = 'copy';
@@ -911,13 +916,20 @@ export class TileViewer {
                     const pts = this._lassoPoints;
                     this._lassoPoints = [];
                     if (pts.length >= 3) {
-                        const list_indices = pending.hiddenOther
+                        const list_indices = pending.patchAnnotations
+                            ? this._findCellAnnotationsInPolygon(pts)
+                            : pending.hiddenOther
                             ? this._findHiddenCellsInPolygon(pts)
                             : this._findCellsInPolygon(pts);
                         if (list_indices.length > 0) {
                             // text text text text closetext highlighttext text
                             // text text text text text highlight Settext text
-                            if (pending.hiddenOther) {
+                            if (pending.patchAnnotations) {
+                                if (this.onPatchCellsMultiEditRequested) {
+                                    const list_cells = list_indices.map(i => this.annotations[i]);
+                                    this.onPatchCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
+                                }
+                            } else if (pending.hiddenOther) {
                                 if (this.onHiddenCellsMultiEditRequested) {
                                     const list_cells = list_indices.map(i => this.hiddenDetectionCells[i]);
                                     this.onHiddenCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
@@ -946,13 +958,17 @@ export class TileViewer {
                         return;
                     }
                     // text Alt+text: text text text text
-                    const hit = this._findNearestCell(pending.sx, pending.sy, 30);
+                    const hit = pending.patchAnnotations
+                        ? this._findNearestCellAnnotation(pending.sx, pending.sy, 30)
+                        : this._findNearestCell(pending.sx, pending.sy, 30);
                     if (hit) {
-                        if (this.onCellEditRequested) {
+                        if (pending.patchAnnotations && this.onPatchCellEditRequested) {
+                            this.onPatchCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
+                        } else if (this.onCellEditRequested) {
                             this.onCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
                         }
                         this._highlightedCellIdxSet = null;
-                        this._highlightedCellIdx = hit.index;
+                        this._highlightedCellIdx = pending.patchAnnotations ? -1 : hit.index;
                         this.requestRender();
                     }
                 }
@@ -1963,6 +1979,56 @@ export class TileViewer {
         return null;
     }
 
+    _cellAnnotationEditModeActive() {
+        return Boolean(this.cellAnnotationPatchViewActive && Array.isArray(this.annotations) && this.annotations.length);
+    }
+
+    _annotationCellCenter(annotation) {
+        const center = annotation?.cell_center || annotation?.properties?.cell_center;
+        if (Array.isArray(center) && center.length >= 2) {
+            const x = Number(center[0]);
+            const y = Number(center[1]);
+            if (Number.isFinite(x) && Number.isFinite(y) && (x || y)) return [x, y];
+        }
+        const bbox = annotation?.cell_bbox || annotation?.properties?.cell_bbox || {};
+        const bx = Number(bbox.x ?? bbox.x0);
+        const by = Number(bbox.y ?? bbox.y0);
+        const bw = Number(bbox.width ?? (Number(bbox.x1) - bx));
+        const bh = Number(bbox.height ?? (Number(bbox.y1) - by));
+        if (Number.isFinite(bx) && Number.isFinite(by) && Number.isFinite(bw) && Number.isFinite(bh)) {
+            return [bx + bw / 2, by + bh / 2];
+        }
+        const coords = Array.isArray(annotation?.coordinates) ? annotation.coordinates : [];
+        const points = coords
+            .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : null)
+            .filter(point => point && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        if (!points.length) return null;
+        const xs = points.map(point => point[0]);
+        const ys = points.map(point => point[1]);
+        return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    }
+
+    _findNearestCellAnnotation(sx, sy, maxScreenPx = 30) {
+        if (!this._cellAnnotationEditModeActive()) return null;
+        const maxDistWsi = this.zoom > 0 ? maxScreenPx / this.zoom : maxScreenPx;
+        let bestIdx = -1;
+        let bestAnn = null;
+        let bestDist = Infinity;
+        for (let i = 0; i < this.annotations.length; i++) {
+            const ann = this.annotations[i];
+            if (!ann || ann.visible === false) continue;
+            const center = this._annotationCellCenter(ann);
+            if (!center) continue;
+            const d = Math.hypot(center[0] - sx, center[1] - sy);
+            if (d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+                bestAnn = ann;
+            }
+        }
+        return bestIdx >= 0 && bestDist <= maxDistWsi ? { index: bestIdx, cell: bestAnn } : null;
+    }
+
     /** Ray-casting point-in-polygon (scene text) */
     _pointInPolygon(x, y, poly) {
         let inside = false;
@@ -2004,6 +2070,19 @@ export class TileViewer {
             if (this._pointInPolygon(cell.x, cell.y, poly)) {
                 list_result.push(index);
             }
+        }
+        return list_result;
+    }
+
+    _findCellAnnotationsInPolygon(poly) {
+        if (!this._cellAnnotationEditModeActive() || poly.length < 3) return [];
+        const list_result = [];
+        for (let i = 0; i < this.annotations.length; i++) {
+            const ann = this.annotations[i];
+            if (!ann || ann.visible === false) continue;
+            const center = this._annotationCellCenter(ann);
+            if (!center) continue;
+            if (this._pointInPolygon(center[0], center[1], poly)) list_result.push(i);
         }
         return list_result;
     }
@@ -2640,7 +2719,8 @@ export class TileViewer {
 
     _renderDetectionOverlay() {
         const octx = this.overlayCtx;
-        if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet) return;
+        if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet &&
+                !(this._lassoActive && this._cellAnnotationEditModeActive())) return;
 
         // effectiveMpp text: text text text text text
         // mpp < 3.0 → text text, mpp >= 3.0 → text → text
@@ -3636,6 +3716,25 @@ export class TileViewer {
             const strokeWidth = Math.max(1, Math.min(12, Number(this.annotationStrokeWidth ?? 2)));
             const fillColor = `rgba(${r},${g},${b},${fillOpacity})`;
             const lineWidth = ann.selected ? strokeWidth + 1 : strokeWidth;
+            const isCellAnnotation = ann.source === 'patch_cell_annotation' ||
+                ann.source === 'wsi_labeling_assistance' ||
+                ann.properties?.source === 'patch_cell_annotation' ||
+                ann.properties?.source === 'wsi_labeling_assistance' ||
+                Boolean(this.cellAnnotationPatchViewActive && ann.type === 'rectangle');
+
+            if (isCellAnnotation && this.cellAnnotationDisplayMode === 'point') {
+                const center = ann.properties?.cell_center || ann.cell_center || ann.center ||
+                    (Array.isArray(ann.coordinates) && ann.coordinates.length
+                        ? [
+                            ann.coordinates.reduce((sum, pt) => sum + Number(pt?.[0] || 0), 0) / ann.coordinates.length,
+                            ann.coordinates.reduce((sum, pt) => sum + Number(pt?.[1] || 0), 0) / ann.coordinates.length,
+                        ]
+                        : null);
+                if (Array.isArray(center) && center.length >= 2) {
+                    this._drawCellAnnotationPoint(octx, Number(center[0]), Number(center[1]), [r, g, b], ann.selected);
+                    continue;
+                }
+            }
 
             if (ann.type === 'polygon') {
                 this._drawPolygon(octx, ann.coordinates, strokeColor, fillColor, lineWidth);
@@ -3662,6 +3761,35 @@ export class TileViewer {
         this._renderInsertVertexPreview(octx);
         this._renderMergeHover(octx);
         this._renderDrawingPreview(octx);
+    }
+
+    _drawCellAnnotationPoint(octx, sx, sy, color, selected = false) {
+        if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+        const [cx, cy] = this.sceneToCanvas(sx, sy);
+        const effectiveMpp = this.getEffectiveMpp();
+        const baseRadius = effectiveMpp < 1.0 ? 8 : 5;
+        const radius = Math.max(2, baseRadius * this.zoom);
+        const [r, g, b] = color || [0, 255, 0];
+        octx.save();
+        if (selected) {
+            octx.strokeStyle = 'rgba(0,0,0,0.85)';
+            octx.lineWidth = 3;
+            octx.beginPath();
+            octx.arc(cx, cy, radius + 2, 0, Math.PI * 2);
+            octx.stroke();
+        }
+        octx.lineWidth = effectiveMpp < 1.0 ? 2 : 1.2;
+        octx.strokeStyle = `rgb(${r},${g},${b})`;
+        octx.beginPath();
+        octx.arc(cx, cy, radius, 0, Math.PI * 2);
+        octx.stroke();
+        if (selected) {
+            octx.fillStyle = `rgba(${r},${g},${b},0.22)`;
+            octx.beginPath();
+            octx.arc(cx, cy, radius, 0, Math.PI * 2);
+            octx.fill();
+        }
+        octx.restore();
     }
 
     _renderMergeHover(octx) {

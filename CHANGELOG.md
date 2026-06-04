@@ -2,6 +2,138 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.203] - 2026-06-04
+
+### Added
+
+- Add Detection AI style `Alt + left click` single-cell edit and `Alt + left drag` multi-cell edit to Cell Annotation patch view.
+
+### Fixed
+
+- Prefer Cell Annotation patch cell editing over polygon vertex insertion while patch view is active.
+- Refresh Cell Annotation frontend cache versions for the patch-view Alt-edit workflow.
+
+## [1.1.202] - 2026-06-04
+
+### Fixed
+
+- Hide the Cell Annotation exclude-region toolbar control while patch view is active.
+- Restore non-sticky Cell Annotation patch-view annotation list controls to avoid the repeated spacing gap.
+- Refresh the Cell Annotation CSS cache version for the toolbar and list layout fix.
+
+## [1.1.201] - 2026-06-04
+
+### Fixed
+
+- Pin the Cell Annotation patch-view bulk controls and column header together while the annotation rows scroll underneath.
+- Refresh the Cell Annotation CSS cache version for the sticky annotation list controls.
+
+## [1.1.200] - 2026-06-04
+
+### Fixed
+
+- Remove the extra gap between Cell Annotation patch-view bulk controls and annotation list column headers.
+- Refresh the Cell Annotation CSS cache version for the annotation list spacing fix.
+
+## [1.1.199] - 2026-06-04
+
+### Fixed
+
+- Let collapsed Cell Annotation patch-view right-panel sections shrink back to header height while keeping expanded annotation lists usable.
+- Refresh the Cell Annotation CSS cache version for the collapsed panel sizing fix.
+
+## [1.1.198] - 2026-06-04
+
+### Fixed
+
+- Restore a usable minimum height for the Cell Annotation patch-view annotation list and keep split right-panel sections from shrinking into compressed rows.
+- Refresh the Cell Annotation CSS cache version for the right-panel sizing fix.
+
+## [1.1.197] - 2026-06-04
+
+### Fixed
+
+- Sync Cell Annotation patch-view class changes and deletions back into the patch cell state so reclassified cells no longer revert to `Other` during display changes or saves.
+- Refresh Cell Annotation frontend cache versions for the patch class synchronization fix.
+
+## [1.1.196] - 2026-06-04
+
+### Fixed
+
+- Use Cell Annotation class-aware fallback colors when rebuilding patch viewer annotations so `Other` does not turn green during bbox/point display switching.
+
+## [1.1.195] - 2026-06-04
+
+### Changed
+
+- Render Cell Annotation `Point` display mode with detection-cell-style outline markers instead of filled annotation dots.
+
+## [1.1.194] - 2026-06-04
+
+### Fixed
+
+- Apply Cell Annotation `Point` display mode directly in the tile viewer for patch-view rectangle cell annotations.
+- Clear stale detection overlays and resync patch annotations when switching Cell Annotation display modes.
+
+## [1.1.193] - 2026-06-04
+
+### Fixed
+
+- Remove the fixed minimum height from the Cell Annotation patch-view annotation list panel so it collapses naturally when empty.
+- Reflow Cell Classes and Cell Display split panels so controls align vertically instead of compressing into the header area.
+
+## [1.1.192] - 2026-06-04
+
+### Fixed
+
+- Force Cell Annotation patch-view right-panel sections to sync from `patchFocusActive` so classes, display controls, annotations, and patch list remain visible in patch view.
+
+## [1.1.191] - 2026-06-04
+
+### Fixed
+
+- Clear patch cell annotation overlays whenever Cell Annotation returns to WSI view or selects patches outside patch view.
+- Keep WSI view focused on workflow and patch list sections while showing class, display, and annotation editing sections only in patch view.
+
+## [1.1.190] - 2026-06-04
+
+### Changed
+
+- Split the Cell Annotation right panel into separate workflow, class, display, annotation list, and patch list sections.
+- Add independent collapse state handling for dynamically created Cell Annotation right-panel sections.
+
+## [1.1.189] - 2026-06-04
+
+### Added
+
+- Add Cell Annotation patch-view display modes for bbox and point-style cell rendering while preserving bbox-backed cell data.
+- Add patch-view bulk cell selection, bulk class assignment, and bulk delete controls to the annotation list.
+
+### Changed
+
+- Hide the AI Assistance toggle inside patch view and keep it as a WSI-level assistance control.
+
+## [1.1.188] - 2026-06-04
+
+### Fixed
+
+- Regenerate all existing Cell Annotation `WSI_Labeling_assistance.json` files from full AI cache output so both inherited and non-inherited assistance data include `excluded_cells`.
+- Normalize regenerated non-inherited assistance labels to the single `Other` class.
+
+## [1.1.187] - 2026-06-04
+
+### Fixed
+
+- Include inherited AI `excluded_cells` when generating Cell Annotation WSI labeling assistance so HER2 Other labels appear in the viewer and annotation list.
+- Merge WSI labeling assistance payload classes into patch assistance cell lookup so inherited classes keep their color and name metadata.
+
+## [1.1.186] - 2026-06-04
+
+### Fixed
+
+- Increase the Cell Annotation patch-view class list height so HER2 3+ and Other are visible instead of being clipped by the compact panel.
+- Refresh Cell Annotation CSS cache version for the class panel layout fix.
+
 ## [1.1.185] - 2026-06-04
 
 ### Fixed
