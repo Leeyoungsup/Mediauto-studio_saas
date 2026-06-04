@@ -1452,6 +1452,7 @@ async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
         "exists": True,
         "total_labels": len(labels),
         "cell_count": len(cells),
+        "classes": _assistance_metadata(payload).get("classes") or _load_cell_classes_for_project(_slide_project_path(info)),
         "cells": cells,
     }
 

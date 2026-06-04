@@ -1522,7 +1522,12 @@ export class CellPatchWorkflow {
         const applied = this.editor.applyAssistanceCells?.(payload.cells);
         if (applied) {
             window.dispatchEvent(new CustomEvent('cellpatch:annotationschange', {
-                detail: { patchId, source: 'wsi_labeling_assistance', count: payload.cells.length },
+                detail: {
+                    patchId,
+                    source: 'wsi_labeling_assistance',
+                    count: payload.cells.length,
+                    classes: Array.isArray(payload.classes) ? payload.classes : [],
+                },
             }));
             this.setStatus(`Patch AI assistance loaded: ${payload.cells.length.toLocaleString()} labels`);
         }

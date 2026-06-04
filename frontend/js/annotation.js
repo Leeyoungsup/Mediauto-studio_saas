@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260604-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260604-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-10';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-11';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -1545,7 +1545,8 @@ window.addEventListener('cellpatch:viewchange', () => {
     renderAnnotationPanel();
 });
 
-window.addEventListener('cellpatch:annotationschange', () => {
+window.addEventListener('cellpatch:annotationschange', (event) => {
+    _mergeAnnotationClasses(event?.detail?.classes);
     renderAnnotationPanel();
 });
 
@@ -1586,6 +1587,35 @@ function _normalizeAnnotationClass(cls, idx = 1) {
         name,
         color: _normalizeColor(cls?.color),
     };
+}
+
+function _mergeAnnotationClasses(classes = []) {
+    if (!Array.isArray(classes) || !classes.length) return false;
+    const incoming = classes.map((cls, idx) => _normalizeAnnotationClass(cls, idx + 1));
+    let changed = false;
+    _annotationClasses = _annotationClasses.filter(cls => {
+        const replacement = incoming.find(item => item.name.toLowerCase() === cls.name.toLowerCase() && item.id !== cls.id);
+        if (replacement) {
+            changed = true;
+            return false;
+        }
+        return true;
+    });
+    const ids = new Set(_annotationClasses.map(cls => cls.id));
+    for (const cls of incoming) {
+        if (ids.has(cls.id)) continue;
+        _annotationClasses.push(cls);
+        ids.add(cls.id);
+        changed = true;
+    }
+    if (!changed) return false;
+    if (!_annotationClasses.some(cls => cls.id === _activeAnnotationClassId)) {
+        _activeAnnotationClassId = _annotationClasses[0]?.id || 'default';
+    }
+    _hiddenAnnotationClassIds = new Set([..._hiddenAnnotationClassIds].filter(id => ids.has(id)));
+    _syncAnnotationClassMetadata();
+    renderClassManagementPanel();
+    return true;
 }
 
 function _applyClassToAnnotation(ann, classId) {

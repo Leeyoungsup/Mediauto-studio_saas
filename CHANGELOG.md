@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.185] - 2026-06-04
+
+### Fixed
+
+- Include assistance class metadata in patch assistance responses and merge it into the Cell Annotation patch-view class panel.
+- Refresh Cell Annotation patch-view cache versions so repaired Other classes appear without stale module state.
+
 ## [1.1.184] - 2026-06-04
 
 ### Fixed
