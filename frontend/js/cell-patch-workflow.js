@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260529-02';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260604-06';
 
 class PatchFocusLayer {
     constructor() {
@@ -282,9 +282,7 @@ export class CellPatchWorkflow {
 
     _bindEvents() {
         this.canvas?.addEventListener('click', (e) => {
-            if (this.patchFocusActive) {
-                return;
-            }
+            if (this.patchFocusActive || e.defaultPrevented) return;
             if (!this.slideId || this.viewer.drawMode) return;
             const rect = this.canvas.getBoundingClientRect();
             const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
@@ -295,7 +293,7 @@ export class CellPatchWorkflow {
             if ((saved.str_status || saved.status) === 'not_required') return;
             this.openPatch({ ...patch, ...saved });
             this.renderPatchList();
-        }, true);
+        });
 
         this.canvas?.addEventListener('contextmenu', (e) => {
             if (this._isLabelerRole()) return;
@@ -310,9 +308,7 @@ export class CellPatchWorkflow {
         }, true);
 
         this.canvas?.addEventListener('dblclick', (e) => {
-            if (this.patchFocusActive) {
-                return;
-            }
+            if (this.patchFocusActive || e.defaultPrevented) return;
             if (!this.slideId || this.viewer.drawMode) return;
             const rect = this.canvas.getBoundingClientRect();
             const [sx, sy] = this.viewer.canvasToScene(e.clientX - rect.left, e.clientY - rect.top);
@@ -322,7 +318,7 @@ export class CellPatchWorkflow {
             this.openPatch({ ...patch, ...saved }).then(() => this.enterPatchView());
             e.preventDefault();
             e.stopPropagation();
-        }, true);
+        });
 
         window.addEventListener('keydown', (e) => {
             const tag = (e.target && e.target.tagName || '').toLowerCase();
@@ -395,6 +391,15 @@ export class CellPatchWorkflow {
                 ...normalized,
             });
             this.status.setSelectedPatch(id);
+        }
+        const editorPatchId = this.editor?.patch?.str_patch_id || this.editor?.patch?.patch_id;
+        if (editorPatchId === id) {
+            this.editor.patch = this._normalizePatchView({
+                ...(this.editor.patch || {}),
+                ...(this.selectedPatchId() === id ? this.selectedPatch : normalized),
+                patch_id: id,
+            });
+            this.editor.render?.();
         }
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
@@ -1084,6 +1089,9 @@ export class CellPatchWorkflow {
             const order = ['required', 'in_progress', 'completed'];
             const current = workflow.annotation === 'completed' ? 'completed' : (workflow.annotation || 'required');
             const nextStatus = order[(Math.max(0, order.indexOf(current)) + 1) % order.length];
+            if (nextStatus === 'completed' && this.patchFocusActive && this.selectedPatchId() === id) {
+                await this.saveSelectedPatchAnnotations({ complete: false });
+            }
             next.annotation = nextStatus;
             status = nextStatus;
             if (nextStatus !== 'completed') {
@@ -1388,6 +1396,7 @@ export class CellPatchWorkflow {
         this._scrollSelectedPatchIntoView();
         this._syncAnnotationStatusPanel();
         this._syncToolbarToggle();
+        this._notifyPatchViewStateChange();
     }
 
     _scrollSelectedPatchIntoView() {
@@ -1465,6 +1474,15 @@ export class CellPatchWorkflow {
         this.updatePatch(this.selectedPatch);
     }
 
+    async saveSelectedPatchAnnotations({ complete = false } = {}) {
+        if (!this.patchFocusActive || !this.selectedPatch) {
+            throw new Error('Patch view is not active.');
+        }
+        const patch = await this.editor.save({ complete });
+        if (patch) this.updatePatch(patch);
+        return patch;
+    }
+
     exitPatchView({ restore = true } = {}) {
         if (!this.patchFocusActive && !this.focusLayer.visible) return;
         this.patchFocusActive = false;
@@ -1472,7 +1490,7 @@ export class CellPatchWorkflow {
         if (this._isLabelerRole()) this.viewer.canEditDetectionResults = false;
         this.focusLayer.clear();
         this.viewer.setDetectionResults?.([]);
-        this.editor.viewerSynced = false;
+        this.editor.clearViewerAnnotations?.();
         if (this.layerVisibilityBeforePatchView) {
             this.required.visible = this.layerVisibilityBeforePatchView.required;
             this.status.visible = this.layerVisibilityBeforePatchView.status;

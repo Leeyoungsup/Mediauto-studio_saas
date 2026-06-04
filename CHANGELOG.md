@@ -2,6 +2,35 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.181] - 2026-06-04
+
+### Fixed
+
+- Keep the Cell Annotation patch editor synchronized after patch workflow status changes so saving a Running patch no longer writes it back to Required.
+- Refresh Cell Annotation patch-view cache versions for the patch status synchronization fix.
+
+## [1.1.180] - 2026-06-04
+
+### Fixed
+
+- Preserve Cell Annotation patch Annotation status during draft saves so WSI patch lists do not move to Done unless the Annotation workflow step is completed.
+- Disable patch draft Save when the selected patch Annotation step is not Running.
+- Refresh Cell Annotation patch-view module cache versions for the draft-save status fix.
+
+## [1.1.179] - 2026-06-04
+
+### Fixed
+
+- Refresh Cell Annotation frontend cache versions for the patch-view workflow updates.
+- Separate Cell Annotation patch-view rectangle labeling from WSI patch selection click handling so patch selection does not intercept patch labels.
+- Keep Cell Annotation patch-view drawing locked to rectangle labels while enabling it only when the selected patch annotation step is running.
+- Show Cell Annotation patch-view rectangle labels in the right Annotations list with class change, center, and delete actions.
+- Render Cell Annotation patch-view rectangle labels with their class color instead of falling back to white for string class IDs.
+- Keep Cell Annotation patch-view labels as regular viewer annotations and convert them to patch cell records only when saving the patch.
+- Prevent Cell Annotation patch-view labels from being saved to or reloaded from slide-level WSI annotations.
+- Keep Cell Annotation patch label Save as a draft save, and auto-save patch labels only when the Annotation step is moved to Done.
+- Keep draft patch label saves from merging backend patch status fields back into the active patch workflow state.
+
 ## [1.1.178] - 2026-06-04
 
 ### Fixed

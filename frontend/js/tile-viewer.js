@@ -2966,7 +2966,15 @@ export class TileViewer {
             if (this.classVisibility[cell.class_id] === false) continue;
 
             const [cx, cy] = this.sceneToCanvas(cell.x, cell.y);
-            const color = (override && override[cell.class_id]) || CLASS_COLORS[cell.class_id] || '#FFFFFF';
+            const rawColor = (override && override[cell.class_id]) ||
+                cell.color ||
+                cell.class_color ||
+                cell.properties?.color ||
+                CLASS_COLORS[cell.class_id] ||
+                '#00FF00';
+            const color = Array.isArray(rawColor)
+                ? `rgb(${rawColor.slice(0, 3).map(v => Math.max(0, Math.min(255, Number(v) || 0))).join(',')})`
+                : String(rawColor || '#00FF00');
             const coords = Array.isArray(cell.coordinates) ? cell.coordinates : [];
             if (coords.length >= 2) {
                 octx.beginPath();

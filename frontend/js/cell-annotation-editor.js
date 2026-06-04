@@ -84,6 +84,73 @@ export class CellAnnotationEditor {
         return { class_id: String(classId || ''), class_name: String(className || '') };
     }
 
+    _status() {
+        return String(this.patch?.str_status || this.patch?.status || 'required').toLowerCase();
+    }
+
+    _annotationStatus() {
+        const explicit = String(this.patch?.str_annotation_status || this.patch?.annotation_status || '').toLowerCase();
+        if (explicit) return explicit;
+        const status = this._status();
+        if (['required', 'in_progress', 'completed', 'not_required'].includes(status)) return status;
+        if (['reviewed', 'rejected'].includes(status)) return 'completed';
+        return 'required';
+    }
+
+    _draftSaveOptions(complete) {
+        const options = { complete };
+        if (complete) return options;
+        const annotationStatus = this._annotationStatus();
+        if (['required', 'in_progress'].includes(annotationStatus)) {
+            options.status = annotationStatus;
+            options.annotation_status = annotationStatus;
+            options.preserve_status = true;
+        }
+        return options;
+    }
+
+    _cellToAnnotation(cell, idx = 0) {
+        const coords = Array.isArray(cell?.coordinates) && cell.coordinates.length
+            ? cell.coordinates
+            : (Array.isArray(cell?.local_coordinates) ? cell.local_coordinates.map(([x, y]) => {
+                const patch = this._patchBounds();
+                return [Number(x) + patch.x, Number(y) + patch.y];
+            }) : []);
+        let coordinates = coords
+            .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : [Number(point.x), Number(point.y)])
+            .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        if (!coordinates.length && cell?.bbox) {
+            const x = Number(cell.bbox.x ?? cell.bbox.x0);
+            const y = Number(cell.bbox.y ?? cell.bbox.y0);
+            const w = Math.max(1, Number(cell.bbox.width ?? (Number(cell.bbox.x1) - x)));
+            const h = Math.max(1, Number(cell.bbox.height ?? (Number(cell.bbox.y1) - y)));
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) {
+                coordinates = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+            }
+        }
+        const classId = String(cell?.class_id ?? cell?.classId ?? '');
+        const className = String(cell?.class_name ?? cell?.className ?? '');
+        const color = cell?.color || cell?.class_color || cell?.properties?.color || [0, 255, 0];
+        return {
+            id: String(cell?.id || `patch_cell_${idx + 1}`),
+            name: String(idx + 1),
+            type: String(cell?.shape_type || cell?.type || 'rectangle'),
+            coordinates,
+            color,
+            visible: cell?.visible !== false,
+            selected: false,
+            class_id: classId,
+            class_name: className,
+            source: cell?.source || 'patch_cell_annotation',
+            properties: {
+                ...(cell?.properties || {}),
+                class_id: classId,
+                class_name: className,
+                source: cell?.source || 'patch_cell_annotation',
+            },
+        };
+    }
+
     _annotationToPatchCell(annotation) {
         const points = this._annotationPoints(annotation);
         if (!points.length) throw new Error('Annotation has no slide coordinates.');
@@ -121,6 +188,7 @@ export class CellAnnotationEditor {
             },
             class_id: labelClass.class_id,
             class_name: labelClass.class_name,
+            color: Array.isArray(annotation?.color) ? annotation.color.slice(0, 3) : annotation?.color,
             confidence: Number(annotation?.confidence ?? 1),
             source: 'manual_patch_annotation',
         };
@@ -128,28 +196,35 @@ export class CellAnnotationEditor {
 
     syncViewer() {
         if (!this.viewer || !this.patch) return;
-        const patch = this._patchBounds();
-        this.viewer.setDetectionResults?.(this.cells || [], [[
-            [patch.x, patch.y],
-            [patch.x + patch.w, patch.y],
-            [patch.x + patch.w, patch.y + patch.h],
-            [patch.x, patch.y + patch.h],
-        ]]);
+        this.viewer.setDetectionResults?.([]);
+        this.viewer.annotations = (this.cells || []).map((cell, idx) => this._cellToAnnotation(cell, idx));
+        this.viewer.selectedAnnotationId = null;
+        this.viewer._annotationCounter = this.viewer.annotations.length;
         this.viewerSynced = true;
+        this.viewer.requestRender?.();
     }
 
     async addAnnotationLabel(annotation) {
         if (!this.slideId || !this.patch) throw new Error('No patch is selected.');
         const cell = this._annotationToPatchCell(annotation);
         this.cells = [...(this.cells || []), cell];
-        this.syncViewer();
         this.viewer?.requestRender?.();
         this.onStatus(`Patch label added: ${this.patch.patch_id}`);
         this.render();
         return cell;
     }
 
+    clearViewerAnnotations() {
+        if (!this.viewerSynced || !this.viewer) return;
+        this.viewer.annotations = [];
+        this.viewer.selectedAnnotationId = null;
+        this.viewer._annotationCounter = 0;
+        this.viewerSynced = false;
+        this.viewer.requestRender?.();
+    }
+
     close() {
+        this.clearViewerAnnotations();
         this.patch = null;
         this.cells = [];
         this.viewerSynced = false;
@@ -158,32 +233,52 @@ export class CellAnnotationEditor {
         this.render();
     }
 
-    async save() {
+    async save({ complete = false } = {}) {
         if (!this.slideId || !this.patch) return;
         const patch = this._patchBounds();
-        const sourceCells = this.viewerSynced ? (this.viewer?.detectionCells || []) : (this.cells || []);
-        const cells = sourceCells.map((cell, idx) => ({
-            ...cell,
-            id: cell.id || `cell_${idx + 1}`,
-            x: Number(cell.x),
-            y: Number(cell.y),
-            local_x: Number.isFinite(Number(cell.local_x)) ? Number(cell.local_x) : Number(cell.x) - patch.x,
-            local_y: Number.isFinite(Number(cell.local_y)) ? Number(cell.local_y) : Number(cell.y) - patch.y,
-        }));
-        const result = await this.api.savePatchCells(this.slideId, this.patch.patch_id, cells);
+        const cells = this.viewerSynced
+            ? (this.viewer?.annotations || []).map((ann, idx) => ({
+                ...this._annotationToPatchCell(ann),
+                id: ann.id || `cell_${idx + 1}`,
+            }))
+            : (this.cells || []).map((cell, idx) => ({
+                ...cell,
+                id: cell.id || `cell_${idx + 1}`,
+                x: Number(cell.x),
+                y: Number(cell.y),
+                local_x: Number.isFinite(Number(cell.local_x)) ? Number(cell.local_x) : Number(cell.x) - patch.x,
+                local_y: Number.isFinite(Number(cell.local_y)) ? Number(cell.local_y) : Number(cell.y) - patch.y,
+            }));
+        const result = await this.api.savePatchCells(
+            this.slideId,
+            this.patch.patch_id,
+            cells,
+            this._draftSaveOptions(complete),
+        );
         this.cells = cells;
+        const resultPatch = complete ? (result.patch || {}) : {};
+        const annotationStatus = this._annotationStatus();
         this.patch = {
             ...this.patch,
-            ...(result.patch || {}),
+            ...resultPatch,
             patch_id: this.patch.patch_id,
-            str_status: result.patch_status || result.patch?.str_status || 'completed',
-            str_annotation_status: result.patch?.str_annotation_status || 'completed',
-            str_review_status: result.patch?.str_review_status || this.patch.str_review_status || 'pending',
-            str_termination_status: result.patch?.str_termination_status || this.patch.str_termination_status || 'pending',
+            str_status: complete
+                ? (result.patch_status || result.patch?.str_status || 'completed')
+                : (this.patch.str_status || annotationStatus || 'in_progress'),
+            str_annotation_status: complete
+                ? (result.patch?.str_annotation_status || 'completed')
+                : (this.patch.str_annotation_status || annotationStatus || 'in_progress'),
+            str_review_status: complete
+                ? (result.patch?.str_review_status || this.patch.str_review_status || 'pending')
+                : (this.patch.str_review_status || 'pending'),
+            str_termination_status: complete
+                ? (result.patch?.str_termination_status || this.patch.str_termination_status || 'pending')
+                : (this.patch.str_termination_status || 'pending'),
         };
         this.onSaved(this.patch);
-        this.onStatus(`Patch saved: ${this.patch.patch_id}`);
+        this.onStatus(`${complete ? 'Patch saved complete' : 'Patch saved'}: ${this.patch.patch_id}`);
         this.render();
+        return this.patch;
     }
 
     async setStatus(status) {
@@ -205,6 +300,8 @@ export class CellAnnotationEditor {
             return;
         }
         const status = this.patch.str_status || this.patch.status || 'required';
+        const annotationStatus = this._annotationStatus();
+        const canSaveDraft = annotationStatus === 'in_progress';
         const canReview = window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
         this.panel.innerHTML = `
             <div class="panel-header">Patch Cell Annotation</div>
@@ -215,7 +312,7 @@ export class CellAnnotationEditor {
             </div>
             <div class="patch-editor-actions">
                 <button type="button" data-action="progress">Start</button>
-                <button type="button" data-action="save">Save Complete</button>
+                <button type="button" data-action="save" ${canSaveDraft ? '' : 'disabled'}>Save</button>
                 <button type="button" data-action="review" ${canReview ? '' : 'disabled'}>Reviewed</button>
                 <button type="button" data-action="reject" ${canReview ? '' : 'disabled'}>Rejected</button>
                 <button type="button" data-action="close">Close</button>

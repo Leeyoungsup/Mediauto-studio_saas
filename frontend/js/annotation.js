@@ -3,9 +3,9 @@
  */
 
 import { api } from './api.js?v=20260528-03';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260528-01';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260528-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260602-01';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260604-01';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260604-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-09';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -1538,6 +1538,7 @@ function _syncActiveAnnotationClassToViewer() {
 }
 
 window.addEventListener('cellpatch:viewchange', () => {
+    _syncAnnotationClassMetadata();
     _syncActiveAnnotationClassToViewer();
     _syncCellPatchAnnotationTools();
     renderClassManagementPanel();
@@ -2797,14 +2798,19 @@ viewer.onAnnotationCreated = (ann) => {
                 return;
             }
             _applyClassToAnnotation(ann, _activeAnnotationClassId);
+            ann.source = 'patch_cell_annotation';
+            ann.properties = {
+                ...(ann.properties || {}),
+                source: 'patch_cell_annotation',
+            };
             _syncActiveAnnotationClassToViewer();
-            viewer.annotations = viewer.annotations.filter(item => item.id !== ann.id);
-            viewer.selectedAnnotationId = null;
             renderAnnotationPanel();
             viewer.requestRender();
-            cellPatchWorkflow.addPatchLabelFromAnnotation(ann).catch((err) => {
-                setStatus(`Patch label failed: ${err.message}`);
-            });
+            cellPatchWorkflow.addPatchLabelFromAnnotation(ann)
+                .then(() => renderAnnotationPanel())
+                .catch((err) => {
+                    setStatus(`Patch label failed: ${err.message}`);
+                });
             return;
         }
         const bool_can_manage_required = window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
@@ -3704,6 +3710,7 @@ viewer.onCellEdited = () => {
         _updateResultCounts();
     }
     setStatus(`Cell edited - ${viewer.detectionCells.length} cells`);
+    renderAnnotationPanel();
 };
 
 // Cell edit undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y).
@@ -3789,7 +3796,10 @@ function _normalizeColor(c) {
 }
 
 function _serializeAnnotations() {
-    return viewer.annotations.map((ann, index) => ({
+    const sourceAnnotations = (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.patchFocusActive)
+        ? []
+        : viewer.annotations;
+    return sourceAnnotations.map((ann, index) => ({
         id: index + 1,
         type: _TYPE_TO_LABEL[ann.type] || 'Polygon',
         coordinates: (ann.coordinates || []).map(p => [p[0], p[1]]),
@@ -3811,6 +3821,8 @@ function _normalizeLoadedAnnotations(list) {
     for (const item of Array.isArray(list) ? list : []) {
         if (!item) continue;
         if (item.type === '__meta__' || item.kind === 'annotation_meta') continue;
+        const source = String(item.source || item.properties?.source || '');
+        if (ANNOTATION_PAGE_KIND === 'cell' && /patch.*annotation|manual_patch_annotation/i.test(source)) continue;
         const coords = item.coordinates || item.points;
         if (!Array.isArray(coords)) continue;
         counter++;
@@ -3879,6 +3891,12 @@ async function _saveAnnotationsToServer() {
         setStatus('Open a slide before saving annotations');
         return;
     }
+    if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.patchFocusActive) {
+        await cellPatchWorkflow.saveSelectedPatchAnnotations({ complete: false });
+        renderAnnotationPanel();
+        _syncAnnotationStatusControl(currentAnnotationStatus);
+        return;
+    }
     const annotations = _serializeAnnotations();
     const payload = [
         {
@@ -3925,6 +3943,10 @@ async function _loadSavedAnnotationsForSlide(slideId) {
         const parsed = _splitAnnotationPayload(payload);
         currentSlideMemo = parsed.slideMemo;
         currentSlideMemoHistory = parsed.slideMemoHistory;
+        if (ANNOTATION_PAGE_KIND === 'cell') {
+            _applyLoadedAnnotations([], 'saved annotations');
+            return;
+        }
         _applyLoadedAnnotations(parsed.annotations, 'saved annotations');
     } catch (err) {
         if (currentSlideId !== strSlideId) return;

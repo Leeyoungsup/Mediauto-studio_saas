@@ -1280,6 +1280,7 @@ async def save_patch_cells(
     if not isinstance(raw_cells, list):
         raise HTTPException(400, "cells must be a list")
     cells = [_normalize_cell(cell, patch) for cell in raw_cells if isinstance(cell, dict)]
+    complete = bool(payload.get("complete"))
     now = _now()
     await db.patch_cell_annotations.update_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
@@ -1293,30 +1294,44 @@ async def save_patch_cells(
         upsert=True,
     )
     patch_update = {
-        "str_status": "completed",
-        **_patch_workflow_fields("completed"),
         "dt_updated_at": now,
         "str_updated_by": str(user.get("_id", "")),
     }
-    await db.patch_annotation_status.update_one(
-        {"str_slide_id": slide_id, "str_patch_id": patch_id},
-        {"$set": patch_update},
-    )
+    should_reload_patch = False
+    if complete:
+        patch_update.update({
+            "str_status": "completed",
+            **_patch_workflow_fields("completed"),
+        })
+        await db.patch_annotation_status.update_one(
+            {"str_slide_id": slide_id, "str_patch_id": patch_id},
+            {"$set": patch_update},
+        )
+        should_reload_patch = True
+    else:
+        draft_status = str(payload.get("annotation_status") or payload.get("status") or "").strip()
+        if payload.get("preserve_status") and draft_status in {"required", "in_progress"}:
+            patch_update.update({
+                "str_status": draft_status,
+                **_patch_workflow_fields(draft_status),
+            })
+            await db.patch_annotation_status.update_one(
+                {"str_slide_id": slide_id, "str_patch_id": patch_id},
+                {"$set": patch_update},
+            )
+            should_reload_patch = True
     _schedule_cell_annotation_export(slide_id)
-    updated_patch = await db.patch_annotation_status.find_one(
-        {"str_slide_id": slide_id, "str_patch_id": patch_id},
-        {"_id": 0},
-    )
+    updated_patch = None
+    if should_reload_patch:
+        updated_patch = await db.patch_annotation_status.find_one(
+            {"str_slide_id": slide_id, "str_patch_id": patch_id},
+            {"_id": 0},
+        )
     return {
         "status": "saved",
-        "patch_status": "completed",
+        "patch_status": (updated_patch or patch or {}).get("str_status", "required"),
         "cell_count": len(cells),
-        "patch": updated_patch or {
-            **(patch or {}),
-            **patch_update,
-            "str_slide_id": slide_id,
-            "str_patch_id": patch_id,
-        },
+        "patch": updated_patch or {**(patch or {}), "str_slide_id": slide_id, "str_patch_id": patch_id},
     }
 
 

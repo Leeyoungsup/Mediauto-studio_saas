@@ -784,11 +784,11 @@ export const api = {
         return res.json();
     },
 
-    async savePatchCells(slideId, patchId, cells) {
+    async savePatchCells(slideId, patchId, cells, options = {}) {
         const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cells: cells || [] }),
+            body: JSON.stringify({ cells: cells || [], ...(options || {}) }),
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
