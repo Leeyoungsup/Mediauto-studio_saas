@@ -743,6 +743,60 @@ def _assistance_metadata(payload: dict) -> dict:
     return meta
 
 
+def _assistance_class_lookup(info) -> dict[str, dict]:
+    classes = _load_cell_classes_for_project(_slide_project_path(info))
+    lookup = {str(cls.get("id", "")): cls for cls in classes if cls.get("id") is not None}
+    other = next((cls for cls in classes if str(cls.get("name", "")).lower() == "other"), None)
+    if other:
+        lookup.setdefault("", other)
+    return lookup
+
+
+def _assistance_label_to_cell(label: Any, patch: dict, idx: int, class_lookup: dict[str, dict]) -> Optional[dict]:
+    compact = _compact_assistance_label(label)
+    if compact is None:
+        return None
+    x, y, width, height, center_x, center_y, class_id, confidence = compact
+    patch_x = float(patch.get("int_x", 0))
+    patch_y = float(patch.get("int_y", 0))
+    patch_w = float(patch.get("int_w", 0))
+    patch_h = float(patch.get("int_h", 0))
+    if center_x < patch_x or center_x >= patch_x + patch_w or center_y < patch_y or center_y >= patch_y + patch_h:
+        return None
+    class_meta = class_lookup.get(str(class_id)) or class_lookup.get("") or {}
+    effective_class_id = str(class_meta.get("id", class_id or ""))
+    class_name = str(class_meta.get("name", ""))
+    color = class_meta.get("color")
+    x1 = x + max(1.0, width)
+    y1 = y + max(1.0, height)
+    return {
+        "id": f"assist_{idx}",
+        "type": "rectangle",
+        "shape_type": "rectangle",
+        "x": center_x,
+        "y": center_y,
+        "local_x": center_x - patch_x,
+        "local_y": center_y - patch_y,
+        "coordinates": [[x, y], [x1, y], [x1, y1], [x, y1]],
+        "local_coordinates": [[x - patch_x, y - patch_y], [x1 - patch_x, y - patch_y], [x1 - patch_x, y1 - patch_y], [x - patch_x, y1 - patch_y]],
+        "bbox": {
+            "x": x,
+            "y": y,
+            "width": max(1.0, width),
+            "height": max(1.0, height),
+            "x0": x,
+            "y0": y,
+            "x1": x1,
+            "y1": y1,
+        },
+        "class_id": effective_class_id,
+        "class_name": class_name,
+        "color": color,
+        "confidence": confidence,
+        "source": "wsi_labeling_assistance",
+    }
+
+
 def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float, Optional[tuple[float, float, float, float]]]]:
     bbox = None
     if isinstance(cell, dict):
@@ -1246,6 +1300,51 @@ async def get_wsi_labeling_assistance_task(task_id: str):
     elif task.get("status") == "error":
         response["error"] = task.get("error")
     return response
+
+
+@router.get("/{slide_id}/patches/{patch_id}/assistance-cells")
+async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
+    info = _slide_info(slide_id)
+    db = _require_db()
+    patch = await db.patch_annotation_status.find_one(
+        {"str_slide_id": slide_id, "str_patch_id": patch_id},
+        {"_id": 0},
+    )
+    if not patch:
+        raise HTTPException(404, "Patch not found")
+    workflow_state = str(patch.get("str_annotation_status") or patch.get("str_status") or "")
+    if workflow_state != "required":
+        return {
+            "slide_id": slide_id,
+            "patch_id": patch_id,
+            "exists": False,
+            "reason": "patch_not_required",
+            "cells": [],
+        }
+    payload = _read_assistance_file(info)
+    labels = payload.get("labels") if isinstance(payload, dict) else None
+    if not isinstance(labels, list):
+        return {
+            "slide_id": slide_id,
+            "patch_id": patch_id,
+            "exists": False,
+            "reason": "assistance_missing",
+            "cells": [],
+        }
+    class_lookup = _assistance_class_lookup(info)
+    cells = []
+    for idx, label in enumerate(labels, start=1):
+        cell = _assistance_label_to_cell(label, patch, idx, class_lookup)
+        if cell is not None:
+            cells.append(cell)
+    return {
+        "slide_id": slide_id,
+        "patch_id": patch_id,
+        "exists": True,
+        "total_labels": len(labels),
+        "cell_count": len(cells),
+        "cells": cells,
+    }
 
 
 @router.get("/{slide_id}/patches/{patch_id}/cells")

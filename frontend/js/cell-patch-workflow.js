@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260604-06';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260604-07';
 
 class PatchFocusLayer {
     constructor() {
@@ -65,8 +65,10 @@ export class CellPatchWorkflow {
         this.regionMode = 'required';
         this.assistancePromise = null;
         this.assistanceSlideId = '';
+        this.assistanceProgress = null;
         this.aiAssistanceEnabled = localStorage.getItem('mediauto:cell-patch:ai-assistance-enabled') !== '0';
         this.aiAssistanceToggle = null;
+        this.aiAssistanceProgressEl = null;
         this.patchApplyProgress = null;
         this.patchListSort = { key: 'patch', dir: 'asc' };
         this.patchListRenderLimit = 500;
@@ -117,11 +119,13 @@ export class CellPatchWorkflow {
                     <span class="toggle-pill-knob"></span>
                     <span class="toggle-pill-label">AI Assistance</span>
                 </button>
+                <div id="cell-ai-assistance-progress" class="cell-ai-assistance-progress" hidden></div>
             `;
             const firstHeader = host.querySelector(':scope > .panel-header');
             firstHeader?.insertAdjacentElement('afterend', panel) || host.prepend(panel);
         }
         this.aiAssistanceToggle = panel.querySelector('#cell-ai-assistance-toggle');
+        this.aiAssistanceProgressEl = panel.querySelector('#cell-ai-assistance-progress');
         this.aiAssistanceToggle?.addEventListener('click', () => {
             this.aiAssistanceEnabled = !this.aiAssistanceEnabled;
             localStorage.setItem('mediauto:cell-patch:ai-assistance-enabled', this.aiAssistanceEnabled ? '1' : '0');
@@ -133,10 +137,12 @@ export class CellPatchWorkflow {
                     }
                 });
             } else {
+                this.setAssistanceProgress('', 0, false);
                 this.setStatus('Cell Annotation AI assistance turned off');
             }
         });
         this._syncAssistanceToggle();
+        this._renderAssistanceProgress();
     }
 
     _syncAssistanceToggle() {
@@ -145,6 +151,34 @@ export class CellPatchWorkflow {
         this.aiAssistanceToggle.title = this.aiAssistanceEnabled
             ? 'AI assistance is enabled'
             : 'AI assistance is disabled';
+    }
+
+    setAssistanceProgress(label = '', percent = 0, active = false, detail = '') {
+        const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+        this.assistanceProgress = label ? { label, percent: pct, active: Boolean(active), detail } : null;
+        this._renderAssistanceProgress();
+    }
+
+    _renderAssistanceProgress() {
+        const el = this.aiAssistanceProgressEl;
+        if (!el) return;
+        const progress = this.assistanceProgress;
+        if (!progress?.label) {
+            el.hidden = true;
+            el.innerHTML = '';
+            return;
+        }
+        el.hidden = false;
+        el.innerHTML = `
+            <div class="cell-ai-assistance-progress-meta">
+                <span>${this._escape(progress.label)}</span>
+                <span>${Math.round(progress.percent)}%</span>
+            </div>
+            <div class="cell-ai-assistance-progress-track">
+                <div class="cell-ai-assistance-progress-fill" style="width:${Math.round(progress.percent)}%"></div>
+            </div>
+            ${progress.detail ? `<div class="cell-ai-assistance-progress-detail">${this._escape(progress.detail)}</div>` : ''}
+        `;
     }
 
     _setupPatchListPanel() {
@@ -1461,6 +1495,38 @@ export class CellPatchWorkflow {
         this._syncAnnotationStatusPanel();
         this._notifyPatchViewStateChange();
         this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
+        this.loadAssistanceForSelectedPatch().catch((err) => {
+            if (!/disabled|missing|not_required/i.test(err.message || '')) {
+                this.setStatus(`Patch AI assistance failed: ${err.message}`);
+            }
+        });
+    }
+
+    _selectedPatchAnnotationRequired() {
+        if (!this.selectedPatch) return false;
+        const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
+        return this._patchWorkflowStatus(patch).annotation === 'required';
+    }
+
+    async loadAssistanceForSelectedPatch() {
+        if (!this.slideId || !this.patchFocusActive || !this.selectedPatch) return false;
+        if (!this.aiAssistanceEnabled) return false;
+        if (!this._selectedPatchAnnotationRequired()) return false;
+        if (this.editor.hasCells?.()) return false;
+        const patchId = this.selectedPatchId();
+        if (!patchId || !this.api?.getPatchAssistanceCells) return false;
+        await this.ensureLabelingAssistance({ silent: false });
+        if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) return false;
+        const payload = await this.api.getPatchAssistanceCells(this.slideId, patchId);
+        if (!payload?.exists || !Array.isArray(payload.cells) || !payload.cells.length) return false;
+        const applied = this.editor.applyAssistanceCells?.(payload.cells);
+        if (applied) {
+            window.dispatchEvent(new CustomEvent('cellpatch:annotationschange', {
+                detail: { patchId, source: 'wsi_labeling_assistance', count: payload.cells.length },
+            }));
+            this.setStatus(`Patch AI assistance loaded: ${payload.cells.length.toLocaleString()} labels`);
+        }
+        return Boolean(applied);
     }
 
     async addPatchLabelFromAnnotation(annotation) {
@@ -1827,25 +1893,34 @@ export class CellPatchWorkflow {
                 (existing?.labels || []).some(label => label?.bbox_source === 'model')
             );
         if (hasModelBboxAssistance) {
+            this.setAssistanceProgress('', 0, false);
             return;
         }
         const start = await this.api.startWsiLabelingAssistance(slideId, current.key);
         const taskId = start?.task_id;
         if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
+        this.setAssistanceProgress('Preparing AI assistance', 1, true, start.annotation_ai?.label || '');
         if (!silent) {
             this.setStatus(`Cell Annotation AI assistance started: ${start.annotation_ai?.label || 'Cell Annotation AI'}`);
         }
         for (let i = 0; i < 600; i += 1) {
             await new Promise(resolve => setTimeout(resolve, 1500));
             const task = await this.api.getWsiLabelingAssistanceTask(taskId);
+            const progress = Number(task.progress || 0);
+            const msg = task.status_msg || (task.status === 'queued' ? 'Queued' : 'Generating WSI_Labeling_assistance.json');
+            if (this.slideId === slideId) {
+                this.setAssistanceProgress(msg, progress, task.status !== 'completed', start.annotation_ai?.label || '');
+            }
             if (task.status === 'completed') {
                 const count = Number(task.result?.total_labels || 0);
                 if (!silent || this.slideId === slideId) {
                     this.setStatus(`Labeling assistance ready: ${count.toLocaleString()} bbox labels`);
                 }
+                if (this.slideId === slideId) this.setAssistanceProgress('', 0, false);
                 return;
             }
             if (task.status === 'error') {
+                if (this.slideId === slideId) this.setAssistanceProgress('', 0, false);
                 throw new Error(task.error || 'Labeling assistance task failed');
             }
         }

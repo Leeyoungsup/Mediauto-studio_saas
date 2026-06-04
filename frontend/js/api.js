@@ -784,6 +784,12 @@ export const api = {
         return res.json();
     },
 
+    async getPatchAssistanceCells(slideId, patchId) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/assistance-cells`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     async savePatchCells(slideId, patchId, cells, options = {}) {
         const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`, {
             method: 'POST',

@@ -45,6 +45,21 @@ export class CellAnnotationEditor {
         this.render();
     }
 
+    hasCells() {
+        return Array.isArray(this.cells) && this.cells.length > 0;
+    }
+
+    applyAssistanceCells(cells = []) {
+        if (!this.slideId || !this.patch || this.hasCells()) return false;
+        const list = Array.isArray(cells) ? cells.filter(Boolean) : [];
+        if (!list.length) return false;
+        this.cells = list;
+        if (this.viewerSynced) this.syncViewer();
+        this.onStatus(`AI assistance labels loaded: ${list.length.toLocaleString()} cells`);
+        this.render();
+        return true;
+    }
+
     _patchBounds() {
         const patch = this.patch || {};
         const x = Number(patch.x ?? patch.int_x ?? 0);

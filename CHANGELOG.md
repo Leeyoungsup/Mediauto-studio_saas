@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.182] - 2026-06-04
+
+### Added
+
+- Load WSI_Labeling_assistance.json bbox labels into empty Cell Annotation Required patches when AI Assistance is enabled.
+- Add a patch-level Cell Annotation assistance API that returns only labels whose centers fall inside the selected patch.
+- Show AI Assistance generation progress below the right-panel AI Assistance toggle while WSI_Labeling_assistance.json is being created, then hide it when ready.
+
 ## [1.1.181] - 2026-06-04
 
 ### Fixed

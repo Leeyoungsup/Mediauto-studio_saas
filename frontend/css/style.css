@@ -2656,6 +2656,45 @@ body.cell-patch-workflow-page .cell-patch-list {
 .cell-ai-assistance-panel .toggle-pill {
     margin-top: 0;
 }
+.cell-ai-assistance-progress {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid #d8d5ff;
+    border-radius: 8px;
+    background: #f7f6ff;
+    color: #3f36c8;
+    font-size: 11px;
+    font-weight: 700;
+}
+.cell-ai-assistance-progress[hidden] {
+    display: none;
+}
+.cell-ai-assistance-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+}
+.cell-ai-assistance-progress-track {
+    height: 6px;
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e5e2ff;
+}
+.cell-ai-assistance-progress-fill {
+    height: 100%;
+    width: 0;
+    border-radius: inherit;
+    background: #6c5ce7;
+    transition: width 0.18s ease;
+}
+.cell-ai-assistance-progress-detail {
+    margin-top: 4px;
+    color: #6b668e;
+    font-size: 10px;
+    font-weight: 600;
+}
 body.cell-patch-workflow-page.cell-patch-view-active .annotation-group {
     min-height: 0;
 }

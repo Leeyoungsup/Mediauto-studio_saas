@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260528-03';
+import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260604-01';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260604-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-09';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260604-10';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -1542,6 +1542,10 @@ window.addEventListener('cellpatch:viewchange', () => {
     _syncActiveAnnotationClassToViewer();
     _syncCellPatchAnnotationTools();
     renderClassManagementPanel();
+    renderAnnotationPanel();
+});
+
+window.addEventListener('cellpatch:annotationschange', () => {
     renderAnnotationPanel();
 });
 
