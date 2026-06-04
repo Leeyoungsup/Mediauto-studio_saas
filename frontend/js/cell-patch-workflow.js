@@ -65,6 +65,8 @@ export class CellPatchWorkflow {
         this.regionMode = 'required';
         this.assistancePromise = null;
         this.assistanceSlideId = '';
+        this.aiAssistanceEnabled = localStorage.getItem('mediauto:cell-patch:ai-assistance-enabled') !== '0';
+        this.aiAssistanceToggle = null;
         this.patchApplyProgress = null;
         this.patchListSort = { key: 'patch', dir: 'asc' };
         this.patchListRenderLimit = 500;
@@ -96,9 +98,53 @@ export class CellPatchWorkflow {
     _setupRightPanel() {
         document.body.classList.add('cell-patch-workflow-page');
         document.getElementById('progress-label')?.closest('.panel-section')?.classList.add('cell-patch-hidden-progress');
+        this._setupAssistanceToggle();
         this._setupPatchListPanel();
         this._setupDisplayPanel();
         this.renderPatchList();
+    }
+
+    _setupAssistanceToggle() {
+        const host = document.querySelector('.annotation-group');
+        if (!host) return;
+        let panel = document.getElementById('cell-ai-assistance-panel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'cell-ai-assistance-panel';
+            panel.className = 'cell-ai-assistance-panel';
+            panel.innerHTML = `
+                <button id="cell-ai-assistance-toggle" class="toggle-pill" type="button" aria-pressed="true">
+                    <span class="toggle-pill-knob"></span>
+                    <span class="toggle-pill-label">AI Assistance</span>
+                </button>
+            `;
+            const firstHeader = host.querySelector(':scope > .panel-header');
+            firstHeader?.insertAdjacentElement('afterend', panel) || host.prepend(panel);
+        }
+        this.aiAssistanceToggle = panel.querySelector('#cell-ai-assistance-toggle');
+        this.aiAssistanceToggle?.addEventListener('click', () => {
+            this.aiAssistanceEnabled = !this.aiAssistanceEnabled;
+            localStorage.setItem('mediauto:cell-patch:ai-assistance-enabled', this.aiAssistanceEnabled ? '1' : '0');
+            this._syncAssistanceToggle();
+            if (this.aiAssistanceEnabled) {
+                this.ensureLabelingAssistance({ silent: false }).catch((err) => {
+                    if (!/disabled/i.test(err.message || '')) {
+                        this.setStatus(`Labeling assistance failed: ${err.message}`);
+                    }
+                });
+            } else {
+                this.setStatus('Cell Annotation AI assistance turned off');
+            }
+        });
+        this._syncAssistanceToggle();
+    }
+
+    _syncAssistanceToggle() {
+        if (!this.aiAssistanceToggle) return;
+        this.aiAssistanceToggle.setAttribute('aria-pressed', this.aiAssistanceEnabled ? 'true' : 'false');
+        this.aiAssistanceToggle.title = this.aiAssistanceEnabled
+            ? 'AI assistance is enabled'
+            : 'AI assistance is disabled';
     }
 
     _setupPatchListPanel() {
@@ -237,9 +283,6 @@ export class CellPatchWorkflow {
     _bindEvents() {
         this.canvas?.addEventListener('click', (e) => {
             if (this.patchFocusActive) {
-                e.preventDefault();
-                e.stopImmediatePropagation?.();
-                e.stopPropagation();
                 return;
             }
             if (!this.slideId || this.viewer.drawMode) return;
@@ -268,9 +311,6 @@ export class CellPatchWorkflow {
 
         this.canvas?.addEventListener('dblclick', (e) => {
             if (this.patchFocusActive) {
-                e.preventDefault();
-                e.stopImmediatePropagation?.();
-                e.stopPropagation();
                 return;
             }
             if (!this.slideId || this.viewer.drawMode) return;
@@ -319,7 +359,7 @@ export class CellPatchWorkflow {
     }
 
     preloadLabelingAssistance() {
-        if (!this.slideId) return;
+        if (!this.slideId || !this.aiAssistanceEnabled) return;
         this.ensureLabelingAssistance({ silent: true }).catch((err) => {
             if (!/disabled/i.test(err.message || '')) {
                 this.setStatus(`Labeling assistance preload failed: ${err.message}`);
@@ -339,6 +379,7 @@ export class CellPatchWorkflow {
         this._syncPendingPatchPreview();
         this.renderPatchList();
         this._syncAnnotationStatusPanel();
+        this._notifyPatchViewStateChange();
         this._notifyWorkflowSummaryChange();
         this.viewer.requestRender();
     }
@@ -358,6 +399,7 @@ export class CellPatchWorkflow {
         this.status.setPatches(Array.from(this.patches.values()));
         this.renderPatchList();
         this._syncAnnotationStatusPanel();
+        this._notifyPatchViewStateChange();
         this._notifyWorkflowSummaryChange();
         this.viewer.requestRender();
     }
@@ -504,7 +546,7 @@ export class CellPatchWorkflow {
         this.status.setPendingPatches([...previewMap.values()]);
         if (this.required) {
             this.required.setRegions(this.pendingRegions || []);
-            this.required.visible = !this.patchView && Boolean(this.pendingRegions?.length);
+            this.required.visible = !this.patchFocusActive && Boolean(this.pendingRegions?.length);
         }
         this.viewer?.requestRender?.();
     }
@@ -764,6 +806,22 @@ export class CellPatchWorkflow {
 
     _canManageWsiPatchRegions() {
         return window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
+    }
+
+    canAnnotateSelectedPatch() {
+        if (!this.patchFocusActive || !this.selectedPatch) return false;
+        const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
+        return this._patchWorkflowStatus(patch).annotation === 'in_progress';
+    }
+
+    _notifyPatchViewStateChange() {
+        window.dispatchEvent(new CustomEvent('cellpatch:viewchange', {
+            detail: {
+                patchFocusActive: Boolean(this.patchFocusActive),
+                canAnnotate: this.canAnnotateSelectedPatch(),
+                selectedPatchId: this.selectedPatchId(),
+            },
+        }));
     }
 
     _labelerPatchWorkflowLocked(patch) {
@@ -1392,13 +1450,16 @@ export class CellPatchWorkflow {
         this.renderPatchList();
         this._syncToolbarToggle();
         this._syncAnnotationStatusPanel();
-        window.dispatchEvent(new CustomEvent('cellpatch:viewchange', { detail: { patchFocusActive: true } }));
+        this._notifyPatchViewStateChange();
         this.setStatus(`Patch view: ${this.selectedPatch.patch_id}`);
     }
 
     async addPatchLabelFromAnnotation(annotation) {
         if (!this.patchFocusActive || !this.selectedPatch) {
             throw new Error('Patch view is not active.');
+        }
+        if (!this.canAnnotateSelectedPatch()) {
+            throw new Error('Patch annotation is available only while Annotation is running.');
         }
         await this.editor.addAnnotationLabel(annotation);
         this.updatePatch(this.selectedPatch);
@@ -1433,7 +1494,7 @@ export class CellPatchWorkflow {
         this._syncToolbarToggle();
         this.syncWsiDrawColor();
         this._syncAnnotationStatusPanel();
-        window.dispatchEvent(new CustomEvent('cellpatch:viewchange', { detail: { patchFocusActive: false } }));
+        this._notifyPatchViewStateChange();
         this.setStatus('WSI view restored');
     }
 
@@ -1704,6 +1765,10 @@ export class CellPatchWorkflow {
 
     async ensureLabelingAssistance({ silent = false } = {}) {
         if (!this.slideId || !this.api?.startWsiLabelingAssistance) return;
+        if (!this.aiAssistanceEnabled) {
+            if (!silent) this.setStatus('Cell Annotation AI assistance is turned off');
+            return;
+        }
         const slideId = this.slideId;
         if (this.assistancePromise && this.assistanceSlideId === slideId) {
             return this.assistancePromise;

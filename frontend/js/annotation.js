@@ -115,6 +115,11 @@ const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
 const $btnRuler = $('#btn-ruler');
 const $btnSlideMemo = $('#btn-slide-memo');
 
+[$btnDrawPolygon, $btnDrawBrush, $btnDrawRect, $btnDrawPoint, $btnCutPolygon,
+ $btnDrawRect1mm2, $btnDrawCircle1mm2, $btnRuler].forEach((el) => {
+    if (el && !el.dataset.defaultTitle) el.dataset.defaultTitle = el.title || '';
+});
+
 if (ANNOTATION_PAGE_KIND === 'cell') {
     [$btnDrawPoint, $btnCutPolygon].forEach((el) => {
         if (!el) return;
@@ -685,6 +690,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if (_isLabelerRole()) {
         _applyLabelerRoleRestrictions();
     }
+    _syncCellPatchAnnotationTools();
 
     viewer.loadSlide(slideId, currentSlideInfo);
 
@@ -1242,8 +1248,84 @@ const drawButtons = {
     ruler: $btnRuler,
 };
 
+const CELL_PATCH_RECTANGLE_ONLY_TOOLS = [
+    $btnDrawPolygon,
+    $btnDrawBrush,
+    $btnDrawRect1mm2,
+    $btnDrawCircle1mm2,
+    $btnRuler,
+];
+
+function _setToolHidden(button, hidden) {
+    if (!button) return;
+    button.hidden = Boolean(hidden);
+    button.style.display = hidden ? 'none' : '';
+}
+
+function _syncCellPatchAnnotationTools() {
+    if (ANNOTATION_PAGE_KIND !== 'cell') return;
+    const boolPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
+    const boolCanAnnotatePatch = Boolean(cellPatchWorkflow?.canAnnotateSelectedPatch?.());
+    const boolNoSlide = !currentSlideFilename;
+    const boolViewer = _isViewerRole();
+    const boolLabelerWsiLocked = _isLabelerRole() && !boolPatchView;
+    [$btnDrawPoint, $btnCutPolygon].forEach((button) => {
+        _setToolHidden(button, true);
+        if (button) button.disabled = true;
+    });
+    if (boolPatchView) {
+        CELL_PATCH_RECTANGLE_ONLY_TOOLS.forEach((button) => {
+            _setToolHidden(button, true);
+            if (!button) return;
+            button.disabled = true;
+            button.classList.remove('active');
+        });
+        _setToolHidden($btnDrawRect, false);
+        if ($btnDrawRect) {
+            $btnDrawRect.disabled = boolViewer || !boolCanAnnotatePatch;
+            $btnDrawRect.title = boolCanAnnotatePatch
+                ? 'Draw Rectangle'
+                : 'Patch annotation is available only while Annotation is running.';
+            if ($btnDrawRect.disabled) $btnDrawRect.classList.remove('active');
+        }
+        if (viewer?.drawMode && (viewer.drawMode !== 'rectangle' || !boolCanAnnotatePatch || boolViewer)) {
+            viewer.setDrawMode(null);
+            Object.values(drawButtons).forEach(button => button?.classList.remove('active'));
+        }
+        return;
+    }
+    [...CELL_PATCH_RECTANGLE_ONLY_TOOLS, $btnDrawRect].forEach((button) => {
+        _setToolHidden(button, false);
+        if (!button) return;
+        button.disabled = boolNoSlide || boolViewer || boolLabelerWsiLocked;
+        if (boolLabelerWsiLocked) {
+            button.title = 'Labeler role cannot change WSI-level cell annotation setup.';
+        } else {
+            button.title = button.dataset.defaultTitle;
+        }
+        if (button.disabled) button.classList.remove('active');
+    });
+    if (viewer?.drawMode && (boolViewer || boolLabelerWsiLocked)) {
+        viewer.setDrawMode(null);
+        Object.values(drawButtons).forEach(button => button?.classList.remove('active'));
+    }
+}
+
 function setDrawMode(mode) {
     if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
+    if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.patchFocusActive) {
+        const boolCanAnnotatePatch = Boolean(cellPatchWorkflow.canAnnotateSelectedPatch?.());
+        if (mode !== 'rectangle') {
+            _syncCellPatchAnnotationTools();
+            setStatus('Cell Annotation patch view supports rectangle annotations only.');
+            return;
+        }
+        if (!boolCanAnnotatePatch) {
+            _syncCellPatchAnnotationTools();
+            setStatus('Patch annotation is available only while Annotation is running.');
+            return;
+        }
+    }
     const newMode = viewer.drawMode === mode ? null : mode;
     viewer.setDrawMode(newMode);
     Object.values(drawButtons).forEach(b => { if (b) b.classList.remove('active'); });
@@ -1457,6 +1539,7 @@ function _syncActiveAnnotationClassToViewer() {
 
 window.addEventListener('cellpatch:viewchange', () => {
     _syncActiveAnnotationClassToViewer();
+    _syncCellPatchAnnotationTools();
     renderClassManagementPanel();
     renderAnnotationPanel();
 });
@@ -2705,6 +2788,14 @@ window.addEventListener('keydown', (e) => {
 viewer.onAnnotationCreated = (ann) => {
     if (cellPatchWorkflow) {
         if (cellPatchWorkflow.patchFocusActive) {
+            if (!cellPatchWorkflow.canAnnotateSelectedPatch?.()) {
+                viewer.annotations = viewer.annotations.filter(item => item.id !== ann.id);
+                viewer.selectedAnnotationId = null;
+                renderAnnotationPanel();
+                viewer.requestRender();
+                setStatus('Patch annotation is available only while Annotation is running.');
+                return;
+            }
             _applyClassToAnnotation(ann, _activeAnnotationClassId);
             _syncActiveAnnotationClassToViewer();
             viewer.annotations = viewer.annotations.filter(item => item.id !== ann.id);

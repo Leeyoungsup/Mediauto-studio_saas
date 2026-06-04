@@ -2648,6 +2648,14 @@ body.cell-patch-workflow-page .cell-patch-list {
     padding: 10px 12px;
     gap: 8px;
 }
+.cell-ai-assistance-panel {
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--border-light);
+    background: #fff;
+}
+.cell-ai-assistance-panel .toggle-pill {
+    margin-top: 0;
+}
 body.cell-patch-workflow-page.cell-patch-view-active .annotation-group {
     min-height: 0;
 }
