@@ -126,6 +126,8 @@ def _classes_from_model_metadata(class_names: dict, class_colors: dict) -> list[
             "name": str(class_names.get(class_id, class_names.get(str_class_id, ""))),
             "color": _hex_to_rgb(class_colors.get(class_id, class_colors.get(str_class_id, "#95a5a6"))),
         })
+    if classes and not any(str(cls.get("name", "")).lower() == "other" for cls in classes):
+        classes.append(dict(OTHER_CELL_CLASS))
     return classes or [dict(OTHER_CELL_CLASS)]
 
 

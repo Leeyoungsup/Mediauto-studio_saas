@@ -2,6 +2,22 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.184] - 2026-06-04
+
+### Fixed
+
+- Preserve inherited AI Other classes, including HER2 class id 4, when loading and repairing Cell Annotation project class lists.
+- Merge original model class metadata back into WSI_Labeling_assistance.json generation even when scoring pipelines omit excluded classes from their result metadata.
+- Repair existing assistance files with missing class metadata by merging the active project and AI default classes when they are read.
+
+## [1.1.183] - 2026-06-04
+
+### Fixed
+
+- Preserve the Cell Annotation Other class when generating non-inherited WSI_Labeling_assistance.json labels instead of writing an empty class id.
+- Include the active Cell Annotation class list in generated WSI_Labeling_assistance.json files.
+- Auto-migrate existing non-inherited assistance files with empty class ids to use the Other class id when they are read.
+
 ## [1.1.182] - 2026-06-04
 
 ### Added

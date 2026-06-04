@@ -15,7 +15,13 @@ from app.auth import get_current_user, require_not_viewer, require_role
 from app.database import get_db, is_db_connected
 from app.models import UserRole
 from app.path_utils import safe_filename, safe_subpath
-from app.project_utils import ANNOTATION_AI_OPTION_BY_KEY, ANNOTATION_AI_OPTIONS, normalize_annotation_ai_config
+from app.project_utils import (
+    ANNOTATION_AI_OPTION_BY_KEY,
+    ANNOTATION_AI_OPTIONS,
+    OTHER_CELL_CLASS,
+    cell_annotation_classes_for_ai,
+    normalize_annotation_ai_config,
+)
 from app.slide_manager import slide_manager
 from app.ai_pipelines.detection import run_detection as _run_detection
 from app.ai_pipelines.marker_pipeline import (
@@ -140,6 +146,34 @@ def _normalize_cell_classes(value) -> list[dict]:
             "color": _normalize_cell_class_color(item.get("color")),
         })
     return classes or list(DEFAULT_CELL_CLASSES)
+
+
+def _merge_cell_classes(base_classes: list[dict], default_classes: list[dict]) -> list[dict]:
+    default_names = {str(cls.get("name", "")).lower() for cls in (default_classes or []) if cls.get("name")}
+    default_ids = {str(cls.get("id", "")) for cls in (default_classes or []) if cls.get("id") is not None}
+    merged = [
+        cls for cls in (base_classes or [])
+        if str(cls.get("id", "")) in default_ids or str(cls.get("name", "")).lower() not in default_names
+    ]
+    seen_ids = {str(cls.get("id", "")) for cls in merged}
+    for cls in default_classes or []:
+        cls_id = str(cls.get("id", ""))
+        if cls_id in seen_ids:
+            continue
+        merged.append(dict(cls))
+        seen_ids.add(cls_id)
+    return merged
+
+
+async def _project_ai_default_classes(project_path: str) -> list[dict]:
+    if not project_path or not is_db_connected():
+        return []
+    project_name = (project_path or "").replace("\\", "/").split("/")[0].strip()
+    doc = await get_db().project_infos.find_one({"str_project_path": project_name})
+    return cell_annotation_classes_for_ai(
+        bool((doc or {}).get("bool_annotation_ai_enabled", False)),
+        str((doc or {}).get("str_annotation_ai_key", "")),
+    )
 
 
 def _load_cell_classes_for_project(project_path: str) -> list[dict]:
@@ -663,6 +697,16 @@ def _read_assistance_file(info) -> dict:
     except Exception:
         return {}
     compacted, changed = _compact_assistance_payload(payload)
+    config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
+    if config.get("enabled"):
+        project_classes = _load_cell_classes_for_project(_slide_project_path(info))
+        default_classes = cell_annotation_classes_for_ai(True, str(config.get("key", "")))
+        merged_classes = _merge_cell_classes(project_classes, default_classes)
+        current_classes = compacted.get("classes")
+        if current_classes != merged_classes:
+            compacted = dict(compacted)
+            compacted["classes"] = merged_classes
+            changed = True
     if changed:
         try:
             _write_compact_json(path, compacted)
@@ -709,17 +753,33 @@ def _compact_assistance_payload(payload: dict) -> tuple[dict, bool]:
     labels = payload.get("labels")
     if not isinstance(labels, list):
         return payload, False
+    annotation_ai = payload.get("annotation_ai") if isinstance(payload.get("annotation_ai"), dict) else {}
+    use_other_class = annotation_ai.get("inherit_classes") is False
     already_compact = payload.get("label_format") == "bbox_compact_v1" and (
         not labels or isinstance(labels[0], list)
     )
     if already_compact:
-        payload["total_labels"] = len(labels)
-        payload["total_model_bbox_labels"] = int(payload.get("total_model_bbox_labels") or len(labels))
-        return payload, False
+        changed = False
+        if use_other_class:
+            next_labels = []
+            for label in labels:
+                if isinstance(label, list) and len(label) >= 7 and not str(label[6] or "").strip():
+                    label = [*label]
+                    label[6] = str(OTHER_CELL_CLASS.get("id", "other"))
+                    changed = True
+                next_labels.append(label)
+            if changed:
+                payload = dict(payload)
+                payload["labels"] = next_labels
+        payload["total_labels"] = len(payload.get("labels") or [])
+        payload["total_model_bbox_labels"] = int(payload.get("total_model_bbox_labels") or payload["total_labels"])
+        return payload, changed
     compact_labels = []
     for label in labels:
         compact = _compact_assistance_label(label)
         if compact is not None:
+            if use_other_class and not str(compact[6] or "").strip():
+                compact[6] = str(OTHER_CELL_CLASS.get("id", "other"))
             compact_labels.append(compact)
     compacted = dict(payload)
     compacted["labels"] = compact_labels
@@ -797,6 +857,35 @@ def _assistance_label_to_cell(label: Any, patch: dict, idx: int, class_lookup: d
     }
 
 
+def _model_class_metadata_for_assistance(config: dict) -> tuple[dict[str, str], dict[str, str]]:
+    base_model = config.get("base_model")
+    variant = config.get("variant")
+    if base_model == "Quanti HE":
+        from ai.quanti_he import CLASS_COLORS, CLASS_NAMES
+
+        return (
+            {str(k): str(v) for k, v in CLASS_NAMES.items()},
+            {str(k): str(v) for k, v in CLASS_COLORS.items()},
+        )
+    if base_model == "Quanti PD-L1":
+        from app.ai_pipelines.scoring import PD_SCORE_CONFIG
+
+        model = PD_SCORE_CONFIG.get(variant) or {}
+        return (
+            {str(k): str(v) for k, v in (model.get("class_names") or {}).items()},
+            {str(k): str(v) for k, v in (model.get("class_colors") or {}).items()},
+        )
+    if base_model == "Quanti IHC":
+        from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG
+
+        model = PRECISE_IHC_CONFIG.get(variant) or {}
+        return (
+            {str(k): str(v) for k, v in (model.get("class_names") or {}).items()},
+            {str(k): str(v) for k, v in (model.get("class_colors") or {}).items()},
+        )
+    return {}, {}
+
+
 def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float, Optional[tuple[float, float, float, float]]]]:
     bbox = None
     if isinstance(cell, dict):
@@ -825,7 +914,14 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
     class_names = result.get("class_names") if isinstance(result, dict) else {}
     if not isinstance(class_names, dict):
         class_names = {}
+    model_class_names, _ = _model_class_metadata_for_assistance(config)
+    class_names = {
+        **{str(k): str(v) for k, v in class_names.items()},
+        **model_class_names,
+    }
     inherit_classes = bool(config.get("inherit_classes"))
+    default_class_id = str(OTHER_CELL_CLASS.get("id", "other"))
+    default_class_name = str(OTHER_CELL_CLASS.get("name", "Other"))
     labels = []
     used_model_bbox = False
     for idx, cell in enumerate((result or {}).get("cells") or [], start=1):
@@ -840,6 +936,8 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
             x0, y0, x1, y1 = bbox
             used_model_bbox = True
         str_class_id = str(class_id)
+        label_class_id = str_class_id if inherit_classes else default_class_id
+        label_class_name = str(class_names.get(str_class_id, "")) if inherit_classes else default_class_name
         labels.append({
             "id": f"assist_{idx}",
             "x": round(x0, 2),
@@ -848,8 +946,8 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
             "height": round(max(0.0, y1 - y0), 2),
             "center_x": round(x, 2),
             "center_y": round(y, 2),
-            "class_id": str_class_id if inherit_classes else "",
-            "class_name": str(class_names.get(str_class_id, "")) if inherit_classes else "",
+            "class_id": label_class_id,
+            "class_name": label_class_name,
             "confidence": round(confidence, 4),
             "source_format": "bbox",
             "bbox_source": "model" if bbox is not None else "fallback_point",
@@ -866,12 +964,15 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         )
     compact_labels = [_compact_assistance_label(label) for label in labels]
     compact_labels = [label for label in compact_labels if label is not None]
+    project_classes = _load_cell_classes_for_project(_slide_project_path(info))
+    default_classes = cell_annotation_classes_for_ai(bool(config.get("enabled")), str(config.get("key", "")))
     payload = {
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
         "slide_stem": Path(info.file_path).stem,
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
+        "classes": _merge_cell_classes(project_classes, default_classes),
         "base_result_format": "bbox",
         "label_format": "bbox_compact_v1",
         "label_schema": ASSISTANCE_LABEL_SCHEMA,
@@ -931,14 +1032,22 @@ def _run_labeling_assistance_task(task_id: str, slide_id: str, file_path: str, c
 @router.get("/classes")
 async def load_cell_annotation_classes(path: str = Query(..., description="project path or current folder path")):
     class_path = _cell_project_classes_path(path)
+    ai_defaults = await _project_ai_default_classes(path)
     if not class_path.exists():
-        return {"classes": list(DEFAULT_CELL_CLASSES)}
+        return {"classes": ai_defaults or list(DEFAULT_CELL_CLASSES)}
     try:
         payload = json.loads(class_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise HTTPException(400, f"Invalid cell annotation class JSON: {exc}")
     classes = payload.get("classes") if isinstance(payload, dict) else payload
-    return {"classes": _normalize_cell_classes(classes)}
+    normalized = _normalize_cell_classes(classes)
+    merged = _merge_cell_classes(normalized, ai_defaults)
+    if len(merged) != len(normalized):
+        try:
+            class_path.write_text(json.dumps({"classes": merged}, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            print(f"[cell_annotation] class defaults merge failed: {exc}")
+    return {"classes": merged}
 
 
 @router.post("/classes", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
