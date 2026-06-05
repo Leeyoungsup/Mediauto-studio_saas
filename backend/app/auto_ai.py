@@ -20,6 +20,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from app.ai_pipelines.dedup import cache_has_current_detection_postprocess
+
 
 # ── text text ──
 IDLE_THRESHOLD_SECONDS = 600   # 10text text AI text text → idle
@@ -235,8 +237,11 @@ def _marker_cache_requires_excluded_cells(str_model: str, str_variant: str) -> b
 
 def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant: str) -> bool:
     cache_path = _marker_cache_path(str_full_path, str_model, str_variant)
-    if not cache_path or not cache_path.exists():
+    if not cache_path:
         return False
+    if not cache_path.exists():
+        print(f"[auto_ai] missing cache queued for inference: {cache_path.name}")
+        return True
 
     try:
         stat = cache_path.stat()
@@ -262,6 +267,13 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
 
     if not isinstance(cached, dict):
         print(f"[auto_ai] invalid cache queued for refresh: {cache_path.name}")
+        bool_needs_refresh = True
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+        return bool_needs_refresh
+
+    if not cache_has_current_detection_postprocess(cached):
+        print(f"[auto_ai] stale cache missing 10um overlap/global dedup queued for refresh: {cache_path.name}")
         bool_needs_refresh = True
         if tuple_cache_state and tuple_cache_key:
             _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)

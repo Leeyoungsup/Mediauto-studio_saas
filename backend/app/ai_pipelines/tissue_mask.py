@@ -144,9 +144,28 @@ def _patch_in_roi(px: int, py: int, image_size: int, roi_polygons) -> bool:
     )
 
 
+def _axis_patch_starts(length: int, image_size: int, stride: int) -> list:
+    max_start = max(0, int(length) - int(image_size))
+    if max_start <= 0:
+        return [0]
+    starts = list(range(0, max_start + 1, max(1, int(stride))))
+    if starts[-1] != max_start:
+        starts.append(max_start)
+    return starts
+
+
 def build_valid_patch_list(slide, width: int, height: int, image_size: int,
-                           roi_polygons=None, icc_transform=None):
+                           roi_polygons=None, icc_transform=None,
+                           mpp=None,
+                           overlap_um: float = 0.0):
     """Return AI patch origins, using Philips data envelopes when available."""
+    float_mpp_safe = float(mpp) if mpp and mpp > 0 else 0.25
+    overlap_px = int(round(max(0.0, float(overlap_um or 0.0)) / float_mpp_safe))
+    overlap_px = min(overlap_px, max(0, image_size // 2))
+    stride = max(1, image_size - overlap_px)
+    x_starts = _axis_patch_starts(width, image_size, stride)
+    y_starts = _axis_patch_starts(height, image_size, stride)
+
     rects = [
         tuple(int(v) for v in rect)
         for rect in getattr(slide, "data_envelope_rectangles", [])
@@ -155,9 +174,8 @@ def build_valid_patch_list(slide, width: int, height: int, image_size: int,
     valid_patch_list = []
 
     if rects:
-        for pr in range(width // image_size - 1):
-            for pc in range(height // image_size - 1):
-                px, py = pr * image_size, pc * image_size
+        for px in x_starts:
+            for py in y_starts:
                 patch_rect = (px, px + image_size - 1, py, py + image_size - 1)
                 if not any(_rects_intersect(patch_rect, rect) for rect in rects):
                     continue
@@ -167,14 +185,13 @@ def build_valid_patch_list(slide, width: int, height: int, image_size: int,
         return valid_patch_list, "data_envelope"
 
     thumb_mask = create_tissue_mask(slide, icc_transform=icc_transform)
-    for pr in range(width // image_size - 1):
-        for pc in range(height // image_size - 1):
-            mx = (pr * image_size) // 64
-            my = (pc * image_size) // 64
+    for px in x_starts:
+        for py in y_starts:
+            mx = px // 64
+            my = py // 64
             if np.sum(thumb_mask[my:my + image_size // 64,
                                  mx:mx + image_size // 64]) == 0:
                 continue
-            px, py = pr * image_size, pc * image_size
             if not _patch_in_roi(px, py, image_size, roi_polygons):
                 continue
             valid_patch_list.append((px, py))

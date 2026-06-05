@@ -2,6 +2,23 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.205] - 2026-06-05
+
+### Changed
+
+- Queue missing Quanti cache files for auto AI worker inference so folder/project AI pre-inference repairs DB/cache drift as well as stale post-processing metadata.
+
+## [1.1.204] - 2026-06-05
+
+### Added
+
+- Run Quanti HE, Quanti PD-L1, and Quanti IHC detection patches with 10um overlap to reduce tile-edge artifacts.
+- Add class-aware WSI-level global deduplication for overlapped Quanti detection results.
+
+### Changed
+
+- Mark older Quanti AI caches as stale when they do not include the 10um overlap/global dedup metadata, forcing fresh AI inference for newly requested runs.
+
 ## [1.1.203] - 2026-06-04
 
 ### Added

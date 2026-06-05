@@ -21,6 +21,12 @@ from app.ai_pipelines.cache_paths import (
     get_pd_score_cache_path,
     get_precise_ihc_cache_path,
 )
+from app.ai_pipelines.dedup import (
+    DETECTION_PATCH_OVERLAP_UM,
+    apply_global_cell_dedup,
+    cache_has_current_detection_postprocess,
+    processing_metadata,
+)
 from app.ai_pipelines.patch_reader import AIPatchReader
 from ai.quanti_ihc import (
     PRECISE_IHC_CONFIG,
@@ -140,6 +146,8 @@ def run_marker_detection_pipeline(
 
                 if list_exclude and "excluded_cells" not in cached:
                     raise ValueError("stale cache missing excluded_cells")
+                if not cache_has_current_detection_postprocess(cached):
+                    raise ValueError("stale cache missing 10um overlap/global dedup")
 
                 list_cached_before_compact = cached.get("cells") or []
                 bool_object_cell_cache = bool(
@@ -265,6 +273,8 @@ def run_marker_detection_pipeline(
             image_size,
             roi_polygons=roi_polygons,
             icc_transform=info.icc_transform,
+            mpp=info.mpp,
+            overlap_um=DETECTION_PATCH_OVERLAP_UM,
         )
         update_task(task_id, progress=5)
 
@@ -449,6 +459,14 @@ def run_marker_detection_pipeline(
             all_x0 = all_y0 = all_x1 = all_y1 = np.empty(0, dtype=np.float32)
             all_cls = np.empty(0, dtype=np.int32)
 
+        all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_global_dedup_dropped = (
+            apply_global_cell_dedup(
+                all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, info.mpp
+            )
+        )
+        if int_global_dedup_dropped > 0:
+            print(f"[{log_label}] global dedup dropped {int_global_dedup_dropped} overlap duplicate cells")
+
         # ── text text text text (e.g. 'Other' text) ──
         excluded_cells = []
         if list_exclude and len(all_cls) > 0:
@@ -513,6 +531,7 @@ def run_marker_detection_pipeline(
             "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
             "score_conf_threshold": float_score_conf_threshold,
             score_key: score_dict,
+            **processing_metadata(),
             **(extra_fields or {}),
         }
 

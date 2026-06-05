@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.203",
+  "version": "1.1.205",
   "channel": "production",
-  "release_date": "2026-06-04",
-  "description": "Adds Alt-click and Alt-drag cell editing to Cell Annotation patch view."
+  "release_date": "2026-06-05",
+  "description": "Ensures the auto AI worker pre-infers missing or stale Quanti detection caches."
 }

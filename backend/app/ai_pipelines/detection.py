@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Optional
 
 from app.ai_pipelines.cache_paths import get_ai_cache_path
+from app.ai_pipelines.dedup import (
+    DETECTION_PATCH_OVERLAP_UM,
+    apply_global_cell_dedup,
+    cache_has_current_detection_postprocess,
+    processing_metadata,
+)
 from app.ai_pipelines.patch_reader import AIPatchReader
 from app.ai_pipelines.task_state import (
     TaskCancelled,
@@ -159,6 +165,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
+                if not cache_has_current_detection_postprocess(cached):
+                    raise ValueError("stale cache missing 10um overlap/global dedup")
                 cached_cells = cached.get("cells") or []
                 if cached_cells and not _cell_has_bbox(cached_cells[0]):
                     raise ValueError("stale cache missing bbox")
@@ -239,6 +247,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             image_size,
             roi_polygons=roi_polygons,
             icc_transform=info.icc_transform,
+            mpp=info.mpp,
+            overlap_um=DETECTION_PATCH_OVERLAP_UM,
         )
         update_task(task_id, progress=5)
 
@@ -429,6 +439,14 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         check_cancel(task_id)
 
+        all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_global_dedup_dropped = (
+            apply_global_cell_dedup(
+                all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, info.mpp
+            )
+        )
+        if int_global_dedup_dropped > 0:
+            print(f"[detection] global dedup dropped {int_global_dedup_dropped} overlap duplicate cells")
+
         # ── Stromal cell text text: text text conf >= 0.1 text text text text Stromal text ──
         all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_stromal_dropped = (
             _suppress_stromal_when_others_present(
@@ -481,6 +499,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
             "class_colors": {str(k): v for k, v in CLASS_COLORS.items()},
             "seg_data": seg_data,
+            **processing_metadata(),
         }
 
         check_cancel(task_id)
