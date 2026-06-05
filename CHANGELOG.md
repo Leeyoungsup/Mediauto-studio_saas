@@ -2,6 +2,71 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.214] - 2026-06-06
+
+### Fixed
+
+- Apply cross-class Quanti marker NMS with visible-class priority so `Other` participates in NMS but cannot suppress visible marker classes.
+- Use the same visible-priority rule for WSI-level global overlap NMS.
+- Bump Quanti post-processing metadata to `quanti-overlap-10um-global-nms-v7-visible-priority`.
+
+## [1.1.213] - 2026-06-06
+
+### Fixed
+
+- Apply class-wise NMS to every Quanti detection class, including `Other`, so `Other` boxes are deduplicated within their own class.
+- Avoid cross-class NMS suppression between `Other` and visible marker classes; hidden `Other` overlap suppression still runs afterward.
+- Bump Quanti post-processing metadata to `quanti-overlap-10um-global-nms-v6-classwise-other`.
+
+## [1.1.212] - 2026-06-06
+
+### Fixed
+
+- Exclude marker `Other` classes from both patch-level YOLO NMS and WSI-level global NMS for Quanti PD-L1/IHC.
+- Keep the later hidden-Other overlap suppression so excluded cells that duplicate visible classes do not appear in Cell Annotation assistance.
+- Bump Quanti post-processing metadata to `quanti-overlap-10um-global-nms-v5-exclude-other`.
+
+## [1.1.211] - 2026-06-06
+
+### Fixed
+
+- Suppress excluded marker classes such as `Other` when their boxes overlap visible Quanti PD-L1/IHC classes after global NMS.
+- Bump Quanti post-processing metadata to `quanti-overlap-10um-global-nms-v4-other-suppression` so older caches and Cell Annotation assistance rerun.
+
+## [1.1.210] - 2026-06-06
+
+### Fixed
+
+- Store Quanti post-processing metadata in Cell Annotation `WSI_Labeling_assistance.json` and invalidate stale assistance files when the required global NMS version changes.
+- Prevent Cell Annotation AI assistance generation from saving labels when the source Quanti result does not include the current overlap/global NMS metadata.
+
+## [1.1.209] - 2026-06-06
+
+### Fixed
+
+- Align Quanti WSI global overlap cleanup with the existing YOLO class-wise IoU NMS behavior.
+- Bump Quanti global dedup metadata to `quanti-overlap-10um-global-nms-v3` so previous center-distance dedup caches rerun.
+
+## [1.1.208] - 2026-06-06
+
+### Fixed
+
+- Strengthen Quanti WSI global deduplication so same-class overlap duplicates are suppressed by center distance, not only by IoU.
+- Bump Quanti global dedup metadata to `quanti-overlap-10um-global-dedup-v2` so older overlap/dedup caches rerun.
+
+## [1.1.207] - 2026-06-06
+
+### Added
+
+- Add `--quanti-only` to the AI result and Cell Annotation assistance cleanup script for removing Quanti HE, Quanti PD-L1, and Quanti IHC artifacts without clearing VS IHC.
+
+## [1.1.206] - 2026-06-06
+
+### Added
+
+- Add `backend/scripts/clear_ai_and_cell_assistance.py` for dry-run-first cleanup of AI result caches and Cell Annotation `WSI_Labeling_assistance.json` files.
+- Support optional cleanup of saved user AI edit records/files and patch cell annotation documents from the maintenance script.
+
 ## [1.1.205] - 2026-06-05
 
 ### Changed

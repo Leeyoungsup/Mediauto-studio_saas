@@ -23,6 +23,7 @@ from app.project_utils import (
     normalize_annotation_ai_config,
 )
 from app.slide_manager import slide_manager
+from app.ai_pipelines.dedup import cache_has_current_detection_postprocess, processing_metadata
 from app.ai_pipelines.detection import run_detection as _run_detection
 from app.ai_pipelines.marker_pipeline import (
     run_pd_score as _run_pd_score,
@@ -697,6 +698,13 @@ def _read_assistance_file(info) -> dict:
     except Exception:
         return {}
     compacted, changed = _compact_assistance_payload(payload)
+    source_postprocess = compacted.get("source_ai_postprocess")
+    if not cache_has_current_detection_postprocess(source_postprocess):
+        try:
+            path.unlink()
+        except Exception as exc:
+            print(f"[cell_annotation] stale assistance cleanup failed: {exc}")
+        return {}
     config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
     if config.get("enabled"):
         project_classes = _load_cell_classes_for_project(_slide_project_path(info))
@@ -961,6 +969,11 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
 
 
 def _write_assistance_result(slide_id: str, info, config: dict, result: dict) -> dict:
+    if not cache_has_current_detection_postprocess(result):
+        raise ValueError(
+            "Labeling assistance requires current Quanti AI post-processing. "
+            "Remove the stale AI result cache and rerun annotation assistance."
+        )
     labels, used_model_bbox = _result_cells_to_bbox_labels(result, config)
     if labels and not used_model_bbox:
         raise ValueError(
@@ -977,6 +990,13 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "slide_stem": Path(info.file_path).stem,
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
+        "source_ai_postprocess": {
+            "patch_overlap_um": result.get("patch_overlap_um"),
+            "global_dedup_version": result.get("global_dedup_version"),
+            "global_nms_iou_threshold": result.get("global_nms_iou_threshold"),
+            "global_dedup_match_rule": result.get("global_dedup_match_rule"),
+        },
+        "required_ai_postprocess": processing_metadata(),
         "classes": _merge_cell_classes(project_classes, default_classes),
         "base_result_format": "bbox",
         "label_format": "bbox_compact_v1",

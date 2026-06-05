@@ -26,6 +26,7 @@ from app.ai_pipelines.dedup import (
     apply_global_cell_dedup,
     cache_has_current_detection_postprocess,
     processing_metadata,
+    suppress_excluded_classes_overlapping_visible,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
 from ai.quanti_ihc import (
@@ -135,6 +136,7 @@ def run_marker_detection_pipeline(
         dict_class_colors = dict_config["class_colors"]
         int_num_classes = dict_config["num_classes"]
         list_exclude = dict_config.get("exclude_classes") or []
+        list_nms_priority = [i for i in range(int_num_classes) if i not in list_exclude]
 
         # ── text text ──
         if cache_path.exists():
@@ -326,6 +328,7 @@ def run_marker_detection_pipeline(
                 results = non_max_suppression(
                     preds, confidence_threshold=0.01,
                     iou_threshold=0.3, class_thresholds=class_thresholds,
+                    nms_priority_classes=list_nms_priority,
                 )
 
                 coord_scale = image_size / 512  # = 2.0
@@ -461,13 +464,23 @@ def run_marker_detection_pipeline(
 
         all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_global_dedup_dropped = (
             apply_global_cell_dedup(
-                all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, info.mpp
+                all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, info.mpp,
+                list_exclude=list_exclude,
             )
         )
         if int_global_dedup_dropped > 0:
             print(f"[{log_label}] global dedup dropped {int_global_dedup_dropped} overlap duplicate cells")
 
         # ── text text text text (e.g. 'Other' text) ──
+        if list_exclude and len(all_cls) > 0:
+            all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, int_excluded_overlap_dropped = (
+                suppress_excluded_classes_overlapping_visible(
+                    all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, list_exclude
+                )
+            )
+            if int_excluded_overlap_dropped > 0:
+                print(f"[{log_label}] suppressed {int_excluded_overlap_dropped} excluded-class cells overlapping visible classes")
+
         excluded_cells = []
         if list_exclude and len(all_cls) > 0:
             exclude_mask = np.isin(all_cls, list_exclude)

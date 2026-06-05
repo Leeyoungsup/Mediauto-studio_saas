@@ -8,17 +8,19 @@ import numpy as np
 
 
 DETECTION_PATCH_OVERLAP_UM = 10.0
-GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-global-dedup-v1"
-GLOBAL_DEDUP_CENTER_RADIUS_UM = 8.0
-GLOBAL_DEDUP_IOU_THRESHOLD = 0.3
+GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-global-nms-v7-visible-priority"
+GLOBAL_NMS_IOU_THRESHOLD = 0.3
+EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
 
 
 def processing_metadata() -> dict:
     return {
         "patch_overlap_um": DETECTION_PATCH_OVERLAP_UM,
         "global_dedup_version": GLOBAL_DEDUP_VERSION,
-        "global_dedup_center_radius_um": GLOBAL_DEDUP_CENTER_RADIUS_UM,
-        "global_dedup_iou_threshold": GLOBAL_DEDUP_IOU_THRESHOLD,
+        "global_nms_iou_threshold": GLOBAL_NMS_IOU_THRESHOLD,
+        "global_dedup_match_rule": "cross_class_iou_nms_visible_priority",
+        "excluded_class_suppression_iou_threshold": EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD,
+        "excluded_class_suppression_rule": "drop_excluded_class_boxes_overlapping_visible_boxes",
     }
 
 
@@ -31,20 +33,120 @@ def cache_has_current_detection_postprocess(result: dict) -> bool:
     )
 
 
-def _box_iou(x0_a, y0_a, x1_a, y1_a, x0_b, y0_b, x1_b, y1_b) -> float:
-    ix0 = max(float(x0_a), float(x0_b))
-    iy0 = max(float(y0_a), float(y0_b))
-    ix1 = min(float(x1_a), float(x1_b))
-    iy1 = min(float(y1_a), float(y1_b))
-    iw = max(0.0, ix1 - ix0)
-    ih = max(0.0, iy1 - iy0)
-    inter = iw * ih
-    if inter <= 0:
-        return 0.0
-    area_a = max(0.0, float(x1_a) - float(x0_a)) * max(0.0, float(y1_a) - float(y0_a))
-    area_b = max(0.0, float(x1_b) - float(x0_b)) * max(0.0, float(y1_b) - float(y0_b))
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
+def _box_iou_np(box, boxes) -> np.ndarray:
+    ix0 = np.maximum(float(box[0]), boxes[:, 0])
+    iy0 = np.maximum(float(box[1]), boxes[:, 1])
+    ix1 = np.minimum(float(box[2]), boxes[:, 2])
+    iy1 = np.minimum(float(box[3]), boxes[:, 3])
+    inter_w = np.maximum(0.0, ix1 - ix0)
+    inter_h = np.maximum(0.0, iy1 - iy0)
+    inter = inter_w * inter_h
+    area_box = max(0.0, float(box[2]) - float(box[0])) * max(0.0, float(box[3]) - float(box[1]))
+    area_boxes = np.maximum(0.0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0.0, boxes[:, 3] - boxes[:, 1])
+    union = area_box + area_boxes - inter
+    return np.divide(inter, union, out=np.zeros_like(inter, dtype=np.float32), where=union > 0)
+
+
+def _nms_indices_np(boxes, scores, iou_threshold: float) -> np.ndarray:
+    order = np.argsort(scores)[::-1]
+    keep = []
+    while len(order) > 0:
+        idx = int(order[0])
+        keep.append(idx)
+        if len(order) == 1:
+            break
+        rest = order[1:]
+        ious = _box_iou_np(boxes[idx], boxes[rest])
+        order = rest[ious <= iou_threshold]
+    return np.asarray(keep, dtype=np.int64)
+
+
+def _nms_indices(boxes, scores, iou_threshold: float) -> np.ndarray:
+    try:
+        import torch
+        import torchvision
+        tensor_boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        tensor_scores = torch.as_tensor(scores, dtype=torch.float32)
+        return torchvision.ops.nms(tensor_boxes, tensor_scores, iou_threshold).cpu().numpy()
+    except Exception:
+        return _nms_indices_np(boxes, scores, iou_threshold)
+
+
+def suppress_excluded_classes_overlapping_visible(
+    all_x,
+    all_y,
+    all_conf,
+    all_cls,
+    all_x0,
+    all_y0,
+    all_x1,
+    all_y1,
+    list_exclude,
+    iou_threshold: float = EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD,
+):
+    """Drop hidden/excluded class boxes, such as Other, that duplicate visible boxes."""
+    if len(all_x) == 0 or not list_exclude:
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
+
+    exclude_mask = np.isin(all_cls, list_exclude)
+    visible_mask = ~exclude_mask
+    if not exclude_mask.any() or not visible_mask.any():
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
+
+    excluded_idx = np.where(exclude_mask)[0]
+    visible_idx = np.where(visible_mask)[0]
+    visible_boxes = np.column_stack((
+        all_x0[visible_idx],
+        all_y0[visible_idx],
+        all_x1[visible_idx],
+        all_y1[visible_idx],
+    )).astype(np.float32, copy=False)
+    visible_centers = np.column_stack((all_x[visible_idx], all_y[visible_idx])).astype(np.float32, copy=False)
+
+    try:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(visible_centers)
+        visible_w = np.maximum(0.0, visible_boxes[:, 2] - visible_boxes[:, 0])
+        visible_h = np.maximum(0.0, visible_boxes[:, 3] - visible_boxes[:, 1])
+        visible_diag = np.sqrt(visible_w * visible_w + visible_h * visible_h)
+        query_radius = max(8.0, float(np.percentile(visible_diag, 95)) if len(visible_diag) else 64.0)
+    except Exception:
+        tree = None
+        query_radius = 64.0
+
+    keep_mask = np.ones(len(all_x), dtype=bool)
+    for idx in excluded_idx:
+        box = np.asarray([all_x0[idx], all_y0[idx], all_x1[idx], all_y1[idx]], dtype=np.float32)
+        if tree is not None:
+            local = tree.query_ball_point([float(all_x[idx]), float(all_y[idx])], r=query_radius)
+            if not local:
+                continue
+            candidate_boxes = visible_boxes[np.asarray(local, dtype=np.int64)]
+        else:
+            dx = visible_centers[:, 0] - float(all_x[idx])
+            dy = visible_centers[:, 1] - float(all_y[idx])
+            local = np.where((dx * dx + dy * dy) <= query_radius * query_radius)[0]
+            if len(local) == 0:
+                continue
+            candidate_boxes = visible_boxes[local]
+        if np.any(_box_iou_np(box, candidate_boxes) >= iou_threshold):
+            keep_mask[idx] = False
+
+    dropped = int(len(all_x) - int(np.count_nonzero(keep_mask)))
+    if dropped <= 0:
+        return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
+
+    return (
+        all_x[keep_mask],
+        all_y[keep_mask],
+        all_conf[keep_mask],
+        all_cls[keep_mask],
+        all_x0[keep_mask],
+        all_y0[keep_mask],
+        all_x1[keep_mask],
+        all_y1[keep_mask],
+        dropped,
+    )
 
 
 def apply_global_cell_dedup(
@@ -57,58 +159,20 @@ def apply_global_cell_dedup(
     all_x1,
     all_y1,
     float_mpp,
+    list_exclude=None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
-    """Class-aware WSI-level deduplication for overlapped detection tiles."""
+    """WSI-level IoU NMS for overlapped detection tiles."""
     if len(all_x) == 0:
         return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
 
-    float_mpp_safe = float(float_mpp) if float_mpp and float_mpp > 0 else 0.25
-    radius_px = GLOBAL_DEDUP_CENTER_RADIUS_UM / float_mpp_safe
-    keep_mask = np.ones(len(all_x), dtype=bool)
-
-    try:
-        from scipy.spatial import cKDTree
-    except Exception:
-        cKDTree = None
-
-    for class_id in np.unique(all_cls):
-        class_indices = np.where(all_cls == class_id)[0]
-        if len(class_indices) <= 1:
-            continue
-
-        order = class_indices[np.argsort(all_conf[class_indices])[::-1]]
-        if cKDTree is not None:
-            coords = np.column_stack((all_x[class_indices], all_y[class_indices]))
-            tree = cKDTree(coords)
-        else:
-            tree = None
-
-        for idx in order:
-            if not keep_mask[idx]:
-                continue
-
-            if tree is not None:
-                local_neighbors = tree.query_ball_point(
-                    [float(all_x[idx]), float(all_y[idx])],
-                    r=radius_px,
-                )
-                candidates = class_indices[local_neighbors]
-            else:
-                dx = all_x[class_indices] - all_x[idx]
-                dy = all_y[class_indices] - all_y[idx]
-                candidates = class_indices[(dx * dx + dy * dy) <= radius_px * radius_px]
-
-            for other in candidates:
-                if other == idx or not keep_mask[other]:
-                    continue
-                if all_conf[other] > all_conf[idx]:
-                    continue
-                iou = _box_iou(
-                    all_x0[idx], all_y0[idx], all_x1[idx], all_y1[idx],
-                    all_x0[other], all_y0[other], all_x1[other], all_y1[other],
-                )
-                if iou >= GLOBAL_DEDUP_IOU_THRESHOLD:
-                    keep_mask[other] = False
+    boxes = np.column_stack((all_x0, all_y0, all_x1, all_y1)).astype(np.float32, copy=False)
+    scores = all_conf.astype(np.float32, copy=True)
+    if list_exclude:
+        visible_mask = ~np.isin(all_cls, list_exclude)
+        scores[visible_mask] += 1.0
+    keep_indices = _nms_indices(boxes, scores, GLOBAL_NMS_IOU_THRESHOLD)
+    keep_mask = np.zeros(len(all_x), dtype=bool)
+    keep_mask[keep_indices] = True
 
     dropped = int(len(all_x) - int(np.count_nonzero(keep_mask)))
     if dropped <= 0:

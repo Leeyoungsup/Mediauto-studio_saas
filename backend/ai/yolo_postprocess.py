@@ -16,14 +16,15 @@ def wh2xy(x):
 
 
 def non_max_suppression(outputs, confidence_threshold=0.01, iou_threshold=0.35,
-                         class_thresholds=None):
-    """Class-wise NMS for YOLO raw outputs.
+                         class_thresholds=None, nms_priority_classes=None):
+    """NMS for YOLO raw outputs.
 
     Args:
         outputs: (B, 4+nc, N) raw YOLO output.
         confidence_threshold: global confidence cutoff.
         iou_threshold: IoU threshold.
         class_thresholds: optional {class_id: threshold} per-class cutoff.
+        nms_priority_classes: optional class ids that win NMS ordering over others.
     """
     bs = outputs.shape[0]
     nc = outputs.shape[1] - 4
@@ -64,8 +65,14 @@ def non_max_suppression(outputs, confidence_threshold=0.01, iou_threshold=0.35,
             continue
 
         x = x[x[:, 4].argsort(descending=True)]
+        cls_idx = x[:, 5].long()
         boxes = x[:, :4]
         scores = x[:, 4]
+        if nms_priority_classes:
+            priority_mask = torch.zeros_like(scores, dtype=torch.bool)
+            for cid in nms_priority_classes:
+                priority_mask |= cls_idx == int(cid)
+            scores = scores + priority_mask.to(scores.dtype)
         keep = torchvision.ops.nms(boxes, scores, iou_threshold)
         output[xi] = x[keep]
 
