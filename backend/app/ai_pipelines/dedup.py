@@ -8,7 +8,8 @@ import numpy as np
 
 
 DETECTION_PATCH_OVERLAP_UM = 10.0
-GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-global-nms-v7-visible-priority"
+DETECTION_EDGE_IGNORE_UM = 3.0
+GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-edge3um-global-nms-v8"
 GLOBAL_NMS_IOU_THRESHOLD = 0.3
 EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
 
@@ -16,6 +17,7 @@ EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
 def processing_metadata() -> dict:
     return {
         "patch_overlap_um": DETECTION_PATCH_OVERLAP_UM,
+        "patch_edge_ignore_um": DETECTION_EDGE_IGNORE_UM,
         "global_dedup_version": GLOBAL_DEDUP_VERSION,
         "global_nms_iou_threshold": GLOBAL_NMS_IOU_THRESHOLD,
         "global_dedup_match_rule": "cross_class_iou_nms_visible_priority",
@@ -31,6 +33,37 @@ def cache_has_current_detection_postprocess(result: dict) -> bool:
         result.get("patch_overlap_um") == DETECTION_PATCH_OVERLAP_UM
         and result.get("global_dedup_version") == GLOBAL_DEDUP_VERSION
     )
+
+
+def patch_edge_keep_mask(
+    local_x,
+    local_y,
+    patch_x: int,
+    patch_y: int,
+    slide_width: int,
+    slide_height: int,
+    image_size: int,
+    float_mpp,
+    edge_ignore_um: float = DETECTION_EDGE_IGNORE_UM,
+) -> np.ndarray:
+    """Keep detections away from internal patch edges; slide outer edges are preserved."""
+    if len(local_x) == 0:
+        return np.zeros(0, dtype=bool)
+    float_mpp_safe = float(float_mpp) if float_mpp and float_mpp > 0 else 0.25
+    margin_px = max(0.0, float(edge_ignore_um or 0.0) / float_mpp_safe)
+    if margin_px <= 0:
+        return np.ones(len(local_x), dtype=bool)
+
+    keep = np.ones(len(local_x), dtype=bool)
+    if int(patch_x) > 0:
+        keep &= local_x >= margin_px
+    if int(patch_y) > 0:
+        keep &= local_y >= margin_px
+    if int(patch_x) + int(image_size) < int(slide_width):
+        keep &= local_x <= (float(image_size) - margin_px)
+    if int(patch_y) + int(image_size) < int(slide_height):
+        keep &= local_y <= (float(image_size) - margin_px)
+    return keep
 
 
 def _box_iou_np(box, boxes) -> np.ndarray:

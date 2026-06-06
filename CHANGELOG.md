@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.215] - 2026-06-06
+
+### Fixed
+
+- Ignore Quanti detections whose centers fall within 3um of internal overlapped patch edges, while preserving detections at the outer slide boundary.
+- Add `patch_edge_ignore_um` metadata and bump Quanti post-processing metadata to `quanti-overlap-10um-edge3um-global-nms-v8`.
+
 ## [1.1.214] - 2026-06-06
 
 ### Fixed

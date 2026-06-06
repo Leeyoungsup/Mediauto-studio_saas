@@ -20,6 +20,7 @@ from app.ai_pipelines.dedup import (
     DETECTION_PATCH_OVERLAP_UM,
     apply_global_cell_dedup,
     cache_has_current_detection_postprocess,
+    patch_edge_keep_mask,
     processing_metadata,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
@@ -305,14 +306,25 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                         continue
                     det = results[i]
                     xyxy = det[:, :4]
-                    cx_np = ((xyxy[:, 0] + xyxy[:, 2]) / 2 * coord_scale + sx).cpu().numpy().astype(np.float32)
-                    cy_np = ((xyxy[:, 1] + xyxy[:, 3]) / 2 * coord_scale + sy).cpu().numpy().astype(np.float32)
+                    local_cx_np = ((xyxy[:, 0] + xyxy[:, 2]) / 2 * coord_scale).cpu().numpy().astype(np.float32)
+                    local_cy_np = ((xyxy[:, 1] + xyxy[:, 3]) / 2 * coord_scale).cpu().numpy().astype(np.float32)
+                    keep_edge = patch_edge_keep_mask(
+                        local_cx_np, local_cy_np, sx, sy, width, height, image_size, info.mpp
+                    )
+                    if not keep_edge.any():
+                        continue
+                    keep_edge_t = torch.as_tensor(keep_edge, dtype=torch.bool, device=xyxy.device)
+                    xyxy = xyxy[keep_edge_t]
+                    local_cx_np = local_cx_np[keep_edge]
+                    local_cy_np = local_cy_np[keep_edge]
+                    cx_np = (local_cx_np + sx).astype(np.float32)
+                    cy_np = (local_cy_np + sy).astype(np.float32)
                     x0_np = (xyxy[:, 0] * coord_scale + sx).cpu().numpy().astype(np.float32)
                     y0_np = (xyxy[:, 1] * coord_scale + sy).cpu().numpy().astype(np.float32)
                     x1_np = (xyxy[:, 2] * coord_scale + sx).cpu().numpy().astype(np.float32)
                     y1_np = (xyxy[:, 3] * coord_scale + sy).cpu().numpy().astype(np.float32)
-                    cls_np = det[:, 5].cpu().numpy().astype(np.int32)
-                    conf_np = det[:, 4].cpu().numpy().astype(np.float32)
+                    cls_np = det[:, 5][keep_edge_t].cpu().numpy().astype(np.int32)
+                    conf_np = det[:, 4][keep_edge_t].cpu().numpy().astype(np.float32)
                     if len(cx_np) > 0:
                         bx.append(cx_np)
                         by.append(cy_np)
