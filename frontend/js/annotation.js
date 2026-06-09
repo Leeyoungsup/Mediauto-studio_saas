@@ -1796,8 +1796,9 @@ function renderClassManagementPanel() {
     const canManage = _canManageAnnotationClasses();
     const isSettings = canManage && _classManagementMode === 'settings';
     if (!canManage && _classManagementMode !== 'apply') _classManagementMode = 'apply';
+    const isCellPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
     if ($btnClassApply) {
-        $btnClassApply.hidden = isSettings;
+        $btnClassApply.hidden = isSettings || isCellPatchView;
         $btnClassApply.disabled = _isViewerRole();
         $btnClassApply.title = _isViewerRole() ? 'Viewer role can view annotations only' : 'Apply selected class to selected annotation';
     }
@@ -1852,6 +1853,7 @@ function renderClassManagementPanel() {
         const setActive = () => {
             _activeAnnotationClassId = cls.id;
             _syncActiveAnnotationClassToViewer();
+            if (!isSettings && _applyClassToSelectedPatchCellAnnotations(cls.id)) return;
             renderClassManagementPanel();
             renderAnnotationPanel();
         };
@@ -1987,6 +1989,21 @@ function _projectClassLockIdsForCellAi(enabled, key) {
         locked.add(cls.id);
     }
     return locked;
+}
+
+function _currentProjectInfoForClassSettings() {
+    const projectName = _getCurrentProjectName();
+    if (!projectName) return null;
+    return (_projectListCache || []).find(project => (project?.path || project?.name || '') === projectName)?.info || null;
+}
+
+function _lockedCellClassIdsForCurrentProject() {
+    if (ANNOTATION_PAGE_KIND !== 'cell') return new Set();
+    const info = _currentProjectInfoForClassSettings();
+    const annotationAi = info?.annotation_ai || {};
+    const key = annotationAi.key || '';
+    const enabled = Boolean(info?.annotation_ai_enabled && key);
+    return _projectClassLockIdsForCellAi(enabled, key);
 }
 
 const CELL_ANNOTATION_AI_OPTIONS = [
@@ -2362,6 +2379,7 @@ $btnClassDone?.addEventListener('click', () => {
 });
 
 function _applyActiveClassToSelectedAnnotation() {
+    if (_applyClassToSelectedPatchCellAnnotations(_activeAnnotationClassId)) return;
     const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
     if (!ann) {
         setStatus('Select an annotation first');
@@ -2381,6 +2399,48 @@ function _applyActiveClassToSelectedAnnotation() {
 }
 
 $btnClassApply?.addEventListener('click', _applyActiveClassToSelectedAnnotation);
+
+function _selectedPatchCellAnnotationIds() {
+    const ids = new Set();
+    if (!cellPatchWorkflow?.patchFocusActive) return ids;
+    for (const id of _annotationBulkSelection || []) ids.add(id);
+    if (viewer.selectedAnnotationId) ids.add(viewer.selectedAnnotationId);
+    if (viewer._highlightedCellIdxSet instanceof Set) {
+        for (const idx of viewer._highlightedCellIdxSet) {
+            const ann = viewer.annotations?.[idx];
+            if (ann?.id) ids.add(ann.id);
+        }
+    }
+    const existingIds = new Set((viewer.annotations || []).map(ann => ann.id));
+    for (const id of [...ids]) {
+        if (!existingIds.has(id)) ids.delete(id);
+    }
+    return ids;
+}
+
+function _applyClassToSelectedPatchCellAnnotations(classId) {
+    if (!cellPatchWorkflow?.patchFocusActive) return false;
+    const ids = _selectedPatchCellAnnotationIds();
+    if (!ids.size) return false;
+    if (_blockViewerAction('Viewer role cannot change cell annotation classes.')) return true;
+    const cls = _getAnnotationClass(classId);
+    _activeAnnotationClassId = cls.id;
+    _syncActiveAnnotationClassToViewer();
+    viewer.pushAnnotationUndo?.();
+    const changed = [];
+    for (const ann of viewer.annotations || []) {
+        if (!ids.has(ann.id)) continue;
+        _applyClassToAnnotation(ann, cls.id);
+        changed.push(ann);
+    }
+    _annotationBulkSelection = new Set(changed.map(ann => ann.id).filter(Boolean));
+    _syncPatchEditorAfterViewerAnnotationEdit();
+    viewer.requestRender();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+    setStatus(`Changed ${changed.length.toLocaleString()} cell annotation${changed.length === 1 ? '' : 's'} to ${cls.name}`);
+    return true;
+}
 
 function _annotationDisplayId(ann) {
     const idx = viewer.annotations.findIndex(item => item === ann || item.id === ann?.id);
@@ -2939,10 +2999,22 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     if (_projectClassModal) return false;
     const idx = _classShortcutIndexFromKey(e);
     if (idx < 0 || idx >= _annotationClasses.length) return false;
+    const cls = _annotationClasses[idx];
+    if (cellPatchWorkflow?.patchFocusActive) {
+        _activeAnnotationClassId = cls.id;
+        _syncActiveAnnotationClassToViewer();
+        if (_applyClassToSelectedPatchCellAnnotations(cls.id)) {
+            e.preventDefault();
+            return true;
+        }
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+        e.preventDefault();
+        return true;
+    }
     const ann = viewer.annotations.find(a => a.id === viewer.selectedAnnotationId);
     if (!ann) return false;
     if (_blockViewerAction('Viewer role cannot change annotation classes.')) return true;
-    const cls = _annotationClasses[idx];
     _activeAnnotationClassId = cls.id;
     _syncActiveAnnotationClassToViewer();
     viewer.pushAnnotationUndo?.();

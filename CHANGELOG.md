@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.230] - 2026-06-09
+
+### Fixed
+
+- Apply Cell Annotation patch-view class changes immediately when clicking a class row while cells are selected.
+- Support numeric class shortcuts for selected patch-view cell annotations, including Alt-drag multi-selections.
+- Hide the separate Apply button in Cell Annotation patch view.
+
 ## [1.1.229] - 2026-06-09
 
 ### Fixed
