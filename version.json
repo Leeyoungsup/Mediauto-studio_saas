@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.227",
+  "version": "1.1.228",
   "channel": "production",
   "release_date": "2026-06-09",
-  "description": "Toggles Cell Annotation patch-view multi-selection with Alt-click."
+  "description": "Speeds up Cell Annotation patch-view bulk deletion and keeps undo/redo synchronized with patch cell storage."
 }

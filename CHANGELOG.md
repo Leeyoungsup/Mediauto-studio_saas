@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.228] - 2026-06-09
+
+### Fixed
+
+- Speed up Cell Annotation patch-view deletion by removing patch labels in bulk instead of one render per cell.
+- Keep the patch cell editor storage model synchronized after annotation undo/redo.
+- Sync patch cell storage once after bulk class changes instead of once per selected cell.
+
 ## [1.1.227] - 2026-06-09
 
 ### Fixed

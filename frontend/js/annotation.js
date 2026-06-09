@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260609-03';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260609-03';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260609-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260609-03';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -2732,8 +2732,8 @@ function renderAnnotationPanel() {
             for (const ann of viewer.annotations || []) {
                 if (!selected.has(ann.id)) continue;
                 _applyClassToAnnotation(ann, classId);
-                if (viewer.onAnnotationChanged) viewer.onAnnotationChanged(ann);
             }
+            _syncPatchEditorAfterViewerAnnotationEdit();
             viewer.requestRender();
             renderClassManagementPanel();
             renderAnnotationPanel();
@@ -2746,7 +2746,7 @@ function renderAnnotationPanel() {
             const removed = (viewer.annotations || []).filter(ann => selected.has(ann.id));
             viewer.annotations = (viewer.annotations || []).filter(ann => !selected.has(ann.id));
             if (selected.has(viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
-            removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+            _removePatchLabelsForAnnotations(removed);
             _annotationBulkSelection = new Set();
             viewer.requestRender();
             renderClassManagementPanel();
@@ -2956,6 +2956,23 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     return true;
 }
 
+function _syncPatchEditorAfterViewerAnnotationEdit() {
+    if (cellPatchWorkflow?.patchFocusActive) {
+        cellPatchWorkflow.syncPatchLabelsFromViewerAnnotations?.();
+    }
+}
+
+function _removePatchLabelsForAnnotations(annotations = []) {
+    const list = Array.isArray(annotations) ? annotations.filter(Boolean) : [];
+    if (!list.length) return false;
+    if (cellPatchWorkflow?.patchFocusActive) {
+        cellPatchWorkflow.removePatchLabelsFromAnnotations?.(list);
+        return true;
+    }
+    list.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+    return true;
+}
+
 function _deleteSelectedCellPatchAnnotationsByShortcut(e) {
     const key = String(e.key || '').toLowerCase();
     const isDeleteKey = key === 'delete' || key === 'backspace' || key === 'd';
@@ -2998,7 +3015,7 @@ function _deleteSelectedCellPatchAnnotationsByShortcut(e) {
     if (viewer._highlightedCellIdxSet) viewer._highlightedCellIdxSet = null;
     viewer._highlightedCellIdx = -1;
     _annotationBulkSelection = new Set();
-    removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+    _removePatchLabelsForAnnotations(removed);
     viewer.onAnnotationSelected?.(null);
     viewer.requestRender();
     renderClassManagementPanel();
@@ -3155,14 +3172,11 @@ function _doDeleteCell() {
         const indices = _cellEditCtx.multi
             ? [..._cellEditCtx.indices].sort((a, b) => b - a)
             : [_cellEditCtx.idx];
-        const removed = [];
-        for (const idx of indices) {
-            if (idx < 0 || idx >= viewer.annotations.length) continue;
-            const [ann] = viewer.annotations.splice(idx, 1);
-            if (ann) removed.push(ann);
-        }
+        const removeSet = new Set(indices.filter(idx => idx >= 0 && idx < viewer.annotations.length));
+        const removed = (viewer.annotations || []).filter((_, idx) => removeSet.has(idx));
+        viewer.annotations = (viewer.annotations || []).filter((_, idx) => !removeSet.has(idx));
         if (removed.some(ann => ann.id === viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
-        removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+        _removePatchLabelsForAnnotations(removed);
         viewer.requestRender();
         renderClassManagementPanel();
         renderAnnotationPanel();
@@ -3190,8 +3204,8 @@ function _doChangeClass(newClsId) {
             const ann = viewer.annotations[idx];
             if (!ann) continue;
             _applyClassToAnnotation(ann, newClsId);
-            viewer.onAnnotationChanged?.(ann);
         }
+        _syncPatchEditorAfterViewerAnnotationEdit();
         viewer.requestRender();
         renderClassManagementPanel();
         renderAnnotationPanel();
@@ -4184,6 +4198,7 @@ window.addEventListener('keydown', (e) => {
     if (key === 'z' && !e.shiftKey && viewer.canUndoAnnotationEdit?.()) {
         _closeCellEditPopup();
         viewer.undoAnnotationEdit();
+        _syncPatchEditorAfterViewerAnnotationEdit();
         renderAnnotationPanel();
         _setSlideListMemoIndicator();
         setStatus(`Undo - ${viewer.annotations.length} annotations`);
@@ -4194,6 +4209,7 @@ window.addEventListener('keydown', (e) => {
     if (((key === 'z' && e.shiftKey) || key === 'y') && viewer.canRedoAnnotationEdit?.()) {
         _closeCellEditPopup();
         viewer.redoAnnotationEdit();
+        _syncPatchEditorAfterViewerAnnotationEdit();
         renderAnnotationPanel();
         _setSlideListMemoIndicator();
         setStatus(`Redo - ${viewer.annotations.length} annotations`);

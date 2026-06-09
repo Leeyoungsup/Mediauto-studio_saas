@@ -278,11 +278,35 @@ export class CellAnnotationEditor {
         return cell;
     }
 
+    syncCellsFromViewerAnnotations() {
+        if (!this.viewerSynced || !this.viewer || !this.patch) return false;
+        this.cells = (this.viewer.annotations || []).map((ann, idx) => ({
+            ...this._annotationToPatchCell(ann),
+            id: ann.id || `cell_${idx + 1}`,
+        }));
+        this.render();
+        return true;
+    }
+
     removeAnnotationLabel(annotationOrId) {
         const annotationId = String(annotationOrId?.id ?? annotationOrId ?? '');
         if (!annotationId) return false;
         const before = (this.cells || []).length;
         this.cells = (this.cells || []).filter(cell => String(cell?.id || '') !== annotationId);
+        const changed = this.cells.length !== before;
+        if (changed) this.render();
+        return changed;
+    }
+
+    removeAnnotationLabels(annotationOrIds = []) {
+        const ids = new Set(
+            (Array.isArray(annotationOrIds) ? annotationOrIds : [annotationOrIds])
+                .map(item => String(item?.id ?? item ?? ''))
+                .filter(Boolean)
+        );
+        if (!ids.size) return false;
+        const before = (this.cells || []).length;
+        this.cells = (this.cells || []).filter(cell => !ids.has(String(cell?.id || '')));
         const changed = this.cells.length !== before;
         if (changed) this.render();
         return changed;

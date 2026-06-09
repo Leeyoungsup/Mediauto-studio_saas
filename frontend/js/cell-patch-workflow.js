@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260609-02';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260609-03';
 
 class PatchFocusLayer {
     constructor() {
@@ -1708,6 +1708,16 @@ export class CellPatchWorkflow {
     removePatchLabelFromAnnotation(annotationOrId) {
         if (!this.patchFocusActive || !this.selectedPatch) return false;
         return Boolean(this.editor.removeAnnotationLabel?.(annotationOrId));
+    }
+
+    removePatchLabelsFromAnnotations(annotationOrIds) {
+        if (!this.patchFocusActive || !this.selectedPatch) return false;
+        return Boolean(this.editor.removeAnnotationLabels?.(annotationOrIds));
+    }
+
+    syncPatchLabelsFromViewerAnnotations() {
+        if (!this.patchFocusActive || !this.selectedPatch) return false;
+        return Boolean(this.editor.syncCellsFromViewerAnnotations?.());
     }
 
     async saveSelectedPatchAnnotations({ complete = false } = {}) {
