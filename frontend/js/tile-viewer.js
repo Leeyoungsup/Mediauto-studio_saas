@@ -971,13 +971,28 @@ export class TileViewer {
                         ? this._findNearestCellAnnotation(pending.sx, pending.sy, 30)
                         : this._findNearestCell(pending.sx, pending.sy, 30);
                     if (hit) {
-                        if (pending.patchAnnotations && this.onPatchCellEditRequested) {
-                            this.onPatchCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
+                        if (pending.patchAnnotations) {
+                            const selected = this._highlightedCellIdxSet instanceof Set
+                                ? new Set(this._highlightedCellIdxSet)
+                                : new Set();
+                            if (selected.has(hit.index)) selected.delete(hit.index);
+                            else selected.add(hit.index);
+                            this.annotations.forEach(a => { a.selected = false; });
+                            this.selectedAnnotationId = null;
+                            this._highlightedHiddenCellIdxSet = null;
+                            this._highlightedCellIdx = -1;
+                            this._highlightedCellIdxSet = selected.size ? selected : null;
+                            const list_indices = [...selected].sort((a, b) => a - b);
+                            if (this.onAnnotationSelected) this.onAnnotationSelected(null);
+                            if (this.onPatchCellsMultiEditRequested) {
+                                const list_cells = list_indices.map(i => this.annotations[i]).filter(Boolean);
+                                this.onPatchCellsMultiEditRequested(list_indices, list_cells, pending.clientX, pending.clientY);
+                            }
                         } else if (this.onCellEditRequested) {
                             this.onCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
+                            this._highlightedCellIdxSet = null;
+                            this._highlightedCellIdx = hit.index;
                         }
-                        this._highlightedCellIdxSet = null;
-                        this._highlightedCellIdx = pending.patchAnnotations ? -1 : hit.index;
                         this.requestRender();
                     }
                 }

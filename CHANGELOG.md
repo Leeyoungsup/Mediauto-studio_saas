@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.227] - 2026-06-09
+
+### Fixed
+
+- Make Alt-click toggle Cell Annotation patch-view multi-selection membership.
+- Keep the multi-edit popup synchronized when cells are added to or removed from the Alt-drag selection set.
+
 ## [1.1.226] - 2026-06-09
 
 ### Fixed
