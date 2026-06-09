@@ -482,6 +482,23 @@ export class TileViewer {
         return [sx, sy];
     }
 
+    _activeViewCanvasRect() {
+        const full = { x: 0, y: 0, w: this._viewW, h: this._viewH };
+        if (!this.cellAnnotationPatchViewActive || !this.fitBounds) return full;
+        const x = Number(this.fitBounds.x || 0);
+        const y = Number(this.fitBounds.y || 0);
+        const w = Number(this.fitBounds.w || 0);
+        const h = Number(this.fitBounds.h || 0);
+        if (w <= 0 || h <= 0) return full;
+        const [cx0, cy0] = this.sceneToCanvas(x, y);
+        const [cx1, cy1] = this.sceneToCanvas(x + w, y + h);
+        const rx0 = Math.max(0, Math.min(this._viewW, Math.min(cx0, cx1)));
+        const ry0 = Math.max(0, Math.min(this._viewH, Math.min(cy0, cy1)));
+        const rx1 = Math.max(0, Math.min(this._viewW, Math.max(cx0, cx1)));
+        const ry1 = Math.max(0, Math.min(this._viewH, Math.max(cy0, cy1)));
+        return rx1 > rx0 && ry1 > ry0 ? { x: rx0, y: ry0, w: rx1 - rx0, h: ry1 - ry0 } : full;
+    }
+
     getEffectiveMpp() {
         if (!this.slideInfo || this.zoom <= 0) return Infinity;
         return this.slideInfo.mpp / this.zoom;
@@ -641,8 +658,10 @@ export class TileViewer {
 
             // VS Split mode: text text hit-test (text)
             if (e.button === 0 && this._vsSplitMode && this._vsOverlay && this._vsVisible) {
-                const splitX = this._viewW * this._vsSplitFrac;
-                if (Math.abs(cx - splitX) <= this._vsSplitHandleW) {
+                const splitRect = this._activeViewCanvasRect();
+                const splitX = splitRect.x + splitRect.w * this._vsSplitFrac;
+                if (cy >= splitRect.y && cy <= splitRect.y + splitRect.h &&
+                        Math.abs(cx - splitX) <= this._vsSplitHandleW) {
                     this._vsSplitDragging = true;
                     this.canvas.style.cursor = 'ew-resize';
                     e.preventDefault();
@@ -808,8 +827,8 @@ export class TileViewer {
 
             // VS Split text text
             if (this._vsSplitDragging) {
-                const w = this._viewW;
-                let frac = cx / w;
+                const splitRect = this._activeViewCanvasRect();
+                let frac = (cx - splitRect.x) / Math.max(1, splitRect.w);
                 // text text text (text 5%)
                 frac = Math.max(0.05, Math.min(0.95, frac));
                 this._vsSplitFrac = frac;
@@ -833,10 +852,11 @@ export class TileViewer {
             // hover text cursor text (text/text/text text text text)
             if (this._vsSplitMode && this._vsOverlay && this._vsVisible &&
                 !this._isPanning && !this._dragControlPoint && !this._dragAnnotation && !this.drawMode) {
-                const insideCanvas = cx >= 0 && cy >= 0 &&
-                                     cx <= this._viewW && cy <= this._viewH;
-                if (insideCanvas) {
-                    const splitX = this._viewW * this._vsSplitFrac;
+                const splitRect = this._activeViewCanvasRect();
+                const insideSplitRect = cx >= splitRect.x && cy >= splitRect.y &&
+                    cx <= splitRect.x + splitRect.w && cy <= splitRect.y + splitRect.h;
+                if (insideSplitRect) {
+                    const splitX = splitRect.x + splitRect.w * this._vsSplitFrac;
                     if (Math.abs(cx - splitX) <= this._vsSplitHandleW) {
                         this.canvas.style.cursor = 'ew-resize';
                     } else if (this.canvas.style.cursor === 'ew-resize') {
@@ -1511,6 +1531,7 @@ export class TileViewer {
 
         const canvasW = this._viewW;
         const canvasH = this._viewH;
+        const viewRect = this._activeViewCanvasRect();
 
         // text text → text text
         const [cx, cy] = this.sceneToCanvas(ov.originX, ov.originY);
@@ -1518,10 +1539,10 @@ export class TileViewer {
         const ch = ov.sceneH * this.zoom;
 
         // text text
-        const dx0 = Math.max(0, cx);
-        const dy0 = Math.max(0, cy);
-        const dx1 = Math.min(canvasW, cx + cw);
-        const dy1 = Math.min(canvasH, cy + ch);
+        const dx0 = Math.max(viewRect.x, cx);
+        const dy0 = Math.max(viewRect.y, cy);
+        const dx1 = Math.min(viewRect.x + viewRect.w, cx + cw);
+        const dy1 = Math.min(viewRect.y + viewRect.h, cy + ch);
         const overlayVisible = (dx1 > dx0 && dy1 > dy0);
         if (!overlayVisible && !this._vsSplitMode) return;
 
@@ -1545,8 +1566,8 @@ export class TileViewer {
         }
 
         // text scene text
-        const [vsx0, vsy0] = this.canvasToScene(0, 0);
-        const [vsx1, vsy1] = this.canvasToScene(canvasW, canvasH);
+        const [vsx0, vsy0] = this.canvasToScene(viewRect.x, viewRect.y);
+        const [vsx1, vsy1] = this.canvasToScene(viewRect.x + viewRect.w, viewRect.y + viewRect.h);
         const xlo = Math.max(ov.originX, vsx0);
         const ylo = Math.max(ov.originY, vsy0);
         const xhi = Math.min(ov.originX + ov.sceneW, vsx1);
@@ -1591,12 +1612,23 @@ export class TileViewer {
 
         // ROI text text
         const roiPolys = ov.roiPolygons;
+        const drawWithViewClip = (drawFn) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(viewRect.x, viewRect.y, viewRect.w, viewRect.h);
+            ctx.clip();
+            drawFn();
+            ctx.restore();
+        };
         const drawWithRoiClip = (drawFn) => {
             if (!roiPolys || roiPolys.length === 0) {
-                drawFn();
+                drawWithViewClip(drawFn);
                 return;
             }
             ctx.save();
+            ctx.beginPath();
+            ctx.rect(viewRect.x, viewRect.y, viewRect.w, viewRect.h);
+            ctx.clip();
             ctx.beginPath();
             for (const poly of roiPolys) {
                 if (!poly || poly.length < 3) continue;
@@ -1630,11 +1662,11 @@ export class TileViewer {
         };
 
         if (this._vsSplitMode) {
-            const splitX = Math.round(canvasW * this._vsSplitFrac);
+            const splitX = Math.round(viewRect.x + viewRect.w * this._vsSplitFrac);
             if (overlayVisible && xhi > xlo && yhi > ylo) {
                 ctx.save();
                 ctx.beginPath();
-                ctx.rect(splitX, 0, canvasW - splitX, canvasH);
+                ctx.rect(splitX, viewRect.y, viewRect.x + viewRect.w - splitX, viewRect.h);
                 ctx.clip();
                 drawWithRoiClip(drawTiles);
                 ctx.restore();
@@ -1646,19 +1678,19 @@ export class TileViewer {
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.lineWidth = 4;
             ctx.beginPath();
-            ctx.moveTo(splitX, 0);
-            ctx.lineTo(splitX, canvasH);
+            ctx.moveTo(splitX, viewRect.y);
+            ctx.lineTo(splitX, viewRect.y + viewRect.h);
             ctx.stroke();
             // text text
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.moveTo(splitX, 0);
-            ctx.lineTo(splitX, canvasH);
+            ctx.moveTo(splitX, viewRect.y);
+            ctx.lineTo(splitX, viewRect.y + viewRect.h);
             ctx.stroke();
 
             // text text text (text + text text)
-            const handleY = canvasH / 2;
+            const handleY = viewRect.y + viewRect.h / 2;
             const handleR = 14;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
@@ -1692,14 +1724,14 @@ export class TileViewer {
             const bh = 18;
             // text text
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(padX, padY, mL.width + 12, bh);
+            ctx.fillRect(viewRect.x + padX, viewRect.y + padY, mL.width + 12, bh);
             ctx.fillStyle = '#fff';
-            ctx.fillText(labelL, padX + 6, padY + 3);
+            ctx.fillText(labelL, viewRect.x + padX + 6, viewRect.y + padY + 3);
             // text text
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(canvasW - mR.width - padX - 12, padY, mR.width + 12, bh);
+            ctx.fillRect(viewRect.x + viewRect.w - mR.width - padX - 12, viewRect.y + padY, mR.width + 12, bh);
             ctx.fillStyle = '#fff';
-            ctx.fillText(labelR, canvasW - mR.width - padX - 6, padY + 3);
+            ctx.fillText(labelR, viewRect.x + viewRect.w - mR.width - padX - 6, viewRect.y + padY + 3);
             ctx.restore();
         } else {
             if (overlayVisible && xhi > xlo && yhi > ylo) {

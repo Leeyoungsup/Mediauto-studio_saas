@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.233] - 2026-06-09
+
+### Fixed
+
+- Clip VS IHC tile rendering to the selected patch bounds in Cell Annotation patch view.
+- Keep the VS IHC split-view divider, handle, and labels inside the selected patch area.
+
 ## [1.1.232] - 2026-06-09
 
 ### Fixed
