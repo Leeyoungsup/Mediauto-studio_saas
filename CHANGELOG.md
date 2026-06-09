@@ -2,6 +2,18 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.222] - 2026-06-09
+
+### Fixed
+
+- Clear existing single annotation selection when Cell Annotation patch-view Alt-drag multi-selection is applied, preventing overlapping selected states in both selection directions.
+
+## [1.1.221] - 2026-06-09
+
+### Fixed
+
+- Clear Cell Annotation patch-view Alt-drag multi-selection when a normal annotation click/list selection is made, preventing overlapping single and multi selected states.
+
 ## [1.1.220] - 2026-06-09
 
 ### Fixed

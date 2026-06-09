@@ -927,6 +927,9 @@ export class TileViewer {
                             // text text text text closetext highlighttext text
                             // text text text text text highlight Settext text
                             if (pending.patchAnnotations) {
+                                this.annotations.forEach(a => { a.selected = false; });
+                                this.selectedAnnotationId = null;
+                                if (this.onAnnotationSelected) this.onAnnotationSelected(null);
                                 if (this.onPatchCellsMultiEditRequested) {
                                     const list_cells = list_indices.map(i => this.annotations[i]);
                                     this.onPatchCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
@@ -3702,6 +3705,10 @@ export class TileViewer {
     }
 
     selectAnnotation(id) {
+        if (this.cellAnnotationPatchViewActive && this._highlightedCellIdxSet) {
+            this._highlightedCellIdxSet = null;
+            this._highlightedCellIdx = -1;
+        }
         this.annotations.forEach(a => a.selected = (a.id === id));
         this.selectedAnnotationId = id;
         if (this.onAnnotationSelected) {
