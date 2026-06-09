@@ -1980,6 +1980,15 @@ function _mergeProjectClassList(baseList = [], defaultList = []) {
     return merged;
 }
 
+function _projectClassLockIdsForCellAi(enabled, key) {
+    if (!enabled || !key) return new Set(['other']);
+    const locked = new Set(['other']);
+    for (const cls of _cellAnnotationPresetClasses(key)) {
+        locked.add(cls.id);
+    }
+    return locked;
+}
+
 const CELL_ANNOTATION_AI_OPTIONS = [
     { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
     { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
@@ -2115,6 +2124,9 @@ async function _openProjectClassManager(project) {
     const annotationAiKey = annotationAi.key || '';
     const annotationAiEnabled = Boolean(project?.info?.annotation_ai_enabled && annotationAiKey);
     let localClasses = _DEFAULT_ANNOTATION_CLASSES.map(c => ({ ...c, color: [...c.color] }));
+    let lockedCellClassIds = isCellClassMode
+        ? _projectClassLockIdsForCellAi(annotationAiEnabled, annotationAiKey)
+        : new Set();
     let draggingProjectClassId = null;
 
     const modal = document.createElement('div');
@@ -2180,17 +2192,23 @@ async function _openProjectClassManager(project) {
         listEl.innerHTML = '';
         localClasses.forEach((cls, idx) => {
             const [r, g, b] = _normalizeColor(cls.color);
+            const isOther = String(cls.name || '').trim().toLowerCase() === 'other';
+            const isLocked = isCellClassMode && (isOther || lockedCellClassIds.has(cls.id));
             const row = document.createElement('div');
-            row.className = 'project-class-row';
-            row.draggable = true;
+            row.className = `project-class-row${isLocked ? ' locked' : ''}`;
+            row.draggable = !isLocked;
             row.dataset.classId = cls.id;
             row.innerHTML = `
-                <span class="project-class-drag" title="Drag to reorder">::</span>
-                <input type="color" class="project-class-color" value="${rgbToHex(r, g, b)}" title="Class color">
-                <input type="text" class="project-class-name" value="${_esc(cls.name)}" title="Class name">
-                <button type="button" class="project-class-delete">Delete</button>
+                <span class="project-class-drag" title="${isLocked ? 'AI/required class' : 'Drag to reorder'}">::</span>
+                <input type="color" class="project-class-color" value="${rgbToHex(r, g, b)}" title="Class color"${isLocked ? ' disabled' : ''}>
+                <input type="text" class="project-class-name" value="${_esc(cls.name)}" title="Class name"${isLocked ? ' disabled' : ''}>
+                <button type="button" class="project-class-delete"${isLocked ? ' disabled' : ''}>Delete</button>
             `;
             row.addEventListener('dragstart', (e) => {
+                if (isLocked) {
+                    e.preventDefault();
+                    return;
+                }
                 draggingProjectClassId = cls.id;
                 row.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
@@ -2201,7 +2219,7 @@ async function _openProjectClassManager(project) {
                 row.classList.remove('dragging');
             });
             row.addEventListener('dragover', (e) => {
-                if (!draggingProjectClassId || draggingProjectClassId === cls.id) return;
+                if (isLocked || !draggingProjectClassId || draggingProjectClassId === cls.id) return;
                 e.preventDefault();
                 row.classList.add('drag-over');
             });
@@ -2240,6 +2258,7 @@ async function _openProjectClassManager(project) {
         const enabled = Boolean(aiEnabledEl?.checked);
         const key = aiSelectEl?.value || '';
         if (aiSelectEl) aiSelectEl.disabled = !enabled;
+        lockedCellClassIds = _projectClassLockIdsForCellAi(enabled, key);
         if (!enabled || !key) return;
         const presetClasses = _cellAnnotationPresetClasses(key);
         if (!presetClasses.length) return;
@@ -2306,12 +2325,6 @@ async function _openProjectClassManager(project) {
             ? await api.loadCellAnnotationClasses(path)
             : await api.loadAnnotationClasses(path);
         localClasses = _normalizeProjectClassList(res.classes);
-        if (isCellClassMode && annotationAiEnabled && annotationAiKey) {
-            const presetClasses = _cellAnnotationPresetClasses(annotationAiKey);
-            if (presetClasses.length) {
-                localClasses = _mergeProjectClassList(localClasses, presetClasses);
-            }
-        }
         statusEl.textContent = `${localClasses.length} classes`;
         render();
     } catch (err) {
@@ -2943,7 +2956,61 @@ function _assignSelectedAnnotationClassByShortcut(e) {
     return true;
 }
 
+function _deleteSelectedCellPatchAnnotationsByShortcut(e) {
+    const key = String(e.key || '').toLowerCase();
+    const isDeleteKey = key === 'delete' || key === 'backspace' || key === 'd';
+    if (!isDeleteKey || e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (!cellPatchWorkflow?.patchFocusActive) return false;
+    if (_cellEditCtx || _projectClassModal) return false;
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return false;
+    if (_blockViewerAction('Viewer role cannot delete cell annotations.')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return true;
+    }
+
+    const ids = new Set();
+    for (const id of _annotationBulkSelection || []) ids.add(id);
+    if (viewer.selectedAnnotationId) ids.add(viewer.selectedAnnotationId);
+    if (viewer._highlightedCellIdxSet instanceof Set) {
+        for (const idx of viewer._highlightedCellIdxSet) {
+            const ann = viewer.annotations?.[idx];
+            if (ann?.id) ids.add(ann.id);
+        }
+    }
+    if (!ids.size) return false;
+
+    const existingIds = new Set((viewer.annotations || []).map(ann => ann.id));
+    for (const id of [...ids]) {
+        if (!existingIds.has(id)) ids.delete(id);
+    }
+    if (!ids.size) return false;
+
+    viewer.pushAnnotationUndo?.();
+    const removed = [];
+    viewer.annotations = (viewer.annotations || []).filter((ann) => {
+        if (!ids.has(ann.id)) return true;
+        removed.push(ann);
+        return false;
+    });
+    if (ids.has(viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
+    if (viewer._highlightedCellIdxSet) viewer._highlightedCellIdxSet = null;
+    viewer._highlightedCellIdx = -1;
+    _annotationBulkSelection = new Set();
+    removed.forEach(ann => viewer.onAnnotationDeleted?.(ann));
+    viewer.onAnnotationSelected?.(null);
+    viewer.requestRender();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+    setStatus(`Deleted ${removed.length.toLocaleString()} cell annotation${removed.length === 1 ? '' : 's'}`);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return true;
+}
+
 window.addEventListener('keydown', (e) => {
+    if (_deleteSelectedCellPatchAnnotationsByShortcut(e)) return;
     _assignSelectedAnnotationClassByShortcut(e);
 }, true);
 

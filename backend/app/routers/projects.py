@@ -209,9 +209,15 @@ async def update_project(
     name = safe_filename(name)
     target = safe_subpath(name)
     dict_before = None
+    bool_annotation_ai_changed = True
     if is_db_connected():
         db = get_db()
         dict_before = project_public_info(await db.project_infos.find_one({"str_project_path": name}))
+        dict_before_ai = (dict_before or {}).get("annotation_ai") or {}
+        bool_annotation_ai_changed = (
+            bool((dict_before or {}).get("annotation_ai_enabled")) != bool(annotation_ai_enabled)
+            or str(dict_before_ai.get("key") or "") != str(annotation_ai_key or "")
+        )
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "Project not found")
     list_project_ai_tasks = parse_ai_tasks_json(project_ai_tasks_json)
@@ -229,7 +235,10 @@ async def update_project(
         bool_annotation_ai_enabled=annotation_ai_enabled,
         str_annotation_ai_key=annotation_ai_key,
     )
-    list_cell_classes = sync_project_cell_annotation_classes(name, annotation_ai_enabled, annotation_ai_key)
+    list_cell_classes = (
+        sync_project_cell_annotation_classes(name, annotation_ai_enabled, annotation_ai_key)
+        if bool_annotation_ai_changed else []
+    )
     await _log_event(
         request,
         dict_user,

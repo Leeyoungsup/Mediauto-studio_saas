@@ -1061,21 +1061,20 @@ def _run_labeling_assistance_task(task_id: str, slide_id: str, file_path: str, c
 @router.get("/classes")
 async def load_cell_annotation_classes(path: str = Query(..., description="project path or current folder path")):
     class_path = _cell_project_classes_path(path)
-    ai_defaults = await _project_ai_default_classes(path)
     if not class_path.exists():
-        return {"classes": _merge_cell_classes([], ai_defaults)}
+        return {"classes": list(DEFAULT_CELL_CLASSES)}
     try:
         payload = json.loads(class_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise HTTPException(400, f"Invalid cell annotation class JSON: {exc}")
     classes = payload.get("classes") if isinstance(payload, dict) else payload
     normalized = _normalize_cell_classes(classes)
-    merged = _merge_cell_classes(normalized, ai_defaults)
+    merged = _merge_cell_classes(normalized, [])
     if merged != normalized:
         try:
             class_path.write_text(json.dumps({"classes": merged}, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as exc:
-            print(f"[cell_annotation] class defaults merge failed: {exc}")
+            print(f"[cell_annotation] class normalization failed: {exc}")
     return {"classes": merged}
 
 
@@ -1092,9 +1091,10 @@ async def save_cell_annotation_classes(
         payload = json.loads(data)
     except Exception as exc:
         raise HTTPException(400, f"Invalid cell annotation class JSON: {exc}")
-    classes = _normalize_cell_classes(payload.get("classes") if isinstance(payload, dict) else payload)
-    ai_defaults = await _project_ai_default_classes(path)
-    classes = _merge_cell_classes(classes, ai_defaults)
+    classes = _merge_cell_classes(
+        _normalize_cell_classes(payload.get("classes") if isinstance(payload, dict) else payload),
+        [],
+    )
     class_path = _cell_project_classes_path(path)
     class_path.parent.mkdir(parents=True, exist_ok=True)
     class_path.write_text(json.dumps({"classes": classes}, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -2,6 +2,21 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.225] - 2026-06-09
+
+### Fixed
+
+- Add `Delete`, `Backspace`, and `D` keyboard deletion for selected Cell Annotation patch-view cells.
+- Delete single-click, list bulk-selected, and Alt-drag selected patch cell annotations through one synchronized path.
+
+## [1.1.224] - 2026-06-09
+
+### Fixed
+
+- Apply Cell Annotation AI assistance default classes only when AI assistance is enabled or the selected AI changes.
+- Stop class load/save from re-merging AI defaults into Cell Annotation project classes.
+- Lock inherited AI classes and the required `Other` class in the project Cell Annotation settings modal.
+
 ## [1.1.223] - 2026-06-09
 
 ### Fixed
