@@ -3706,6 +3706,22 @@ body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .ann-list-h
 .ann-item.bulk-selected {
     background: rgba(108, 92, 231, 0.1);
 }
+.cell-ann-load-more {
+    width: calc(100% - 12px);
+    margin: 6px;
+    height: 30px;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.cell-ann-load-more:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+}
 .ann-list-header {
     position: sticky;
     top: 0;

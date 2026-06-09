@@ -3706,6 +3706,39 @@ export class TileViewer {
     // ── Annotation text ──
 
     _renderAnnotations(octx) {
+        const halfVW = this._viewW / Math.max(this.zoom, 0.0001) / 2;
+        const halfVH = this._viewH / Math.max(this.zoom, 0.0001) / 2;
+        const viewLeft = this.viewCenterX - halfVW;
+        const viewTop = this.viewCenterY - halfVH;
+        const viewRight = this.viewCenterX + halfVW;
+        const viewBottom = this.viewCenterY + halfVH;
+        const intersectsView = (ann) => {
+            if (ann.selected) return true;
+            const bbox = ann.properties?.cell_bbox || ann.cell_bbox || ann.bbox;
+            if (bbox && typeof bbox === 'object') {
+                const x0 = Number(bbox.x0 ?? bbox.x ?? 0);
+                const y0 = Number(bbox.y0 ?? bbox.y ?? 0);
+                const x1 = Number(bbox.x1 ?? (x0 + Number(bbox.width ?? 0)));
+                const y1 = Number(bbox.y1 ?? (y0 + Number(bbox.height ?? 0)));
+                if ([x0, y0, x1, y1].every(Number.isFinite)) {
+                    return x1 >= viewLeft && x0 <= viewRight && y1 >= viewTop && y0 <= viewBottom;
+                }
+            }
+            const coords = Array.isArray(ann.coordinates) ? ann.coordinates : [];
+            if (!coords.length) return true;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const pt of coords) {
+                const x = Number(pt?.[0]);
+                const y = Number(pt?.[1]);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+            if (!Number.isFinite(minX)) return true;
+            return maxX >= viewLeft && minX <= viewRight && maxY >= viewTop && minY <= viewBottom;
+        };
         // text annotation
         for (const ann of this.annotations) {
             if (!ann.visible) continue;
@@ -3721,6 +3754,7 @@ export class TileViewer {
                 ann.properties?.source === 'patch_cell_annotation' ||
                 ann.properties?.source === 'wsi_labeling_assistance' ||
                 Boolean(this.cellAnnotationPatchViewActive && ann.type === 'rectangle');
+            if (isCellAnnotation && !intersectsView(ann)) continue;
 
             if (isCellAnnotation && this.cellAnnotationDisplayMode === 'point') {
                 const center = ann.properties?.cell_center || ann.cell_center || ann.center ||

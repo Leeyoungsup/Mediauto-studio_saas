@@ -89,9 +89,10 @@ from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
-from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users
+from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users, admin_settings
 from app import auto_ai
 from app import tile_worker
+from app.runtime_settings import load_worker_settings
 from app.version import APP_VERSION, get_version_info
 
 
@@ -131,10 +132,15 @@ async def lifespan(app: FastAPI):
     print(f"[MeDIAuto SaaS] Tiles dir:  {settings.TILES_DIR}")
     print(f"[MeDIAuto SaaS] Server ready")
 
-    # text text text text text (text text text, text text)
-    await tile_worker.start_tile_worker()
-    # AI text text text text (1text text, 10text idle)
-    await auto_ai.start_auto_worker()
+    dict_worker_settings = await load_worker_settings()
+    if dict_worker_settings.get("bool_tile_worker_enabled", True):
+        await tile_worker.start_tile_worker()
+    else:
+        print("[tile_worker] disabled by admin settings")
+    if dict_worker_settings.get("bool_ai_worker_enabled", True):
+        await auto_ai.start_auto_worker()
+    else:
+        print("[auto_ai] worker disabled by admin settings")
 
     yield
     # text text text text
@@ -181,6 +187,7 @@ app.add_middleware(RateLimitMiddleware)
 # text text
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(admin_settings.router, prefix="/api/admin", tags=["admin-settings"])
 app.include_router(projects.router, prefix="/api/slides", tags=["slide-projects"])
 app.include_router(file_operations.router, prefix="/api/slides", tags=["slide-files"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])

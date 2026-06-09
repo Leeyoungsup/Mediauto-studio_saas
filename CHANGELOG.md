@@ -2,6 +2,37 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.219] - 2026-06-06
+
+### Fixed
+
+- Reduce Cell Annotation patch view lag by rendering patch annotation list rows in batches instead of creating every row at once.
+- Skip off-screen patch cell annotations during viewer overlay drawing.
+- Avoid sorting work for default ID-order annotation lists.
+
+## [1.1.218] - 2026-06-06
+
+### Added
+
+- Add an Admin Settings tab with AI worker and tile worker enable/disable toggles.
+- Persist worker runtime settings in MongoDB and apply them immediately by starting or stopping the background worker loops.
+- Respect saved worker settings during backend startup.
+
+## [1.1.217] - 2026-06-06
+
+### Fixed
+
+- Replace full-image Quanti WSI global NMS with spatial local NMS so dense cell runs do not stall near 95% after patch inference.
+- Keep cross-class visible-priority suppression for overlapped tiles while limiting comparisons to nearby cell candidates.
+- Bump Quanti post-processing metadata to `quanti-overlap-10um-edge3um-spatial-nms-v9` so stale caches and Cell Annotation assistance rerun.
+
+## [1.1.216] - 2026-06-06
+
+### Fixed
+
+- Stop the auto AI worker from resetting its own idle timer on startup.
+- Run the first auto AI scan shortly after server launch instead of waiting for the full idle interval.
+
 ## [1.1.215] - 2026-06-06
 
 ### Fixed

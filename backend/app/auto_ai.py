@@ -26,6 +26,7 @@ from app.ai_pipelines.dedup import cache_has_current_detection_postprocess
 # ── text text ──
 IDLE_THRESHOLD_SECONDS = 600   # 10text text AI text text → idle
 SCAN_INTERVAL_SECONDS = 60     # 1text text
+STARTUP_SCAN_DELAY_SECONDS = 5
 
 # ── text text text text ──
 _activity_lock = threading.Lock()
@@ -476,13 +477,12 @@ async def _scan_and_infer_once() -> None:
 
 async def _worker_loop() -> None:
     """text text text — text text text text text."""
-    # text text text text text timer text
-    ping_ai_activity()
     print(f"[auto_ai] worker loop started (scan every {SCAN_INTERVAL_SECONDS}s, idle threshold {IDLE_THRESHOLD_SECONDS}s)")
+    await asyncio.sleep(STARTUP_SCAN_DELAY_SECONDS)
     while True:
         try:
-            await asyncio.sleep(SCAN_INTERVAL_SECONDS)
             await _scan_and_infer_once()
+            await asyncio.sleep(SCAN_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             print("[auto_ai] worker cancelled")
             raise
@@ -509,3 +509,7 @@ async def stop_auto_worker() -> None:
         pass
     _worker_task = None
     print("[auto_ai] worker stopped")
+
+
+def is_auto_worker_running() -> bool:
+    return _worker_task is not None and not _worker_task.done()

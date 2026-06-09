@@ -51,6 +51,7 @@ let userActivitySkip = 0;
 let userActivityTotal = 0;
 let userActivityStart = '';
 let userActivityEnd = '';
+let boolLoadingSettings = false;
 
 document.getElementById('current-user-name').textContent =
     currentUser.str_name || currentUser.str_login_id || '-';
@@ -163,6 +164,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
         if (tab.dataset.tab === 'pending-panel') loadPending();
         if (tab.dataset.tab === 'users-panel') loadUsers();
         if (tab.dataset.tab === 'activity-panel') loadActivity();
+        if (tab.dataset.tab === 'settings-panel') loadSettings();
     });
 });
 
@@ -756,5 +758,89 @@ document.querySelectorAll('.activity-cat-tab').forEach(tab => {
 document.getElementById('btn-user-activity-close').addEventListener('click', () => {
     userActivityDialog.close();
 });
+
+function setStatusBadge(id, boolValue, trueLabel, falseLabel) {
+    const badge = document.getElementById(id);
+    if (!badge) return;
+    badge.textContent = boolValue ? trueLabel : falseLabel;
+    badge.className = `status-pill ${boolValue ? 'approved' : 'rejected'}`;
+}
+
+function setSettingsInputsDisabled(disabled) {
+    document.getElementById('setting-ai-worker').disabled = disabled;
+    document.getElementById('setting-tile-worker').disabled = disabled;
+}
+
+function renderSettings(data) {
+    document.getElementById('setting-ai-worker').checked = !!data.bool_ai_worker_enabled;
+    document.getElementById('setting-tile-worker').checked = !!data.bool_tile_worker_enabled;
+    setStatusBadge(
+        'setting-ai-worker-enabled',
+        !!data.bool_ai_worker_enabled,
+        'Enabled',
+        'Disabled',
+    );
+    setStatusBadge(
+        'setting-ai-worker-running',
+        !!data.bool_ai_worker_running,
+        'Running',
+        'Stopped',
+    );
+    setStatusBadge(
+        'setting-tile-worker-enabled',
+        !!data.bool_tile_worker_enabled,
+        'Enabled',
+        'Disabled',
+    );
+    setStatusBadge(
+        'setting-tile-worker-running',
+        !!data.bool_tile_worker_running,
+        'Running',
+        'Stopped',
+    );
+}
+
+async function loadSettings() {
+    if (boolLoadingSettings) return;
+    boolLoadingSettings = true;
+    setSettingsInputsDisabled(true);
+    try {
+        const data = await apiGet('/admin/settings');
+        if (!data) return;
+        renderSettings(data);
+    } catch (err) {
+        showAlert(err.message, 'error');
+    } finally {
+        boolLoadingSettings = false;
+        setSettingsInputsDisabled(false);
+    }
+}
+
+async function saveWorkerSettings() {
+    if (boolLoadingSettings) return;
+    boolLoadingSettings = true;
+    setSettingsInputsDisabled(true);
+    try {
+        const body = {
+            bool_ai_worker_enabled: document.getElementById('setting-ai-worker').checked,
+            bool_tile_worker_enabled: document.getElementById('setting-tile-worker').checked,
+        };
+        const data = await apiJson('/admin/settings/workers', 'PUT', body);
+        if (!data) return;
+        renderSettings(data);
+        showAlert('Worker settings saved.', 'success');
+    } catch (err) {
+        showAlert(err.message, 'error');
+        boolLoadingSettings = false;
+        await loadSettings();
+    } finally {
+        boolLoadingSettings = false;
+        setSettingsInputsDisabled(false);
+    }
+}
+
+document.getElementById('btn-refresh-settings')?.addEventListener('click', loadSettings);
+document.getElementById('setting-ai-worker')?.addEventListener('change', saveWorkerSettings);
+document.getElementById('setting-tile-worker')?.addEventListener('change', saveWorkerSettings);
 
 loadPending();

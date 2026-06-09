@@ -9,9 +9,11 @@ import numpy as np
 
 DETECTION_PATCH_OVERLAP_UM = 10.0
 DETECTION_EDGE_IGNORE_UM = 3.0
-GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-edge3um-global-nms-v8"
+GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-edge3um-spatial-nms-v9"
 GLOBAL_NMS_IOU_THRESHOLD = 0.3
 EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
+SPATIAL_NMS_MIN_QUERY_RADIUS_PX = 16.0
+SPATIAL_NMS_MAX_QUERY_RADIUS_PX = 128.0
 
 
 def processing_metadata() -> dict:
@@ -20,7 +22,7 @@ def processing_metadata() -> dict:
         "patch_edge_ignore_um": DETECTION_EDGE_IGNORE_UM,
         "global_dedup_version": GLOBAL_DEDUP_VERSION,
         "global_nms_iou_threshold": GLOBAL_NMS_IOU_THRESHOLD,
-        "global_dedup_match_rule": "cross_class_iou_nms_visible_priority",
+        "global_dedup_match_rule": "spatial_cross_class_iou_nms_visible_priority",
         "excluded_class_suppression_iou_threshold": EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD,
         "excluded_class_suppression_rule": "drop_excluded_class_boxes_overlapping_visible_boxes",
     }
@@ -103,6 +105,86 @@ def _nms_indices(boxes, scores, iou_threshold: float) -> np.ndarray:
         return torchvision.ops.nms(tensor_boxes, tensor_scores, iou_threshold).cpu().numpy()
     except Exception:
         return _nms_indices_np(boxes, scores, iou_threshold)
+
+
+def _spatial_query_radius(boxes: np.ndarray) -> float:
+    if len(boxes) == 0:
+        return SPATIAL_NMS_MIN_QUERY_RADIUS_PX
+    widths = np.maximum(0.0, boxes[:, 2] - boxes[:, 0])
+    heights = np.maximum(0.0, boxes[:, 3] - boxes[:, 1])
+    diagonals = np.sqrt(widths * widths + heights * heights)
+    radius = float(np.percentile(diagonals, 95)) if len(diagonals) else SPATIAL_NMS_MIN_QUERY_RADIUS_PX
+    return min(SPATIAL_NMS_MAX_QUERY_RADIUS_PX, max(SPATIAL_NMS_MIN_QUERY_RADIUS_PX, radius))
+
+
+def _local_candidate_lookup(centers: np.ndarray, query_radius: float):
+    try:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(centers)
+
+        def lookup(center):
+            return tree.query_ball_point(center, r=query_radius)
+
+        return lookup
+    except Exception:
+        cell_size = max(1.0, float(query_radius))
+        bins = {}
+        for idx, center in enumerate(centers):
+            key = (int(center[0] // cell_size), int(center[1] // cell_size))
+            bins.setdefault(key, []).append(idx)
+
+        def lookup(center):
+            bx = int(center[0] // cell_size)
+            by = int(center[1] // cell_size)
+            candidates = []
+            for gx in range(bx - 1, bx + 2):
+                for gy in range(by - 1, by + 2):
+                    candidates.extend(bins.get((gx, gy), []))
+            if not candidates:
+                return []
+            candidate_arr = np.asarray(candidates, dtype=np.int64)
+            dx = centers[candidate_arr, 0] - float(center[0])
+            dy = centers[candidate_arr, 1] - float(center[1])
+            return candidate_arr[(dx * dx + dy * dy) <= query_radius * query_radius].tolist()
+
+        return lookup
+
+
+def _spatial_nms_indices(
+    boxes: np.ndarray,
+    centers: np.ndarray,
+    scores: np.ndarray,
+    iou_threshold: float,
+) -> np.ndarray:
+    """Local greedy NMS for large WSI cell sets.
+
+    Full-image NMS becomes expensive for high-density cell detections. Overlap
+    duplicates are spatially local, so only nearby centers are compared.
+    """
+    if len(boxes) == 0:
+        return np.zeros(0, dtype=np.int64)
+    order = np.argsort(scores)[::-1].astype(np.int64, copy=False)
+    query_radius = _spatial_query_radius(boxes)
+    lookup = _local_candidate_lookup(centers.astype(np.float32, copy=False), query_radius)
+    active = np.ones(len(boxes), dtype=bool)
+    kept = []
+
+    for idx in order:
+        idx = int(idx)
+        if not active[idx]:
+            continue
+        kept.append(idx)
+        candidates = lookup(centers[idx])
+        if not candidates:
+            continue
+        candidate_arr = np.asarray(candidates, dtype=np.int64)
+        candidate_arr = candidate_arr[(candidate_arr != idx) & active[candidate_arr]]
+        if len(candidate_arr) == 0:
+            continue
+        ious = _box_iou_np(boxes[idx], boxes[candidate_arr])
+        active[candidate_arr[ious >= iou_threshold]] = False
+
+    return np.asarray(kept, dtype=np.int64)
 
 
 def suppress_excluded_classes_overlapping_visible(
@@ -194,16 +276,17 @@ def apply_global_cell_dedup(
     float_mpp,
     list_exclude=None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
-    """WSI-level IoU NMS for overlapped detection tiles."""
+    """WSI-level local IoU NMS for overlapped detection tiles."""
     if len(all_x) == 0:
         return all_x, all_y, all_conf, all_cls, all_x0, all_y0, all_x1, all_y1, 0
 
     boxes = np.column_stack((all_x0, all_y0, all_x1, all_y1)).astype(np.float32, copy=False)
+    centers = np.column_stack((all_x, all_y)).astype(np.float32, copy=False)
     scores = all_conf.astype(np.float32, copy=True)
     if list_exclude:
         visible_mask = ~np.isin(all_cls, list_exclude)
         scores[visible_mask] += 1.0
-    keep_indices = _nms_indices(boxes, scores, GLOBAL_NMS_IOU_THRESHOLD)
+    keep_indices = _spatial_nms_indices(boxes, centers, scores, GLOBAL_NMS_IOU_THRESHOLD)
     keep_mask = np.zeros(len(all_x), dtype=bool)
     keep_mask[keep_indices] = True
 

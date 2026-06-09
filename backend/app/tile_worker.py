@@ -186,3 +186,7 @@ async def stop_tile_worker() -> None:
         pass
     _worker_task = None
     print("[tile_worker] stopped")
+
+
+def is_tile_worker_running() -> bool:
+    return _worker_task is not None and not _worker_task.done()

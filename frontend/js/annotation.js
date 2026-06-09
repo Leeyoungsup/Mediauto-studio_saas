@@ -1530,6 +1530,7 @@ let _classManagementMode = 'apply';
 let _hiddenAnnotationClassIds = new Set();
 let _annotationListSort = { key: 'id', dir: 'asc' };
 let _annotationBulkSelection = new Set();
+let _annotationPanelRenderLimit = 300;
 
 function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
@@ -2637,6 +2638,10 @@ function _annotationSortValue(ann, index, key) {
 function _sortedAnnotationEntries() {
     const key = _annotationListSort.key;
     const dir = _annotationListSort.dir === 'desc' ? -1 : 1;
+    if (key === 'id' || key === 'del') {
+        const entries = viewer.annotations.map((ann, index) => ({ ann, index }));
+        return dir === 1 ? entries : entries.reverse();
+    }
     return viewer.annotations
         .map((ann, index) => ({ ann, index }))
         .sort((a, b) => {
@@ -2662,6 +2667,7 @@ function renderAnnotationPanel() {
     const isCellPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
     const currentIds = new Set((viewer.annotations || []).map(ann => ann.id));
     _annotationBulkSelection = new Set([..._annotationBulkSelection].filter(id => currentIds.has(id)));
+    if (!isCellPatchView) _annotationPanelRenderLimit = 300;
     if (isCellPatchView) {
         const bulk = document.createElement('div');
         bulk.className = 'cell-ann-bulk-bar';
@@ -2714,6 +2720,10 @@ function renderAnnotationPanel() {
         });
         $annList.appendChild(bulk);
     }
+    const sortedEntries = _sortedAnnotationEntries();
+    const renderEntries = isCellPatchView
+        ? sortedEntries.slice(0, Math.min(_annotationPanelRenderLimit, sortedEntries.length))
+        : sortedEntries;
     const header = document.createElement('div');
     header.className = 'ann-list-header' + (isCellPatchView ? ' cell-ann-list-header' : '');
     if (isCellPatchView) {
@@ -2739,7 +2749,7 @@ function renderAnnotationPanel() {
         header.appendChild(cell);
     });
     $annList.appendChild(header);
-    for (const { ann } of _sortedAnnotationEntries()) {
+    for (const { ann } of renderEntries) {
         const annClass = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
         const displayId = _annotationDisplayId(ann);
         const memo = _annotationMemo(ann);
@@ -2828,6 +2838,17 @@ function renderAnnotationPanel() {
             viewer.deleteAnnotation(ann.id);
         });
         $annList.appendChild(el);
+    }
+    if (isCellPatchView && renderEntries.length < sortedEntries.length) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'cell-ann-load-more';
+        more.textContent = `Show more (${renderEntries.length.toLocaleString()} / ${sortedEntries.length.toLocaleString()})`;
+        more.addEventListener('click', () => {
+            _annotationPanelRenderLimit = Math.min(sortedEntries.length, _annotationPanelRenderLimit + 300);
+            renderAnnotationPanel();
+        });
+        $annList.appendChild(more);
     }
     renderAnnotationStylePanel();
 }

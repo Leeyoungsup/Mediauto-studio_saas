@@ -36,6 +36,7 @@
         <button class="admin-tab" data-tab="users-panel">Users</button>
         <button class="admin-tab" data-tab="create-panel">Create User</button>
         <button class="admin-tab" data-tab="activity-panel">Activity</button>
+        <button class="admin-tab" data-tab="settings-panel">Settings</button>
     </nav>
 
     <main class="admin-main">
@@ -172,6 +173,47 @@
                 <button id="btn-activity-next" class="admin-btn-secondary">Next</button>
             </div>
         </section>
+
+        <section id="settings-panel" class="admin-panel">
+            <div class="panel-toolbar">
+                <h2>System Settings</h2>
+                <button id="btn-refresh-settings" class="admin-btn-secondary">Refresh</button>
+            </div>
+            <div class="settings-grid">
+                <article class="settings-card">
+                    <div class="settings-card-main">
+                        <div>
+                            <h3>AI Worker</h3>
+                            <p>Controls automatic folder/project AI inference.</p>
+                        </div>
+                        <label class="admin-switch">
+                            <input id="setting-ai-worker" type="checkbox">
+                            <span></span>
+                        </label>
+                    </div>
+                    <div class="settings-status">
+                        <span id="setting-ai-worker-enabled" class="status-pill pending">-</span>
+                        <span id="setting-ai-worker-running" class="status-pill pending">-</span>
+                    </div>
+                </article>
+                <article class="settings-card">
+                    <div class="settings-card-main">
+                        <div>
+                            <h3>Tile Worker</h3>
+                            <p>Controls background tile validation and generation.</p>
+                        </div>
+                        <label class="admin-switch">
+                            <input id="setting-tile-worker" type="checkbox">
+                            <span></span>
+                        </label>
+                    </div>
+                    <div class="settings-status">
+                        <span id="setting-tile-worker-enabled" class="status-pill pending">-</span>
+                        <span id="setting-tile-worker-running" class="status-pill pending">-</span>
+                    </div>
+                </article>
+            </div>
+        </section>
     </main>
 
     <dialog id="user-activity-dialog" class="admin-dialog admin-dialog-wide">
@@ -233,6 +275,6 @@
     </dialog>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script src="js/admin.js?v=20260527-02"></script>
+    <script src="js/admin.js?v=20260606-01"></script>
 </body>
 </html>

@@ -490,3 +490,80 @@ html, body {
     font-size: 12px;
 }
 .admin-table.compact small { color: #6b7280; font-size: 11px; }
+
+/* System settings */
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+}
+.settings-card {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.settings-card-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.settings-card h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 700;
+}
+.settings-card p {
+    margin: 0;
+    color: var(--admin-text-dim);
+    font-size: 12px;
+}
+.settings-status {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+.admin-switch {
+    position: relative;
+    display: inline-flex;
+    width: 52px;
+    height: 30px;
+    flex: 0 0 auto;
+}
+.admin-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.admin-switch span {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    background: #cbd5e1;
+    border-radius: 999px;
+    transition: background 0.15s;
+}
+.admin-switch span::before {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    left: 4px;
+    top: 4px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.22);
+    transition: transform 0.15s;
+}
+.admin-switch input:checked + span {
+    background: var(--admin-accent);
+}
+.admin-switch input:checked + span::before {
+    transform: translateX(22px);
+}
+.admin-switch input:disabled + span {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
