@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.225",
+  "version": "1.1.226",
   "channel": "production",
   "release_date": "2026-06-09",
-  "description": "Enables Delete, Backspace, and D shortcuts for selected Cell Annotation patch cells."
+  "description": "Improves Cell Annotation patch-view rendering and hit-test performance for dense cell annotations."
 }

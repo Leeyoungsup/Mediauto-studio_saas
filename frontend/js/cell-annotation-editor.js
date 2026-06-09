@@ -181,6 +181,12 @@ export class CellAnnotationEditor {
             source,
             cell_center: center,
             cell_bbox: bbox,
+            _bounds: {
+                x0: Number(bbox.x0 ?? bbox.x ?? coordinates[0]?.[0] ?? 0),
+                y0: Number(bbox.y0 ?? bbox.y ?? coordinates[0]?.[1] ?? 0),
+                x1: Number(bbox.x1 ?? ((bbox.x ?? coordinates[0]?.[0] ?? 0) + Number(bbox.width ?? 0))),
+                y1: Number(bbox.y1 ?? ((bbox.y ?? coordinates[0]?.[1] ?? 0) + Number(bbox.height ?? 0))),
+            },
             properties: {
                 ...(cell?.properties || {}),
                 class_id: classId,

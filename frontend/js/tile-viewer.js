@@ -854,6 +854,8 @@ export class TileViewer {
                     } else {
                         ann.coordinates[this._dragControlPoint.pointIndex] = [sx, sy];
                     }
+                    delete ann._bounds;
+                    delete ann._cellCenter;
                     if (this.onAnnotationChanged) this.onAnnotationChanged(ann);
                     this.requestRender();
                 }
@@ -867,6 +869,8 @@ export class TileViewer {
                     const dx = sx - this._dragAnnotation.startScene[0];
                     const dy = sy - this._dragAnnotation.startScene[1];
                     ann.coordinates = this._dragAnnotation.origCoords.map(([ox, oy]) => [ox + dx, oy + dy]);
+                    delete ann._bounds;
+                    delete ann._cellCenter;
                     if (this.onAnnotationChanged) this.onAnnotationChanged(ann);
                     this.requestRender();
                 }
@@ -1989,11 +1993,17 @@ export class TileViewer {
     }
 
     _annotationCellCenter(annotation) {
+        if (Array.isArray(annotation?._cellCenter) && annotation._cellCenter.length >= 2) {
+            return annotation._cellCenter;
+        }
         const center = annotation?.cell_center || annotation?.properties?.cell_center;
         if (Array.isArray(center) && center.length >= 2) {
             const x = Number(center[0]);
             const y = Number(center[1]);
-            if (Number.isFinite(x) && Number.isFinite(y) && (x || y)) return [x, y];
+            if (Number.isFinite(x) && Number.isFinite(y) && (x || y)) {
+                annotation._cellCenter = [x, y];
+                return annotation._cellCenter;
+            }
         }
         const bbox = annotation?.cell_bbox || annotation?.properties?.cell_bbox || {};
         const bx = Number(bbox.x ?? bbox.x0);
@@ -2001,7 +2011,8 @@ export class TileViewer {
         const bw = Number(bbox.width ?? (Number(bbox.x1) - bx));
         const bh = Number(bbox.height ?? (Number(bbox.y1) - by));
         if (Number.isFinite(bx) && Number.isFinite(by) && Number.isFinite(bw) && Number.isFinite(bh)) {
-            return [bx + bw / 2, by + bh / 2];
+            annotation._cellCenter = [bx + bw / 2, by + bh / 2];
+            return annotation._cellCenter;
         }
         const coords = Array.isArray(annotation?.coordinates) ? annotation.coordinates : [];
         const points = coords
@@ -2010,7 +2021,8 @@ export class TileViewer {
         if (!points.length) return null;
         const xs = points.map(point => point[0]);
         const ys = points.map(point => point[1]);
-        return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+        annotation._cellCenter = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+        return annotation._cellCenter;
     }
 
     _findNearestCellAnnotation(sx, sy, maxScreenPx = 30) {
@@ -3738,6 +3750,42 @@ export class TileViewer {
 
     // ── Annotation text ──
 
+    _annotationBounds(ann) {
+        if (!ann) return null;
+        const cached = ann._bounds;
+        if (cached && [cached.x0, cached.y0, cached.x1, cached.y1].every(Number.isFinite)) {
+            return cached;
+        }
+        const bbox = ann.properties?.cell_bbox || ann.cell_bbox || ann.bbox;
+        if (bbox && typeof bbox === 'object') {
+            const x0 = Number(bbox.x0 ?? bbox.x ?? 0);
+            const y0 = Number(bbox.y0 ?? bbox.y ?? 0);
+            const x1 = Number(bbox.x1 ?? (x0 + Number(bbox.width ?? 0)));
+            const y1 = Number(bbox.y1 ?? (y0 + Number(bbox.height ?? 0)));
+            if ([x0, y0, x1, y1].every(Number.isFinite)) {
+                const bounds = { x0, y0, x1, y1 };
+                ann._bounds = bounds;
+                return bounds;
+            }
+        }
+        const coords = Array.isArray(ann.coordinates) ? ann.coordinates : [];
+        if (!coords.length) return null;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const pt of coords) {
+            const x = Number(pt?.[0]);
+            const y = Number(pt?.[1]);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            if (x < x0) x0 = x;
+            if (y < y0) y0 = y;
+            if (x > x1) x1 = x;
+            if (y > y1) y1 = y;
+        }
+        if (![x0, y0, x1, y1].every(Number.isFinite)) return null;
+        const bounds = { x0, y0, x1, y1 };
+        ann._bounds = bounds;
+        return bounds;
+    }
+
     _renderAnnotations(octx) {
         const halfVW = this._viewW / Math.max(this.zoom, 0.0001) / 2;
         const halfVH = this._viewH / Math.max(this.zoom, 0.0001) / 2;
@@ -3747,30 +3795,9 @@ export class TileViewer {
         const viewBottom = this.viewCenterY + halfVH;
         const intersectsView = (ann) => {
             if (ann.selected) return true;
-            const bbox = ann.properties?.cell_bbox || ann.cell_bbox || ann.bbox;
-            if (bbox && typeof bbox === 'object') {
-                const x0 = Number(bbox.x0 ?? bbox.x ?? 0);
-                const y0 = Number(bbox.y0 ?? bbox.y ?? 0);
-                const x1 = Number(bbox.x1 ?? (x0 + Number(bbox.width ?? 0)));
-                const y1 = Number(bbox.y1 ?? (y0 + Number(bbox.height ?? 0)));
-                if ([x0, y0, x1, y1].every(Number.isFinite)) {
-                    return x1 >= viewLeft && x0 <= viewRight && y1 >= viewTop && y0 <= viewBottom;
-                }
-            }
-            const coords = Array.isArray(ann.coordinates) ? ann.coordinates : [];
-            if (!coords.length) return true;
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            for (const pt of coords) {
-                const x = Number(pt?.[0]);
-                const y = Number(pt?.[1]);
-                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
-            }
-            if (!Number.isFinite(minX)) return true;
-            return maxX >= viewLeft && minX <= viewRight && maxY >= viewTop && minY <= viewBottom;
+            const bounds = this._annotationBounds(ann);
+            if (!bounds) return true;
+            return bounds.x1 >= viewLeft && bounds.x0 <= viewRight && bounds.y1 >= viewTop && bounds.y0 <= viewBottom;
         };
         // text annotation
         for (const ann of this.annotations) {
@@ -3790,15 +3817,22 @@ export class TileViewer {
             if (isCellAnnotation && !intersectsView(ann)) continue;
 
             if (isCellAnnotation && this.cellAnnotationDisplayMode === 'point') {
-                const center = ann.properties?.cell_center || ann.cell_center || ann.center ||
-                    (Array.isArray(ann.coordinates) && ann.coordinates.length
-                        ? [
-                            ann.coordinates.reduce((sum, pt) => sum + Number(pt?.[0] || 0), 0) / ann.coordinates.length,
-                            ann.coordinates.reduce((sum, pt) => sum + Number(pt?.[1] || 0), 0) / ann.coordinates.length,
-                        ]
-                        : null);
+                const center = this._annotationCellCenter(ann);
                 if (Array.isArray(center) && center.length >= 2) {
                     this._drawCellAnnotationPoint(octx, Number(center[0]), Number(center[1]), [r, g, b], ann.selected);
+                    continue;
+                }
+            }
+            if (isCellAnnotation && ann.type === 'rectangle' && !ann.selected) {
+                const bounds = this._annotationBounds(ann);
+                if (bounds) {
+                    const [x0, y0] = this.sceneToCanvas(bounds.x0, bounds.y0);
+                    const [x1, y1] = this.sceneToCanvas(bounds.x1, bounds.y1);
+                    octx.fillStyle = fillColor;
+                    octx.strokeStyle = strokeColor;
+                    octx.lineWidth = lineWidth;
+                    octx.fillRect(x0, y0, x1 - x0, y1 - y0);
+                    octx.strokeRect(x0, y0, x1 - x0, y1 - y0);
                     continue;
                 }
             }
@@ -4613,11 +4647,8 @@ export class TileViewer {
                 const dy = sy - ann.coordinates[0][1];
                 if (dx * dx + dy * dy <= pointThreshold * pointThreshold) return ann;
             } else if (ann.type === 'rectangle') {
-                const xs = ann.coordinates.map(c => c[0]);
-                const ys = ann.coordinates.map(c => c[1]);
-                const xMin = Math.min(...xs), xMax = Math.max(...xs);
-                const yMin = Math.min(...ys), yMax = Math.max(...ys);
-                if (sx >= xMin && sx <= xMax && sy >= yMin && sy <= yMax) return ann;
+                const bounds = this._annotationBounds(ann);
+                if (bounds && sx >= bounds.x0 && sx <= bounds.x1 && sy >= bounds.y0 && sy <= bounds.y1) return ann;
                 if (this._pointNearPolyline(sx, sy, ann.coordinates, true, threshold)) return ann;
             } else if (ann.type === 'polygon') {
                 // Ray-casting algorithm

@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.226] - 2026-06-09
+
+### Fixed
+
+- Cache Cell Annotation patch-cell bounds and centers to reduce repeated per-frame geometry calculations.
+- Render non-selected patch-cell bounding boxes with direct canvas rectangle calls instead of polygon paths.
+- Use cached bounds for rectangle hit-testing in dense Cell Annotation patch views.
+
 ## [1.1.225] - 2026-06-09
 
 ### Fixed
