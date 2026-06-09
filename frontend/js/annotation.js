@@ -4187,7 +4187,14 @@ function _showPatchCellEditPopup(idx, ann, screenX, screenY) {
 function _showPatchMultiCellEditPopup(indices, annotations, screenX, screenY) {
     if (!cellPatchWorkflow?.patchFocusActive || !cellPatchWorkflow.canAnnotateSelectedPatch?.()) return;
     _closeCellEditPopup();
-    if (!Array.isArray(indices) || !indices.length) return;
+    if (!Array.isArray(indices) || !indices.length) {
+        _annotationBulkSelection = new Set();
+        viewer.selectedAnnotationId = null;
+        viewer.annotations?.forEach(ann => { ann.selected = false; });
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+        return;
+    }
     const selectedIds = new Set();
     for (const idx of indices) {
         const ann = viewer.annotations?.[idx];

@@ -759,6 +759,14 @@ export class TileViewer {
                 if (!hitAnn && !e.ctrlKey && this.selectedAnnotationId) {
                     this.selectAnnotation(null);
                 }
+                if (!hitAnn && this.cellAnnotationPatchViewActive && this._highlightedCellIdxSet) {
+                    this._highlightedCellIdxSet = null;
+                    this._highlightedCellIdx = -1;
+                    if (this.onPatchCellsMultiEditRequested) {
+                        this.onPatchCellsMultiEditRequested([], [], e.clientX, e.clientY);
+                    }
+                    this.requestRender();
+                }
             }
 
             // Ctrl+text text text text
@@ -1073,6 +1081,15 @@ export class TileViewer {
                     this._altPending = null;
                     this._lassoActive = false;
                     this._lassoPoints = [];
+                    this.requestRender();
+                }
+                if (this.cellAnnotationPatchViewActive && this._highlightedCellIdxSet) {
+                    this._highlightedCellIdxSet = null;
+                    this._highlightedCellIdx = -1;
+                    if (this.onPatchCellsMultiEditRequested) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        this.onPatchCellsMultiEditRequested([], [], rect.left, rect.top);
+                    }
                     this.requestRender();
                 }
                 if (this.drawMode) {

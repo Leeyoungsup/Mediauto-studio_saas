@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.232] - 2026-06-09
+
+### Fixed
+
+- Clear Cell Annotation patch-view Alt-drag multi-selection when clicking empty canvas space.
+- Clear the same patch-view multi-selection and right-panel bulk selection when pressing Escape.
+
 ## [1.1.231] - 2026-06-09
 
 ### Fixed
