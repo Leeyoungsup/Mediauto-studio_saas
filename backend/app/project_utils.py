@@ -131,6 +131,69 @@ def _classes_from_model_metadata(class_names: dict, class_colors: dict) -> list[
     return classes or [dict(OTHER_CELL_CLASS)]
 
 
+def _normalize_cell_class_color(value) -> list[int]:
+    if isinstance(value, str):
+        return _hex_to_rgb(value)
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        out = []
+        for item in value[:3]:
+            try:
+                out.append(max(0, min(255, int(item))))
+            except Exception:
+                out.append(0)
+        return out
+    return list(OTHER_CELL_CLASS["color"])
+
+
+def _normalize_cell_classes(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    classes = []
+    seen = set()
+    for idx, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:64] or f"Class {idx}"
+        raw_id = str(item.get("id") or name).strip()[:80]
+        raw_id = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in raw_id)
+        raw_id = raw_id.strip("_-") or f"class_{idx}"
+        base_id = raw_id
+        suffix = 2
+        while raw_id in seen:
+            raw_id = f"{base_id}_{suffix}"
+            suffix += 1
+        seen.add(raw_id)
+        classes.append({
+            "id": raw_id,
+            "name": name,
+            "color": _normalize_cell_class_color(item.get("color")),
+        })
+    return classes
+
+
+def _merge_cell_classes(base_classes: list[dict], default_classes: list[dict]) -> list[dict]:
+    default_names = {str(cls.get("name", "")).lower() for cls in (default_classes or []) if cls.get("name")}
+    default_ids = {str(cls.get("id", "")) for cls in (default_classes or []) if cls.get("id") is not None}
+    merged = [
+        cls for cls in (base_classes or [])
+        if str(cls.get("id", "")) in default_ids or str(cls.get("name", "")).lower() not in default_names
+    ]
+    seen_ids = {str(cls.get("id", "")) for cls in merged}
+    for cls in default_classes or []:
+        cls_id = str(cls.get("id", ""))
+        if cls_id in seen_ids:
+            continue
+        merged.append(dict(cls))
+        seen_ids.add(cls_id)
+    has_other = any(str(cls.get("name", "")).lower() == "other" for cls in merged)
+    if not has_other:
+        other_id = str(OTHER_CELL_CLASS["id"])
+        if other_id in seen_ids:
+            other_id = "other_cell"
+        merged.append({**OTHER_CELL_CLASS, "id": other_id})
+    return merged or [dict(OTHER_CELL_CLASS)]
+
+
 def cell_annotation_classes_for_ai(enabled: bool, key: str) -> list[dict]:
     dict_config = normalize_annotation_ai_config(enabled, key)
     if not dict_config.get("enabled"):
@@ -163,13 +226,18 @@ def cell_annotation_classes_for_ai(enabled: bool, key: str) -> list[dict]:
 
 
 def sync_project_cell_annotation_classes(str_project_path: str, enabled: bool, key: str) -> list[dict]:
-    classes = cell_annotation_classes_for_ai(enabled, key)
-    if not classes:
-        return []
     str_project = str(str_project_path or "").replace("\\", "/").split("/")[0].strip()
     if not str_project:
         return []
     path_classes = CELL_ANNOTATION_ROOT / "_projects" / str_project / "classes.json"
+    existing_classes = []
+    if path_classes.exists():
+        try:
+            payload = json.loads(path_classes.read_text(encoding="utf-8"))
+            existing_classes = _normalize_cell_classes(payload.get("classes") if isinstance(payload, dict) else payload)
+        except Exception:
+            existing_classes = []
+    classes = _merge_cell_classes(existing_classes, cell_annotation_classes_for_ai(enabled, key))
     path_classes.parent.mkdir(parents=True, exist_ok=True)
     path_classes.write_text(json.dumps({"classes": classes}, ensure_ascii=False, indent=2), encoding="utf-8")
     return classes

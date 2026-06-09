@@ -1959,6 +1959,27 @@ function _normalizeProjectClassList(list) {
     });
 }
 
+function _mergeProjectClassList(baseList = [], defaultList = []) {
+    const base = _normalizeProjectClassList(baseList);
+    const defaults = _normalizeProjectClassList(defaultList);
+    const defaultNames = new Set(defaults.map(cls => cls.name.toLowerCase()));
+    const defaultIds = new Set(defaults.map(cls => cls.id));
+    const merged = base.filter(cls => defaultIds.has(cls.id) || !defaultNames.has(cls.name.toLowerCase()));
+    const ids = new Set(merged.map(cls => cls.id));
+    for (const cls of defaults) {
+        if (ids.has(cls.id)) continue;
+        merged.push({ ...cls, color: [...cls.color] });
+        ids.add(cls.id);
+    }
+    if (!merged.some(cls => cls.name.toLowerCase() === 'other')) {
+        let id = 'other';
+        let n = 2;
+        while (ids.has(id)) id = `other_${n++}`;
+        merged.push({ id, name: 'Other', color: [149, 165, 166] });
+    }
+    return merged;
+}
+
 const CELL_ANNOTATION_AI_OPTIONS = [
     { key: 'quanti_he_breast', label: 'Quanti HE-breast', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
     { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
@@ -2222,11 +2243,11 @@ async function _openProjectClassManager(project) {
         if (!enabled || !key) return;
         const presetClasses = _cellAnnotationPresetClasses(key);
         if (!presetClasses.length) return;
-        localClasses = _normalizeProjectClassList(presetClasses);
+        localClasses = _mergeProjectClassList(localClasses, presetClasses);
         const opt = CELL_ANNOTATION_AI_OPTIONS.find(item => item.key === key);
         statusEl.textContent = opt?.inheritClasses
-            ? `${localClasses.length} inherited classes`
-            : '1 non-inherited class';
+            ? `${localClasses.length} classes`
+            : `${localClasses.length} classes (Other required)`;
         render();
     };
 
@@ -2288,7 +2309,7 @@ async function _openProjectClassManager(project) {
         if (isCellClassMode && annotationAiEnabled && annotationAiKey) {
             const presetClasses = _cellAnnotationPresetClasses(annotationAiKey);
             if (presetClasses.length) {
-                localClasses = _normalizeProjectClassList(presetClasses);
+                localClasses = _mergeProjectClassList(localClasses, presetClasses);
             }
         }
         statusEl.textContent = `${localClasses.length} classes`;

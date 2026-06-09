@@ -2,6 +2,14 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.223] - 2026-06-09
+
+### Fixed
+
+- Preserve custom Cell Annotation project classes when AI assistance is enabled or changed.
+- Always keep an `Other` class in Cell Annotation class settings.
+- Merge AI assistance default classes with user-added classes instead of replacing the project class list.
+
 ## [1.1.222] - 2026-06-09
 
 ### Fixed

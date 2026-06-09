@@ -58,9 +58,7 @@ PATCH_STATUSES = {
 REGION_TYPES = {"annotation_required_region", "annotation_excluded_region"}
 DEFAULT_ASSISTANCE_BOX_SIZE = 32.0
 CELL_CLASSES_MAX_BYTES = 256 * 1024
-DEFAULT_CELL_CLASSES = [
-    {"id": "cell", "name": "Cell", "color": [0, 255, 0]},
-]
+DEFAULT_CELL_CLASSES = [dict(OTHER_CELL_CLASS)]
 _export_tasks: dict[str, asyncio.Task] = {}
 _export_requested: set[str] = set()
 
@@ -163,7 +161,13 @@ def _merge_cell_classes(base_classes: list[dict], default_classes: list[dict]) -
             continue
         merged.append(dict(cls))
         seen_ids.add(cls_id)
-    return merged
+    has_other = any(str(cls.get("name", "")).lower() == "other" for cls in merged)
+    if not has_other:
+        other_id = str(OTHER_CELL_CLASS["id"])
+        if other_id in seen_ids:
+            other_id = "other_cell"
+        merged.append({**OTHER_CELL_CLASS, "id": other_id})
+    return merged or list(DEFAULT_CELL_CLASSES)
 
 
 async def _project_ai_default_classes(project_path: str) -> list[dict]:
@@ -1059,7 +1063,7 @@ async def load_cell_annotation_classes(path: str = Query(..., description="proje
     class_path = _cell_project_classes_path(path)
     ai_defaults = await _project_ai_default_classes(path)
     if not class_path.exists():
-        return {"classes": ai_defaults or list(DEFAULT_CELL_CLASSES)}
+        return {"classes": _merge_cell_classes([], ai_defaults)}
     try:
         payload = json.loads(class_path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -1067,7 +1071,7 @@ async def load_cell_annotation_classes(path: str = Query(..., description="proje
     classes = payload.get("classes") if isinstance(payload, dict) else payload
     normalized = _normalize_cell_classes(classes)
     merged = _merge_cell_classes(normalized, ai_defaults)
-    if len(merged) != len(normalized):
+    if merged != normalized:
         try:
             class_path.write_text(json.dumps({"classes": merged}, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as exc:
@@ -1089,6 +1093,8 @@ async def save_cell_annotation_classes(
     except Exception as exc:
         raise HTTPException(400, f"Invalid cell annotation class JSON: {exc}")
     classes = _normalize_cell_classes(payload.get("classes") if isinstance(payload, dict) else payload)
+    ai_defaults = await _project_ai_default_classes(path)
+    classes = _merge_cell_classes(classes, ai_defaults)
     class_path = _cell_project_classes_path(path)
     class_path.parent.mkdir(parents=True, exist_ok=True)
     class_path.write_text(json.dumps({"classes": classes}, ensure_ascii=False, indent=2), encoding="utf-8")
