@@ -3505,10 +3505,14 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-exclude-separat
     cursor: grab;
 }
 .project-class-row.locked {
-    cursor: default;
+    cursor: grab;
 }
 .project-class-row.locked .project-class-drag {
-    opacity: 0.35;
+    opacity: 0.85;
+}
+.class-row.locked .class-name-input,
+.project-class-row.locked .project-class-name {
+    color: var(--text-dim);
 }
 .project-class-row.dragging {
     opacity: 0.45;

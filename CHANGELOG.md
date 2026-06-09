@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.231] - 2026-06-09
+
+### Fixed
+
+- Lock inherited and required Cell Annotation classes from rename, color edit, and delete in both right-panel settings and project-level settings.
+- Keep drag-and-drop class reordering available for locked Cell Annotation classes.
+
 ## [1.1.230] - 2026-06-09
 
 ### Fixed

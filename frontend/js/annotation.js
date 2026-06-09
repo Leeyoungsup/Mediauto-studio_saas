@@ -1797,6 +1797,7 @@ function renderClassManagementPanel() {
     const isSettings = canManage && _classManagementMode === 'settings';
     if (!canManage && _classManagementMode !== 'apply') _classManagementMode = 'apply';
     const isCellPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
+    const lockedCellClassIds = isSettings ? _lockedCellClassIdsForCurrentProject() : new Set();
     if ($btnClassApply) {
         $btnClassApply.hidden = isSettings || isCellPatchView;
         $btnClassApply.disabled = _isViewerRole();
@@ -1821,16 +1822,18 @@ function renderClassManagementPanel() {
     for (const cls of _annotationClasses) {
         const [r, g, b] = _normalizeColor(cls.color);
         const classHidden = _hiddenAnnotationClassIds.has(cls.id);
+        const isOther = String(cls.name || '').trim().toLowerCase() === 'other';
+        const isLockedCellClass = isSettings && ANNOTATION_PAGE_KIND === 'cell' && (isOther || lockedCellClassIds.has(cls.id));
         const row = document.createElement('div');
-        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '') + (classHidden ? ' hidden-class' : '') + (isSettings ? ' settings' : ' apply');
+        row.className = 'class-row' + (cls.id === _activeAnnotationClassId ? ' active' : '') + (classHidden ? ' hidden-class' : '') + (isLockedCellClass ? ' locked' : '') + (isSettings ? ' settings' : ' apply');
         row.dataset.classId = cls.id;
         row.draggable = isSettings;
         row.innerHTML = isSettings ? `
             <button type="button" class="class-active-btn" title="Use this class"></button>
-            <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="Class color">
-            <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="Class name">
+            <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="${isLockedCellClass ? 'AI/required class color is locked' : 'Class color'}"${isLockedCellClass ? ' disabled' : ''}>
+            <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="${isLockedCellClass ? 'AI/required class name is locked' : 'Class name'}"${isLockedCellClass ? ' disabled' : ''}>
             <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}" aria-label="${classHidden ? 'Show class' : 'Hide class'}">${_visibilityIcon(!classHidden)}</button>
-            <button type="button" class="class-delete-btn" title="Delete class">Delete</button>
+            <button type="button" class="class-delete-btn" title="${isLockedCellClass ? 'AI/required class cannot be deleted' : 'Delete class'}"${isLockedCellClass ? ' disabled' : ''}>Delete</button>
         ` : `
             <button type="button" class="class-active-btn" title="Select class"></button>
             <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
@@ -1843,11 +1846,13 @@ function renderClassManagementPanel() {
         const nameInput = row.querySelector('.class-name-input');
         const visibilityBtn = row.querySelector('.class-visibility-btn');
         const deleteBtn = row.querySelector('.class-delete-btn');
-        if (colorInput) colorInput.disabled = !isSettings;
-        if (nameInput) nameInput.disabled = !isSettings;
+        if (colorInput) colorInput.disabled = !isSettings || isLockedCellClass;
+        if (nameInput) nameInput.disabled = !isSettings || isLockedCellClass;
         if (deleteBtn) {
-            deleteBtn.disabled = !isSettings;
-            deleteBtn.title = canManage ? 'Delete class' : 'Doctor/Admin only';
+            deleteBtn.disabled = !isSettings || isLockedCellClass;
+            deleteBtn.title = isLockedCellClass
+                ? 'AI/required class cannot be deleted'
+                : canManage ? 'Delete class' : 'Doctor/Admin only';
         }
 
         const setActive = () => {
@@ -1898,7 +1903,7 @@ function renderClassManagementPanel() {
         });
         if (colorInput) {
             colorInput.addEventListener('input', (e) => {
-                if (!isSettings) return;
+                if (!isSettings || isLockedCellClass) return;
                 cls.color = hexToRgb(e.target.value);
                 if (_activeAnnotationClassId === cls.id) _syncActiveAnnotationClassToViewer();
                 _syncAnnotationClassMetadata();
@@ -1908,7 +1913,7 @@ function renderClassManagementPanel() {
         }
         if (nameInput) {
             nameInput.addEventListener('change', (e) => {
-                if (!isSettings) return;
+                if (!isSettings || isLockedCellClass) return;
                 cls.name = e.target.value.trim() || cls.name;
                 _syncAnnotationClassMetadata();
                 renderAnnotationPanel();
@@ -1917,7 +1922,7 @@ function renderClassManagementPanel() {
         }
         if (deleteBtn) {
             deleteBtn.addEventListener('click', () => {
-                if (!isSettings) return;
+                if (!isSettings || isLockedCellClass) return;
                 if (_annotationClasses.length <= 1) {
                     alert('At least one class is required.');
                     return;
@@ -2213,19 +2218,15 @@ async function _openProjectClassManager(project) {
             const isLocked = isCellClassMode && (isOther || lockedCellClassIds.has(cls.id));
             const row = document.createElement('div');
             row.className = `project-class-row${isLocked ? ' locked' : ''}`;
-            row.draggable = !isLocked;
+            row.draggable = true;
             row.dataset.classId = cls.id;
             row.innerHTML = `
-                <span class="project-class-drag" title="${isLocked ? 'AI/required class' : 'Drag to reorder'}">::</span>
+                <span class="project-class-drag" title="Drag to reorder">::</span>
                 <input type="color" class="project-class-color" value="${rgbToHex(r, g, b)}" title="Class color"${isLocked ? ' disabled' : ''}>
                 <input type="text" class="project-class-name" value="${_esc(cls.name)}" title="Class name"${isLocked ? ' disabled' : ''}>
                 <button type="button" class="project-class-delete"${isLocked ? ' disabled' : ''}>Delete</button>
             `;
             row.addEventListener('dragstart', (e) => {
-                if (isLocked) {
-                    e.preventDefault();
-                    return;
-                }
                 draggingProjectClassId = cls.id;
                 row.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
@@ -2236,7 +2237,7 @@ async function _openProjectClassManager(project) {
                 row.classList.remove('dragging');
             });
             row.addEventListener('dragover', (e) => {
-                if (isLocked || !draggingProjectClassId || draggingProjectClassId === cls.id) return;
+                if (!draggingProjectClassId || draggingProjectClassId === cls.id) return;
                 e.preventDefault();
                 row.classList.add('drag-over');
             });
@@ -2253,12 +2254,15 @@ async function _openProjectClassManager(project) {
                 render();
             });
             row.querySelector('.project-class-color').addEventListener('input', (e) => {
+                if (isLocked) return;
                 cls.color = hexToRgb(e.target.value);
             });
             row.querySelector('.project-class-name').addEventListener('input', (e) => {
+                if (isLocked) return;
                 cls.name = e.target.value.trim() || `Class ${idx + 1}`;
             });
             row.querySelector('.project-class-delete').addEventListener('click', () => {
+                if (isLocked) return;
                 if (localClasses.length <= 1) {
                     alert('At least one class is required.');
                     return;
