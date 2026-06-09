@@ -3169,14 +3169,18 @@ function _doDeleteCell() {
     if (!_cellEditCtx) return;
     if (_cellEditCtx.patchAnnotations) {
         viewer.pushAnnotationUndo?.();
-        const indices = _cellEditCtx.multi
-            ? [..._cellEditCtx.indices].sort((a, b) => b - a)
+        const idSet = new Set(_cellEditCtx.annotationIds || []);
+        const indices = _cellEditCtx.multi && idSet.size
+            ? (viewer.annotations || []).map((ann, idx) => idSet.has(ann.id) ? idx : -1).filter(idx => idx >= 0)
+            : _cellEditCtx.multi
+            ? [..._cellEditCtx.indices]
             : [_cellEditCtx.idx];
         const removeSet = new Set(indices.filter(idx => idx >= 0 && idx < viewer.annotations.length));
         const removed = (viewer.annotations || []).filter((_, idx) => removeSet.has(idx));
         viewer.annotations = (viewer.annotations || []).filter((_, idx) => !removeSet.has(idx));
         if (removed.some(ann => ann.id === viewer.selectedAnnotationId)) viewer.selectedAnnotationId = null;
         _removePatchLabelsForAnnotations(removed);
+        _annotationBulkSelection = new Set();
         viewer.requestRender();
         renderClassManagementPanel();
         renderAnnotationPanel();
@@ -3199,12 +3203,16 @@ function _doChangeClass(newClsId) {
     if (!_cellEditCtx) return;
     if (_cellEditCtx.patchAnnotations) {
         viewer.pushAnnotationUndo?.();
-        const indices = _cellEditCtx.multi ? _cellEditCtx.indices : [_cellEditCtx.idx];
-        for (const idx of indices) {
-            const ann = viewer.annotations[idx];
-            if (!ann) continue;
+        const idSet = new Set(_cellEditCtx.annotationIds || []);
+        const annotations = _cellEditCtx.multi && idSet.size
+            ? (viewer.annotations || []).filter(ann => idSet.has(ann.id))
+            : (_cellEditCtx.multi ? _cellEditCtx.indices : [_cellEditCtx.idx])
+                .map(idx => viewer.annotations[idx])
+                .filter(Boolean);
+        for (const ann of annotations) {
             _applyClassToAnnotation(ann, newClsId);
         }
+        _annotationBulkSelection = new Set(annotations.map(ann => ann.id).filter(Boolean));
         _syncPatchEditorAfterViewerAnnotationEdit();
         viewer.requestRender();
         renderClassManagementPanel();
@@ -4104,6 +4112,13 @@ function _showPatchMultiCellEditPopup(indices, annotations, screenX, screenY) {
     if (!cellPatchWorkflow?.patchFocusActive || !cellPatchWorkflow.canAnnotateSelectedPatch?.()) return;
     _closeCellEditPopup();
     if (!Array.isArray(indices) || !indices.length) return;
+    const selectedIds = new Set();
+    for (const idx of indices) {
+        const ann = viewer.annotations?.[idx];
+        if (ann?.id) selectedIds.add(ann.id);
+    }
+    _annotationBulkSelection = selectedIds;
+    renderAnnotationPanel();
     const popup = document.createElement('div');
     popup.className = 'cell-edit-popup';
     popup.style.cssText = `
@@ -4158,7 +4173,15 @@ function _showPatchMultiCellEditPopup(indices, annotations, screenX, screenY) {
     _placeCellEditPopup(popup, screenX, screenY);
     const { classNames, classColors } = _patchCellEditClassMaps();
     _cellEditPopupEl = popup;
-    _cellEditCtx = { patchAnnotations: true, multi: true, indices: [...indices], classNames, classColors, classButtonOrder };
+    _cellEditCtx = {
+        patchAnnotations: true,
+        multi: true,
+        indices: [...indices],
+        annotationIds: [...selectedIds],
+        classNames,
+        classColors,
+        classButtonOrder,
+    };
     setTimeout(() => {
         document.addEventListener('mousedown', _outsideCellEditClick, true);
         document.addEventListener('keydown', _cellEditKeydown, true);

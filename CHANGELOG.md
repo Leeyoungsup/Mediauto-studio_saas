@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.229] - 2026-06-09
+
+### Fixed
+
+- Connect Cell Annotation patch-view Alt-drag selections to the right-panel bulk selection state.
+- Apply patch cell class changes by annotation id for Alt-drag selections so the selected cells remain editable after panel rerenders.
+
 ## [1.1.228] - 2026-06-09
 
 ### Fixed
