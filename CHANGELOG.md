@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [1.1.220] - 2026-06-09
+
+### Fixed
+
+- Fix Alt-drag multi-selection in Cell Annotation patch view by allowing patch annotation cells to enter the lasso edit path independently from detection AI edit mode.
+- Render multi-selection highlights for patch annotation cells instead of only detection result cells.
+
 ## [1.1.219] - 2026-06-06
 
 ### Fixed

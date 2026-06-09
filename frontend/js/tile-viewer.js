@@ -697,12 +697,14 @@ export class TileViewer {
                 }
             }
 
-            if (this.canEditDetectionResults && e.altKey && e.button === 0 &&
-                    (this.detectionCells.length > 0 || this._cellAnnotationEditModeActive())) {
+            const canAltEditDetectionCells = this.canEditDetectionResults && this.detectionCells.length > 0;
+            const canAltEditPatchAnnotations = this._cellAnnotationEditModeActive();
+            if (e.altKey && e.button === 0 && !this.drawMode &&
+                    (canAltEditDetectionCells || canAltEditPatchAnnotations)) {
                 this._altPending = {
                     sx, sy, cx, cy,
                     clientX: e.clientX, clientY: e.clientY,
-                    patchAnnotations: !this.detectionCells.length && this._cellAnnotationEditModeActive(),
+                    patchAnnotations: canAltEditPatchAnnotations,
                 };
                 this._lassoActive = false;
                 this._lassoPoints = [];
@@ -2719,7 +2721,7 @@ export class TileViewer {
 
     _renderDetectionOverlay() {
         const octx = this.overlayCtx;
-        if (!this.detectionCells.length && !this._highlightedHiddenCellIdxSet &&
+        if (!this.detectionCells.length && !this._highlightedCellIdxSet && !this._highlightedHiddenCellIdxSet &&
                 !(this._lassoActive && this._cellAnnotationEditModeActive())) return;
 
         // effectiveMpp text: text text text text text
@@ -2749,11 +2751,35 @@ export class TileViewer {
         const baseR = Math.max(10, 6 * this.zoom);
         octx.save();
         for (const idx of this._highlightedCellIdxSet) {
-            if (idx < 0 || idx >= this.detectionCells.length) continue;
-            const c = this.detectionCells[idx];
-            const [hx, hy] = this.sceneToCanvas(c.x, c.y);
-            const hex = (this.classColorOverride && this.classColorOverride[c.class_id])
-                        || CLASS_COLORS[c.class_id] || '#FFFF00';
+            const patchMode = this._cellAnnotationEditModeActive() && !this.detectionCells.length;
+            let cxScene;
+            let cyScene;
+            let classId;
+            let rawColor = '';
+            if (patchMode) {
+                if (idx < 0 || idx >= this.annotations.length) continue;
+                const ann = this.annotations[idx];
+                const center = this._annotationCellCenter(ann);
+                if (!center) continue;
+                cxScene = center[0];
+                cyScene = center[1];
+                classId = ann.class_id || ann.properties?.class_id;
+                rawColor = ann.color;
+            } else {
+                if (idx < 0 || idx >= this.detectionCells.length) continue;
+                const c = this.detectionCells[idx];
+                cxScene = c.x;
+                cyScene = c.y;
+                classId = c.class_id;
+                rawColor = c.color || c.class_color || c.properties?.color;
+            }
+            const [hx, hy] = this.sceneToCanvas(cxScene, cyScene);
+            const hex = Array.isArray(rawColor)
+                ? `#${rawColor.slice(0, 3).map(v => Math.max(0, Math.min(255, Number(v) || 0)).toString(16).padStart(2, '0')).join('')}`
+                : ((this.classColorOverride && this.classColorOverride[classId])
+                    || rawColor
+                    || CLASS_COLORS[classId]
+                    || '#FFFF00');
             const r = parseInt(hex.slice(1, 3), 16);
             const g = parseInt(hex.slice(3, 5), 16);
             const b = parseInt(hex.slice(5, 7), 16);
