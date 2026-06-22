@@ -16,7 +16,7 @@ import torch
 
 from app.philips_proxy import is_philips_isyntax
 from app.priority import wait_if_viewer_busy
-from app.tile_generator import generate_priority_tile_block, get_tiles_dir, image_to_white_rgb
+from app.tile_generator import generate_priority_tile_block, get_tiles_dir_for_path, image_to_white_rgb
 from app.thread_slide_pool import get_thread_slide
 
 
@@ -37,7 +37,7 @@ class AIPatchReader:
         self.icc_transform = icc_transform
         self.wait_for_viewer = wait_for_viewer
         self.is_philips = is_philips_isyntax(slide_path)
-        self.level0_tiles = get_tiles_dir(Path(slide_path).name) / "0" if self.is_philips else None
+        self.level0_tiles = get_tiles_dir_for_path(slide_path) / "0" if self.is_philips else None
 
     def read_tensor(self, patch_x: int, patch_y: int):
         if self.is_philips:

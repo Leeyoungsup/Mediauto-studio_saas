@@ -38,6 +38,7 @@ from app.cell_annotation_utils import (
 )
 from app.config import settings
 from app.cpu_layout import ai_executor, patch_executor
+from app.slide_identity import slide_cache_key
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -436,7 +437,21 @@ def _normalize_memo_history(value: Any) -> list[dict]:
 
 
 def _cell_annotation_slide_dir(info) -> Path:
+    return CELL_ANNOTATION_ROOT / slide_cache_key(info.file_path)
+
+
+def _legacy_cell_annotation_slide_dir(info) -> Path:
     return CELL_ANNOTATION_ROOT / Path(info.file_path).stem
+
+
+def _existing_cell_annotation_slide_dir(info) -> Path:
+    path_current = _cell_annotation_slide_dir(info)
+    if path_current.exists():
+        return path_current
+    path_legacy = _legacy_cell_annotation_slide_dir(info)
+    if path_legacy.exists():
+        return path_legacy
+    return path_current
 
 
 def _slide_project_path(info) -> str:
@@ -449,6 +464,16 @@ def _slide_project_path(info) -> str:
 
 def _assistance_path(info) -> Path:
     return _cell_annotation_slide_dir(info) / "WSI_Labeling_assistance.json"
+
+
+def _existing_assistance_path(info) -> Path:
+    path_current = _assistance_path(info)
+    if path_current.exists():
+        return path_current
+    path_legacy = _legacy_cell_annotation_slide_dir(info) / "WSI_Labeling_assistance.json"
+    if path_legacy.exists():
+        return path_legacy
+    return path_current
 
 
 def _json_default(value):
@@ -475,6 +500,7 @@ def _cell_annotation_info_payload(slide_id: str, info, info_patches: list[dict])
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
         "slide_stem": Path(info.file_path).stem,
+        "slide_cache_key": slide_cache_key(info.file_path),
         "target_mpp": TARGET_MPP,
         "target_patch_size": TARGET_PATCH_SIZE,
         "patch_physical_um": PATCH_PHYSICAL_UM,
@@ -694,7 +720,7 @@ async def _project_annotation_ai_config(info) -> dict:
 
 
 def _read_assistance_file(info) -> dict:
-    path = _assistance_path(info)
+    path = _existing_assistance_path(info)
     if not path.exists():
         return {}
     try:
@@ -992,6 +1018,7 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "slide_id": slide_id,
         "slide_filename": Path(info.file_path).name,
         "slide_stem": Path(info.file_path).stem,
+        "slide_cache_key": slide_cache_key(info.file_path),
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
         "source_ai_postprocess": {

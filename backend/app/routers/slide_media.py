@@ -40,7 +40,7 @@ async def get_thumbnail_by_name(
     filename = safe_filename(filename)
     int_size = max(64, min(8192, int(size or 2048)))
     file_path = safe_subpath(path) / filename
-    tiles_root = tile_generator.get_tiles_dir(filename)
+    tiles_root = tile_generator.get_tiles_dir_for_path(str(file_path))
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
     bool_current_cache = _current_tile_cache(filename, str(file_path))
@@ -95,7 +95,7 @@ async def get_preview(
         raise HTTPException(404, "Slide not found")
     int_size = max(64, min(8192, int(size or 2048)))
     filename = Path(info.file_path).name
-    tiles_root = tile_generator.get_tiles_dir(filename)
+    tiles_root = tile_generator.get_tiles_dir_for_path(info.file_path)
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
     bool_current_cache = _current_tile_cache(filename, info.file_path)
@@ -137,7 +137,7 @@ async def get_thumbnail(
         raise HTTPException(404, "Slide not found")
 
     filename = Path(info.file_path).name
-    tiles_root = tile_generator.get_tiles_dir(filename)
+    tiles_root = tile_generator.get_tiles_dir_for_path(info.file_path)
     int_size = max(64, min(8192, int(size or 2048)))
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"

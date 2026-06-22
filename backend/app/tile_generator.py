@@ -34,6 +34,7 @@ from PIL import Image
 from app.config import settings
 from app.openslide_utils import open_slide_silently
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
+from app.slide_identity import slide_cache_key
 from app.slide_manager import (
     STAGE_READ_SIZE,
     STAGE_COUNT,
@@ -222,9 +223,10 @@ def source_signature_matches(payload: dict, slide, file_path: str) -> bool:
     return True
 
 
-def read_complete_marker(filename: str) -> Optional[dict]:
+def read_complete_marker(filename: str, file_path: str = "") -> Optional[dict]:
     """text JSON text text text. text text/textJSON(legacy touch)/text text text None."""
-    path = get_tiles_dir(filename) / COMPLETE_MARKER_NAME
+    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
+    path = tiles_dir / COMPLETE_MARKER_NAME
     if not path.exists():
         return None
     try:
@@ -273,10 +275,10 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     text: text text text text text text text. text text _generate_tiles text
     text text, text text text text text text.
     """
-    tiles_dir = get_tiles_dir(filename)
+    tiles_dir = get_tiles_dir_for_path(file_path)
     if not tiles_dir.exists():
         return False
-    dict_marker = read_complete_marker(filename)
+    dict_marker = read_complete_marker(filename, file_path)
     if dict_marker is None:
         return False
     if dict_marker.get("version") != COMPLETE_MARKER_VERSION:
@@ -306,9 +308,9 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     return True
 
 
-def invalidate_tiles(filename: str) -> None:
+def invalidate_tiles(filename: str, file_path: str = "") -> None:
     """text text text text ??text text text."""
-    tiles_dir = get_tiles_dir(filename)
+    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
     if tiles_dir.exists():
         shutil.rmtree(tiles_dir, ignore_errors=True)
 
@@ -350,24 +352,31 @@ _priority_stage1: dict[str, set[tuple[int, int]]] = {}
 
 
 def get_tiles_dir(filename: str) -> Path:
-    """text text text text text (text text)"""
+    """Legacy tile dir keyed by filename stem."""
     stem = Path(filename).stem
     return Path(settings.TILES_DIR) / stem
 
 
-def tiles_ready(filename: str) -> bool:
+def get_tiles_dir_for_path(file_path: str) -> Path:
+    """Current tile dir keyed by full slide identity."""
+    return Path(settings.TILES_DIR) / slide_cache_key(file_path)
+
+
+def tiles_ready(filename: str, file_path: str = "") -> bool:
     """text text text text"""
-    return (get_tiles_dir(filename) / ".complete").exists()
+    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
+    return (tiles_dir / ".complete").exists()
 
 
-def get_progress(filename: str) -> Optional[dict]:
+def get_progress(filename: str, file_path: str = "") -> Optional[dict]:
     """text text text (text None)"""
+    progress_key = slide_cache_key(file_path) if file_path else filename
     with _progress_lock:
-        p = _progress.get(filename)
+        p = _progress.get(progress_key)
         if p:
             return p.to_dict()
     # text text text
-    if tiles_ready(filename):
+    if tiles_ready(filename, file_path):
         return {"status": "completed", "progress": 100,
                 "total_tiles": 0, "generated_tiles": 0,
                 "current_level": -1, "error": None}
@@ -379,8 +388,9 @@ def start_generation(filename: str, file_path: str):
     if tiles_are_valid(filename, file_path):
         return
 
+    progress_key = slide_cache_key(file_path)
     with _progress_lock:
-        if filename in _progress and _progress[filename].status == "generating":
+        if progress_key in _progress and _progress[progress_key].status == "generating":
             return  # text text text
 
     from app.cpu_layout import tile_executor
@@ -405,6 +415,10 @@ def _stage1_coord_for_tile(level: int, tile_x: int, tile_y: int) -> tuple[int, i
 
 def _target_tile_path(filename: str, level: int, tile_x: int, tile_y: int) -> Path:
     return get_tiles_dir(filename) / str(level) / f"{tile_x}_{tile_y}.jpeg"
+
+
+def _target_tile_path_for_file(file_path: str, level: int, tile_x: int, tile_y: int) -> Path:
+    return get_tiles_dir_for_path(file_path) / str(level) / f"{tile_x}_{tile_y}.jpeg"
 
 
 def _get_priority_block_lock(filename: str, tx2: int, ty2: int) -> threading.Lock:
@@ -627,11 +641,11 @@ def _compose_stage2_from_stage1(
 
 def generate_priority_single_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
-    path_target = _target_tile_path(filename, level, tile_x, tile_y)
+    path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
     if path_target.exists():
-        if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
             return True
-        invalidate_tiles(filename)
+        invalidate_tiles(filename, file_path)
     if level < 0 or level >= STAGE_COUNT:
         return False
 
@@ -639,9 +653,9 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
     lock = _get_priority_block_lock(filename, tx2, ty2)
     with lock:
         if path_target.exists():
-            if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
                 return True
-            invalidate_tiles(filename)
+            invalidate_tiles(filename, file_path)
 
         slide = _open_slide(file_path)
         try:
@@ -688,19 +702,19 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
 
 def generate_priority_tile_block(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
     """Generate the stage-1 block(s) needed for a requested tile immediately."""
-    path_target = _target_tile_path(filename, level, tile_x, tile_y)
+    path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
     if path_target.exists():
-        if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
             return True
-        invalidate_tiles(filename)
+        invalidate_tiles(filename, file_path)
 
     tx2, ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
     lock = _get_priority_block_lock(filename, tx2, ty2)
     with lock:
         if path_target.exists():
-            if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
                 return True
-            invalidate_tiles(filename)
+            invalidate_tiles(filename, file_path)
 
         slide = _open_slide(file_path)
         try:
@@ -714,7 +728,7 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
                 list_stage_nx.append(max(1, math.ceil(int_w0 / int_scene_tile)))
                 list_stage_ny.append(max(1, math.ceil(int_h0 / int_scene_tile)))
 
-            tiles_dir = get_tiles_dir(filename)
+            tiles_dir = get_tiles_dir_for_path(file_path)
             for int_stage in range(STAGE_COUNT):
                 (tiles_dir / str(int_stage)).mkdir(parents=True, exist_ok=True)
             stage0_dir = tiles_dir / "0"
@@ -781,10 +795,11 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
 def _generate_tiles(filename: str, file_path: str):
     """text text text ??text text(text text)text text text text text text text"""
     progress = TileGenProgress()
+    progress_key = slide_cache_key(file_path)
     with _progress_lock:
-        _progress[filename] = progress
+        _progress[progress_key] = progress
 
-    tiles_dir = get_tiles_dir(filename)
+    tiles_dir = get_tiles_dir_for_path(file_path)
     bool_completed = False
 
     try:

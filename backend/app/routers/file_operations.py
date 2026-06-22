@@ -11,13 +11,14 @@ from app import slide_store, tile_generator
 from app.auth import get_current_user
 from app.config import settings
 from app.path_utils import safe_filename, safe_subpath
+from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 
 router = APIRouter()
 
 
-def _cleanup_ai_caches_for_stem(str_stem: str) -> list:
+def _cleanup_ai_caches_for_prefixes(list_prefixes: list[str]) -> list:
     list_removed = []
     ai_dir = Path(settings.AI_RESULTS_DIR)
     if not ai_dir.exists():
@@ -31,15 +32,16 @@ def _cleanup_ai_caches_for_stem(str_stem: str) -> list:
     for folder in list_sub_dirs:
         if not folder.exists() or not folder.is_dir():
             continue
-        for path in folder.glob(f"{str_stem}_*"):
-            try:
-                if path.is_dir():
-                    shutil.rmtree(path, ignore_errors=True)
-                else:
-                    path.unlink()
-                list_removed.append(str(path))
-            except Exception as exc:
-                print(f"[file_operations] AI cache cleanup failed ({path}): {exc}")
+        for str_prefix in list_prefixes:
+            for path in folder.glob(f"{str_prefix}_*"):
+                try:
+                    if path.is_dir():
+                        shutil.rmtree(path, ignore_errors=True)
+                    else:
+                        path.unlink()
+                    list_removed.append(str(path))
+                except Exception as exc:
+                    print(f"[file_operations] AI cache cleanup failed ({path}): {exc}")
     return list_removed
 
 
@@ -62,13 +64,19 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
         raise HTTPException(500, f"File delete failed: {exc}")
 
     try:
-        tiles_dir = tile_generator.get_tiles_dir(str_filename)
+        tiles_dir = tile_generator.get_tiles_dir_for_path(str(target))
         if tiles_dir.exists():
             shutil.rmtree(tiles_dir, ignore_errors=True)
+        legacy_tiles_dir = tile_generator.get_tiles_dir(str_filename)
+        if legacy_tiles_dir.exists():
+            shutil.rmtree(legacy_tiles_dir, ignore_errors=True)
     except Exception as exc:
         print(f"[file_operations] tiles dir cleanup failed ({str_filename}): {exc}")
 
-    list_removed_ai = _cleanup_ai_caches_for_stem(Path(str_filename).stem)
+    list_removed_ai = _cleanup_ai_caches_for_prefixes([
+        slide_cache_key(str(target)),
+        Path(str_filename).stem,
+    ])
     try:
         await slide_store.delete_slide(str_path, str_filename)
     except Exception as exc:

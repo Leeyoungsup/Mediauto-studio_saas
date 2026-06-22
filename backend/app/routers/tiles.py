@@ -30,7 +30,7 @@ from app.slide_manager import (
 from app.tile_generator import (
     invalidate_tiles,
     generate_priority_single_tile,
-    get_tiles_dir,
+    get_tiles_dir_for_path,
     image_to_white_rgb,
     request_priority_tile,
     tiles_are_valid,
@@ -204,11 +204,11 @@ async def get_tile_ndp(
         raise HTTPException(400, f"text stage: {level}")
 
     filename = Path(info.file_path).name
-    tiles_root = get_tiles_dir(filename)
+    tiles_root = get_tiles_dir_for_path(info.file_path)
     _touch_slide_access(slide_id, tiles_root)
     bool_cache_valid = tiles_are_valid(filename, info.file_path)
     if not bool_cache_valid and (tiles_root / ".complete").exists():
-        invalidate_tiles(filename)
+        invalidate_tiles(filename, info.file_path)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
     if bool_cache_valid and path_ndp_tile.exists():
@@ -299,12 +299,12 @@ async def get_tile(
         raise HTTPException(404, "text text text text")
 
     filename = Path(info.file_path).name
-    tiles_root = get_tiles_dir(filename)
+    tiles_root = get_tiles_dir_for_path(info.file_path)
     tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     _touch_slide_access(slide_id, tiles_root)
     bool_cache_valid = tiles_are_valid(filename, info.file_path)
     if not bool_cache_valid and (tiles_root / ".complete").exists():
-        invalidate_tiles(filename)
+        invalidate_tiles(filename, info.file_path)
 
     # 1) text text text text text
     if bool_cache_valid and tile_path.exists():

@@ -941,7 +941,7 @@ async def get_tile_progress(slide_id: str):
     if not info:
         raise HTTPException(404, "??????????? ????????")
     filename = Path(info.file_path).name
-    progress = tile_generator.get_progress(filename)
+    progress = tile_generator.get_progress(filename, info.file_path)
     if progress is None:
         raise HTTPException(404, "?????? ???????? ????????")
     return progress

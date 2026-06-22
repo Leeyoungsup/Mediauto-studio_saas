@@ -57,10 +57,10 @@ async def run_janitor_once() -> None:
     db = get_db()
 
     # text text stem text — text text text text text
-    set_active_stems = set()
+    set_active_keys = set()
     for str_sid, dict_info in slide_manager.list_slides().items():
         try:
-            set_active_stems.add(Path(dict_info["file_path"]).stem)
+            set_active_keys.add(tile_generator.get_tiles_dir_for_path(dict_info["file_path"]).name)
         except Exception:
             continue
 
@@ -69,16 +69,17 @@ async def run_janitor_once() -> None:
 
     cursor = db.slides.find(
         {"bool_tiles_ready": True},
-        {"str_filename": 1, "str_rel_path": 1, "_id": 0},
+        {"str_filename": 1, "str_full_path": 1, "str_rel_path": 1, "_id": 0},
     )
     async for dict_slide in cursor:
         str_filename = dict_slide.get("str_filename") or ""
-        if not str_filename:
+        str_full_path = dict_slide.get("str_full_path") or ""
+        if not str_filename or not str_full_path:
             continue
-        tiles_dir = tile_generator.get_tiles_dir(str_filename)
+        tiles_dir = tile_generator.get_tiles_dir_for_path(str_full_path)
         if not tiles_dir.exists():
             continue
-        if Path(str_filename).stem in set_active_stems:
+        if tiles_dir.name in set_active_keys:
             continue
         int_size = _dir_size(tiles_dir)
         float_atime = _entry_atime(tiles_dir)

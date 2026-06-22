@@ -1,9 +1,11 @@
 """AI result cache path helpers with legacy-name migration."""
 
 from pathlib import Path
+import shutil
 from typing import Tuple
 
 from app.config import settings
+from app.slide_identity import slide_cache_key
 
 
 def _ensure_dir(path_dir: Path) -> None:
@@ -20,7 +22,7 @@ def _move_first_existing(list_src: list[Path], path_dst: Path, str_label: str) -
         if not path_src.exists() or path_src.resolve() == path_dst.resolve():
             continue
         try:
-            path_src.replace(path_dst)
+            shutil.copy2(path_src, path_dst)
             return
         except Exception as e:
             print(f"[ai] {str_label} legacy migration failed ({path_src.name}): {e}")
@@ -29,13 +31,15 @@ def _move_first_existing(list_src: list[Path], path_dst: Path, str_label: str) -
 def get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
     """Quanti HE cache path."""
     p = Path(slide_path)
+    key = slide_cache_key(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "Quanti HE"
     _ensure_dir(cache_dir)
-    new_path = cache_dir / f"{p.stem}_Quanti HE_{tissue_type}.json"
+    new_path = cache_dir / f"{key}_Quanti HE_{tissue_type}.json"
     _move_first_existing([
         Path(settings.AI_RESULTS_DIR) / "HE-Fit" / f"{p.stem}_HE-Fit_{tissue_type}.json",
         Path(settings.AI_RESULTS_DIR) / f"{p.stem}_HE-Fit_{tissue_type}.json",
         Path(settings.AI_RESULTS_DIR) / f"{p.stem}_Quanti HE_{tissue_type}.json",
+        cache_dir / f"{p.stem}_Quanti HE_{tissue_type}.json",
     ], new_path, "Quanti HE")
     return new_path
 
@@ -43,12 +47,14 @@ def get_ai_cache_path(slide_path: str, tissue_type: str) -> Path:
 def get_pd_score_cache_path(slide_path: str, tissue_type: str) -> Path:
     """Quanti PD-L1 cache path."""
     p = Path(slide_path)
+    key = slide_cache_key(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "Quanti PD-L1"
     _ensure_dir(cache_dir)
-    new_path = cache_dir / f"{p.stem}_Quanti PD-L1_{tissue_type}.json"
+    new_path = cache_dir / f"{key}_Quanti PD-L1_{tissue_type}.json"
     _move_first_existing([
         Path(settings.AI_RESULTS_DIR) / "PD-Score" / f"{p.stem}_PD-Score_{tissue_type}.json",
         Path(settings.AI_RESULTS_DIR) / f"{p.stem}_PD-Score_{tissue_type}.json",
+        cache_dir / f"{p.stem}_Quanti PD-L1_{tissue_type}.json",
     ], new_path, "Quanti PD-L1")
     return new_path
 
@@ -56,12 +62,14 @@ def get_pd_score_cache_path(slide_path: str, tissue_type: str) -> Path:
 def get_precise_ihc_cache_path(slide_path: str, marker: str) -> Path:
     """Quanti IHC cache path."""
     p = Path(slide_path)
+    key = slide_cache_key(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "Quanti IHC"
     _ensure_dir(cache_dir)
-    new_path = cache_dir / f"{p.stem}_Quanti IHC_{marker}.json"
+    new_path = cache_dir / f"{key}_Quanti IHC_{marker}.json"
     _move_first_existing([
         Path(settings.AI_RESULTS_DIR) / "Precise-IHC" / f"{p.stem}_Precise-IHC_{marker}.json",
         Path(settings.AI_RESULTS_DIR) / f"{p.stem}_Precise-IHC_{marker}.json",
+        cache_dir / f"{p.stem}_Quanti IHC_{marker}.json",
     ], new_path, "Quanti IHC")
     return new_path
 
@@ -69,15 +77,17 @@ def get_precise_ihc_cache_path(slide_path: str, marker: str) -> Path:
 def get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0) -> Tuple[Path, Path]:
     """VS IHC cache paths for the result PNG and metadata JSON."""
     p = Path(slide_path)
+    key = slide_cache_key(slide_path)
     cache_dir = Path(settings.AI_RESULTS_DIR) / "VS IHC"
     _ensure_dir(cache_dir)
     mpp_str = f"{target_mpp:g}".replace(".", "p")
-    base_name = f"{p.stem}_VS IHC_mpp{mpp_str}"
+    base_name = f"{key}_VS IHC_mpp{mpp_str}"
     new_png = (cache_dir / base_name).with_suffix(".png")
     new_meta = (cache_dir / base_name).with_suffix(".json")
     new_tile = cache_dir / f"{base_name}_tile"
 
     legacy_bases = (
+        f"{p.stem}_VS IHC_mpp{mpp_str}",
         base_name,
         f"{p.stem}_VS-IHC_mpp{mpp_str}",
         f"{p.stem}_VS-IHC_ihc_membrane_mpp{mpp_str}",
@@ -96,7 +106,7 @@ def get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0) -> Tuple[Path, 
             _move_first_existing([legacy_meta], new_meta, "VS IHC")
             if legacy_tile.exists() and not new_tile.exists():
                 try:
-                    legacy_tile.replace(new_tile)
+                    shutil.copytree(legacy_tile, new_tile)
                 except Exception as e:
                     print(f"[ai] VS IHC legacy tile dir migration failed: {e}")
 

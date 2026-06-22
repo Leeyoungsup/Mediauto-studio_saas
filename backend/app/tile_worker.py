@@ -61,7 +61,7 @@ async def _process_one_slide(dict_slide: dict) -> bool:
     # 3) text text stale → text tile dir text text text
     #    (text tile text text text _generate_tiles text text text text
     #     text text text ICC text text text.)
-    tile_generator.invalidate_tiles(str_filename)
+    tile_generator.invalidate_tiles(str_filename, str_full_path)
     print(f"[tile_worker] generating tiles: {str_filename}")
     await loop.run_in_executor(
         _bg_executor, tile_generator._generate_tiles, str_filename, str_full_path
@@ -115,7 +115,7 @@ async def _startup_validate_all() -> None:
             continue
         if bool_valid:
             continue
-        tile_generator.invalidate_tiles(str_filename)
+        tile_generator.invalidate_tiles(str_filename, str_full_path)
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, False)
         int_reset += 1
         print(f"[tile_worker] stale marker → queued for regen: {str_filename}")

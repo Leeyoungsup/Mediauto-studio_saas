@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from app.auth import get_current_user
 from app.config import settings
 from app.models import UserRole
+from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 router = APIRouter()
@@ -47,8 +48,7 @@ def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: st
     safe_variant = "".join(c for c in (variant or "default") if c.isalnum() or c in "-_")
     base_dir = Path(settings.AI_RESULTS_DIR) / "user_edits" / safe_user / ai_mode
     base_dir.mkdir(parents=True, exist_ok=True)
-    stem = Path(slide_path).stem
-    return base_dir / f"{stem}_{safe_variant}.json"
+    return base_dir / f"{slide_cache_key(slide_path)}_{safe_variant}.json"
 
 
 @router.post("/save-result")
