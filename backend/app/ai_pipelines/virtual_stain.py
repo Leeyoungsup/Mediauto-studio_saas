@@ -29,6 +29,7 @@ from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.priority import wait_if_viewer_busy
 from app.resource_utils import close_safely, collect_garbage
 from app.slide_manager import slide_manager
+from app.tile_generator import slide_source_signature, source_signature_matches
 
 VS_MODEL_FILES = {
     "ihc_membrane": "IHC_HnE_virtual_stain_membrane.pth",
@@ -386,6 +387,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
                             status_msg="Loading cached virtual stain")
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     cached_meta = json.load(f)
+                if not source_signature_matches(cached_meta, info.slide, info.file_path):
+                    raise ValueError("stale VS cache source mismatch")
 
                 # text: PNG text text text text text text PNG → text 1text text
                 if not bool_tiles_ok and bool_png_legacy:
@@ -732,6 +735,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
                 "image_filename": png_path.name,
                 "tile_size": tile_size_px,
                 "levels": levels_meta,
+                "source": slide_source_signature(info.slide, info.file_path),
             }
             # meta text text (PNG text text text — text text text)
             list_cleanup_on_cancel.append(meta_path)
@@ -756,6 +760,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
             "total_patches": int(n_px * n_py),
             "tile_size": tile_size_px,
             "levels": levels_meta,
+            "source": slide_source_signature(info.slide, info.file_path),
             "cached": False,
         }
         if display_roi_polygons is not None:

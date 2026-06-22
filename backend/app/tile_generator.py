@@ -88,6 +88,55 @@ def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
     return obj_img.convert("RGB")
 
 
+def render_pyramid_thumbnail(slide, int_size: int, apply_color=None) -> Image.Image:
+    """Render a thumbnail from OpenSlide pyramid coordinates, not get_thumbnail().
+
+    Some Leica/Aperio SVS files expose associated thumbnails whose spatial
+    origin does not match read_region() level-0 coordinates.  The viewer, AI
+    patch extraction, and VS overlays all use read_region coordinates, so
+    thumbnails used for navigation or tissue selection must be derived from the
+    same pyramid.
+    """
+    int_size = max(1, int(int_size))
+    int_w0, int_h0 = [int(v) for v in slide.dimensions]
+    if int_w0 <= 0 or int_h0 <= 0:
+        return Image.new("RGB", (int_size, int_size), (255, 255, 255))
+
+    float_scale = min(int_size / int_w0, int_size / int_h0)
+    int_out_w = max(1, int(round(int_w0 * float_scale)))
+    int_out_h = max(1, int(round(int_h0 * float_scale)))
+    float_target_ds = max(int_w0 / int_out_w, int_h0 / int_out_h)
+
+    try:
+        int_level = int(slide.get_best_level_for_downsample(float_target_ds))
+    except Exception:
+        int_level = max(0, len(getattr(slide, "level_dimensions", [(int_w0, int_h0)])) - 1)
+    int_level = max(0, min(int_level, len(slide.level_dimensions) - 1))
+    int_lw, int_lh = [int(v) for v in slide.level_dimensions[int_level]]
+
+    obj_region = slide.read_region((0, 0), int_level, (int_lw, int_lh))
+    try:
+        obj_rgb = image_to_white_rgb(obj_region)
+        try:
+            if apply_color is not None:
+                obj_rgb = apply_color(obj_rgb)
+            if obj_rgb.size != (int_out_w, int_out_h):
+                obj_thumb = obj_rgb.resize((int_out_w, int_out_h), Image.LANCZOS)
+            else:
+                obj_thumb = obj_rgb.copy()
+            return obj_thumb
+        finally:
+            try:
+                obj_rgb.close()
+            except Exception:
+                pass
+    finally:
+        try:
+            obj_region.close()
+        except Exception:
+            pass
+
+
 def _image_has_visible_content(obj_img: Image.Image, int_threshold: int = 245) -> bool:
     """Return False for pure/near-white tiles that do not need disk storage."""
     try:
@@ -119,6 +168,59 @@ def _slide_icc_hash(slide) -> Optional[str]:
         return None
 
 
+def slide_source_signature(slide, file_path: str) -> dict:
+    """Return a stable-enough signature for the slide backing a tile cache.
+
+    The tile cache directory is keyed by filename stem, so a replaced file with
+    the same name can otherwise reuse stale tiles from a previous slide.  Keep
+    this signature cheap: OpenSlide quickhash when available plus filesystem and
+    dimension metadata.
+    """
+    try:
+        stat = Path(file_path).stat()
+        int_size = int(stat.st_size)
+        int_mtime_ns = int(stat.st_mtime_ns)
+    except Exception:
+        int_size = 0
+        int_mtime_ns = 0
+    try:
+        dims = [int(v) for v in getattr(slide, "dimensions", (0, 0))]
+    except Exception:
+        dims = [0, 0]
+    try:
+        levels = [[int(w), int(h)] for w, h in getattr(slide, "level_dimensions", [])]
+    except Exception:
+        levels = []
+    try:
+        quickhash = str(slide.properties.get("openslide.quickhash-1") or "")
+    except Exception:
+        quickhash = ""
+    try:
+        vendor = str(slide.properties.get("openslide.vendor") or "")
+    except Exception:
+        vendor = ""
+    return {
+        "filename": Path(file_path).name,
+        "size": int_size,
+        "mtime_ns": int_mtime_ns,
+        "quickhash": quickhash,
+        "dimensions": dims,
+        "level_dimensions": levels,
+        "vendor": vendor,
+    }
+
+
+def source_signature_matches(payload: dict, slide, file_path: str) -> bool:
+    cached = payload.get("source")
+    if not isinstance(cached, dict):
+        return False
+    current = slide_source_signature(slide, file_path)
+    for key in ("filename", "size", "mtime_ns", "quickhash", "dimensions", "level_dimensions", "vendor"):
+        if cached.get(key) != current.get(key):
+            return False
+    return True
+
+
 def read_complete_marker(filename: str) -> Optional[dict]:
     """text JSON text text text. text text/textJSON(legacy touch)/text text text None."""
     path = get_tiles_dir(filename) / COMPLETE_MARKER_NAME
@@ -137,12 +239,15 @@ def _write_complete_marker(
     tiles_dir: Path,
     str_icc_hash: Optional[str],
     bool_icc_applied: bool,
+    slide=None,
+    file_path: str = "",
 ) -> None:
     """text JSON text. _generate_tiles text text text."""
     dict_marker = {
         "version": COMPLETE_MARKER_VERSION,
         "icc_hash": str_icc_hash,
         "icc_applied": bool(bool_icc_applied),
+        "source": slide_source_signature(slide, file_path) if slide is not None and file_path else {},
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     (tiles_dir / COMPLETE_MARKER_NAME).write_text(
@@ -182,6 +287,7 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
         return True  # Avoid invalidating existing tiles when the slide cannot be opened.
     try:
         str_current_hash = _slide_icc_hash(slide)
+        bool_source_matches = source_signature_matches(dict_marker, slide, file_path)
     finally:
         try:
             slide.close()
@@ -190,6 +296,8 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
 
     str_marker_hash = dict_marker.get("icc_hash")
     if str_marker_hash != str_current_hash:
+        return False
+    if not bool_source_matches:
         return False
     # text text text text text ICC text text text: text text text
     # text text text. text text text text text valid text text.
@@ -267,7 +375,7 @@ def get_progress(filename: str) -> Optional[dict]:
 
 def start_generation(filename: str, file_path: str):
     """text text text text text (text text/text text text)"""
-    if tiles_ready(filename):
+    if tiles_are_valid(filename, file_path):
         return
 
     with _progress_lock:
@@ -310,7 +418,7 @@ def _get_priority_block_lock(filename: str, tx2: int, ty2: int) -> threading.Loc
 
 def request_priority_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> None:
     """Prioritize the stage-1 block(s) that contain a viewer-requested tile."""
-    if tiles_ready(filename):
+    if tiles_are_valid(filename, file_path):
         return
     with _priority_lock:
         set_priority = _priority_stage1.setdefault(filename, set())
@@ -520,7 +628,9 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
     path_target = _target_tile_path(filename, level, tile_x, tile_y)
     if path_target.exists():
-        return True
+        if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            return True
+        invalidate_tiles(filename)
     if level < 0 or level >= STAGE_COUNT:
         return False
 
@@ -528,7 +638,9 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
     lock = _get_priority_block_lock(filename, tx2, ty2)
     with lock:
         if path_target.exists():
-            return True
+            if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+                return True
+            invalidate_tiles(filename)
 
         slide = _open_slide(file_path)
         try:
@@ -577,13 +689,17 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
     """Generate the stage-1 block(s) needed for a requested tile immediately."""
     path_target = _target_tile_path(filename, level, tile_x, tile_y)
     if path_target.exists():
-        return True
+        if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            return True
+        invalidate_tiles(filename)
 
     tx2, ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
     lock = _get_priority_block_lock(filename, tx2, ty2)
     with lock:
         if path_target.exists():
-            return True
+            if not (get_tiles_dir(filename) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+                return True
+            invalidate_tiles(filename)
 
         slide = _open_slide(file_path)
         try:
@@ -671,6 +787,8 @@ def _generate_tiles(filename: str, file_path: str):
     bool_completed = False
 
     try:
+        if tiles_dir.exists() and (tiles_dir / COMPLETE_MARKER_NAME).exists() and not tiles_are_valid(filename, file_path):
+            shutil.rmtree(tiles_dir, ignore_errors=True)
         slide = _open_slide(file_path)
 
         # text text text callable (ICC ??NDP LUT ??raw text).
@@ -705,17 +823,12 @@ def _generate_tiles(filename: str, file_path: str):
         thumb_path = tiles_dir / "thumbnail.jpeg"
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumb_path.exists():
-            thumb = slide.get_thumbnail((300, 300))
-            thumb_rgb = _to_srgb(image_to_white_rgb(thumb))
+            thumb_rgb = render_pyramid_thumbnail(slide, 300, apply_color=_to_srgb)
             try:
                 thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
             finally:
                 try:
                     thumb_rgb.close()
-                except Exception:
-                    pass
-                try:
-                    thumb.close()
                 except Exception:
                     pass
 
@@ -775,6 +888,8 @@ def _generate_tiles(filename: str, file_path: str):
             tiles_dir,
             str_icc_hash=str_icc_hash,
             bool_icc_applied=bool_icc_applied,
+            slide=slide,
+            file_path=file_path,
         )
         bool_completed = True
         progress.generated_tiles = progress.total_tiles

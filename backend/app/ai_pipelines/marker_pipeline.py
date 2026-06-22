@@ -47,6 +47,7 @@ from app.ai_pipelines.task_state import (
 from app.ai_pipelines.tissue_mask import build_valid_patch_list
 from app.config import settings
 from app.slide_manager import slide_manager
+from app.tile_generator import slide_source_signature, source_signature_matches
 
 
 def _compact_cell(cell: dict) -> dict:
@@ -147,6 +148,8 @@ def run_marker_detection_pipeline(
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
 
+                if not source_signature_matches(cached, info.slide, info.file_path):
+                    raise ValueError("stale cache source mismatch")
                 if list_exclude and "excluded_cells" not in cached:
                     raise ValueError("stale cache missing excluded_cells")
                 if not cache_has_current_detection_postprocess(cached):
@@ -556,6 +559,7 @@ def run_marker_detection_pipeline(
             "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
             "score_conf_threshold": float_score_conf_threshold,
             score_key: score_dict,
+            "source": slide_source_signature(info.slide, info.file_path),
             **processing_metadata(),
             **(extra_fields or {}),
         }

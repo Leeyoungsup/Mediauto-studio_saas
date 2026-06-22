@@ -24,6 +24,7 @@ from tqdm import tqdm
 import openslide
 import cv2
 import warnings
+from app.tile_generator import render_pyramid_thumbnail
 warnings.filterwarnings('ignore')
 
 _seg_thread_local = threading.local()
@@ -292,8 +293,7 @@ class WSISegmentationModel:
             thumb_w = max(1, int(region_w / thumb_downsample))
             thumb_h = max(1, int(region_h / thumb_downsample))
             thumbnail = np.array(
-                slide.get_thumbnail((max(1, wsi_w // thumb_downsample),
-                                     max(1, wsi_h // thumb_downsample)))
+                render_pyramid_thumbnail(slide, max(1, max(wsi_w, wsi_h) // thumb_downsample))
             )[:, :, :3]
 
             # Otsu threshold text text text (Detectiontext text)

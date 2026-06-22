@@ -17,9 +17,8 @@ from app import tile_generator
 router = APIRouter(dependencies=[Depends(get_media_user)])
 
 
-def _current_tile_cache(filename: str) -> bool:
-    marker = tile_generator.read_complete_marker(filename)
-    return bool(marker and marker.get("version") == tile_generator.COMPLETE_MARKER_VERSION)
+def _current_tile_cache(filename: str, file_path: str) -> bool:
+    return tile_generator.tiles_are_valid(filename, file_path)
 
 
 def _jpeg_response(image, quality: int = 85) -> StreamingResponse:
@@ -39,17 +38,17 @@ async def get_thumbnail_by_name(
     """Return a thumbnail by filename without requiring the slide to be open."""
     filename = safe_filename(filename)
     int_size = max(64, min(8192, int(size or 2048)))
+    file_path = safe_subpath(path) / filename
     tiles_root = tile_generator.get_tiles_dir(filename)
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
-    bool_current_cache = _current_tile_cache(filename)
+    bool_current_cache = _current_tile_cache(filename, str(file_path))
 
     if ndp and thumb_path_ndp.exists() and bool_current_cache:
         return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
     if not ndp and thumb_path_raw.exists() and bool_current_cache:
         return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
 
-    file_path = safe_subpath(path) / filename
     if not file_path.exists():
         raise HTTPException(404, "File not found")
 
@@ -62,10 +61,10 @@ async def get_thumbnail_by_name(
             slide = PhilipsSlideProxy(str(file_path))
         else:
             slide = openslide.OpenSlide(str(file_path))
-        thumb = slide.get_thumbnail((int_size, int_size))
-        thumb_rgb = tile_generator.image_to_white_rgb(thumb)
         apply_color, _ = build_color_corrector(slide)
-        thumb_rgb = apply_color(thumb_rgb)
+        thumb_rgb = tile_generator.render_pyramid_thumbnail(
+            slide, int_size, apply_color=apply_color
+        )
         thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
         thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
 
@@ -98,7 +97,7 @@ async def get_preview(
     tiles_root = tile_generator.get_tiles_dir(filename)
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
-    bool_current_cache = _current_tile_cache(filename)
+    bool_current_cache = _current_tile_cache(filename, info.file_path)
 
     if ndp and thumb_path_ndp.exists() and bool_current_cache:
         return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
@@ -109,8 +108,9 @@ async def get_preview(
     thumb_rgb = None
     thumb_ndp = None
     try:
-        thumb = info.slide.get_thumbnail((int_size, int_size))
-        thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+        thumb_rgb = tile_generator.render_pyramid_thumbnail(
+            info.slide, int_size, apply_color=info.apply_icc
+        )
         thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
         thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=92)
         if ndp:
@@ -140,7 +140,7 @@ async def get_thumbnail(
     int_size = max(64, min(8192, int(size or 2048)))
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
-    bool_current_cache = _current_tile_cache(filename)
+    bool_current_cache = _current_tile_cache(filename, info.file_path)
 
     if ndp:
         if thumb_path_ndp.exists() and bool_current_cache:
@@ -155,8 +155,9 @@ async def get_thumbnail(
             with _Image.open(str(thumb_path_raw)) as file_obj:
                 thumb_rgb = file_obj.convert("RGB")
         else:
-            thumb = info.slide.get_thumbnail((int_size, int_size))
-            thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+            thumb_rgb = tile_generator.render_pyramid_thumbnail(
+                info.slide, int_size, apply_color=info.apply_icc
+            )
             thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
             thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
 
@@ -174,8 +175,9 @@ async def get_thumbnail(
     thumb = None
     thumb_rgb = None
     try:
-        thumb = info.slide.get_thumbnail((int_size, int_size))
-        thumb_rgb = info.apply_icc(tile_generator.image_to_white_rgb(thumb))
+        thumb_rgb = tile_generator.render_pyramid_thumbnail(
+            info.slide, int_size, apply_color=info.apply_icc
+        )
         thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
         thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
         return _jpeg_response(thumb_rgb, quality=85)

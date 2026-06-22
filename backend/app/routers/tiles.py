@@ -28,10 +28,12 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
 )
 from app.tile_generator import (
+    invalidate_tiles,
     generate_priority_single_tile,
     get_tiles_dir,
     image_to_white_rgb,
     request_priority_tile,
+    tiles_are_valid,
 )
 from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
@@ -204,9 +206,12 @@ async def get_tile_ndp(
     filename = Path(info.file_path).name
     tiles_root = get_tiles_dir(filename)
     _touch_slide_access(slide_id, tiles_root)
+    bool_cache_valid = tiles_are_valid(filename, info.file_path)
+    if not bool_cache_valid and (tiles_root / ".complete").exists():
+        invalidate_tiles(filename)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
-    if path_ndp_tile.exists():
+    if bool_cache_valid and path_ndp_tile.exists():
         return FileResponse(
             path_ndp_tile,
             media_type="image/jpeg",
@@ -297,9 +302,12 @@ async def get_tile(
     tiles_root = get_tiles_dir(filename)
     tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     _touch_slide_access(slide_id, tiles_root)
+    bool_cache_valid = tiles_are_valid(filename, info.file_path)
+    if not bool_cache_valid and (tiles_root / ".complete").exists():
+        invalidate_tiles(filename)
 
     # 1) text text text text text
-    if tile_path.exists():
+    if bool_cache_valid and tile_path.exists():
         return FileResponse(
             tile_path,
             media_type="image/jpeg",

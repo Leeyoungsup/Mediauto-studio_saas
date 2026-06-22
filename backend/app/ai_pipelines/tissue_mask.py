@@ -6,6 +6,8 @@ text text text text text text GPU text text text.
 
 import numpy as np
 
+from app.tile_generator import render_pyramid_thumbnail
+
 # ── tissue_mask text text text ──
 # text v_out = 255 * (v_in/255) ^ γ text text text H-DAB/Otsu/text text text.
 # γ text text text text text text text definite_bg text text text text text
@@ -36,14 +38,17 @@ def create_tissue_mask(slide, icc_transform=None):
 
     try:
         downsample = 128
-        thumbnail = slide.get_thumbnail((
-            slide.dimensions[0] // downsample,
-            slide.dimensions[1] // downsample,
-        ))
-        if icc_transform is not None:
+        int_thumb_size = max(1, max(slide.dimensions) // downsample)
+
+        def _apply_icc(obj_img):
+            if icc_transform is None:
+                return obj_img
             from PIL import ImageCms
-            thumbnail = thumbnail.convert('RGB')
-            ImageCms.applyTransform(thumbnail, icc_transform, inPlace=True)
+            obj_rgb = obj_img.convert('RGB')
+            ImageCms.applyTransform(obj_rgb, icc_transform, inPlace=True)
+            return obj_rgb
+
+        thumbnail = render_pyramid_thumbnail(slide, int_thumb_size, apply_color=_apply_icc)
         thumbnail = np.array(thumbnail)
         if len(thumbnail.shape) == 3:
             rgb = thumbnail[:, :, :3]

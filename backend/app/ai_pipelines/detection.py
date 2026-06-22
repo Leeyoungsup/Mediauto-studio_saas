@@ -34,6 +34,11 @@ from app.ai_pipelines.task_state import (
 from app.ai_pipelines.tissue_mask import build_valid_patch_list
 from app.config import settings
 from app.slide_manager import slide_manager
+from app.tile_generator import (
+    render_pyramid_thumbnail,
+    slide_source_signature,
+    source_signature_matches,
+)
 
 
 def _compact_cell(cell):
@@ -165,6 +170,8 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             status_msg=f"Loading cached AI result: {cache_path.name}")
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
+                if not source_signature_matches(cached, info.slide, info.file_path):
+                    raise ValueError("stale cache source mismatch")
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
                 if not cache_has_current_detection_postprocess(cached):
                     raise ValueError("stale cache missing 10um overlap/global dedup")
@@ -511,6 +518,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
             "class_colors": {str(k): v for k, v in CLASS_COLORS.items()},
             "seg_data": seg_data,
+            "source": slide_source_signature(info.slide, info.file_path),
             **processing_metadata(),
         }
 
@@ -718,8 +726,7 @@ def build_seg_overlays(slide, prediction_mask, metadata, class_names, roi_bounds
             region = slide.read_region((x0, y0), best_level, (read_w, read_h))
             thumb_rgb = region.convert('RGB')
         else:
-            thumb = slide.get_thumbnail((THUMB_SIZE, THUMB_SIZE))
-            thumb_rgb = thumb.convert('RGB')
+            thumb_rgb = render_pyramid_thumbnail(slide, THUMB_SIZE)
         if icc_transform is not None:
             from PIL import ImageCms
             ImageCms.applyTransform(thumb_rgb, icc_transform, inPlace=True)
