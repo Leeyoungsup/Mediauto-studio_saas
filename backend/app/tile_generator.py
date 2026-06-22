@@ -32,6 +32,7 @@ import openslide
 from PIL import Image
 
 from app.config import settings
+from app.openslide_utils import open_slide_silently
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.slide_manager import (
     STAGE_READ_SIZE,
@@ -48,7 +49,7 @@ TILE_SIZE = TILE_SIZE_OUT
 def _open_slide(file_path: str):
     if is_philips_isyntax(file_path):
         return PhilipsSlideProxy(file_path)
-    return openslide.OpenSlide(file_path)
+    return open_slide_silently(file_path)
 
 # .complete marker schema version. Bump when the on-disk tile format changes
 # in a way that requires regeneration.

@@ -24,6 +24,7 @@ from tqdm import tqdm
 import openslide
 import cv2
 import warnings
+from app.openslide_utils import open_slide_silently
 from app.tile_generator import render_pyramid_thumbnail
 warnings.filterwarnings('ignore')
 
@@ -350,7 +351,7 @@ class WSISegmentationModel:
 
                 if image_path and slide.__class__.__name__ != "PhilipsSlideProxy":
                     if getattr(_seg_thread_local, 'path', None) != image_path:
-                        _seg_thread_local.slide = openslide.OpenSlide(image_path)
+                        _seg_thread_local.slide = open_slide_silently(image_path)
                         _seg_thread_local.path = image_path
                     _sl = _seg_thread_local.slide
                 else:
@@ -970,7 +971,7 @@ class TumorSegmentationWorker(QThread):
                 return
 
             self.status.emit("Loading slide...")
-            slide = openslide.OpenSlide(self.image_path)
+            slide = open_slide_silently(self.image_path)
 
             def progress_callback(pct):
                 if not self.is_cancelled:

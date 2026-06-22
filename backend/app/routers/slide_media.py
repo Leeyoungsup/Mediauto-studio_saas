@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.auth import get_media_user
+from app.openslide_utils import open_slide_silently
 from app.path_utils import safe_filename, safe_subpath
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.resource_utils import close_many
@@ -60,7 +61,7 @@ async def get_thumbnail_by_name(
         if is_philips_isyntax(file_path):
             slide = PhilipsSlideProxy(str(file_path))
         else:
-            slide = openslide.OpenSlide(str(file_path))
+            slide = open_slide_silently(str(file_path))
         apply_color, _ = build_color_corrector(slide)
         thumb_rgb = tile_generator.render_pyramid_thumbnail(
             slide, int_size, apply_color=apply_color

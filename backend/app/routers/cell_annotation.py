@@ -525,12 +525,12 @@ async def _ensure_cell_annotation_layout(slide_id: str, info) -> None:
 def _write_patch_image(info, patch: dict, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        import openslide
         from app import tile_generator
         from app.ndp_color_match import apply_ndp_fit, is_hamamatsu_slide
+        from app.openslide_utils import open_slide_silently
         from app.slide_manager import build_color_corrector
 
-        slide = openslide.OpenSlide(info.file_path)
+        slide = open_slide_silently(info.file_path)
         image = None
         image_rgb = None
         image_color = None

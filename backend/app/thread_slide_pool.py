@@ -29,6 +29,7 @@ from typing import Tuple
 
 import openslide
 
+from app.openslide_utils import open_slide_silently
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 from app.slide_manager import slide_manager
 
@@ -85,7 +86,7 @@ def get_thread_slide(str_slide_id: str, str_file_path: str) -> openslide.OpenSli
     if is_philips_isyntax(str_file_path):
         obj_new_slide = PhilipsSlideProxy(str_file_path)
     else:
-        obj_new_slide = openslide.OpenSlide(str_file_path)
+        obj_new_slide = open_slide_silently(str_file_path)
     obj_pool.dict_slides[str_slide_id] = (obj_new_slide, int_current_gen)
     obj_pool.dict_slides.move_to_end(str_slide_id)
 

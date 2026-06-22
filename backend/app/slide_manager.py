@@ -12,6 +12,7 @@ from typing import Optional, Dict, Tuple
 import numpy as np
 import openslide
 
+from app.openslide_utils import open_slide_silently
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
 
 MAX_OPEN_SLIDES = max(1, int(os.environ.get("MAX_OPEN_SLIDES", "4")))
@@ -270,7 +271,7 @@ class SlideManager:
             if is_philips_isyntax(file_path):
                 slide = PhilipsSlideProxy(file_path)
             else:
-                slide = openslide.OpenSlide(file_path)
+                slide = open_slide_silently(file_path)
             info = SlideInfo(slide, file_path)
             self._slides[slide_id] = info
             # text open text generation 0 text (text text text)

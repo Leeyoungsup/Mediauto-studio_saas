@@ -15,6 +15,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from PyQt5.QtCore import QThread, pyqtSignal
+from app.openslide_utils import open_slide_silently
 
 _vs_thread_local = threading.local()
 
@@ -118,14 +119,14 @@ def _read_patch(image_path, x0, y0, best_level, level_read, ps, icc_transform=No
             import openslide as _openslide
             if (not hasattr(_vs_thread_local, 'slide') or
                     _vs_thread_local.image_path != image_path):
-                _vs_thread_local.slide = _openslide.OpenSlide(image_path)
+                _vs_thread_local.slide = open_slide_silently(image_path)
                 _vs_thread_local.image_path = image_path
             slide = _vs_thread_local.slide
     except Exception:
         import openslide as _openslide
         if (not hasattr(_vs_thread_local, 'slide') or
                 _vs_thread_local.image_path != image_path):
-            _vs_thread_local.slide = _openslide.OpenSlide(image_path)
+            _vs_thread_local.slide = open_slide_silently(image_path)
             _vs_thread_local.image_path = image_path
         slide = _vs_thread_local.slide
 
@@ -216,7 +217,7 @@ class VirtualStainWorker(QThread):
             # ── 2. Open slide & compute grid ──
             self.status.emit("Opening slide...")
             self.progress.emit(3)
-            slide = openslide.OpenSlide(self.image_path)
+            slide = open_slide_silently(self.image_path)
 
             native_mpp = float(slide.properties.get('openslide.mpp-x', 0.25))
             downsample_factor = self.target_mpp / native_mpp
