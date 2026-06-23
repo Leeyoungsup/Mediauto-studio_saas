@@ -3883,20 +3883,26 @@ function _makeBreadcrumbDroppable(el, targetPath) {
 
 // Initialize OS file drop on the left slide list into the current folder.
 (function _initSlideListOsDrop() {
+    const clearDragOverPanel = () => {
+        $slideList.classList.remove('drag-over-panel');
+    };
     $slideList.addEventListener('dragover', (e) => {
         if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
         e.preventDefault();
         $slideList.classList.add('drag-over-panel');
     });
     $slideList.addEventListener('dragleave', (e) => {
-        if (e.target === $slideList) $slideList.classList.remove('drag-over-panel');
+        if (!$slideList.contains(e.relatedTarget)) clearDragOverPanel();
     });
     $slideList.addEventListener('drop', async (e) => {
+        clearDragOverPanel();
         if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
         e.preventDefault();
-        $slideList.classList.remove('drag-over-panel');
         await uploadFiles(e.dataTransfer.files, currentBrowsePath);
     });
+    window.addEventListener('drop', clearDragOverPanel);
+    window.addEventListener('dragend', clearDragOverPanel);
+    window.addEventListener('blur', clearDragOverPanel);
 })();
 
 function updateBreadcrumb() {
