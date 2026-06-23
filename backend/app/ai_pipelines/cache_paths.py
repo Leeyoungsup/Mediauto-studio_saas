@@ -45,8 +45,8 @@ def get_vs_cache_paths(slide_path: str, target_mpp: float = 2.0) -> Tuple[Path, 
     _ensure_dir(cache_dir)
     mpp_str = f"{target_mpp:g}".replace(".", "p")
     base_name = f"{key}_VS IHC_mpp{mpp_str}"
-    new_png = (cache_dir / base_name).with_suffix(".png")
-    new_meta = (cache_dir / base_name).with_suffix(".json")
+    new_png = cache_dir / f"{base_name}.png"
+    new_meta = cache_dir / f"{base_name}.json"
 
     return new_png, new_meta
 
