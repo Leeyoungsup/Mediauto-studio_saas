@@ -91,6 +91,7 @@ from app.database import connect_db, disconnect_db
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
 from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users, admin_settings
 from app import auto_ai
+from app import slide_store
 from app import tile_worker
 from app.runtime_settings import load_worker_settings
 from app.version import APP_VERSION, get_version_info
@@ -124,6 +125,9 @@ async def lifespan(app: FastAPI):
 
     # MongoDB text
     await connect_db()
+    int_repaired_slide_keys = await slide_store.repair_slide_cache_keys()
+    if int_repaired_slide_keys:
+        print(f"[slide_store] repaired/removed {int_repaired_slide_keys} legacy slide cache record(s)")
 
     # text text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

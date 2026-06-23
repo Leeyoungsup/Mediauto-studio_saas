@@ -34,6 +34,7 @@ from app.path_utils import (
     safe_filename as _safe_filename,
     safe_subpath as _safe_subpath,
 )
+from app.slide_identity import slide_cache_key
 from app.project_utils import (
     clean_ai_tasks as _clean_ai_tasks,
     list_project_dirs as _list_project_dirs,
@@ -249,8 +250,9 @@ async def dashboard(include_storage: bool = Query(False)):
             str_k for str_k, v in dict_ai.items()
             if v.get("bool_has_result")
         ]
+        str_full_path = dict_doc.get("str_full_path") or ""
         list_recent_out.append({
-            "slide_id": dict_doc.get("str_slide_id", ""),
+            "slide_id": slide_cache_key(str_full_path) if str_full_path else dict_doc.get("str_slide_id", ""),
             "filename": dict_doc.get("str_filename", ""),
             "rel_path": dict_doc.get("str_rel_path", ""),
             "size_bytes": dict_doc.get("int_size_bytes", 0),
@@ -439,7 +441,7 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
             if str_case not in dict_case_clinical and _has_clinical_info(dict_clinical):
                 dict_case_clinical[str_case] = dict_clinical
         list_slide_ids = [
-            hashlib.md5(f.name.encode()).hexdigest()[:12]
+            slide_cache_key(str(f))
             for f in list_entries
             if f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS
         ]
@@ -451,14 +453,14 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
         if f.is_dir():
             folders.append({"name": f.name, "type": "folder"})
         elif f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS:
-            slide_id = hashlib.md5(f.name.encode()).hexdigest()[:12]
+            slide_id = slide_cache_key(str(f))
             dict_item = {
                 "filename": f.name,
                 "slide_id": slide_id,
                 "case_name": _case_name_from_filename(f.name),
                 "size_mb": round(f.stat().st_size / 1024 / 1024, 1),
                 "type": "slide",
-                "annotation_summary": _annotation_summary_for_filename(f.name),
+                "annotation_summary": _annotation_summary_for_file_path(str(f)),
             }
             # DB ???? ?????ai_results + ???????? ???
             dict_db = dict_db_slides.get(f.name)
@@ -593,7 +595,7 @@ async def list_cases(
         dict_case["slides"].append({
             "filename": file_path.name,
             "path": str_rel,
-            "slide_id": dict_doc.get("str_slide_id") or hashlib.md5(file_path.name.encode()).hexdigest()[:12],
+            "slide_id": slide_cache_key(str(file_path)),
             "size_mb": round(file_path.stat().st_size / 1024 / 1024, 1),
             "ai_status": str_ai_status,
             "has_ai_result": bool_has_ai,
@@ -701,7 +703,7 @@ async def open_slide(
     if not final_path.exists():
         return {"exists": False}
 
-    slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
+    slide_id = slide_cache_key(str(final_path))
     resp = await _open_and_generate(slide_id, str(final_path), filename, dict_user, str_last_opened_page=open_page)
     resp["exists"] = True
 
@@ -843,7 +845,7 @@ async def upload_complete(
             loop = asyncio.get_running_loop()
             str_sha256 = await loop.run_in_executor(upload_executor, _hash_file, final_path)
 
-        slide_id = hashlib.md5(filename.encode()).hexdigest()[:12]
+        slide_id = slide_cache_key(str(final_path))
         bool_wait = wait_tiles.lower() in ("true", "1", "yes")
         try:
             resp = await _open_and_generate(
@@ -913,7 +915,7 @@ async def open_local_file(
     if ext not in settings.SUPPORTED_EXTENSIONS:
         raise HTTPException(400, f"????? ??? ??? ???: {ext}")
 
-    slide_id = hashlib.md5(path.name.encode()).hexdigest()[:12]
+    slide_id = slide_cache_key(str(path))
     resp = await _open_and_generate(slide_id, str(path), path.name, dict_user)
     try:
         await log_audit_event(
@@ -1353,14 +1355,12 @@ def _annotation_slide_dirname(filename: str) -> str:
     return str_name
 
 
-def _annotation_path_for_filename(filename: str) -> Path:
-    return Path(settings.ANNOTATIONS_DIR) / _annotation_slide_dirname(filename) / "annotations.json"
+def _annotation_path_for_file_path(file_path: str) -> Path:
+    return Path(settings.ANNOTATIONS_DIR) / slide_cache_key(file_path) / "annotations.json"
 
 
-def _annotation_summary_for_filename(filename: str) -> dict:
-    ann_path = _annotation_path_for_filename(filename)
-    if not ann_path.exists():
-        ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
+def _annotation_summary_for_file_path(file_path: str) -> dict:
+    ann_path = _annotation_path_for_file_path(file_path)
     if not ann_path.exists():
         return {"has_slide_memo": False, "has_annotation_memo": False, "has_memo": False}
     try:

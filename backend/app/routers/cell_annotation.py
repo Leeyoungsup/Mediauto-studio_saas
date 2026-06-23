@@ -440,18 +440,8 @@ def _cell_annotation_slide_dir(info) -> Path:
     return CELL_ANNOTATION_ROOT / slide_cache_key(info.file_path)
 
 
-def _legacy_cell_annotation_slide_dir(info) -> Path:
-    return CELL_ANNOTATION_ROOT / Path(info.file_path).stem
-
-
 def _existing_cell_annotation_slide_dir(info) -> Path:
-    path_current = _cell_annotation_slide_dir(info)
-    if path_current.exists():
-        return path_current
-    path_legacy = _legacy_cell_annotation_slide_dir(info)
-    if path_legacy.exists():
-        return path_legacy
-    return path_current
+    return _cell_annotation_slide_dir(info)
 
 
 def _slide_project_path(info) -> str:
@@ -467,13 +457,7 @@ def _assistance_path(info) -> Path:
 
 
 def _existing_assistance_path(info) -> Path:
-    path_current = _assistance_path(info)
-    if path_current.exists():
-        return path_current
-    path_legacy = _legacy_cell_annotation_slide_dir(info) / "WSI_Labeling_assistance.json"
-    if path_legacy.exists():
-        return path_legacy
-    return path_current
+    return _assistance_path(info)
 
 
 def _json_default(value):

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.database import get_db, is_db_connected, get_main_loop
+from app.slide_identity import slide_cache_key
 
 
 # AI text text (dict_ai_results text key)
@@ -102,7 +103,6 @@ async def upsert_slide(
     dt_now = datetime.now(timezone.utc)
 
     dict_set_on_insert = {
-        "str_slide_id": str_slide_id,
         "str_filename": str_filename,
         "str_rel_path": str_rel_path,
         "str_uploaded_by": str_uploaded_by,
@@ -114,6 +114,7 @@ async def upsert_slide(
         "str_sha256": "",
     }
     dict_set = {
+        "str_slide_id": str_slide_id,
         "str_full_path": str_full_path,
         "int_size_bytes": int(int_size_bytes),
         "int_width": int(dict_info.get("dimensions", [0, 0])[0]),
@@ -125,6 +126,20 @@ async def upsert_slide(
         "str_last_opened_page": _norm_open_page(str_last_opened_page),
         "dt_updated_at": dt_now,
     }
+
+    dict_existing = await db.slides.find_one(
+        {"str_rel_path": str_rel_path, "str_filename": str_filename},
+        {"str_slide_id": 1},
+    )
+    if dict_existing and dict_existing.get("str_slide_id") != str_slide_id:
+        dict_set.update({
+            "dict_ai_results": _empty_ai_results(),
+            "bool_tiles_ready": False,
+            "dt_tiles_ready_at": None,
+            "str_ai_status": "",
+            "str_tissue_annotation_status": "",
+            "str_cell_annotation_status": "",
+        })
 
     await db.slides.update_one(
         {"str_rel_path": str_rel_path, "str_filename": str_filename},
@@ -378,8 +393,15 @@ async def move_slide(
         {"str_rel_path": str_src_path, "str_filename": str_filename},
         {
             "$set": {
+                "str_slide_id": slide_cache_key(str_new_full_path),
                 "str_rel_path": str_dst_path,
                 "str_full_path": str_new_full_path,
+                "dict_ai_results": _empty_ai_results(),
+                "bool_tiles_ready": False,
+                "dt_tiles_ready_at": None,
+                "str_ai_status": "",
+                "str_tissue_annotation_status": "",
+                "str_cell_annotation_status": "",
                 "dt_updated_at": datetime.now(timezone.utc),
             }
         },
@@ -390,9 +412,12 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
     """text text text text text text text text text rel_path text."""
     if not is_db_connected():
         return
+    from app.config import settings
+
     db = get_db()
     str_old_path = _norm_rel_path(str_old_path)
     str_new_path = _norm_rel_path(str_new_path)
+    path_upload_root = Path(settings.UPLOAD_DIR).resolve()
     dt_now = datetime.now(timezone.utc)
 
     # text text + text text text text
@@ -408,9 +433,22 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
             str_new_path if str_cur == str_old_path
             else str_new_path + str_cur[len(str_old_path):]
         )
+        str_filename = dict_doc.get("str_filename", "")
+        str_new_full_path = str(path_upload_root / str_new_rel / str_filename)
         await db.slides.update_one(
             {"_id": dict_doc["_id"]},
-            {"$set": {"str_rel_path": str_new_rel, "dt_updated_at": dt_now}},
+            {"$set": {
+                "str_slide_id": slide_cache_key(str_new_full_path),
+                "str_rel_path": str_new_rel,
+                "str_full_path": str_new_full_path,
+                "dict_ai_results": _empty_ai_results(),
+                "bool_tiles_ready": False,
+                "dt_tiles_ready_at": None,
+                "str_ai_status": "",
+                "str_tissue_annotation_status": "",
+                "str_cell_annotation_status": "",
+                "dt_updated_at": dt_now,
+            }},
         )
 
     async for dict_doc in db.folder_ai_configs.find({
@@ -428,6 +466,61 @@ async def rename_folder_in_db(str_old_path: str, str_new_path: str) -> None:
             {"_id": dict_doc["_id"]},
             {"$set": {"str_rel_path": str_new_rel, "dt_updated_at": dt_now}},
         )
+
+
+async def repair_slide_cache_keys() -> int:
+    """Normalize slide ids to slide_cache_key and drop legacy annotation/edit rows."""
+    if not is_db_connected():
+        return 0
+    from app.config import settings
+
+    db = get_db()
+    path_upload_root = Path(settings.UPLOAD_DIR).resolve()
+    dt_now = datetime.now(timezone.utc)
+    int_repaired = 0
+
+    async for dict_doc in db.slides.find(
+        {},
+        {"str_slide_id": 1, "str_rel_path": 1, "str_filename": 1, "str_full_path": 1},
+    ):
+        str_rel_path = _norm_rel_path(dict_doc.get("str_rel_path", ""))
+        str_filename = dict_doc.get("str_filename", "")
+        if not str_filename:
+            continue
+        str_full_path = str(path_upload_root / str_rel_path / str_filename)
+        str_new_slide_id = slide_cache_key(str_full_path)
+        dict_set = {}
+        if dict_doc.get("str_slide_id") != str_new_slide_id:
+            dict_set.update({
+                "str_slide_id": str_new_slide_id,
+                "dict_ai_results": _empty_ai_results(),
+                "bool_tiles_ready": False,
+                "dt_tiles_ready_at": None,
+                "str_ai_status": "",
+                "str_tissue_annotation_status": "",
+                "str_cell_annotation_status": "",
+                "dt_updated_at": dt_now,
+            })
+        if dict_doc.get("str_full_path") != str_full_path:
+            dict_set["str_full_path"] = str_full_path
+            dict_set["dt_updated_at"] = dt_now
+        if dict_set:
+            await db.slides.update_one({"_id": dict_doc["_id"]}, {"$set": dict_set})
+            int_repaired += 1
+
+    dict_legacy_slide_id_filter = {
+        "str_slide_id": {"$not": {"$regex": r"^.+__[0-9a-f]{12}$"}}
+    }
+    for str_collection in (
+        "annotation_required_regions",
+        "patch_annotation_status",
+        "patch_cell_annotations",
+        "user_ai_edits",
+    ):
+        result = await db[str_collection].delete_many(dict_legacy_slide_id_filter)
+        int_repaired += result.deleted_count
+
+    return int_repaired
 
 
 async def repair_folder_ai_config_paths() -> int:

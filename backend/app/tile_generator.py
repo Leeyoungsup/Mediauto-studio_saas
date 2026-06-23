@@ -225,7 +225,9 @@ def source_signature_matches(payload: dict, slide, file_path: str) -> bool:
 
 def read_complete_marker(filename: str, file_path: str = "") -> Optional[dict]:
     """text JSON text text text. text text/textJSON(legacy touch)/text text text None."""
-    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
+    if not file_path:
+        return None
+    tiles_dir = get_tiles_dir_for_path(file_path)
     path = tiles_dir / COMPLETE_MARKER_NAME
     if not path.exists():
         return None
@@ -310,7 +312,9 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
 
 def invalidate_tiles(filename: str, file_path: str = "") -> None:
     """text text text text ??text text text."""
-    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
+    if not file_path:
+        return
+    tiles_dir = get_tiles_dir_for_path(file_path)
     if tiles_dir.exists():
         shutil.rmtree(tiles_dir, ignore_errors=True)
 
@@ -364,13 +368,17 @@ def get_tiles_dir_for_path(file_path: str) -> Path:
 
 def tiles_ready(filename: str, file_path: str = "") -> bool:
     """text text text text"""
-    tiles_dir = get_tiles_dir_for_path(file_path) if file_path else get_tiles_dir(filename)
+    if not file_path:
+        return False
+    tiles_dir = get_tiles_dir_for_path(file_path)
     return (tiles_dir / ".complete").exists()
 
 
 def get_progress(filename: str, file_path: str = "") -> Optional[dict]:
     """text text text (text None)"""
-    progress_key = slide_cache_key(file_path) if file_path else filename
+    if not file_path:
+        return None
+    progress_key = slide_cache_key(file_path)
     with _progress_lock:
         p = _progress.get(progress_key)
         if p:
@@ -413,16 +421,12 @@ def _stage1_coord_for_tile(level: int, tile_x: int, tile_y: int) -> tuple[int, i
     return tile_x * 2, tile_y * 2
 
 
-def _target_tile_path(filename: str, level: int, tile_x: int, tile_y: int) -> Path:
-    return get_tiles_dir(filename) / str(level) / f"{tile_x}_{tile_y}.jpeg"
-
-
 def _target_tile_path_for_file(file_path: str, level: int, tile_x: int, tile_y: int) -> Path:
     return get_tiles_dir_for_path(file_path) / str(level) / f"{tile_x}_{tile_y}.jpeg"
 
 
-def _get_priority_block_lock(filename: str, tx2: int, ty2: int) -> threading.Lock:
-    key = (filename, tx2, ty2)
+def _get_priority_block_lock(progress_key: str, tx2: int, ty2: int) -> threading.Lock:
+    key = (progress_key, tx2, ty2)
     with _priority_lock:
         lock = _priority_block_locks.get(key)
         if lock is None:
@@ -435,8 +439,9 @@ def request_priority_tile(filename: str, file_path: str, level: int, tile_x: int
     """Prioritize the stage-1 block(s) that contain a viewer-requested tile."""
     if tiles_are_valid(filename, file_path):
         return
+    progress_key = slide_cache_key(file_path)
     with _priority_lock:
-        set_priority = _priority_stage1.setdefault(filename, set())
+        set_priority = _priority_stage1.setdefault(progress_key, set())
         if level == 2:
             for sub_ty in range(2):
                 for sub_tx in range(2):
@@ -447,12 +452,12 @@ def request_priority_tile(filename: str, file_path: str, level: int, tile_x: int
 
 
 def _next_stage1_coord(
-    filename: str,
+    progress_key: str,
     list_all_coords: list[tuple[int, int]],
     set_done: set[tuple[int, int]],
 ) -> tuple[int, int] | None:
     with _priority_lock:
-        set_priority = _priority_stage1.setdefault(filename, set())
+        set_priority = _priority_stage1.setdefault(progress_key, set())
         for coord in list(set_priority):
             if coord in set_done:
                 set_priority.discard(coord)
@@ -650,7 +655,8 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
         return False
 
     tx2, ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
-    lock = _get_priority_block_lock(filename, tx2, ty2)
+    progress_key = slide_cache_key(file_path)
+    lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
         if path_target.exists():
             if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
@@ -709,7 +715,8 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
         invalidate_tiles(filename, file_path)
 
     tx2, ty2 = _stage2_coord_for_tile(level, tile_x, tile_y)
-    lock = _get_priority_block_lock(filename, tx2, ty2)
+    progress_key = slide_cache_key(file_path)
+    lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
         if path_target.exists():
             if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
@@ -867,7 +874,7 @@ def _generate_tiles(filename: str, file_path: str):
         list_stage1_coords = _stage1_coords_with_data(slide, int_nx1, int_ny1, int_read_size1)
         set_done_stage1: set[tuple[int, int]] = set()
         while len(set_done_stage1) < len(list_stage1_coords):
-            coord_stage1 = _next_stage1_coord(filename, list_stage1_coords, set_done_stage1)
+            coord_stage1 = _next_stage1_coord(progress_key, list_stage1_coords, set_done_stage1)
             if coord_stage1 is None:
                 break
             tx1, ty1 = coord_stage1

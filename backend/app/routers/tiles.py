@@ -5,7 +5,6 @@ text text text text text text, text text text
 
 import io
 import asyncio
-import hashlib
 import os
 import threading
 import time
@@ -38,6 +37,7 @@ from app.tile_generator import (
 from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
 from app.cpu_layout import viewer_executor
+from app.slide_identity import slide_cache_key
 from app.thread_slide_pool import get_thread_slide
 
 # text <img src> text text media-ticket(text ?mt=) text text
@@ -166,11 +166,11 @@ def _find_and_open(slide_id: str):
     if info:
         return info
 
-    # uploads text text text md5 text
+    # Reopen from uploads using the same cache identity used for disk storage.
     upload_dir = Path(settings.UPLOAD_DIR)
     for f in upload_dir.rglob("*"):
         if f.is_file() and f.suffix.lower() in settings.SUPPORTED_EXTENSIONS:
-            if hashlib.md5(f.name.encode()).hexdigest()[:12] == slide_id:
+            if slide_cache_key(str(f)) == slide_id:
                 return slide_manager.open(slide_id, str(f))
     return None
 

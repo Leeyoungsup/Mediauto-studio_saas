@@ -6,11 +6,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 
-from app import tile_generator
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.config import settings
 from app.models import UserRole
 from app.path_utils import safe_filename, safe_subpath
+from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 
@@ -34,8 +34,8 @@ def _annotation_slide_dirname(filename: str) -> str:
     return str_name
 
 
-def _annotation_path_for_filename(filename: str) -> Path:
-    return Path(settings.ANNOTATIONS_DIR) / _annotation_slide_dirname(filename) / "annotations.json"
+def _annotation_path_for_slide_path(slide_path: str) -> Path:
+    return Path(settings.ANNOTATIONS_DIR) / slide_cache_key(slide_path) / "annotations.json"
 
 
 def _annotation_classes_path_for_project(project_path: str) -> Path:
@@ -167,8 +167,7 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
     else:
         raise HTTPException(400, "annotation data must be a list or an object with annotations")
 
-    filename = Path(info.file_path).name
-    ann_path = _annotation_path_for_filename(filename)
+    ann_path = _annotation_path_for_slide_path(info.file_path)
     ann_path.parent.mkdir(parents=True, exist_ok=True)
     with open(ann_path, "w", encoding="utf-8") as file_obj:
         json.dump(payload_to_save, file_obj, ensure_ascii=False, indent=2)
@@ -180,10 +179,7 @@ async def load_annotations(slide_id: str):
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "Slide not found")
-    filename = Path(info.file_path).name
-    ann_path = _annotation_path_for_filename(filename)
-    if not ann_path.exists():
-        ann_path = tile_generator.get_tiles_dir(filename) / "annotations.json"
+    ann_path = _annotation_path_for_slide_path(info.file_path)
     if not ann_path.exists():
         return []
     with open(ann_path, "r", encoding="utf-8") as file_obj:

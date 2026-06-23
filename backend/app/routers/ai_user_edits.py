@@ -4,7 +4,7 @@ routers/ai.py text text text text text.
 text text(get_current_user, require_not_viewer) text text text text.
 
 text text:
-- text: AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
+- text: AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_cache_key}_{variant}.json
 - DB: slide_store text user_ai_edits text (text — text/text text/text)
 text text text(ai_results/...) text text text text.
 """
@@ -42,7 +42,7 @@ def _reject_labeler_ai_edit(dict_user: dict):
 
 def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: str) -> Path:
     """text text JSON text text:
-       AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_stem}_{variant}.json
+       AI_RESULTS_DIR/user_edits/{user_id}/{ai_mode}/{slide_cache_key}_{variant}.json
     """
     safe_user = "".join(c for c in (user_id or "anon") if c.isalnum() or c in "-_")
     safe_variant = "".join(c for c in (variant or "default") if c.isalnum() or c in "-_")

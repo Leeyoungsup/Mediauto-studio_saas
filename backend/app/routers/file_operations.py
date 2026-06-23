@@ -1,6 +1,5 @@
 """Slide file management endpoints."""
 
-import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -42,7 +41,35 @@ def _cleanup_ai_caches_for_prefixes(list_prefixes: list[str]) -> list:
                     list_removed.append(str(path))
                 except Exception as exc:
                     print(f"[file_operations] AI cache cleanup failed ({path}): {exc}")
+    path_user_edits = ai_dir / "user_edits"
+    if path_user_edits.exists():
+        for str_prefix in list_prefixes:
+            for path in path_user_edits.rglob(f"{str_prefix}_*"):
+                try:
+                    if path.is_dir():
+                        shutil.rmtree(path, ignore_errors=True)
+                    else:
+                        path.unlink()
+                    list_removed.append(str(path))
+                except Exception as exc:
+                    print(f"[file_operations] user edit cleanup failed ({path}): {exc}")
     return list_removed
+
+
+def _cleanup_slide_sidecar_dirs(list_keys: list[str]) -> None:
+    """Remove per-slide annotation/export sidecars for cache keys or legacy stems."""
+    for str_key in list_keys:
+        if not str_key:
+            continue
+        for path_root in (
+            Path(settings.ANNOTATIONS_DIR) / str_key,
+            Path(__file__).resolve().parents[2] / "cell_annotation" / str_key,
+        ):
+            try:
+                if path_root.exists():
+                    shutil.rmtree(path_root, ignore_errors=True)
+            except Exception as exc:
+                print(f"[file_operations] sidecar cleanup failed ({path_root}): {exc}")
 
 
 async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
@@ -51,7 +78,7 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
     if not target.exists():
         raise HTTPException(404, f"File not found: {str_filename}")
 
-    str_slide_id = hashlib.md5(str_filename.encode()).hexdigest()[:12]
+    str_slide_id = slide_cache_key(str(target))
     if slide_manager.get(str_slide_id) is not None:
         try:
             slide_manager.close(str_slide_id)
@@ -76,6 +103,11 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
     list_removed_ai = _cleanup_ai_caches_for_prefixes([
         slide_cache_key(str(target)),
         Path(str_filename).stem,
+    ])
+    _cleanup_slide_sidecar_dirs([
+        slide_cache_key(str(target)),
+        Path(str_filename).stem,
+        str_filename,
     ])
     try:
         await slide_store.delete_slide(str_path, str_filename)
@@ -202,8 +234,22 @@ async def move_file(
     dst = dst_dir / filename
     if dst.exists():
         raise HTTPException(400, "Destination file already exists")
+    str_old_cache_key = slide_cache_key(str(src))
+    if slide_manager.get(str_old_cache_key) is not None:
+        try:
+            slide_manager.close(str_old_cache_key)
+        except Exception as exc:
+            print(f"[file_operations] close before move failed ({filename}): {exc}")
     shutil.move(str(src), str(dst))
     await slide_store.move_slide(src_path, filename, dst_path, str(dst))
+    try:
+        old_tiles_dir = tile_generator.get_tiles_dir_for_path(str(src))
+        if old_tiles_dir.exists():
+            shutil.rmtree(old_tiles_dir, ignore_errors=True)
+    except Exception as exc:
+        print(f"[file_operations] old tile cache cleanup failed ({filename}): {exc}")
+    _cleanup_ai_caches_for_prefixes([str_old_cache_key])
+    _cleanup_slide_sidecar_dirs([str_old_cache_key, Path(filename).stem, filename])
     await _log_event(
         request,
         dict_user,

@@ -6,7 +6,6 @@ text app/routers/ai_user_edits.py text text text text. text text
 text text task_id text text text text text text text text.
 """
 import asyncio
-import hashlib
 import json
 import sys
 import uuid
@@ -20,6 +19,7 @@ from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
 from app.cpu_layout import ai_executor
+from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 # text AI text text text — ai_pipelines text text ai/ text import text text text text.
@@ -81,7 +81,7 @@ def _find_and_open_slide(slide_id: str):
                 continue
             if path_file.suffix.lower() not in settings.SUPPORTED_EXTENSIONS:
                 continue
-            if hashlib.md5(path_file.name.encode()).hexdigest()[:12] == slide_id:
+            if slide_cache_key(str(path_file)) == slide_id:
                 return slide_manager.open(slide_id, str(path_file))
         except Exception:
             continue

@@ -11,7 +11,6 @@ Claude.md text text (str_/int_/bool_/list_/dict_/dt_ text).
 """
 
 import asyncio
-import hashlib
 import json
 import re
 import threading
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.ai_pipelines.dedup import cache_has_current_detection_postprocess
+from app.slide_identity import slide_cache_key
 
 
 # ── text text ──
@@ -137,7 +137,7 @@ async def _run_auto_inference(
     from app.routers import ai as ai_router
 
     str_filename = Path(str_full_path).name
-    str_slide_id = hashlib.md5(str_filename.encode()).hexdigest()[:12]
+    str_slide_id = slide_cache_key(str_full_path)
 
     # slide_manager text text open (text _open_and_generate text text text subset)
     if slide_manager.get(str_slide_id) is None:
