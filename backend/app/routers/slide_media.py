@@ -29,6 +29,18 @@ def _jpeg_response(image, quality: int = 85) -> StreamingResponse:
     return StreamingResponse(buf, media_type="image/jpeg")
 
 
+def _legacy_thumbnail_path(tiles_root: Path, int_size: int) -> Path | None:
+    """Return the pre-v1.1 thumbnail cache path for 300px thumbnails."""
+    if int_size != 300:
+        return None
+    path_legacy = tiles_root / "thumbnail.jpeg"
+    return path_legacy if path_legacy.exists() else None
+
+
+def _cached_thumbnail_response(path_thumb: Path) -> StreamingResponse:
+    return StreamingResponse(open(path_thumb, "rb"), media_type="image/jpeg")
+
+
 @router.get("/thumbnail-by-name")
 async def get_thumbnail_by_name(
     filename: str = Query(...),
@@ -46,9 +58,12 @@ async def get_thumbnail_by_name(
     bool_current_cache = _current_tile_cache(filename, str(file_path))
 
     if ndp and thumb_path_ndp.exists() and bool_current_cache:
-        return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+        return _cached_thumbnail_response(thumb_path_ndp)
     if not ndp and thumb_path_raw.exists() and bool_current_cache:
-        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+        return _cached_thumbnail_response(thumb_path_raw)
+    path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
+    if not ndp and path_legacy and bool_current_cache:
+        return _cached_thumbnail_response(path_legacy)
 
     if not file_path.exists():
         raise HTTPException(404, "File not found")
@@ -101,9 +116,12 @@ async def get_preview(
     bool_current_cache = _current_tile_cache(filename, info.file_path)
 
     if ndp and thumb_path_ndp.exists() and bool_current_cache:
-        return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+        return _cached_thumbnail_response(thumb_path_ndp)
     if not ndp and thumb_path_raw.exists() and bool_current_cache:
-        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+        return _cached_thumbnail_response(thumb_path_raw)
+    path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
+    if not ndp and path_legacy and bool_current_cache:
+        return _cached_thumbnail_response(path_legacy)
 
     thumb = None
     thumb_rgb = None
@@ -145,7 +163,7 @@ async def get_thumbnail(
 
     if ndp:
         if thumb_path_ndp.exists() and bool_current_cache:
-            return StreamingResponse(open(thumb_path_ndp, "rb"), media_type="image/jpeg")
+            return _cached_thumbnail_response(thumb_path_ndp)
 
         from PIL import Image as _Image
         from app.ndp_color_match import apply_ndp_fit
@@ -171,7 +189,10 @@ async def get_thumbnail(
             close_many(thumb_ndp, thumb_rgb, thumb)
 
     if thumb_path_raw.exists() and bool_current_cache:
-        return StreamingResponse(open(thumb_path_raw, "rb"), media_type="image/jpeg")
+        return _cached_thumbnail_response(thumb_path_raw)
+    path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
+    if path_legacy and bool_current_cache:
+        return _cached_thumbnail_response(path_legacy)
 
     thumb = None
     thumb_rgb = None

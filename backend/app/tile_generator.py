@@ -844,11 +844,15 @@ def _generate_tiles(filename: str, file_path: str):
 
         # text text text
         thumb_path = tiles_dir / "thumbnail.jpeg"
+        thumb_300_path = tiles_dir / "thumbnail_300.jpeg"
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        if not thumb_path.exists():
+        if not thumb_path.exists() or not thumb_300_path.exists():
             thumb_rgb = render_pyramid_thumbnail(slide, 300, apply_color=_to_srgb)
             try:
-                thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
+                if not thumb_path.exists():
+                    thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
+                if not thumb_300_path.exists():
+                    thumb_rgb.save(str(thumb_300_path), "JPEG", quality=85)
             finally:
                 try:
                     thumb_rgb.close()
