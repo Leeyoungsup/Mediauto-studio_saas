@@ -41,6 +41,20 @@ def _cached_thumbnail_response(path_thumb: Path) -> StreamingResponse:
     return StreamingResponse(open(path_thumb, "rb"), media_type="image/jpeg")
 
 
+def _can_use_thumbnail_cache(tiles_root: Path, bool_current_cache: bool) -> bool:
+    """Use thumbnail caches even while full tile generation is still incomplete.
+
+    `.complete` validates the full tile pyramid.  A thumbnail can already be
+    valid and useful before the full pyramid is done, especially for Leica SVS
+    slides where opening the original file just to render a list thumbnail is
+    expensive.  If a complete marker exists but is stale, keep the stricter
+    validation and regenerate.
+    """
+    if bool_current_cache:
+        return True
+    return not (tiles_root / tile_generator.COMPLETE_MARKER_NAME).exists()
+
+
 @router.get("/thumbnail-by-name")
 async def get_thumbnail_by_name(
     filename: str = Query(...),
@@ -56,13 +70,14 @@ async def get_thumbnail_by_name(
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
     bool_current_cache = _current_tile_cache(filename, str(file_path))
+    bool_use_thumb_cache = _can_use_thumbnail_cache(tiles_root, bool_current_cache)
 
-    if ndp and thumb_path_ndp.exists() and bool_current_cache:
+    if ndp and thumb_path_ndp.exists() and bool_use_thumb_cache:
         return _cached_thumbnail_response(thumb_path_ndp)
-    if not ndp and thumb_path_raw.exists() and bool_current_cache:
+    if not ndp and thumb_path_raw.exists() and bool_use_thumb_cache:
         return _cached_thumbnail_response(thumb_path_raw)
     path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
-    if not ndp and path_legacy and bool_current_cache:
+    if not ndp and path_legacy and bool_use_thumb_cache:
         return _cached_thumbnail_response(path_legacy)
 
     if not file_path.exists():
@@ -114,13 +129,14 @@ async def get_preview(
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
     bool_current_cache = _current_tile_cache(filename, info.file_path)
+    bool_use_thumb_cache = _can_use_thumbnail_cache(tiles_root, bool_current_cache)
 
-    if ndp and thumb_path_ndp.exists() and bool_current_cache:
+    if ndp and thumb_path_ndp.exists() and bool_use_thumb_cache:
         return _cached_thumbnail_response(thumb_path_ndp)
-    if not ndp and thumb_path_raw.exists() and bool_current_cache:
+    if not ndp and thumb_path_raw.exists() and bool_use_thumb_cache:
         return _cached_thumbnail_response(thumb_path_raw)
     path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
-    if not ndp and path_legacy and bool_current_cache:
+    if not ndp and path_legacy and bool_use_thumb_cache:
         return _cached_thumbnail_response(path_legacy)
 
     thumb = None
@@ -160,9 +176,10 @@ async def get_thumbnail(
     thumb_path_raw = tiles_root / f"thumbnail_{int_size}.jpeg"
     thumb_path_ndp = tiles_root / "ndpmatch" / f"thumbnail_{int_size}.jpeg"
     bool_current_cache = _current_tile_cache(filename, info.file_path)
+    bool_use_thumb_cache = _can_use_thumbnail_cache(tiles_root, bool_current_cache)
 
     if ndp:
-        if thumb_path_ndp.exists() and bool_current_cache:
+        if thumb_path_ndp.exists() and bool_use_thumb_cache:
             return _cached_thumbnail_response(thumb_path_ndp)
 
         from PIL import Image as _Image
@@ -170,7 +187,7 @@ async def get_thumbnail(
         thumb = None
         thumb_rgb = None
         thumb_ndp = None
-        if thumb_path_raw.exists() and bool_current_cache:
+        if thumb_path_raw.exists() and bool_use_thumb_cache:
             with _Image.open(str(thumb_path_raw)) as file_obj:
                 thumb_rgb = file_obj.convert("RGB")
         else:
@@ -188,10 +205,10 @@ async def get_thumbnail(
         finally:
             close_many(thumb_ndp, thumb_rgb, thumb)
 
-    if thumb_path_raw.exists() and bool_current_cache:
+    if thumb_path_raw.exists() and bool_use_thumb_cache:
         return _cached_thumbnail_response(thumb_path_raw)
     path_legacy = _legacy_thumbnail_path(tiles_root, int_size)
-    if path_legacy and bool_current_cache:
+    if path_legacy and bool_use_thumb_cache:
         return _cached_thumbnail_response(path_legacy)
 
     thumb = None

@@ -759,6 +759,17 @@ export class TileViewer {
             // text text text (text annotationtext text)
             // Ctrl text text annotation text pan text (text text text)
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
+                if (this.cellAnnotationPatchViewActive && !e.altKey && !e.shiftKey) {
+                    const hitCellAnn = this._findNearestCellAnnotation(sx, sy, 30);
+                    this._setPatchCellAnnotationSelection(
+                        hitCellAnn ? [hitCellAnn.index] : [],
+                        e.clientX,
+                        e.clientY
+                    );
+                    e.preventDefault();
+                    return;
+                }
+
                 const cp = this._hitControlPoint(cx, cy);
                 if (cp) {
                     this.pushAnnotationUndo();
@@ -959,13 +970,7 @@ export class TileViewer {
                             // text text text text closetext highlighttext text
                             // text text text text text highlight Settext text
                             if (pending.patchAnnotations) {
-                                this.annotations.forEach(a => { a.selected = false; });
-                                this.selectedAnnotationId = null;
-                                if (this.onAnnotationSelected) this.onAnnotationSelected(null);
-                                if (this.onPatchCellsMultiEditRequested) {
-                                    const list_cells = list_indices.map(i => this.annotations[i]);
-                                    this.onPatchCellsMultiEditRequested(list_indices, list_cells, e.clientX, e.clientY);
-                                }
+                                this._setPatchCellAnnotationSelection(list_indices, e.clientX, e.clientY);
                             } else if (pending.hiddenOther) {
                                 if (this.onHiddenCellsMultiEditRequested) {
                                     const list_cells = list_indices.map(i => this.hiddenDetectionCells[i]);
@@ -979,7 +984,7 @@ export class TileViewer {
                             if (pending.hiddenOther) {
                                 this._highlightedCellIdxSet = null;
                                 this._highlightedHiddenCellIdxSet = new Set(list_indices);
-                            } else {
+                            } else if (!pending.patchAnnotations) {
                                 this._highlightedHiddenCellIdxSet = null;
                                 this._highlightedCellIdxSet = new Set(list_indices);
                             }
@@ -1005,17 +1010,8 @@ export class TileViewer {
                                 : new Set();
                             if (selected.has(hit.index)) selected.delete(hit.index);
                             else selected.add(hit.index);
-                            this.annotations.forEach(a => { a.selected = false; });
-                            this.selectedAnnotationId = null;
-                            this._highlightedHiddenCellIdxSet = null;
-                            this._highlightedCellIdx = -1;
-                            this._highlightedCellIdxSet = selected.size ? selected : null;
                             const list_indices = [...selected].sort((a, b) => a - b);
-                            if (this.onAnnotationSelected) this.onAnnotationSelected(null);
-                            if (this.onPatchCellsMultiEditRequested) {
-                                const list_cells = list_indices.map(i => this.annotations[i]).filter(Boolean);
-                                this.onPatchCellsMultiEditRequested(list_indices, list_cells, pending.clientX, pending.clientY);
-                            }
+                            this._setPatchCellAnnotationSelection(list_indices, pending.clientX, pending.clientY);
                         } else if (this.onCellEditRequested) {
                             this.onCellEditRequested(hit.index, hit.cell, pending.clientX, pending.clientY);
                             this._highlightedCellIdxSet = null;
@@ -2166,6 +2162,30 @@ export class TileViewer {
             if (this._pointInPolygon(center[0], center[1], poly)) list_result.push(i);
         }
         return list_result;
+    }
+
+    _setPatchCellAnnotationSelection(indices, clientX, clientY) {
+        const cleanIndices = [];
+        const seen = new Set();
+        for (const rawIdx of Array.isArray(indices) ? indices : []) {
+            const idx = Number(rawIdx);
+            if (!Number.isInteger(idx) || idx < 0 || idx >= this.annotations.length || seen.has(idx)) continue;
+            const ann = this.annotations[idx];
+            if (!ann || ann.visible === false) continue;
+            seen.add(idx);
+            cleanIndices.push(idx);
+        }
+        cleanIndices.sort((a, b) => a - b);
+        this.annotations.forEach(a => { a.selected = false; });
+        this.selectedAnnotationId = null;
+        this._highlightedHiddenCellIdxSet = null;
+        this._highlightedCellIdx = -1;
+        this._highlightedCellIdxSet = cleanIndices.length ? new Set(cleanIndices) : null;
+        if (this.onPatchCellsMultiEditRequested) {
+            const list_cells = cleanIndices.map(idx => this.annotations[idx]).filter(Boolean);
+            this.onPatchCellsMultiEditRequested(cleanIndices, list_cells, clientX, clientY);
+        }
+        this.requestRender();
     }
 
     _findHiddenCellsInPolygon(poly) {

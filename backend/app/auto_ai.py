@@ -321,6 +321,16 @@ def _merge_slide_candidates(*lists_candidates: list) -> list:
     return list(dict_merged.values())
 
 
+async def _should_defer_for_pending_tiles() -> bool:
+    """Defer auto AI only when the tile worker is expected to clear the queue."""
+    from app.runtime_settings import get_worker_settings
+    from app import slide_store
+
+    if not get_worker_settings().get("bool_tile_worker_enabled", True):
+        return False
+    return await slide_store.has_any_pending_tiles()
+
+
 async def _scan_and_infer_once() -> None:
     """1 text — text text folder config text text text text text text.
 
@@ -338,7 +348,7 @@ async def _scan_and_infer_once() -> None:
         return
 
     # text text text — text text text text text skip
-    if await slide_store.has_any_pending_tiles():
+    if await _should_defer_for_pending_tiles():
         print("[auto_ai] tile generation pending — deferring AI inference")
         return
 
@@ -456,7 +466,7 @@ async def _scan_and_infer_once() -> None:
                         print(f"[auto_ai] activity detected — paused after {int_inferred}/{int_scanned} inferred")
                     return
                 # text text text text text text
-                if await slide_store.has_any_pending_tiles():
+                if await _should_defer_for_pending_tiles():
                     if int_inferred > 0:
                         print(f"[auto_ai] new tile job — yielded after {int_inferred}/{int_scanned} inferred")
                     return

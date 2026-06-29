@@ -4,7 +4,7 @@
 
 import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260609-03';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260609-03';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260629-05';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260609-03';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -2407,14 +2407,15 @@ $btnClassApply?.addEventListener('click', _applyActiveClassToSelectedAnnotation)
 function _selectedPatchCellAnnotationIds() {
     const ids = new Set();
     if (!cellPatchWorkflow?.patchFocusActive) return ids;
-    for (const id of _annotationBulkSelection || []) ids.add(id);
-    if (viewer.selectedAnnotationId) ids.add(viewer.selectedAnnotationId);
     if (viewer._highlightedCellIdxSet instanceof Set) {
         for (const idx of viewer._highlightedCellIdxSet) {
             const ann = viewer.annotations?.[idx];
             if (ann?.id) ids.add(ann.id);
         }
+        return ids;
     }
+    for (const id of _annotationBulkSelection || []) ids.add(id);
+    if (viewer.selectedAnnotationId) ids.add(viewer.selectedAnnotationId);
     const existingIds = new Set((viewer.annotations || []).map(ann => ann.id));
     for (const id of [...ids]) {
         if (!existingIds.has(id)) ids.delete(id);
@@ -2437,8 +2438,9 @@ function _applyClassToSelectedPatchCellAnnotations(classId) {
         _applyClassToAnnotation(ann, cls.id);
         changed.push(ann);
     }
-    _annotationBulkSelection = new Set(changed.map(ann => ann.id).filter(Boolean));
     _syncPatchEditorAfterViewerAnnotationEdit();
+    _annotationBulkSelection = new Set(ids);
+    _syncPatchCellHighlightFromBulkSelection();
     viewer.requestRender();
     renderClassManagementPanel();
     renderAnnotationPanel();
@@ -2755,6 +2757,21 @@ function _sortedAnnotationEntries() {
         });
 }
 
+function _syncPatchCellHighlightFromBulkSelection() {
+    if (!cellPatchWorkflow?.patchFocusActive) return;
+    const selectedIds = new Set(_annotationBulkSelection || []);
+    const indices = [];
+    (viewer.annotations || []).forEach((ann, idx) => {
+        if (selectedIds.has(ann.id)) indices.push(idx);
+        ann.selected = false;
+    });
+    viewer.selectedAnnotationId = null;
+    viewer._highlightedCellIdx = -1;
+    viewer._highlightedHiddenCellIdxSet = null;
+    viewer._highlightedCellIdxSet = indices.length ? new Set(indices) : null;
+    viewer.requestRender?.();
+}
+
 function renderAnnotationPanel() {
     if (!$annList) return;
     if (cellPatchWorkflow && !cellPatchWorkflow.patchFocusActive) {
@@ -2785,19 +2802,23 @@ function renderAnnotationPanel() {
             _annotationBulkSelection = event.target.checked
                 ? new Set((viewer.annotations || []).map(ann => ann.id))
                 : new Set();
+            _syncPatchCellHighlightFromBulkSelection();
             renderAnnotationPanel();
         });
         bulk.querySelector('.cell-ann-bulk-class')?.addEventListener('change', (event) => {
             const classId = event.target.value;
-            if (!classId || !_annotationBulkSelection.size) return;
+            if (!classId) return;
+            const selected = _selectedPatchCellAnnotationIds();
+            if (!selected.size) return;
             if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
             viewer.pushAnnotationUndo?.();
-            const selected = new Set(_annotationBulkSelection);
             for (const ann of viewer.annotations || []) {
                 if (!selected.has(ann.id)) continue;
                 _applyClassToAnnotation(ann, classId);
             }
             _syncPatchEditorAfterViewerAnnotationEdit();
+            _annotationBulkSelection = selected;
+            _syncPatchCellHighlightFromBulkSelection();
             viewer.requestRender();
             renderClassManagementPanel();
             renderAnnotationPanel();
@@ -2885,6 +2906,7 @@ function renderAnnotationPanel() {
             e.stopPropagation();
             if (e.target.checked) _annotationBulkSelection.add(ann.id);
             else _annotationBulkSelection.delete(ann.id);
+            _syncPatchCellHighlightFromBulkSelection();
             renderAnnotationPanel();
         });
         el.addEventListener('click', (e) => {
@@ -3155,6 +3177,9 @@ viewer.onAnnotationCreated = (ann) => {
     renderAnnotationPanel();
 };
 viewer.onAnnotationSelected = (ann) => {
+    if (!ann) {
+        _clearPatchCellBulkSelection({ render: false });
+    }
     if (ann?.class_id || ann?.properties?.class_id) {
         const cls = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
         if (cls) {
@@ -3192,22 +3217,54 @@ viewer.deleteAnnotation = (id) => {
 // Cell edit popup (Alt+Click)
 let _cellEditPopupEl = null;
 
-function _closeCellEditPopup() {
+function _clearPatchCellBulkSelection({ render = true } = {}) {
+    if (!cellPatchWorkflow?.patchFocusActive) return false;
+    const hadSelection = Boolean(
+        _annotationBulkSelection.size ||
+        viewer.selectedAnnotationId ||
+        viewer._highlightedCellIdxSet ||
+        viewer._highlightedHiddenCellIdxSet
+    );
+    _annotationBulkSelection = new Set();
+    viewer.selectedAnnotationId = null;
+    viewer.annotations?.forEach(ann => { ann.selected = false; });
+    if (viewer._highlightedCellIdxSet) viewer._highlightedCellIdxSet = null;
+    if (viewer._highlightedHiddenCellIdxSet) viewer._highlightedHiddenCellIdxSet = null;
+    viewer._highlightedCellIdx = -1;
+    if (render && hadSelection) {
+        viewer.requestRender?.();
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+    }
+    return hadSelection;
+}
+
+function _closeCellEditPopup(options = {}) {
+    const bool_clear_patch_selection = options.clearPatchSelection !== false;
     if (_cellEditPopupEl) {
         _cellEditPopupEl.remove();
         _cellEditPopupEl = null;
     }
-    viewer.clearCellHighlight();
-    viewer.clearMultiCellHighlight();
-    viewer.clearHiddenCellHighlight?.();
+    if (bool_clear_patch_selection && _cellEditCtx?.patchAnnotations) {
+        _clearPatchCellBulkSelection({ render: false });
+    }
+    if (bool_clear_patch_selection) {
+        viewer.clearCellHighlight();
+        viewer.clearMultiCellHighlight();
+        viewer.clearHiddenCellHighlight?.();
+    }
     _cellEditCtx = null;
     document.removeEventListener('mousedown', _outsideCellEditClick, true);
     document.removeEventListener('keydown', _cellEditKeydown, true);
+    if (bool_clear_patch_selection) {
+        renderClassManagementPanel();
+        renderAnnotationPanel();
+    }
 }
 
 function _outsideCellEditClick(e) {
     if (_cellEditPopupEl && !_cellEditPopupEl.contains(e.target)) {
-        _closeCellEditPopup();
+        _closeCellEditPopup({ clearPatchSelection: false });
     }
 }
 
@@ -3216,7 +3273,7 @@ let _cellEditCtx = null; // {idx, classNames, classColors}
 function _cellEditKeydown(e) {
     if (!_cellEditCtx) return;
     if (e.key === 'Escape') {
-        _closeCellEditPopup();
+        _closeCellEditPopup({ clearPatchSelection: false });
         e.preventDefault();
         return;
     }
@@ -3280,20 +3337,26 @@ function _doChangeClass(newClsId) {
     if (_cellEditCtx.patchAnnotations) {
         viewer.pushAnnotationUndo?.();
         const idSet = new Set(_cellEditCtx.annotationIds || []);
-        const annotations = _cellEditCtx.multi && idSet.size
+        const currentSelectionIds = _selectedPatchCellAnnotationIds();
+        const effectiveIds = currentSelectionIds.size ? currentSelectionIds : idSet;
+        const annotations = _cellEditCtx.multi && effectiveIds.size
+            ? (viewer.annotations || []).filter(ann => effectiveIds.has(ann.id))
+            : _cellEditCtx.multi && idSet.size
             ? (viewer.annotations || []).filter(ann => idSet.has(ann.id))
             : (_cellEditCtx.multi ? _cellEditCtx.indices : [_cellEditCtx.idx])
                 .map(idx => viewer.annotations[idx])
                 .filter(Boolean);
+        const selectedIds = new Set(annotations.map(ann => ann.id).filter(Boolean));
         for (const ann of annotations) {
             _applyClassToAnnotation(ann, newClsId);
         }
-        _annotationBulkSelection = new Set(annotations.map(ann => ann.id).filter(Boolean));
         _syncPatchEditorAfterViewerAnnotationEdit();
+        _annotationBulkSelection = selectedIds;
+        _syncPatchCellHighlightFromBulkSelection();
         viewer.requestRender();
         renderClassManagementPanel();
         renderAnnotationPanel();
-        _closeCellEditPopup();
+        _closeCellEditPopup({ clearPatchSelection: false });
         return;
     }
     const name = _cellEditCtx.classNames[String(newClsId)] || `Class ${newClsId}`;
@@ -4186,21 +4249,27 @@ function _showPatchCellEditPopup(idx, ann, screenX, screenY) {
 
 function _showPatchMultiCellEditPopup(indices, annotations, screenX, screenY) {
     if (!cellPatchWorkflow?.patchFocusActive || !cellPatchWorkflow.canAnnotateSelectedPatch?.()) return;
-    _closeCellEditPopup();
     if (!Array.isArray(indices) || !indices.length) {
+        _closeCellEditPopup();
         _annotationBulkSelection = new Set();
         viewer.selectedAnnotationId = null;
         viewer.annotations?.forEach(ann => { ann.selected = false; });
+        viewer._highlightedCellIdxSet = null;
+        viewer._highlightedHiddenCellIdxSet = null;
+        viewer._highlightedCellIdx = -1;
+        viewer.requestRender?.();
         renderClassManagementPanel();
         renderAnnotationPanel();
         return;
     }
+    _closeCellEditPopup({ clearPatchSelection: false });
     const selectedIds = new Set();
     for (const idx of indices) {
         const ann = viewer.annotations?.[idx];
         if (ann?.id) selectedIds.add(ann.id);
     }
     _annotationBulkSelection = selectedIds;
+    _syncPatchCellHighlightFromBulkSelection();
     renderAnnotationPanel();
     const popup = document.createElement('div');
     popup.className = 'cell-edit-popup';
