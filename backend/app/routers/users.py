@@ -246,11 +246,11 @@ async def create_user(
 ):
     """text text text text (text text + text)"""
     if not LOGIN_ID_PATTERN.match(body.str_login_id):
-        raise HTTPException(400, "text 4~30text text/text/text text.")
+        raise HTTPException(400, "Login ID must be 4-30 characters and may contain only letters, numbers, and underscores.")
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             400,
-            "text text text/text + text + text text 8text text text.",
+            "Password must be at least 8 characters and include letters, numbers, and a special character.",
         )
 
     db = get_db()
@@ -258,7 +258,7 @@ async def create_user(
         {"str_login_id": body.str_login_id.strip().lower()}
     )
     if dict_existing:
-        raise HTTPException(409, "text text text text.")
+        raise HTTPException(409, "Login ID already exists.")
 
     dict_doc = create_user_document(
         str_login_id=body.str_login_id,
@@ -454,7 +454,7 @@ async def update_user(
         if not PASSWORD_PATTERN.match(body.str_password):
             raise HTTPException(
                 400,
-                "text text text/text + text + text text 8text text text.",
+                "Password must be at least 8 characters and include letters, numbers, and a special character.",
             )
         dict_updates["str_hashed_password"] = hash_password(body.str_password)
         dict_before["str_password"] = "********"
@@ -467,7 +467,7 @@ async def update_user(
         )
 
     if len(dict_updates) <= 1:
-        raise HTTPException(400, "text text text.")
+        raise HTTPException(400, "No changes to update.")
 
     result = await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},
@@ -499,7 +499,7 @@ async def delete_user(
 ):
     """text text + text text text text"""
     if str_user_id == dict_current_user["_id"]:
-        raise HTTPException(400, "text text text text text text.")
+        raise HTTPException(400, "You cannot delete your own account.")
 
     db = get_db()
     dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
@@ -512,7 +512,7 @@ async def delete_user(
             {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
         )
         if int_admin_count <= 1:
-            raise HTTPException(400, "text text text text text text.")
+            raise HTTPException(400, "Cannot delete the last approved admin account.")
 
     dict_before = {
         "str_login_id": dict_target.get("str_login_id"),
@@ -581,7 +581,7 @@ async def update_user_role(
             {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
         )
         if int_admin_count <= 1:
-            raise HTTPException(400, "text text text text text text.")
+            raise HTTPException(400, "Cannot remove the last approved admin account.")
 
     await db.users.update_one(
         {"_id": ObjectId(body.str_user_id)},

@@ -98,14 +98,14 @@ async def register(body: RegisterRequest, request: Request):
     if not LOGIN_ID_PATTERN.match(body.str_login_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="text 4~30text text/text/text text.",
+            detail="Login ID must be 4-30 characters and may contain only letters, numbers, and underscores.",
         )
 
     # text text text
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="text text text/text + text + text text 8text text text.",
+            detail="Password must be at least 8 characters and include letters, numbers, and a special character.",
         )
 
     db = get_db()
@@ -117,7 +117,7 @@ async def register(body: RegisterRequest, request: Request):
     if dict_existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="text text text text.",
+            detail="Login ID already exists.",
         )
 
     # text text text admin + text text, text viewer + pending
@@ -155,9 +155,9 @@ async def register(body: RegisterRequest, request: Request):
     )
 
     str_message = (
-        "text text! text text text text."
+        "Admin account created successfully."
         if bool_is_first
-        else "text text. text text text text text."
+        else "Registration submitted. Please wait for administrator approval."
     )
 
     return {
@@ -186,7 +186,7 @@ async def login(body: LoginRequest, request: Request):
     if not dict_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="text text text text text.",
+            detail="Invalid login ID or password.",
         )
 
     str_user_id = str(dict_user["_id"])
@@ -250,7 +250,7 @@ async def login(body: LoginRequest, request: Request):
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="text text text text text.",
+            detail="Invalid login ID or password.",
         )
 
     # text text text (text text text — text text text)
@@ -266,7 +266,7 @@ async def login(body: LoginRequest, request: Request):
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="text text text text. text text text text text.",
+            detail="Account approval is pending. Please wait for administrator approval.",
         )
     if str_approval == ApprovalStatus.REJECTED:
         await log_audit_event(
@@ -279,7 +279,7 @@ async def login(body: LoginRequest, request: Request):
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="text text text text. text text.",
+            detail="Account registration was rejected. Contact administrator.",
         )
 
     # ── MFA text (text text) ──
@@ -290,7 +290,7 @@ async def login(body: LoginRequest, request: Request):
             # text text TOTP text text → MFA text text
             return {
                 "bool_mfa_required": True,
-                "str_message": "2text text text text text.",
+                "str_message": "Two-factor authentication code is required.",
             }
         str_totp_secret = decrypt_field(str_encrypted_totp)
         if not verify_totp(str_totp_secret, body.str_totp_code):
@@ -304,7 +304,7 @@ async def login(body: LoginRequest, request: Request):
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="2text text text text text.",
+                detail="Invalid two-factor authentication code.",
             )
 
     # text text → text text text

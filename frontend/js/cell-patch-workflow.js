@@ -117,6 +117,10 @@ export class CellPatchWorkflow {
         return `mediauto:cell-annotation:right-panel-section:${key}:collapsed`;
     }
 
+    _panelHeightStorageKey(key) {
+        return `mediauto:cell-annotation:right-panel-section:${key}:height`;
+    }
+
     _setupPanelToggle(panel, key, label) {
         const button = panel?.querySelector('.panel-minimize-btn[data-cell-panel-collapse]');
         if (!button) return;
@@ -132,6 +136,48 @@ export class CellPatchWorkflow {
             button.dataset.bound = '1';
         }
         apply(localStorage.getItem(this._panelStorageKey(key)) === '1', false);
+    }
+
+    _setupPanelResize(panel, key) {
+        if (!panel) return;
+        let handle = panel.querySelector(':scope > .cell-panel-resize-handle');
+        if (!handle) {
+            handle = document.createElement('div');
+            handle.className = 'cell-panel-resize-handle';
+            handle.setAttribute('role', 'separator');
+            handle.setAttribute('aria-orientation', 'horizontal');
+            handle.title = 'Drag to resize panel';
+            panel.appendChild(handle);
+        }
+        const storedHeight = Number(localStorage.getItem(this._panelHeightStorageKey(key)) || 0);
+        if (storedHeight > 0) panel.style.height = `${Math.round(storedHeight)}px`;
+        if (handle.dataset.bound) return;
+        handle.dataset.bound = '1';
+        handle.addEventListener('pointerdown', (event) => {
+            if (panel.classList.contains('panel-group-collapsed')) return;
+            event.preventDefault();
+            handle.setPointerCapture?.(event.pointerId);
+            document.body.classList.add('cell-panel-resizing');
+            const startY = event.clientY;
+            const startHeight = panel.getBoundingClientRect().height;
+            const minHeight = Number.parseFloat(getComputedStyle(panel).minHeight) || 86;
+            const maxHeight = Math.min(window.innerHeight * 0.78, 760);
+            const onMove = (moveEvent) => {
+                const nextHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + moveEvent.clientY - startY));
+                panel.style.height = `${Math.round(nextHeight)}px`;
+            };
+            const onUp = () => {
+                handle.releasePointerCapture?.(event.pointerId);
+                document.body.classList.remove('cell-panel-resizing');
+                localStorage.setItem(this._panelHeightStorageKey(key), String(Math.round(panel.getBoundingClientRect().height)));
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+        });
     }
 
     _ensureCellPanel(id, title, key) {
@@ -155,6 +201,7 @@ export class CellPatchWorkflow {
             right.insertBefore(panel, right.querySelector('.results-group'));
         }
         this._setupPanelToggle(panel, key, title);
+        this._setupPanelResize(panel, key);
         return panel;
     }
 
@@ -162,8 +209,7 @@ export class CellPatchWorkflow {
         const workflow = document.querySelector('.annotation-group');
         if (workflow) {
             workflow.classList.add('cell-workflow-panel');
-            const title = workflow.querySelector(':scope > .panel-header > span');
-            if (title) title.textContent = 'Cell Workflow';
+            workflow.hidden = true;
         }
         this.classPanel = this._ensureCellPanel('cell-classes-panel', 'Cell Classes', 'cell-classes');
         this.displaySectionPanel = this._ensureCellPanel('cell-display-section', 'Cell Display', 'cell-display');
@@ -1155,17 +1201,9 @@ export class CellPatchWorkflow {
     }
 
     _syncAnnotationStatusPanel() {
-        const workflow = document.getElementById('annotation-status-workflow');
-        const btn = workflow?.querySelector('[data-annotation-status="annotation"]');
-        if (!workflow || !btn) return;
-        if (this.patchFocusActive && this.selectedPatch) {
-            this._renderSelectedPatchWorkflowPanel(workflow);
-            return;
-        }
-        workflow.classList.remove('is-patch-status');
-        workflow.classList.add('is-wsi-auto-status');
-        workflow.dataset.patchWorkflow = '';
-        workflow.dataset.cellWsiAutoStatus = '1';
+        const workflows = [...document.querySelectorAll('#annotation-status-workflow, #toolbar-annotation-status-workflow')]
+            .filter(workflow => workflow?.querySelector('[data-annotation-status="annotation"]'));
+        if (!workflows.length) return;
         const stateMap = {
             annotation: {
                 before: 'Annotation before: no required patches',
@@ -1184,27 +1222,39 @@ export class CellPatchWorkflow {
                 completed: 'Termination complete',
             },
         };
-        workflow.querySelectorAll('[data-annotation-status]').forEach((statusBtn) => {
-            const step = statusBtn.dataset.annotationStatus;
-            const label = step === 'annotation' ? 'Annotation' : (step === 'review' ? 'Review' : 'Termination');
-            const summary = this._wsiStepSummary(step);
-            statusBtn.innerHTML = `<span class="annotation-step-label">${label}</span>`;
-            statusBtn.onclick = null;
-            statusBtn.disabled = true;
-            statusBtn.classList.toggle('is-active', summary.state === 'before');
-            statusBtn.classList.toggle('is-running', summary.state === 'running');
-            statusBtn.classList.toggle('is-complete', summary.state === 'completed');
-            statusBtn.classList.toggle('is-rejected', summary.state === 'rejected');
-            const rejectedText = summary.rejected ? ` / rejected ${summary.rejected}` : '';
-            statusBtn.title = `${stateMap[step]?.[summary.state] || label} (${summary.completed}/${summary.total}${rejectedText})`;
-            const icon = this._ensureStepStateElement(statusBtn);
-            icon.className = `annotation-step-state annotation-step-percent is-${summary.state}`;
-            icon.textContent = summary.state === 'rejected' ? `${summary.rejected}R` : `${summary.percent}%`;
-            icon.title = summary.state === 'rejected'
-                ? `${summary.rejected} rejected / ${summary.completed} reviewed (${summary.total} total)`
-                : `${summary.percent}% completed (${summary.completed}/${summary.total})`;
-            statusBtn.onclick = null;
-        });
+        for (const workflow of workflows) {
+            if (this.patchFocusActive && this.selectedPatch) {
+                workflow.hidden = false;
+                this._renderSelectedPatchWorkflowPanel(workflow);
+                continue;
+            }
+            workflow.hidden = false;
+            workflow.classList.remove('is-patch-status');
+            workflow.classList.add('is-wsi-auto-status');
+            workflow.dataset.patchWorkflow = '';
+            workflow.dataset.cellWsiAutoStatus = '1';
+            workflow.querySelectorAll('[data-annotation-status]').forEach((statusBtn) => {
+                const step = statusBtn.dataset.annotationStatus;
+                const label = step === 'annotation' ? 'Annotation' : (step === 'review' ? 'Review' : 'Termination');
+                const summary = this._wsiStepSummary(step);
+                statusBtn.innerHTML = `<span class="annotation-step-label">${label}</span>`;
+                statusBtn.onclick = null;
+                statusBtn.disabled = true;
+                statusBtn.classList.toggle('is-active', summary.state === 'before');
+                statusBtn.classList.toggle('is-running', summary.state === 'running');
+                statusBtn.classList.toggle('is-complete', summary.state === 'completed');
+                statusBtn.classList.toggle('is-rejected', summary.state === 'rejected');
+                const rejectedText = summary.rejected ? ` / rejected ${summary.rejected}` : '';
+                statusBtn.title = `${stateMap[step]?.[summary.state] || label} (${summary.completed}/${summary.total}${rejectedText})`;
+                const icon = this._ensureStepStateElement(statusBtn);
+                icon.className = `annotation-step-state annotation-step-percent is-${summary.state}`;
+                icon.textContent = summary.state === 'rejected' ? `${summary.rejected}R` : `${summary.percent}%`;
+                icon.title = summary.state === 'rejected'
+                    ? `${summary.rejected} rejected / ${summary.completed} reviewed (${summary.total} total)`
+                    : `${summary.percent}% completed (${summary.completed}/${summary.total})`;
+                statusBtn.onclick = null;
+            });
+        }
     }
 
     syncAnnotationStatusPanel() {

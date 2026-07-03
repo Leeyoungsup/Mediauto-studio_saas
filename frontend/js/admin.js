@@ -408,6 +408,8 @@ function openEditDialog(user) {
 
 document.getElementById('btn-edit-cancel').addEventListener('click', () => editDialog.close());
 document.getElementById('btn-edit-save').addEventListener('click', async () => {
+    const editForm = document.getElementById('edit-form');
+    if (editForm && !editForm.reportValidity()) return;
     const body = {
         str_user_id: document.getElementById('edit-user-id').value,
         str_name: document.getElementById('edit-name').value,

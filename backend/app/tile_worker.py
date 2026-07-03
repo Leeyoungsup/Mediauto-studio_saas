@@ -58,6 +58,10 @@ async def _process_one_slide(dict_slide: dict) -> bool:
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
         return True
 
+    if tile_generator.is_generation_running(str_filename, str_full_path):
+        print(f"[tile_worker] generation already running, skip: {str_filename}")
+        return False
+
     # 3) text text stale → text tile dir text text text
     #    (text tile text text text _generate_tiles text text text text
     #     text text text ICC text text text.)
@@ -66,10 +70,15 @@ async def _process_one_slide(dict_slide: dict) -> bool:
     await loop.run_in_executor(
         _bg_executor, tile_generator._generate_tiles, str_filename, str_full_path
     )
-    # text — threadsafe text text text text text text text text text text text text
-    await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
-    print(f"[tile_worker] done: {str_filename}")
-    return True
+    bool_valid_after = await loop.run_in_executor(
+        _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
+    )
+    await slide_store.mark_tiles_ready(str_rel_path, str_filename, bool_valid_after)
+    if bool_valid_after:
+        print(f"[tile_worker] done: {str_filename}")
+        return True
+    print(f"[tile_worker] generation did not produce valid tiles: {str_filename}")
+    return False
 
 
 async def _startup_validate_all() -> None:

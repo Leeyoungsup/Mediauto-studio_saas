@@ -720,6 +720,19 @@ def _read_assistance_file(info) -> dict:
             print(f"[cell_annotation] stale assistance cleanup failed: {exc}")
         return {}
     config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
+    expected_confidence_threshold = _expected_assistance_confidence_threshold(config)
+    if expected_confidence_threshold is not None:
+        stored_confidence_threshold = compacted.get("assistance_confidence_threshold")
+        try:
+            confidence_threshold_matches = abs(float(stored_confidence_threshold) - expected_confidence_threshold) < 1e-6
+        except Exception:
+            confidence_threshold_matches = False
+        if not confidence_threshold_matches:
+            try:
+                path.unlink()
+            except Exception as exc:
+                print(f"[cell_annotation] stale assistance threshold cleanup failed: {exc}")
+            return {}
     if config.get("enabled"):
         project_classes = _load_cell_classes_for_project(_slide_project_path(info))
         default_classes = cell_annotation_classes_for_ai(True, str(config.get("key", "")))
@@ -911,6 +924,30 @@ def _model_class_metadata_for_assistance(config: dict) -> tuple[dict[str, str], 
     return {}, {}
 
 
+def _expected_assistance_confidence_threshold(config: dict) -> Optional[float]:
+    if not isinstance(config, dict):
+        return None
+    if bool(config.get("inherit_classes")):
+        return None
+    base_model = str(config.get("base_model") or "")
+    variant = str(config.get("variant") or "")
+    if base_model == "Quanti IHC":
+        return 0.3 if variant in ("ER_PR", "KI_67") else 0.5
+    if base_model == "Quanti PD-L1":
+        return 0.1
+    return None
+
+
+def _assistance_confidence_threshold(config: dict, result: dict) -> Optional[float]:
+    expected = _expected_assistance_confidence_threshold(config)
+    if expected is None:
+        return None
+    try:
+        return float((result or {}).get("score_conf_threshold", expected))
+    except Exception:
+        return expected
+
+
 def _cell_tuple_values(cell) -> Optional[tuple[float, float, Any, float, Optional[tuple[float, float, float, float]]]]:
     bbox = None
     if isinstance(cell, dict):
@@ -949,6 +986,7 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
     default_class_name = str(OTHER_CELL_CLASS.get("name", "Other"))
     labels = []
     used_model_bbox = False
+    confidence_threshold = _assistance_confidence_threshold(config, result)
     source_cells = list((result or {}).get("cells") or [])
     source_cells.extend(list((result or {}).get("excluded_cells") or []))
     for idx, cell in enumerate(source_cells, start=1):
@@ -956,6 +994,8 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
         if parsed is None:
             continue
         x, y, class_id, confidence, bbox = parsed
+        if confidence_threshold is not None and confidence < confidence_threshold:
+            continue
         if bbox is None:
             half = DEFAULT_ASSISTANCE_BOX_SIZE / 2.0
             x0, y0, x1, y1 = x - half, y - half, x + half, y + half
@@ -996,6 +1036,7 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         )
     compact_labels = [_compact_assistance_label(label) for label in labels]
     compact_labels = [label for label in compact_labels if label is not None]
+    confidence_threshold = _assistance_confidence_threshold(config, result)
     project_classes = _load_cell_classes_for_project(_slide_project_path(info))
     default_classes = cell_annotation_classes_for_ai(bool(config.get("enabled")), str(config.get("key", "")))
     payload = {
@@ -1017,6 +1058,8 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "label_format": "bbox_compact_v1",
         "label_schema": ASSISTANCE_LABEL_SCHEMA,
         "bbox_source": "model" if used_model_bbox else "",
+        "assistance_confidence_threshold": confidence_threshold,
+        "source_score_conf_threshold": result.get("score_conf_threshold"),
         "total_labels": len(compact_labels),
         "total_model_bbox_labels": len(compact_labels) if used_model_bbox else 0,
         "labels": compact_labels,

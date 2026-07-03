@@ -391,6 +391,14 @@ def get_progress(filename: str, file_path: str = "") -> Optional[dict]:
     return None
 
 
+def is_generation_running(filename: str, file_path: str = "") -> bool:
+    if not file_path:
+        return False
+    progress_key = slide_cache_key(file_path)
+    with _progress_lock:
+        return _progress.get(progress_key, None) is not None and _progress[progress_key].status == "generating"
+
+
 def start_generation(filename: str, file_path: str):
     """text text text text text (text text/text text text)"""
     if tiles_are_valid(filename, file_path):
@@ -950,5 +958,5 @@ def _generate_tiles(filename: str, file_path: str):
         def _cleanup():
             time.sleep(60)
             with _progress_lock:
-                _progress.pop(filename, None)
+                _progress.pop(progress_key, None)
         threading.Thread(target=_cleanup, daemon=True).start()

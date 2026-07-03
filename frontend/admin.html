@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio - Admin</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/admin.css">
+    <link rel="stylesheet" href="css/admin.css?v=20260703-01">
 </head>
 <body>
     <div id="shared-header-root"></div>
@@ -116,7 +116,9 @@
                 <div class="form-row">
                     <label for="new-password">Password *</label>
                     <input type="password" id="new-password" required minlength="8"
-                           placeholder="At least 8 characters with letters and numbers">
+                           pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
+                           placeholder="8+ chars with upper/lowercase, number, and special character"
+                           title="Use at least 8 characters with uppercase, lowercase, number, and special character">
                 </div>
                 <div class="form-row">
                     <label for="new-name">Name *</label>
@@ -265,7 +267,9 @@
             <div class="form-row">
                 <label for="edit-password">New Password</label>
                 <input type="password" id="edit-password" minlength="8"
-                       placeholder="Leave blank to keep current password">
+                       pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
+                       placeholder="Leave blank, or use 8+ chars with upper/lowercase, number, special"
+                       title="Leave blank to keep current password, or use at least 8 characters with uppercase, lowercase, number, and special character">
             </div>
             <div class="form-actions">
                 <button type="button" id="btn-edit-save" class="admin-btn-primary">Save</button>
@@ -275,6 +279,6 @@
     </dialog>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script src="js/admin.js?v=20260606-01"></script>
+    <script src="js/admin.js?v=20260703-01"></script>
 </body>
 </html>

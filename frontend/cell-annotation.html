@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260703-01">
+    <link rel="stylesheet" href="css/style.css?v=20260703-04">
 </head>
 <body class="annotation-page">
     <!-- ═══ text ═══ -->
@@ -492,21 +492,6 @@
                         </svg>
                     </button>
                 </div>
-                <div class="annotation-status-panel">
-                    <label id="annotation-status-label">Annotation Status</label>
-                    <div id="annotation-status-workflow" class="annotation-status-workflow" role="group" aria-labelledby="annotation-status-label">
-                        <button type="button" class="annotation-step" data-annotation-status="annotation">Annotation</button>
-                        <span class="annotation-step-connector" data-connector="annotation-review">-</span>
-                        <button type="button" class="annotation-step" data-annotation-status="review">Review</button>
-                        <span class="annotation-step-connector" data-connector="review-termination">-</span>
-                        <button type="button" class="annotation-step" data-annotation-status="termination">Termination</button>
-                    </div>
-                    <select id="annotation-status-select" disabled hidden>
-                        <option value="annotation">Annotation</option>
-                        <option value="review">Review</option>
-                        <option value="termination">Termination</option>
-                    </select>
-                </div>
                 <div class="class-management-panel">
                     <div class="class-management-header">
                         <span>Class Management</span>
@@ -711,6 +696,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/annotation.js?v=20260703-04"></script>
+    <script type="module" src="js/annotation.js?v=20260703-09"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260604-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260609-03';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260703-02';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260703-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260703-06';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -775,48 +775,49 @@ function _syncAnnotationStatusControl(status = currentAnnotationStatus) {
             : 'annotation';
         $annotationStatusSelect.disabled = boolDisabled || boolLabeler;
     }
-    if (!$annotationStatusWorkflow) return;
-    const intCurrent = _annotationWorkflowIndex(strStatus);
-    $annotationStatusWorkflow.dataset.status = strStatus;
-    $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled || boolLabelerCellWsiLocked);
-    $annotationStatusWorkflow.classList.toggle('is-running', !!_annotationRunningStep);
-    $annotationStatusWorkflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
-        const strTarget = _normalizeAnnotationWorkflowStatus(btn.dataset.annotationStatus);
-        const intTarget = _annotationWorkflowIndex(strTarget);
-        const boolComplete = intTarget < intCurrent || (_annotationWorkflowFinished && strTarget === 'termination');
-        const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
-        const boolRunning = _annotationRunningStep === strTarget;
-        const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
-        const strActionState = _annotationWorkflowActionState(boolComplete, boolRunning, boolActive);
-        btn.innerHTML = `<span class="annotation-step-label">${strLabel}</span>`;
-        let stateIcon = btn.nextElementSibling;
-        if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) {
-            stateIcon = document.createElement('span');
-            stateIcon.className = 'annotation-step-state';
-            btn.insertAdjacentElement('afterend', stateIcon);
-        }
-        stateIcon.className = `annotation-step-state annotation-step-icon is-${strActionState}`;
-        stateIcon.dataset.workflowStateFor = strTarget;
-        stateIcon.setAttribute('aria-label', _annotationWorkflowActionLabel(strActionState));
-        stateIcon.title = _annotationWorkflowActionLabel(strActionState);
-        btn.classList.toggle('is-active', boolActive);
-        btn.classList.toggle('is-complete', boolComplete);
-        btn.classList.toggle('is-running', boolRunning);
-        btn.dataset.actionState = strActionState;
-        const boolLabelerBlocked = boolLabeler && (
-            boolLabelerCellWsiLocked ||
-            strTarget !== 'annotation' ||
-            boolLabelerWorkflowLocked
-        );
-        btn.disabled = boolDisabled || boolLabelerBlocked;
-        btn.title = boolActive
-            ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
-            : `Move to ${strLabel}`;
-    });
-    $annotationStatusWorkflow.querySelectorAll('[data-connector]').forEach((el) => {
-        el.hidden = true;
-        el.textContent = '';
-    });
+    if ($annotationStatusWorkflow) {
+        const intCurrent = _annotationWorkflowIndex(strStatus);
+        $annotationStatusWorkflow.dataset.status = strStatus;
+        $annotationStatusWorkflow.classList.toggle('is-disabled', boolDisabled || boolLabelerCellWsiLocked);
+        $annotationStatusWorkflow.classList.toggle('is-running', !!_annotationRunningStep);
+        $annotationStatusWorkflow.querySelectorAll('[data-annotation-status]').forEach((btn) => {
+            const strTarget = _normalizeAnnotationWorkflowStatus(btn.dataset.annotationStatus);
+            const intTarget = _annotationWorkflowIndex(strTarget);
+            const boolComplete = intTarget < intCurrent || (_annotationWorkflowFinished && strTarget === 'termination');
+            const boolActive = strTarget === strStatus && !_annotationWorkflowFinished;
+            const boolRunning = _annotationRunningStep === strTarget;
+            const strLabel = SLIDE_STATUS_OPTIONS.find(opt => opt.value === strTarget)?.label || strTarget;
+            const strActionState = _annotationWorkflowActionState(boolComplete, boolRunning, boolActive);
+            btn.innerHTML = `<span class="annotation-step-label">${strLabel}</span>`;
+            let stateIcon = btn.nextElementSibling;
+            if (!stateIcon || !stateIcon.classList.contains('annotation-step-state')) {
+                stateIcon = document.createElement('span');
+                stateIcon.className = 'annotation-step-state';
+                btn.insertAdjacentElement('afterend', stateIcon);
+            }
+            stateIcon.className = `annotation-step-state annotation-step-icon is-${strActionState}`;
+            stateIcon.dataset.workflowStateFor = strTarget;
+            stateIcon.setAttribute('aria-label', _annotationWorkflowActionLabel(strActionState));
+            stateIcon.title = _annotationWorkflowActionLabel(strActionState);
+            btn.classList.toggle('is-active', boolActive);
+            btn.classList.toggle('is-complete', boolComplete);
+            btn.classList.toggle('is-running', boolRunning);
+            btn.dataset.actionState = strActionState;
+            const boolLabelerBlocked = boolLabeler && (
+                boolLabelerCellWsiLocked ||
+                strTarget !== 'annotation' ||
+                boolLabelerWorkflowLocked
+            );
+            btn.disabled = boolDisabled || boolLabelerBlocked;
+            btn.title = boolActive
+                ? (boolRunning ? `${strLabel} complete` : `${strLabel} start`)
+                : `Move to ${strLabel}`;
+        });
+        $annotationStatusWorkflow.querySelectorAll('[data-connector]').forEach((el) => {
+            el.hidden = true;
+            el.textContent = '';
+        });
+    }
     cellPatchWorkflow?.syncAnnotationStatusPanel?.();
 }
 
