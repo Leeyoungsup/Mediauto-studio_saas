@@ -2449,6 +2449,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
+    _applyInitialQuantiHeVisibility();
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
@@ -2467,6 +2468,14 @@ const CLASS_COLORS = {
     0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
+const QUANTI_HE_STROMAL_CLASS_ID = 5;
+
+function _applyInitialQuantiHeVisibility() {
+    if (!viewer?.classVisibility) return;
+    if (Object.prototype.hasOwnProperty.call(viewer.classVisibility, QUANTI_HE_STROMAL_CLASS_ID)) {
+        viewer.classVisibility[QUANTI_HE_STROMAL_CLASS_ID] = false;
+    }
+}
 
 function _renderScoreBar(barEl, segments) {
     if (!barEl) return;
@@ -2705,7 +2714,11 @@ function buildResultList(result) {
 
     const totalCb = document.createElement('input');
     totalCb.type = 'checkbox';
-    totalCb.checked = true;
+    const visibleClassEntries = Object.keys(counts).filter(id => counts[id] > 0);
+    const bool_all_visible = visibleClassEntries.every(id => viewer.classVisibility[parseInt(id)] !== false);
+    const bool_none_visible = visibleClassEntries.every(id => viewer.classVisibility[parseInt(id)] === false);
+    totalCb.checked = bool_all_visible;
+    totalCb.indeterminate = !bool_all_visible && !bool_none_visible;
     totalCb.addEventListener('change', () => {
         const checked = totalCb.checked;
         for (const [id, cb] of Object.entries(classCbs)) {
@@ -2746,7 +2759,7 @@ function buildResultList(result) {
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.checked = true;
+        cb.checked = viewer.classVisibility[id] !== false;
         classCbs[id] = cb;
         cb.addEventListener('change', () => {
             viewer.classVisibility[id] = cb.checked;

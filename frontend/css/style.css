@@ -246,6 +246,28 @@ body.project-gate-open .project-mode-header { display: block; }
     white-space: nowrap;
 }
 .slide-scanner[hidden] { display: none; }
+.toolbar-annotation-status-workflow {
+    width: clamp(250px, 28vw, 390px);
+    margin-right: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--bg-light);
+    border-left: 3px solid #f59e0b;
+    box-sizing: border-box;
+}
+.toolbar-annotation-status-workflow[hidden] { display: none; }
+.toolbar-annotation-status-workflow.annotation-status-workflow {
+    grid-template-columns: minmax(72px, 1fr) 14px minmax(62px, 0.86fr) 14px minmax(78px, 1.08fr) 14px;
+}
+.toolbar-annotation-status-workflow .annotation-step {
+    min-height: 24px;
+    border-radius: 999px;
+    font-size: 10px;
+    padding: 0 8px;
+}
+.toolbar-annotation-status-workflow .annotation-step-state {
+    font-size: 10px;
+}
 .scanner-logo {
     display: inline-flex; align-items: center;
     height: 18px;

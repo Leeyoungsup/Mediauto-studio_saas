@@ -759,7 +759,7 @@ export class TileViewer {
             // text text text (text annotationtext text)
             // Ctrl text text annotation text pan text (text text text)
             if (e.button === 0 && !this.drawMode && !e.ctrlKey) {
-                if (this.cellAnnotationPatchViewActive && !e.altKey && !e.shiftKey) {
+                if (this._cellAnnotationEditModeActive() && !e.altKey && !e.shiftKey) {
                     const hitCellAnn = this._findNearestCellAnnotation(sx, sy, 30);
                     this._setPatchCellAnnotationSelection(
                         hitCellAnn ? [hitCellAnn.index] : [],
@@ -2049,7 +2049,12 @@ export class TileViewer {
     }
 
     _cellAnnotationEditModeActive() {
-        return Boolean(this.cellAnnotationPatchViewActive && Array.isArray(this.annotations) && this.annotations.length);
+        return Boolean(
+            this.cellAnnotationPatchViewActive &&
+            this.cellAnnotationPatchEditingEnabled !== false &&
+            Array.isArray(this.annotations) &&
+            this.annotations.length
+        );
     }
 
     _annotationCellCenter(annotation) {

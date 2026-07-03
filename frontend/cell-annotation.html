@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260609-04">
+    <link rel="stylesheet" href="css/style.css?v=20260703-01">
 </head>
 <body class="annotation-page">
     <!-- ═══ text ═══ -->
@@ -184,6 +184,14 @@
         <div class="toolbar-spacer"></div>
         <!-- text -->
         <div class="toolbar-group">
+            <div id="toolbar-annotation-status-workflow" class="annotation-status-workflow toolbar-annotation-status-workflow is-patch-status" role="group" aria-label="Workflow status" hidden>
+                <button type="button" class="annotation-step" data-annotation-status="annotation">Annotation</button>
+                <span class="annotation-step-state" data-connector="annotation-review">-</span>
+                <button type="button" class="annotation-step" data-annotation-status="review">Review</button>
+                <span class="annotation-step-state" data-connector="review-termination">-</span>
+                <button type="button" class="annotation-step" data-annotation-status="termination">Termination</button>
+                <span class="annotation-step-state" data-connector="termination-end">-</span>
+            </div>
             <span id="slide-scanner" class="slide-scanner" hidden></span>
             <span id="zoom-info" class="zoom-info-text"></span>
         </div>
@@ -703,6 +711,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/annotation.js?v=20260629-05"></script>
+    <script type="module" src="js/annotation.js?v=20260703-04"></script>
 </body>
 </html>

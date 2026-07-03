@@ -97,6 +97,7 @@ export class CellPatchWorkflow {
         this.viewer.addOverlayLayer(this.focusLayer);
         this.viewer.cellAnnotationDisplayMode = this.cellDisplayMode;
         this.viewer.cellAnnotationPatchViewActive = false;
+        this.viewer.cellAnnotationPatchEditingEnabled = false;
         this._bindEvents();
     }
 
@@ -209,7 +210,10 @@ export class CellPatchWorkflow {
     _syncCellPanelVisibility() {
         const patchView = Boolean(this.patchFocusActive);
         document.body.classList.toggle('cell-patch-view-active', patchView);
-        if (this.viewer) this.viewer.cellAnnotationPatchViewActive = patchView;
+        if (this.viewer) {
+            this.viewer.cellAnnotationPatchViewActive = patchView;
+            this.viewer.cellAnnotationPatchEditingEnabled = this.canAnnotateSelectedPatch();
+        }
         this._setPanelVisible(this.classPanel || document.getElementById('cell-classes-panel'), patchView);
         this._setPanelVisible(this.displaySectionPanel || document.getElementById('cell-display-section'), patchView);
         this._setPanelVisible(this.annotationsPanel || document.getElementById('cell-annotations-panel'), patchView);
@@ -1000,6 +1004,9 @@ export class CellPatchWorkflow {
     }
 
     _notifyPatchViewStateChange() {
+        if (this.viewer) {
+            this.viewer.cellAnnotationPatchEditingEnabled = this.canAnnotateSelectedPatch();
+        }
         window.dispatchEvent(new CustomEvent('cellpatch:viewchange', {
             detail: {
                 patchFocusActive: Boolean(this.patchFocusActive),
