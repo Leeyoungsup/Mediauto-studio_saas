@@ -22,7 +22,19 @@ def notify_viewer_activity() -> None:
 
 
 def viewer_busy() -> bool:
-    return (time.monotonic() - _last_viewer_activity) < VIEWER_GRACE_SEC
+    return viewer_recent(VIEWER_GRACE_SEC)
+
+
+def seconds_since_viewer_activity() -> float:
+    with _lock:
+        last = _last_viewer_activity
+    if last <= 0:
+        return float("inf")
+    return time.monotonic() - last
+
+
+def viewer_recent(grace_sec: float = VIEWER_GRACE_SEC) -> bool:
+    return seconds_since_viewer_activity() < float(grace_sec)
 
 
 def wait_if_viewer_busy(max_wait: float = AI_YIELD_MAX_WAIT_SEC) -> None:

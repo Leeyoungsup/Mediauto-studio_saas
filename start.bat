@@ -42,6 +42,11 @@ set PYTHONHOME=
 set PYTHONPATH=
 set PYTHONNOUSERSITE=1
 
+REM --- Background worker CPU policy. Existing environment values win. ---
+if "%MEDIAUTO_CPU_TILE%"=="" set MEDIAUTO_CPU_TILE=6
+if "%MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM%"=="" set MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM=4
+if "%MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM%"=="" set MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM=2
+
 echo.
 echo ============================================================
 echo  MeDICus Studio SaaS

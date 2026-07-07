@@ -13,20 +13,48 @@ Claude.md text text (str_/int_/bool_/list_/dict_ text).
 """
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Optional
 
 # text text text executor — cpu_layout text text text text.
 # (text text text ThreadPoolExecutor text cores text text text text text)
-from app.cpu_layout import bg_executor as _bg_executor
+from app.cpu_layout import INT_TILE, bg_executor as _bg_executor
+from app.priority import viewer_recent
 
 
 SCAN_INTERVAL_SECONDS = 20
 # janitor text text — text text text. 20s * 15 = 5text text text.
 JANITOR_EVERY_N_SCANS = 15
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except Exception:
+        return max(1, int(default))
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, default)))
+    except Exception:
+        return max(1.0, float(default))
+
+
+VIEWER_RECENT_SECONDS = _env_float("MEDIAUTO_TILE_WORKER_VIEWER_RECENT_SEC", 60.0)
+BUSY_PARALLELISM = _env_int("MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM", 1)
+IDLE_PARALLELISM = _env_int("MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM", max(1, min(INT_TILE, 2)))
+
 _worker_task: Optional[asyncio.Task] = None
 _int_scan_count = 0
+
+
+def _adaptive_parallelism(int_pending: int) -> int:
+    if int_pending <= 0:
+        return 0
+    int_target = BUSY_PARALLELISM if viewer_recent(VIEWER_RECENT_SECONDS) else IDLE_PARALLELISM
+    return max(1, min(int_pending, INT_TILE, int_target))
 
 
 async def _process_one_slide(dict_slide: dict) -> bool:
@@ -144,13 +172,20 @@ async def _scan_once() -> None:
     if not list_pending:
         return
 
-    print(f"[tile_worker] {len(list_pending)} slide(s) pending tile generation")
-    for dict_slide in list_pending:
-        try:
-            await _process_one_slide(dict_slide)
-        except Exception as e:
+    int_parallelism = _adaptive_parallelism(len(list_pending))
+    print(
+        f"[tile_worker] {len(list_pending)} slide(s) pending tile generation "
+        f"(parallelism={int_parallelism})"
+    )
+    list_batch = list_pending[:int_parallelism]
+    list_results = await asyncio.gather(
+        *(_process_one_slide(dict_slide) for dict_slide in list_batch),
+        return_exceptions=True,
+    )
+    for result in list_results:
+        if isinstance(result, Exception):
             import traceback
-            print(f"[tile_worker] slide error: {e}\n{traceback.format_exc()}")
+            print(f"[tile_worker] slide error: {result}\n{''.join(traceback.format_exception(result))}")
 
 
 async def _worker_loop() -> None:

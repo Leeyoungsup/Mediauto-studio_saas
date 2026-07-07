@@ -399,6 +399,11 @@ def is_generation_running(filename: str, file_path: str = "") -> bool:
         return _progress.get(progress_key, None) is not None and _progress[progress_key].status == "generating"
 
 
+def any_generation_running() -> bool:
+    with _progress_lock:
+        return any(progress.status == "generating" for progress in _progress.values())
+
+
 def start_generation(filename: str, file_path: str):
     """text text text text text (text text/text text text)"""
     if tiles_are_valid(filename, file_path):

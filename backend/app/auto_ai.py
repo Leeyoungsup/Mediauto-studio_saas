@@ -321,14 +321,22 @@ def _merge_slide_candidates(*lists_candidates: list) -> list:
     return list(dict_merged.values())
 
 
-async def _should_defer_for_pending_tiles() -> bool:
-    """Defer auto AI only when the tile worker is expected to clear the queue."""
+async def _should_defer_slide_for_pending_tiles(dict_slide: dict) -> bool:
+    """Defer only the current slide when its tiles are still queued."""
     from app.runtime_settings import get_worker_settings
-    from app import slide_store
 
     if not get_worker_settings().get("bool_tile_worker_enabled", True):
         return False
-    return await slide_store.has_any_pending_tiles()
+    return bool(dict_slide.get("bool_tiles_ready")) is not True
+
+
+async def _should_yield_for_active_tile_generation() -> bool:
+    from app.runtime_settings import get_worker_settings
+    from app import tile_generator
+
+    if not get_worker_settings().get("bool_tile_worker_enabled", True):
+        return False
+    return tile_generator.any_generation_running()
 
 
 async def _scan_and_infer_once() -> None:
@@ -347,9 +355,8 @@ async def _scan_and_infer_once() -> None:
     if not is_system_idle():
         return
 
-    # text text text — text text text text text skip
-    if await _should_defer_for_pending_tiles():
-        print("[auto_ai] tile generation pending — deferring AI inference")
+    if await _should_yield_for_active_tile_generation():
+        print("[auto_ai] tile generation active — yielding AI inference")
         return
 
     int_repaired = await slide_store.repair_folder_ai_config_paths()
@@ -417,6 +424,7 @@ async def _scan_and_infer_once() -> None:
 
     int_scanned = 0    # text text text text text (text hit + text + text text)
     int_inferred = 0   # text text text text text
+    int_tile_deferred = 0
 
     for dict_cfg in list_configs:
         str_rel_path = dict_cfg.get("str_rel_path", "")
@@ -465,11 +473,13 @@ async def _scan_and_infer_once() -> None:
                     if int_inferred > 0:
                         print(f"[auto_ai] activity detected — paused after {int_inferred}/{int_scanned} inferred")
                     return
-                # text text text text text text
-                if await _should_defer_for_pending_tiles():
+                if await _should_yield_for_active_tile_generation():
                     if int_inferred > 0:
-                        print(f"[auto_ai] new tile job — yielded after {int_inferred}/{int_scanned} inferred")
+                        print(f"[auto_ai] tile generation active — yielded after {int_inferred}/{int_scanned} inferred")
                     return
+                if await _should_defer_slide_for_pending_tiles(dict_slide):
+                    int_tile_deferred += 1
+                    continue
 
                 try:
                     await _run_auto_inference(str_full_path, str_model, str_variant, float_target_mpp)
@@ -483,6 +493,8 @@ async def _scan_and_infer_once() -> None:
     # text text text — text text text text. text text 0/N text text text.
     if int_inferred > 0:
         print(f"[auto_ai] cycle done — {int_inferred}/{int_scanned} inferred")
+    elif int_tile_deferred > 0:
+        print(f"[auto_ai] tile generation pending for {int_tile_deferred}/{int_scanned} candidate(s) — skipped this cycle")
 
 
 async def _worker_loop() -> None:
