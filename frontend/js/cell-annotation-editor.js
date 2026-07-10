@@ -124,6 +124,19 @@ export class CellAnnotationEditor {
         return 'required';
     }
 
+    _canEditCells() {
+        const role = window.__currentUserRole;
+        if (role === 'admin' || role === 'doctor') return true;
+        if (role !== 'labeler') return false;
+        const annotationStatus = this._annotationStatus();
+        const reviewStatus = String(this.patch?.str_review_status || this.patch?.review_status || 'pending').toLowerCase();
+        const terminationStatus = String(this.patch?.str_termination_status || this.patch?.termination_status || 'pending').toLowerCase();
+        if (terminationStatus === 'completed') return false;
+        if (annotationStatus === 'in_progress' && ['', 'pending', 'rejected'].includes(reviewStatus)) return true;
+        if (reviewStatus === 'rejected') return true;
+        return false;
+    }
+
     _draftSaveOptions(complete) {
         const options = { complete };
         if (complete) return options;
@@ -399,7 +412,7 @@ export class CellAnnotationEditor {
         }
         const status = this.patch.str_status || this.patch.status || 'required';
         const annotationStatus = this._annotationStatus();
-        const canSaveDraft = annotationStatus === 'in_progress';
+        const canSaveDraft = this._canEditCells();
         const canReview = window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
         this.panel.innerHTML = `
             <div class="panel-header">Patch Cell Annotation</div>

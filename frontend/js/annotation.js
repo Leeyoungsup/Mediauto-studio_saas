@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260604-01';
+import { api } from './api.js?v=20260708-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260609-03';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260703-02';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260703-06';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260707-01';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -1302,7 +1302,7 @@ function _syncCellPatchAnnotationTools() {
             $btnDrawRect.disabled = boolViewer || !boolCanAnnotatePatch;
             $btnDrawRect.title = boolCanAnnotatePatch
                 ? 'Draw Rectangle'
-                : 'Patch annotation is available only while Annotation is running.';
+                : 'Patch annotation is locked for the current role and workflow state.';
             if ($btnDrawRect.disabled) $btnDrawRect.classList.remove('active');
         }
         if (viewer?.drawMode && (viewer.drawMode !== 'rectangle' || !boolCanAnnotatePatch || boolViewer)) {
@@ -1339,7 +1339,7 @@ function setDrawMode(mode) {
         }
         if (!boolCanAnnotatePatch) {
             _syncCellPatchAnnotationTools();
-            setStatus('Patch annotation is available only while Annotation is running.');
+            setStatus('Patch annotation is locked for the current role and workflow state.');
             return;
         }
     }
@@ -3207,7 +3207,7 @@ viewer.onAnnotationCreated = (ann) => {
                 viewer.selectedAnnotationId = null;
                 renderAnnotationPanel();
                 viewer.requestRender();
-                setStatus('Patch annotation is available only while Annotation is running.');
+                setStatus('Patch annotation is locked for the current role and workflow state.');
                 return;
             }
             _applyClassToAnnotation(ann, _activeAnnotationClassId);
@@ -6896,12 +6896,16 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'Quanti IHC', variant: 'KI_67',   label: 'Quanti IHC · KI-67' },
     { model: 'VS IHC',      variant: 'ihc_membrane', label: 'VS IHC (Virtual Stain)', mpp: true },
 ];
-const VS_MPP_CHOICES = [
-    { value: 4.0, label: '4.0 µm/px (x2.5)' },
-    { value: 2.0, label: '2.0 µm/px (x5)' },
-    { value: 1.0, label: '1.0 µm/px (x10)' },
-    { value: 0.5, label: '0.5 µm/px (x20)' },
-];
+const VS_CELL_FIXED_TARGET_MPP = 0.5;
+const VS_DEFAULT_TARGET_MPP = 2.0;
+const VS_MPP_CHOICES = ANNOTATION_PAGE_KIND === 'cell'
+    ? [{ value: VS_CELL_FIXED_TARGET_MPP, label: '0.5 µm/px (x20)' }]
+    : [
+        { value: 4.0, label: '4.0 µm/px (x2.5)' },
+        { value: 2.0, label: '2.0 µm/px (x5)' },
+        { value: 1.0, label: '1.0 µm/px (x10)' },
+        { value: 0.5, label: '0.5 µm/px (x20)' },
+    ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {
     // Load existing settings
@@ -6914,7 +6918,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
     for (const t of (cfg.tasks || [])) {
         if (t.model === 'VS IHC') {
             if (!dict_vs_mpps[t.variant]) dict_vs_mpps[t.variant] = new Set();
-            dict_vs_mpps[t.variant].add(Number(t.target_mpp ?? 2.0));
+            dict_vs_mpps[t.variant].add(Number(t.target_mpp ?? (ANNOTATION_PAGE_KIND === 'cell' ? VS_CELL_FIXED_TARGET_MPP : VS_DEFAULT_TARGET_MPP)));
         } else {
             set_selected.add(`${t.model}::${t.variant}`);
         }
@@ -6981,7 +6985,7 @@ async function openFolderAiConfigDialog(folderPath, folderName) {
                     $sub.hidden = false;
                     const checked = wrap.querySelectorAll('.ai-cfg-mpp:checked');
                     if (checked.length === 0) {
-                        const $def = wrap.querySelector('.ai-cfg-mpp[data-mpp="2"]');
+                        const $def = wrap.querySelector(`.ai-cfg-mpp[data-mpp="${ANNOTATION_PAGE_KIND === 'cell' ? '0.5' : '2'}"]`);
                         if ($def) $def.checked = true;
                     }
                 } else {
@@ -7068,8 +7072,10 @@ async function startVirtualStain(stainType) {
 
     viewer.setDrawMode(null);
 
-    const roiAnns = viewer.annotations.filter(a =>
-        a.visible && a.type !== 'point' && a.coordinates.length >= 3);
+    const ignoreRoiPolygons = ANNOTATION_PAGE_KIND === 'cell' && Boolean(cellPatchWorkflow?.patchFocusActive);
+    const roiAnns = ignoreRoiPolygons
+        ? []
+        : viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
     const roiPolygons = roiAnns.length > 0 ? roiAnns.map(a => a.coordinates) : null;
 
     const targetMpp = _vsMppFromSlider();
@@ -7117,7 +7123,7 @@ async function startVirtualStain(stainType) {
 
 function onVirtualStainComplete(result) {
     const stain = result.stain_type || 'ihc_membrane';
-    const tmpp = result.target_mpp || _vsLastTargetMpp || 2.0;
+    const tmpp = result.target_mpp || _vsLastTargetMpp || _vsMppFromSlider();
     viewer.setVirtualStainOverlay({
         slide_id: currentSlideId,
         stain_type: stain,
@@ -7132,8 +7138,11 @@ function onVirtualStainComplete(result) {
     _setVsToggleState(true, false);
     _setVsSplitState(false, false);
 
-    viewer.clearAnnotations();
-    renderAnnotationPanel();
+    const preservePatchAnnotations = ANNOTATION_PAGE_KIND === 'cell' && Boolean(cellPatchWorkflow?.patchFocusActive);
+    if (!preservePatchAnnotations) {
+        viewer.clearAnnotations();
+        renderAnnotationPanel();
+    }
 
     const tc = result.tissue_count || 0;
     const tot = result.total_patches || 0;
@@ -7145,7 +7154,7 @@ function onVirtualStainComplete(result) {
 }
 
 // Map VS IHC target MPP slider indices to labels.
-const VS_MPP_VALUES = [4.0, 2.0, 1.0, 0.5];
+const VS_MPP_VALUES = [4.0, 2.0, 1.0, VS_CELL_FIXED_TARGET_MPP];
 const VS_MPP_LABELS = [
     '4.0 µm/px (x2.5)',
     '2.0 µm/px (x5)',
@@ -7153,15 +7162,30 @@ const VS_MPP_LABELS = [
     '0.5 µm/px (x20)',
 ];
 function _vsMppFromSlider() {
+    if (ANNOTATION_PAGE_KIND === 'cell') return VS_CELL_FIXED_TARGET_MPP;
     const el = document.querySelector('#vs-target-mpp');
     const idx = el ? parseInt(el.value, 10) : 1;
-    return VS_MPP_VALUES[idx] ?? 2.0;
+    return VS_MPP_VALUES[idx] ?? VS_DEFAULT_TARGET_MPP;
 }
 const $vsMppSlider = document.querySelector('#vs-target-mpp');
 const $vsMppLabel = document.querySelector('#vs-mpp-label');
+if (ANNOTATION_PAGE_KIND === 'cell' && $vsMppSlider) {
+    $vsMppSlider.value = '0';
+    $vsMppSlider.disabled = true;
+}
+if ($vsMppLabel) {
+    $vsMppLabel.textContent = ANNOTATION_PAGE_KIND === 'cell'
+        ? VS_MPP_LABELS[3]
+        : (VS_MPP_LABELS[parseInt($vsMppSlider?.value ?? '1', 10)] || VS_MPP_LABELS[1]);
+}
 $vsMppSlider?.addEventListener('input', () => {
+    if (!$vsMppLabel) return;
+    if (ANNOTATION_PAGE_KIND === 'cell') {
+        $vsMppLabel.textContent = VS_MPP_LABELS[3];
+        return;
+    }
     const idx = parseInt($vsMppSlider.value, 10);
-    if ($vsMppLabel) $vsMppLabel.textContent = VS_MPP_LABELS[idx] || '';
+    $vsMppLabel.textContent = VS_MPP_LABELS[idx] || '';
 });
 
 const VS_PANEL_COLLAPSED_KEY = `mediauto:${ANNOTATION_PAGE_KIND}:vs-panel-collapsed`;

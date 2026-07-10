@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260609-03';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260707-01';
 
 class PatchFocusLayer {
     constructor() {
@@ -917,7 +917,7 @@ export class CellPatchWorkflow {
                     (btn.dataset.step !== 'annotation' || this._labelerPatchWorkflowLocked(patch));
                 btn.disabled = boolLockedForLabeler;
                 if (boolLockedForLabeler) {
-                    btn.title = 'Labeler role can change annotation only before review or termination starts.';
+                    btn.title = 'Labeler role can change annotation while annotation is running or review is rejected.';
                     return;
                 }
                 btn.addEventListener('click', (event) => {
@@ -1039,14 +1039,20 @@ export class CellPatchWorkflow {
         return window.__currentUserRole === 'labeler';
     }
 
-    _canManageWsiPatchRegions() {
+    _isDoctorOrAdminRole() {
         return window.__currentUserRole === 'admin' || window.__currentUserRole === 'doctor';
+    }
+
+    _canManageWsiPatchRegions() {
+        return this._isDoctorOrAdminRole();
     }
 
     canAnnotateSelectedPatch() {
         if (!this.patchFocusActive || !this.selectedPatch) return false;
+        if (this._isDoctorOrAdminRole()) return true;
+        if (!this._isLabelerRole()) return false;
         const patch = this._findPatchRecord(this.selectedPatch) || this.selectedPatch;
-        return this._patchWorkflowStatus(patch).annotation === 'in_progress';
+        return this._labelerCanEditPatchCells(patch);
     }
 
     _notifyPatchViewStateChange() {
@@ -1063,9 +1069,21 @@ export class CellPatchWorkflow {
     }
 
     _labelerPatchWorkflowLocked(patch) {
+        if (this._labelerCanEditPatchCells(patch)) return false;
         const workflow = this._patchWorkflowStatus(patch);
         return !['', 'pending'].includes(String(workflow.review || 'pending')) ||
             !['', 'pending'].includes(String(workflow.termination || 'pending'));
+    }
+
+    _labelerCanEditPatchCells(patch) {
+        const workflow = this._patchWorkflowStatus(patch || {});
+        const annotation = String(workflow.annotation || 'required');
+        const review = String(workflow.review || 'pending');
+        const termination = String(workflow.termination || 'pending');
+        if (termination === 'completed') return false;
+        if (annotation === 'in_progress' && ['', 'pending', 'rejected'].includes(review) && ['', 'pending', 'current'].includes(termination)) return true;
+        if (review === 'rejected' && ['', 'pending', 'current'].includes(termination)) return true;
+        return false;
     }
 
     _derivedWorkflowStatus(status, step) {
@@ -1315,7 +1333,7 @@ export class CellPatchWorkflow {
         if (!this.slideId || !id || !step) return;
         if (this._isLabelerRole()) {
             if (step !== 'annotation' || this._labelerPatchWorkflowLocked(patch)) {
-                this.setStatus('Labeler role can change annotation status only before review or termination starts.');
+                this.setStatus('Labeler role can change annotation while annotation is running or review is rejected.');
                 return;
             }
         }
@@ -1751,7 +1769,7 @@ export class CellPatchWorkflow {
             throw new Error('Patch view is not active.');
         }
         if (!this.canAnnotateSelectedPatch()) {
-            throw new Error('Patch annotation is available only while Annotation is running.');
+            throw new Error('Patch annotation is locked for the current role and workflow state.');
         }
         await this.editor.addAnnotationLabel(annotation);
         this.updatePatch(this.selectedPatch);

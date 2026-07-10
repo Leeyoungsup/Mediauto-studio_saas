@@ -41,8 +41,9 @@ export PYTHONNOUSERSITE=1
 # Background worker CPU policy. Existing environment values win, so operators
 # can still override these per run without editing this file.
 export MEDIAUTO_CPU_TILE="${MEDIAUTO_CPU_TILE:-6}"
-export MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM="${MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM:-4}"
-export MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM="${MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM:-2}"
+export MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM="${MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM:-2}"
+export MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM="${MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM:-1}"
+export TILE_CACHE_QUOTA_BYTES="${TILE_CACHE_QUOTA_BYTES:-1099511627776}"
 
 echo
 echo "============================================================"

@@ -166,7 +166,7 @@ mongod --dbpath /data/db
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 360 | Access Token 수명 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 7 | Refresh Token 수명 |
 | `MAX_UPLOAD_BYTES` | 20 GB | 단일 파일 업로드 상한 |
-| `TILE_CACHE_QUOTA_BYTES` | 50 GB | 타일 디스크 쿼터 (0 이면 janitor 비활성) |
+| `TILE_CACHE_QUOTA_BYTES` | 1 TB | 타일 디스크 쿼터 (0 이면 janitor 비활성) |
 | `CORS_ORIGINS` | "" (same-origin) | 쉼표 구분 origin 목록 |
 | `TRUSTED_PROXIES` | "" (헤더 무시) | 신뢰 프록시 IP — `X-Forwarded-For` 인정 조건 |
 | `UPLOAD_DIR` / `TILES_DIR` / `AI_RESULTS_DIR` | `backend/uploads,tiles,ai_results` | 캐시 위치 오버라이드 |

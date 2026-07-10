@@ -45,6 +45,7 @@ def _env_float(name: str, default: float) -> float:
 VIEWER_RECENT_SECONDS = _env_float("MEDIAUTO_TILE_WORKER_VIEWER_RECENT_SEC", 60.0)
 BUSY_PARALLELISM = _env_int("MEDIAUTO_TILE_WORKER_BUSY_PARALLELISM", 1)
 IDLE_PARALLELISM = _env_int("MEDIAUTO_TILE_WORKER_IDLE_PARALLELISM", max(1, min(INT_TILE, 2)))
+VALIDATE_PER_SCAN = _env_int("MEDIAUTO_TILE_WORKER_VALIDATE_PER_SCAN", 12)
 
 _worker_task: Optional[asyncio.Task] = None
 _int_scan_count = 0
@@ -57,7 +58,7 @@ def _adaptive_parallelism(int_pending: int) -> int:
     return max(1, min(int_pending, INT_TILE, int_target))
 
 
-async def _process_one_slide(dict_slide: dict) -> bool:
+async def _process_one_slide(dict_slide: dict, bool_allow_generate: bool = True) -> bool:
     """text text text — text(True) text True, skip text text False."""
     from app import tile_generator, slide_store
 
@@ -90,6 +91,9 @@ async def _process_one_slide(dict_slide: dict) -> bool:
         print(f"[tile_worker] generation already running, skip: {str_filename}")
         return False
 
+    if not bool_allow_generate:
+        return False
+
     # 3) text text stale → text tile dir text text text
     #    (text tile text text text _generate_tiles text text text text
     #     text text text ICC text text text.)
@@ -107,6 +111,40 @@ async def _process_one_slide(dict_slide: dict) -> bool:
         return True
     print(f"[tile_worker] generation did not produce valid tiles: {str_filename}")
     return False
+
+
+async def _check_one_slide(dict_slide: dict) -> str:
+    """Sync DB for missing/valid tiles without starting generation."""
+    from app import tile_generator, slide_store
+
+    str_full_path = dict_slide.get("str_full_path") or ""
+    str_filename = dict_slide.get("str_filename") or ""
+    str_rel_path = dict_slide.get("str_rel_path") or ""
+
+    if not str_full_path or not Path(str_full_path).exists():
+        print(f"[tile_worker] file missing, marking ready: {str_filename} ({str_full_path})")
+        await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
+        return "ready"
+
+    loop = asyncio.get_running_loop()
+    try:
+        bool_valid = await loop.run_in_executor(
+            _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
+        )
+    except Exception as e:
+        print(f"[tile_worker] tiles_are_valid error {str_filename}: {e}")
+        bool_valid = False
+
+    if bool_valid:
+        print(f"[tile_worker] marker valid, syncing DB: {str_filename}")
+        await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
+        return "ready"
+
+    if tile_generator.is_generation_running(str_filename, str_full_path):
+        print(f"[tile_worker] generation already running, skip: {str_filename}")
+        return "running"
+
+    return "needs_generation"
 
 
 async def _startup_validate_all() -> None:
@@ -177,11 +215,25 @@ async def _scan_once() -> None:
         f"[tile_worker] {len(list_pending)} slide(s) pending tile generation "
         f"(parallelism={int_parallelism})"
     )
-    list_batch = list_pending[:int_parallelism]
-    list_results = await asyncio.gather(
-        *(_process_one_slide(dict_slide) for dict_slide in list_batch),
-        return_exceptions=True,
-    )
+    int_validate_limit = max(int_parallelism, VALIDATE_PER_SCAN)
+    list_to_generate: list[dict] = []
+    list_results = []
+
+    for dict_slide in list_pending[:int_validate_limit]:
+        try:
+            str_status = await _check_one_slide(dict_slide)
+        except Exception as e:
+            list_results.append(e)
+            continue
+        if str_status == "needs_generation" and len(list_to_generate) < int_parallelism:
+            list_to_generate.append(dict_slide)
+
+    if list_to_generate:
+        list_results.extend(await asyncio.gather(
+            *(_process_one_slide(dict_slide, True) for dict_slide in list_to_generate),
+            return_exceptions=True,
+        ))
+
     for result in list_results:
         if isinstance(result, Exception):
             import traceback

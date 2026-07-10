@@ -270,6 +270,20 @@ def _patch_workflow_fields(status: str) -> dict:
     }
 
 
+def _labeler_can_edit_patch_cells(patch: dict | None) -> bool:
+    """Labelers may edit during annotation or after review rejection."""
+    patch = patch or {}
+    review_state = str(patch.get("str_review_status") or "pending")
+    termination_state = str(patch.get("str_termination_status") or "pending")
+    if termination_state == "completed":
+        return False
+    if review_state in ("", "pending"):
+        return termination_state in ("", "pending")
+    if review_state == "rejected":
+        return termination_state in ("", "pending", "current")
+    return False
+
+
 def _patch_doc(slide_id: str, px: int, py: int, status: str, info, user: dict, patch_id: str = "") -> dict:
     patch_size = _patch_slide_size(info)
     x0 = px * patch_size
@@ -1566,10 +1580,8 @@ async def save_patch_cells(
     if not patch:
         raise HTTPException(404, "Patch not found")
     if user.get("str_role") == UserRole.LABELER.value:
-        review_state = str(patch.get("str_review_status") or "pending")
-        termination_state = str(patch.get("str_termination_status") or "pending")
-        if review_state not in ("", "pending") or termination_state not in ("", "pending"):
-            raise HTTPException(403, "Patch annotations are locked after review or termination starts")
+        if not _labeler_can_edit_patch_cells(patch):
+            raise HTTPException(403, "Patch annotations are locked except during annotation or review rejection")
     raw_cells = payload.get("cells", [])
     if not isinstance(raw_cells, list):
         raise HTTPException(400, "cells must be a list")
@@ -1650,10 +1662,8 @@ async def update_patch_status(
             raise HTTPException(403, "Labeler role cannot change patch memo")
         if "review_status" in payload or "termination_status" in payload:
             raise HTTPException(403, "Labeler role cannot change review or termination status")
-        review_state = str((existing or {}).get("str_review_status") or "pending")
-        termination_state = str((existing or {}).get("str_termination_status") or "pending")
-        if review_state not in ("", "pending") or termination_state not in ("", "pending"):
-            raise HTTPException(403, "Annotation status is locked after review or termination starts")
+        if not _labeler_can_edit_patch_cells(existing):
+            raise HTTPException(403, "Annotation status is locked except during annotation or review rejection")
         annotation_state = str(payload.get("annotation_status") or status).strip()
         if annotation_state not in {"required", "in_progress", "completed"}:
             raise HTTPException(403, "Labeler role can only change annotation status")
@@ -1690,8 +1700,15 @@ async def update_patch_status(
     if "memo_history" in payload:
         doc["list_memo_history"] = _normalize_memo_history(payload.get("memo_history"))
     if bool_labeler:
-        doc["str_review_status"] = str((existing or {}).get("str_review_status") or "pending")
-        doc["str_termination_status"] = str((existing or {}).get("str_termination_status") or "pending")
+        annotation_state = str(payload.get("annotation_status") or status).strip()
+        existing_review = str((existing or {}).get("str_review_status") or "pending")
+        existing_termination = str((existing or {}).get("str_termination_status") or "pending")
+        if existing_review == "rejected" and annotation_state in {"required", "in_progress"}:
+            doc["str_review_status"] = "pending"
+            doc["str_termination_status"] = "pending"
+        else:
+            doc["str_review_status"] = existing_review
+            doc["str_termination_status"] = existing_termination
     now = _now()
     await db.patch_annotation_status.update_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},

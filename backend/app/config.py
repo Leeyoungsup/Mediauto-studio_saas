@@ -95,13 +95,13 @@ class Settings:
     TILE_FORMAT: str = "JPEG"  # JPEGtext PNGtext text text
     TILE_QUALITY: int = 85
 
-    # text text text text (text, text 50 GB). 0 text janitor text.
+    # text text text text (text, text 1 TB). 0 text janitor text.
     # janitor text text TILES_DIR text text, text text LRU
     # text text text text text text + DB text text.
     # text slide_manager text text text (text) text text.
     TILE_CACHE_QUOTA_BYTES: int = int(os.environ.get(
         "TILE_CACHE_QUOTA_BYTES",
-        str(50 * 1024 * 1024 * 1024),
+        str(1024 * 1024 * 1024 * 1024),
     ))
 
     # text text text
