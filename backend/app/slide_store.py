@@ -563,6 +563,11 @@ async def repair_folder_ai_config_paths() -> int:
             if path_candidate.exists() and path_candidate.is_dir():
                 list_candidates.append(f"{path_project.name}/{str_old_path}")
 
+        if not list_candidates and str_old_path.startswith("SS/"):
+            str_without_legacy_prefix = _norm_rel_path(str_old_path[3:])
+            if str_without_legacy_prefix and (upload_root / str_without_legacy_prefix).exists():
+                list_candidates.append(str_without_legacy_prefix)
+
         if len(list_candidates) != 1:
             continue
 

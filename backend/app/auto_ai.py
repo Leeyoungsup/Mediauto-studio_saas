@@ -489,6 +489,10 @@ async def _scan_and_infer_once() -> None:
     int_scanned = 0    # text text text text text (text hit + text + text text)
     int_inferred = 0   # text text text text text
     int_tile_deferred = 0
+    int_marker_candidates = 0
+    int_vs_candidates = 0
+    int_vs_cache_hits = 0
+    int_missing_file = 0
 
     for dict_cfg in list_configs:
         str_rel_path = dict_cfg.get("str_rel_path", "")
@@ -526,12 +530,18 @@ async def _scan_and_infer_once() -> None:
             for dict_slide in list_candidates:
                 str_full_path = dict_slide.get("str_full_path") or ""
                 if not str_full_path or not Path(str_full_path).exists():
+                    int_missing_file += 1
                     continue
 
                 int_scanned += 1
+                if str_model in ("VS IHC", "VS-IHC"):
+                    int_vs_candidates += 1
+                else:
+                    int_marker_candidates += 1
 
                 if str_model in ("VS IHC", "VS-IHC") and _vs_cache_exists(str_full_path, float_target_mpp):
                     # text text → text text (text X)
+                    int_vs_cache_hits += 1
                     continue
 
                 # text text text idle text — text text / text text text
@@ -564,13 +574,16 @@ async def _scan_and_infer_once() -> None:
     elif int_scanned > 0:
         _log_throttled(
             "scan_summary",
-            f"[auto_ai] cycle scanned {int_scanned} candidate(s), no inference needed",
+            f"[auto_ai] cycle scanned {int_scanned} candidate(s), no inference needed "
+            f"(marker={int_marker_candidates}, vs={int_vs_candidates}, "
+            f"vs_cache_hit={int_vs_cache_hits}, missing_file={int_missing_file})",
             SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
         )
     else:
         _log_throttled(
             "scan_summary",
-            f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s)",
+            f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s) "
+            f"(missing_file={int_missing_file})",
             SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
         )
 
