@@ -12,6 +12,7 @@ Claude.md text text (str_/int_/bool_/list_/dict_/dt_ text).
 
 import asyncio
 import json
+import os
 import re
 import threading
 import time
@@ -27,13 +28,35 @@ from app.slide_identity import slide_cache_key
 IDLE_THRESHOLD_SECONDS = 600   # 10text text AI text text → idle
 SCAN_INTERVAL_SECONDS = 60     # 1text text
 STARTUP_SCAN_DELAY_SECONDS = 5
+SCAN_STALE_CACHES = os.environ.get(
+    "MEDIAUTO_AUTO_AI_SCAN_STALE_CACHES", ""
+).lower() in ("1", "true", "yes")
+IDLE_BLOCK_LOG_INTERVAL_SECONDS = 600
+SCAN_SUMMARY_LOG_INTERVAL_SECONDS = 600
 
 # ── text text text text ──
 _activity_lock = threading.Lock()
-_last_ai_activity_ts: float = 0.0   # 0 → "idle" text text text startup text now text text
+_last_ai_activity_ts: float = time.monotonic() - IDLE_THRESHOLD_SECONDS
 _upload_in_progress: int = 0
 _worker_task: Optional[asyncio.Task] = None
 _marker_cache_quality_cache: dict = {}
+_last_idle_block_log_ts: float = 0.0
+_last_scan_summary_log_ts: float = 0.0
+
+
+def _log_throttled(str_key: str, str_message: str, float_interval: float) -> None:
+    """Print noisy worker diagnostics at most once per interval."""
+    global _last_idle_block_log_ts, _last_scan_summary_log_ts
+    float_now = time.monotonic()
+    if str_key == "idle_block":
+        if _last_idle_block_log_ts + float_interval > float_now:
+            return
+        _last_idle_block_log_ts = float_now
+    elif str_key == "scan_summary":
+        if _last_scan_summary_log_ts + float_interval > float_now:
+            return
+        _last_scan_summary_log_ts = float_now
+    print(str_message)
 
 
 # ═══════════════════════════
@@ -80,15 +103,54 @@ def is_system_idle() -> bool:
     text text text. text reservation text check_idle_and_reserve() text text text.
     """
     with _activity_lock:
+        int_uploads = _upload_in_progress
+        float_idle_for = time.monotonic() - _last_ai_activity_ts
         if not _is_activity_idle_nolock():
+            if int_uploads > 0:
+                _log_throttled(
+                    "idle_block",
+                    f"[auto_ai] idle blocked: upload in progress ({int_uploads})",
+                    IDLE_BLOCK_LOG_INTERVAL_SECONDS,
+                )
+            else:
+                _log_throttled(
+                    "idle_block",
+                    f"[auto_ai] idle blocked: recent AI activity {float_idle_for:.0f}s ago "
+                    f"(threshold {IDLE_THRESHOLD_SECONDS}s)",
+                    IDLE_BLOCK_LOG_INTERVAL_SECONDS,
+                )
             return False
 
     try:
         from app.routers import ai as ai_router
         with ai_router._tasks_lock:
+            list_active_tasks = []
             for dict_task in ai_router._tasks.values():
                 if dict_task.get("status") in ("queued", "running"):
-                    return False
+                    list_active_tasks.append(dict_task)
+            if list_active_tasks:
+                list_desc = []
+                float_now = time.time()
+                for dict_task in list_active_tasks[:5]:
+                    float_created = float(
+                        dict_task.get("created_at")
+                        or dict_task.get("updated_at")
+                        or float_now
+                    )
+                    list_desc.append(
+                        f"{dict_task.get('status')} "
+                        f"{dict_task.get('model') or '?'}"
+                        f"/{dict_task.get('variant') or '?'} "
+                        f"{dict_task.get('slide_filename') or '?'} "
+                        f"age={float_now - float_created:.0f}s"
+                    )
+                _log_throttled(
+                    "idle_block",
+                    f"[auto_ai] idle blocked: {len(list_active_tasks)} active AI task(s): "
+                    + "; ".join(list_desc),
+                    IDLE_BLOCK_LOG_INTERVAL_SECONDS,
+                )
+                return False
     except Exception:
         pass
 
@@ -157,6 +219,8 @@ async def _run_auto_inference(
         "slide_filename": str_filename,
         "model": str_model,
         "variant": str_variant,
+        "created_at": time.time(),
+        "updated_at": time.time(),
     }
     # text idle text + text. text task text text text text text abort.
     if not check_idle_and_reserve(str_task_id, dict_initial):
@@ -452,9 +516,11 @@ async def _scan_and_infer_once() -> None:
                 list_missing_candidates = await slide_store.list_slides_missing_variant(
                     str_rel_path, str_model, str_variant
                 )
-                list_stale_candidates = await _stale_marker_cache_candidates(
-                    str_rel_path, str_model, str_variant
-                )
+                list_stale_candidates = []
+                if SCAN_STALE_CACHES:
+                    list_stale_candidates = await _stale_marker_cache_candidates(
+                        str_rel_path, str_model, str_variant
+                    )
                 list_candidates = _merge_slide_candidates(list_missing_candidates, list_stale_candidates)
 
             for dict_slide in list_candidates:
@@ -495,6 +561,18 @@ async def _scan_and_infer_once() -> None:
         print(f"[auto_ai] cycle done — {int_inferred}/{int_scanned} inferred")
     elif int_tile_deferred > 0:
         print(f"[auto_ai] tile generation pending for {int_tile_deferred}/{int_scanned} candidate(s) — skipped this cycle")
+    elif int_scanned > 0:
+        _log_throttled(
+            "scan_summary",
+            f"[auto_ai] cycle scanned {int_scanned} candidate(s), no inference needed",
+            SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
+        )
+    else:
+        _log_throttled(
+            "scan_summary",
+            f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s)",
+            SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
+        )
 
 
 async def _worker_loop() -> None:

@@ -223,6 +223,27 @@ def source_signature_matches(payload: dict, slide, file_path: str) -> bool:
     return True
 
 
+def source_marker_matches_file_stat(payload: dict, file_path: str) -> bool:
+    """Fast source check that does not open the WSI.
+
+    Startup tile validation uses this to avoid deep OpenSlide/ICC checks across
+    every cached slide.  Deep validation remains in tiles_are_valid().
+    """
+    cached = payload.get("source")
+    if not isinstance(cached, dict):
+        return False
+    try:
+        path = Path(file_path)
+        stat = path.stat()
+    except Exception:
+        return False
+    return (
+        cached.get("filename") == path.name
+        and cached.get("size") == int(stat.st_size)
+        and cached.get("mtime_ns") == int(stat.st_mtime_ns)
+    )
+
+
 def read_complete_marker(filename: str, file_path: str = "") -> Optional[dict]:
     """text JSON text text text. text text/textJSON(legacy touch)/text text text None."""
     if not file_path:
@@ -308,6 +329,19 @@ def tiles_are_valid(filename: str, file_path: str) -> bool:
     # text text text. text text text text text valid text text.
     # text(PIL/openslide)text text text text text text tile dir text text text.
     return True
+
+
+def tiles_marker_matches_file(filename: str, file_path: str) -> bool:
+    """Return True when .complete matches cheap file identity fields only."""
+    tiles_dir = get_tiles_dir_for_path(file_path)
+    if not tiles_dir.exists():
+        return False
+    dict_marker = read_complete_marker(filename, file_path)
+    if dict_marker is None:
+        return False
+    if dict_marker.get("version") != COMPLETE_MARKER_VERSION:
+        return False
+    return source_marker_matches_file_stat(dict_marker, file_path)
 
 
 def invalidate_tiles(filename: str, file_path: str = "") -> None:

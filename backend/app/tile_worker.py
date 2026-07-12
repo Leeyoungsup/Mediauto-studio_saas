@@ -148,12 +148,11 @@ async def _check_one_slide(dict_slide: dict) -> str:
 
 
 async def _startup_validate_all() -> None:
-    """text text 1text: DB text text text text .complete text text.
+    """Fast startup pass: sync DB from .complete marker/file stat only.
 
-    `bool_tiles_ready=True` text text text text stale/legacy/ICC text text
-    text tile dir text text DB text False text text text text text
-    text text text. DB text text tiles text text (text text text) text
-    text text text.
+    Deep OpenSlide/ICC validation is intentionally skipped here so server
+    startup does not open every cached WSI.  Full validation still happens in
+    tile_generator.tiles_are_valid() before reuse/generation paths that need it.
     """
     from app.database import is_db_connected, get_db
     from app import tile_generator, slide_store
@@ -183,7 +182,10 @@ async def _startup_validate_all() -> None:
             continue
         try:
             bool_valid = await loop.run_in_executor(
-                _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
+                _bg_executor,
+                tile_generator.tiles_marker_matches_file,
+                str_filename,
+                str_full_path,
             )
         except Exception as e:
             print(f"[tile_worker] validate error {str_filename}: {e}")

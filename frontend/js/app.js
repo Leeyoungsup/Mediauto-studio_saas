@@ -522,95 +522,31 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     setProgress(0);
 }
 
+function _restoreManualAiControls() {
+    $btnDetect.disabled = false;
+    $btnVsMembrane.disabled = false;
+    if ($btnPdScore) $btnPdScore.disabled = false;
+    if ($btnIhcHer2) $btnIhcHer2.disabled = false;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = false;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = false;
+    document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
+        el.disabled = false;
+    });
+    document.querySelectorAll('.tab-btn[data-tab], .tab-content').forEach(el => {
+        el.style.display = '';
+    });
+    if (!document.querySelector('.tab-btn.active[data-tab]')) {
+        const el_btn = document.querySelector('.tab-btn[data-tab="hne-tab"]');
+        const el_content = document.getElementById('hne-tab');
+        if (el_btn) el_btn.classList.add('active');
+        if (el_content) el_content.classList.add('active');
+    }
+}
+
 async function _applyFolderAiRestrictions(strFolderPath) {
     if (_isViewerRole()) return;
-
-    let cfg = null;
-    try {
-        cfg = await api.getFolderAiConfig(strFolderPath || '');
-    } catch (err) {
-        console.warn('[folder-ai-restrict] load failed:', err);
-        return;
-    }
-    if (_isViewerRole()) return;
-
-    if (!cfg || !cfg.enabled || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
-        return;
-    }
-
-    const set_allowed = new Set();
-    for (const t of cfg.tasks) {
-        if (t && t.model && t.variant) set_allowed.add(`${t.model}::${t.variant}`);
-    }
-
-    const _restrictRadios = (strName, strModel) => {
-        const list_radios = document.querySelectorAll(`input[name="${strName}"]`);
-        let bool_first_ok = null;
-        let bool_current_ok = false;
-        list_radios.forEach(el => {
-            const bool_ok = set_allowed.has(`${strModel}::${el.value}`);
-            el.disabled = !bool_ok;
-            if (bool_ok && bool_first_ok === null) bool_first_ok = el;
-            if (bool_ok && el.checked) bool_current_ok = true;
-        });
-        if (!bool_current_ok && bool_first_ok) {
-            bool_first_ok.checked = true;
-            bool_first_ok.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        return bool_first_ok !== null;
-    };
-
-    // Quanti HE
-    const bool_hnf_any = _restrictRadios('tissue-type', 'Quanti HE');
-    $btnDetect.disabled = !bool_hnf_any;
-
-    // Quanti PD-L1
-    const bool_pd_any = _restrictRadios('pd-tissue-type', 'Quanti PD-L1');
-    if ($btnPdScore) $btnPdScore.disabled = !bool_pd_any;
-
-    if ($btnIhcHer2) $btnIhcHer2.disabled = !set_allowed.has('Quanti IHC::HER2');
-    if ($btnIhcErPr) $btnIhcErPr.disabled = !set_allowed.has('Quanti IHC::ER_PR');
-    if ($btnIhcKi67) $btnIhcKi67.disabled = !set_allowed.has('Quanti IHC::KI_67');
-
-    const bool_vs_any = set_allowed.has('VS IHC::ihc_membrane');
-    $btnVsMembrane.disabled = !bool_vs_any;
-
-    const dict_tab_visible = {
-        'hne-tab': bool_hnf_any,
-        'vs-tab': bool_vs_any,
-        'pd-tab': bool_pd_any,
-        'ihc-tab': !!(
-            set_allowed.has('Quanti IHC::HER2') ||
-            set_allowed.has('Quanti IHC::ER_PR') ||
-            set_allowed.has('Quanti IHC::KI_67')
-        ),
-    };
-
-    let str_first_visible = null;
-    for (const [str_tab_id, bool_show] of Object.entries(dict_tab_visible)) {
-        const el_btn = document.querySelector(`.tab-btn[data-tab="${str_tab_id}"]`);
-        const el_content = document.getElementById(str_tab_id);
-        if (el_btn) {
-            el_btn.style.display = bool_show ? '' : 'none';
-            el_btn.classList.remove('active');
-        }
-        if (el_content) {
-            el_content.classList.remove('active');
-            el_content.style.display = bool_show ? '' : 'none';
-        }
-        if (bool_show && !str_first_visible) str_first_visible = str_tab_id;
-    }
-
-    // Activate the first visible tab.
-    if (str_first_visible) {
-        const el_new_btn = document.querySelector(`.tab-btn[data-tab="${str_first_visible}"]`);
-        const el_new_content = document.getElementById(str_first_visible);
-        if (el_new_btn) el_new_btn.classList.add('active');
-        if (el_new_content) {
-            el_new_content.style.display = '';
-            el_new_content.classList.add('active');
-        }
-    }
+    void strFolderPath;
+    _restoreManualAiControls();
 }
 
 function _applyViewerRoleRestrictions() {
