@@ -203,14 +203,49 @@ if ($mousePosOverlay) {
         });
 }
 
-// Tab switching.
-document.querySelectorAll('.tab-btn').forEach(btn => {
+// AI Analysis topic/model switching.
+const $quantiModelBar = document.querySelector('.quanti-model-bar');
+
+function _setActiveAiContent(str_tab_id) {
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    const el_content = document.getElementById(str_tab_id);
+    if (el_content) el_content.classList.add('active');
+}
+
+function _setActiveQuantiTab(str_tab_id) {
+    document.querySelectorAll('.quanti-model-bar .tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === str_tab_id);
+    });
+    _setActiveAiContent(str_tab_id);
+}
+
+function _setActiveAiTopic(str_topic, str_tab_id = '') {
+    document.querySelectorAll('.ai-topic-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.aiTopic === str_topic);
+    });
+    if ($quantiModelBar) $quantiModelBar.hidden = str_topic !== 'quanti';
+
+    if (str_topic === 'quanti') {
+        const str_next_tab = str_tab_id || document.querySelector('.quanti-model-bar .tab-btn.active')?.dataset.tab || 'hne-tab';
+        _setActiveQuantiTab(str_next_tab);
+        return;
+    }
+
+    const str_next_tab = str_tab_id || document.querySelector(`.ai-topic-btn[data-ai-topic="${str_topic}"]`)?.dataset.tab || 'vs-tab';
+    _setActiveAiContent(str_next_tab);
+}
+
+document.querySelectorAll('.ai-topic-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if (btn.disabled) return;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        btn.classList.add('active');
-        $(`#${btn.dataset.tab}`).classList.add('active');
+        _setActiveAiTopic(btn.dataset.aiTopic || 'virtualstain', btn.dataset.tab || '');
+    });
+});
+
+document.querySelectorAll('.quanti-model-bar .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        _setActiveAiTopic('quanti', btn.dataset.tab);
     });
 });
 
@@ -220,7 +255,7 @@ const AI_MODEL_HELP = {
         body: 'Detects individual cells on H&E slides and classifies them into supported cell categories. Breast, Stomach, and Other presets tune the downstream scoring context. Other/background classes are kept out of scoring unless they are explicitly promoted into a visible result class.',
     },
     'vs-tab': {
-        title: 'VS IHC - Virtual Staining',
+        title: 'VirtualStain - VS IHC',
         body: 'Generates a virtual H&E image from an IHC slide. Target Resolution controls the output scale: lower microns per pixel gives finer detail with higher compute cost. Results can be reviewed as an overlay or with split view against the original slide.',
     },
     'pd-tab': {
@@ -231,13 +266,21 @@ const AI_MODEL_HELP = {
         title: 'Quanti IHC - HER2 / ER / PR / KI-67',
         body: 'Classifies IHC-positive and IHC-negative result cells for marker-specific scoring. HER2 is summarized from intensity classes, ER/PR use Allred-style proportion and intensity scoring, and KI-67 reports a labeling index based on positive over total counted cells.',
     },
+    'dx-tab': {
+        title: 'Dx',
+        body: 'Diagnostic AI models can be added here.',
+    },
+    'px-tab': {
+        title: 'Px',
+        body: 'Prognostic or predictive AI models can be added here.',
+    },
 };const $aiHelpIcon = document.querySelector('#ai-help-icon');
 let _aiHelpTooltip = null;
 function _showAiHelpTooltip() {
     if (!$aiHelpIcon) return;
-    const activeBtn = document.querySelector('.tab-btn.active');
-    const key = activeBtn ? activeBtn.dataset.tab : 'hne-tab';
-    const info = AI_MODEL_HELP[key] || AI_MODEL_HELP['hne-tab'];
+    const activeContent = document.querySelector('.ai-analysis-group .tab-content.active');
+    const key = activeContent ? activeContent.id : 'vs-tab';
+    const info = AI_MODEL_HELP[key] || AI_MODEL_HELP['vs-tab'];
     if (!_aiHelpTooltip) {
         _aiHelpTooltip = document.createElement('div');
         _aiHelpTooltip.className = 'ai-help-tooltip';
@@ -532,14 +575,17 @@ function _restoreManualAiControls() {
     document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
         el.disabled = false;
     });
-    document.querySelectorAll('.tab-btn[data-tab], .tab-content').forEach(el => {
+    document.querySelectorAll('.ai-topic-btn, .tab-btn[data-tab], .tab-content').forEach(el => {
         el.style.display = '';
     });
-    if (!document.querySelector('.tab-btn.active[data-tab]')) {
-        const el_btn = document.querySelector('.tab-btn[data-tab="hne-tab"]');
-        const el_content = document.getElementById('hne-tab');
-        if (el_btn) el_btn.classList.add('active');
-        if (el_content) el_content.classList.add('active');
+    if ($quantiModelBar && !document.querySelector('.ai-topic-btn.active[data-ai-topic="quanti"]')) {
+        $quantiModelBar.hidden = true;
+    }
+    if (!document.querySelector('.ai-topic-btn.active')) {
+        _setActiveAiTopic('virtualstain', 'vs-tab');
+    } else if (!document.querySelector('.ai-analysis-group .tab-content.active')) {
+        const activeTopic = document.querySelector('.ai-topic-btn.active');
+        _setActiveAiTopic(activeTopic.dataset.aiTopic || 'virtualstain', activeTopic.dataset.tab || '');
     }
 }
 

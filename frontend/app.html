@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260527-06">
+    <link rel="stylesheet" href="css/style.css?v=20260713-01">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -370,26 +370,21 @@
                 </div>
 
                 <!-- text text -->
-                <div class="tab-bar">
+                <div class="ai-topic-bar">
+                    <button class="ai-topic-btn active" data-ai-topic="virtualstain" data-tab="vs-tab">VirtualStain</button>
+                    <button class="ai-topic-btn" data-ai-topic="quanti">Quanti</button>
+                    <button class="ai-topic-btn" data-ai-topic="dx" data-tab="dx-tab">Dx</button>
+                    <button class="ai-topic-btn" data-ai-topic="px" data-tab="px-tab">Px</button>
+                </div>
+
+                <div class="tab-bar quanti-model-bar" hidden>
                     <button class="tab-btn active" data-tab="hne-tab">Quanti HE</button>
-                    <button class="tab-btn" data-tab="vs-tab">VS IHC</button>
                     <button class="tab-btn" data-tab="pd-tab">Quanti PD-L1</button>
                     <button class="tab-btn" data-tab="ihc-tab">Quanti IHC</button>
                 </div>
 
-                <!-- Quanti HE text -->
-                <div id="hne-tab" class="tab-content active">
-                    <div class="sub-group">
-                        <div class="sub-header">Tissue Type</div>
-                        <label class="radio-item"><input type="radio" name="tissue-type" value="Breast"> Breast</label>
-                        <label class="radio-item"><input type="radio" name="tissue-type" value="Stomach" checked> Stomach</label>
-                        <label class="radio-item"><input type="radio" name="tissue-type" value="Other"> Other</label>
-                    </div>
-                    <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
-                </div>
-
                 <!-- VS IHC text -->
-                <div id="vs-tab" class="tab-content">
+                <div id="vs-tab" class="tab-content active">
                     <div class="sub-group">
                         <div class="sub-header">
                             Target Resolution
@@ -413,6 +408,17 @@
                         <span class="toggle-pill-knob"></span>
                         <span class="toggle-pill-label">Split View (IHC | Virtual H&amp;E)</span>
                     </button>
+                </div>
+
+                <!-- Quanti HE text -->
+                <div id="hne-tab" class="tab-content">
+                    <div class="sub-group">
+                        <div class="sub-header">Tissue Type</div>
+                        <label class="radio-item"><input type="radio" name="tissue-type" value="Breast"> Breast</label>
+                        <label class="radio-item"><input type="radio" name="tissue-type" value="Stomach" checked> Stomach</label>
+                        <label class="radio-item"><input type="radio" name="tissue-type" value="Other"> Other</label>
+                    </div>
+                    <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
                 </div>
 
                 <!-- Quanti PD-L1 text -->
@@ -450,6 +456,18 @@
                         </div>
                         <div class="score-bar" id="ihc-score-bar"></div>
                         <div class="score-card-detail" id="ihc-score-detail"></div>
+                    </div>
+                </div>
+
+                <div id="dx-tab" class="tab-content">
+                    <div class="ai-empty-state">
+                        <span>Dx</span>
+                    </div>
+                </div>
+
+                <div id="px-tab" class="tab-content">
+                    <div class="ai-empty-state">
+                        <span>Px</span>
                     </div>
                 </div>
             </div>
@@ -639,6 +657,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260708-01"></script>
+    <script type="module" src="js/app.js?v=20260713-01"></script>
 </body>
 </html>

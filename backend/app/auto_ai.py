@@ -513,9 +513,19 @@ async def _scan_and_infer_once() -> None:
                     float_target_mpp = float(dict_task.get("target_mpp", 2.0))
                 except (TypeError, ValueError):
                     float_target_mpp = 2.0
-                # VS IHC text per-mpp text DB text base text text text text text text
+                # VS IHC is tracked by per-mpp cache files, so build candidates
+                # only for slides that actually need generation.
                 dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
-                list_candidates = list(dict_slides.values())
+                list_candidates = []
+                for dict_slide in dict_slides.values():
+                    str_full_path = dict_slide.get("str_full_path") or ""
+                    if not str_full_path or not Path(str_full_path).exists():
+                        int_missing_file += 1
+                        continue
+                    if _vs_cache_exists(str_full_path, float_target_mpp):
+                        int_vs_cache_hits += 1
+                        continue
+                    list_candidates.append(dict_slide)
             else:
                 list_missing_candidates = await slide_store.list_slides_missing_variant(
                     str_rel_path, str_model, str_variant
@@ -583,7 +593,7 @@ async def _scan_and_infer_once() -> None:
         _log_throttled(
             "scan_summary",
             f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s) "
-            f"(missing_file={int_missing_file})",
+            f"(vs_cache_hit={int_vs_cache_hits}, missing_file={int_missing_file})",
             SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
         )
 

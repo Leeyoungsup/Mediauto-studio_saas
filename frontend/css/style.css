@@ -1652,6 +1652,7 @@ body.right-panel-collapsed #right-panel-resizer.dragging {
     transform: rotate(-90deg);
 }
 .ai-analysis-group.vs-panel-collapsed .tab-bar,
+.ai-analysis-group.vs-panel-collapsed .ai-topic-bar,
 .ai-analysis-group.vs-panel-collapsed .tab-content {
     display: none !important;
 }
@@ -1706,6 +1707,7 @@ body.role-viewer .annotation-group::after {
     text-align: center;
 }
 body.role-viewer #right-panel .panel-group:first-child .tab-bar,
+body.role-viewer #right-panel .panel-group:first-child .ai-topic-bar,
 body.role-viewer #right-panel .panel-group:first-child .tab-content {
     pointer-events: none;
 }
@@ -1728,6 +1730,10 @@ body.annotation-page .ai-analysis-group .tab-bar {
 
 body.annotation-page .ai-analysis-group .tab-btn[data-tab="vs-tab"] {
     display: block !important;
+}
+
+body.annotation-page .ai-analysis-group .ai-topic-btn:not([data-ai-topic="virtualstain"]) {
+    display: none !important;
 }
 
 body.annotation-page #right-panel {
@@ -2124,11 +2130,44 @@ body.annotation-page .project-gate-row {
 }
 
 /* ═══ text text ═══ */
+.ai-topic-bar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+    background: var(--bg-white);
+    border-bottom: 1px solid var(--border-light);
+}
+.ai-topic-btn {
+    min-width: 0;
+    height: 30px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-light);
+    color: var(--text-dim);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.ai-topic-btn:hover:not(:disabled) {
+    color: var(--accent);
+    background: #fff;
+    border-color: rgba(108, 92, 231, 0.28);
+}
+.ai-topic-btn.active {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 2px 6px rgba(108, 92, 231, 0.26);
+}
+.ai-topic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .tab-bar {
     display: flex; background: var(--bg-light);
     border-bottom: 1px solid var(--border-light);
     padding: 4px; gap: 2px;
 }
+.quanti-model-bar[hidden] { display: none; }
 .tab-btn {
     flex: 1; padding: 7px 0; border: none;
     background: transparent; color: var(--text-dim);
@@ -2145,6 +2184,19 @@ body.annotation-page .project-gate-row {
 
 .tab-content { display: none; padding: 12px 14px; }
 .tab-content.active { display: block; }
+
+.ai-empty-state {
+    min-height: 92px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-light);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 700;
+}
 
 /* text text */
 .sub-group { margin-bottom: 12px; }
