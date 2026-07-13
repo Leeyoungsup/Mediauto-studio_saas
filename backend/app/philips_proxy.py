@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PHILIPS_CLI = BACKEND_DIR / "philips_bridge" / "philips_cli.py"
 PHILIPS_SERVER = BACKEND_DIR / "philips_bridge" / "philips_server.py"
-PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", "philips-sdk-py37")
+PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", "philips-sdk-py38")
 PHILIPS_PYTHON = os.environ.get("PHILIPS_PYTHON", "").strip()
 PHILIPS_VIEW = os.environ.get("PHILIPS_VIEW", "display").strip() or "display"
 PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
@@ -53,7 +53,11 @@ def _find_conda_env_python() -> str:
     candidates: list[Path] = []
     conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
     if conda_prefix:
+        candidates.append(Path(conda_prefix).parent / PHILIPS_CONDA_ENV / "bin" / "python")
         candidates.append(Path(conda_prefix).parent / PHILIPS_CONDA_ENV / "python.exe")
+    home = Path.home()
+    candidates.append(home / "anaconda3" / "envs" / PHILIPS_CONDA_ENV / "bin" / "python")
+    candidates.append(home / "miniconda3" / "envs" / PHILIPS_CONDA_ENV / "bin" / "python")
     user_profile = os.environ.get("USERPROFILE", "").strip()
     if user_profile:
         candidates.append(Path(user_profile) / ".conda" / "envs" / PHILIPS_CONDA_ENV / "python.exe")
@@ -83,7 +87,14 @@ def _server_command() -> list[str]:
 def _subprocess_env(cmd: list[str]) -> dict[str, str]:
     env = os.environ.copy()
     path_python = Path(cmd[0])
-    if path_python.name.lower() == "python.exe" and path_python.parent.name.lower() == PHILIPS_CONDA_ENV.lower():
+    if path_python.name.lower().startswith("python") and path_python.parent.name == "bin":
+        path_env = path_python.parent.parent
+        env["CONDA_PREFIX"] = str(path_env)
+        env["LD_LIBRARY_PATH"] = os.pathsep.join([
+            str(path_env / "lib"),
+            env.get("LD_LIBRARY_PATH", ""),
+        ])
+    elif path_python.name.lower() == "python.exe" and path_python.parent.name.lower() == PHILIPS_CONDA_ENV.lower():
         path_env = path_python.parent
         env["CONDA_PREFIX"] = str(path_env)
         extra_path = [

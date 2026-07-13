@@ -1,0 +1,12 @@
+LICENSE
+README.md
+setup.cfg
+setup.py
+openphi/__init__.py
+openphi/openphi.py
+openphi.egg-info/PKG-INFO
+openphi.egg-info/SOURCES.txt
+openphi.egg-info/dependency_links.txt
+openphi.egg-info/requires.txt
+openphi.egg-info/top_level.txt
+tests/test_openphi.py

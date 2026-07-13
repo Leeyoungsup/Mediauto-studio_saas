@@ -18,7 +18,8 @@ const VIEWER_FAST_THUMBNAIL_SIZE = 300;
 // text text text text text text text text abort text text text,
 // text/text text text text text text text _activeLoads text text text
 // text text text text stall text text.
-const MAX_CONCURRENT_LOADS = 6;
+const MAX_CONCURRENT_LOADS = 4;
+const MAX_CONCURRENT_VS_LOADS = 3;
 
 // 3text stage text — text backend slide_manager.STAGE_DOWNSAMPLES text text
 //   stage 0: level0 1024x1024 text   (downsample 1)
@@ -176,6 +177,7 @@ export class TileViewer {
         this._vsTileMissing = new Set();  // 404 text (text text text text)
         this._vsLoadQueue = [];           // VS text text text
         this._vsActiveLoads = 0;          // text text text VS text text text
+        this._vsInflightImages = new Set();
         this._vsMaxTiles = 512;
 
         // ── Annotation ──
@@ -227,6 +229,34 @@ export class TileViewer {
         window.addEventListener('resize', () => this._resizeCanvas());
     }
 
+    _abortImageSet(set_images) {
+        for (const img of set_images) {
+            try {
+                img.onload = null;
+                img.onerror = null;
+                img.src = '';
+            } catch (e) {}
+        }
+        set_images.clear();
+    }
+
+    _abortInflightImages() {
+        this._abortImageSet(this._inflightImages);
+    }
+
+    _abortVsInflightImages() {
+        this._abortImageSet(this._vsInflightImages);
+    }
+
+    _resetVsTileLoads(clearCache = false) {
+        this._abortVsInflightImages();
+        if (clearCache) this._vsTileCache.clear();
+        this._vsTileLoading.clear();
+        this._vsTileMissing.clear();
+        this._vsLoadQueue.length = 0;
+        this._vsActiveLoads = 0;
+    }
+
     addOverlayLayer(layer) {
         if (!layer || typeof layer.draw !== 'function') return;
         if (!this.extraOverlayLayers.includes(layer)) {
@@ -253,10 +283,8 @@ export class TileViewer {
     loadSlide(slideId, slideInfo) {
         // text Image text abort — onload text text text cache text text text text text text
         this._loadGeneration++;
-        for (const img of this._inflightImages) {
-            try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
-        }
-        this._inflightImages.clear();
+        this._abortInflightImages();
+        this._resetVsTileLoads(true);
 
         this.slideId = slideId;
         this.slideInfo = slideInfo;
@@ -1772,34 +1800,49 @@ export class TileViewer {
 
         // text text text text text
         this._vsTileLoading.add(key);
-        this._vsLoadQueue.push({ key, level, tx, ty, ov });
+        this._vsLoadQueue.push({ key, level, tx, ty, ov, generation: this._loadGeneration });
         this._processVsLoadQueue();
         return null;
     }
 
     _processVsLoadQueue() {
-        while (this._vsLoadQueue.length > 0) {
+        while (this._vsLoadQueue.length > 0 && this._vsActiveLoads < MAX_CONCURRENT_VS_LOADS) {
             const task = this._vsLoadQueue.shift();
+            if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) {
+                this._vsTileLoading.delete(task.key);
+                continue;
+            }
             this._vsActiveLoads++;
 
             const img = new Image();
+            img.decoding = 'async';
+            this._vsInflightImages.add(img);
             img.onload = () => {
+                this._vsInflightImages.delete(img);
                 this._vsActiveLoads--;
                 this._vsTileLoading.delete(task.key);
                 // text text overlay text text text
-                if (this._vsOverlay !== task.ov) return;
+                if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) {
+                    this._processVsLoadQueue();
+                    return;
+                }
                 // LRU text
                 if (this._vsTileCache.size >= this._vsMaxTiles) {
                     const oldest = this._vsTileCache.keys().next().value;
                     this._vsTileCache.delete(oldest);
                 }
                 this._vsTileCache.set(task.key, img);
+                this._processVsLoadQueue();
                 this.requestRender();
             };
             img.onerror = () => {
+                this._vsInflightImages.delete(img);
                 this._vsActiveLoads--;
                 this._vsTileLoading.delete(task.key);
-                this._vsTileMissing.add(task.key);
+                if (task.generation === this._loadGeneration && this._vsOverlay === task.ov) {
+                    this._vsTileMissing.add(task.key);
+                }
+                this._processVsLoadQueue();
             };
             img.src = api.virtualStainTileUrl(
                 task.ov.slideId, task.ov.stainType, task.ov.targetMpp,
@@ -1830,6 +1873,7 @@ export class TileViewer {
         const key = this._tileTaskKey(task);
         if (!key || this._tileCache.has(key) || this._tileLoading.has(key)) return;
         task.key = key;
+        task.generation = this._loadGeneration;
         if (this._loadQueuedKeys.has(key)) {
             if (!front) return;
             this._loadQueue = this._loadQueue.filter(item => this._tileTaskKey(item) !== key);
@@ -1850,6 +1894,7 @@ export class TileViewer {
         while (this._loadQueue.length > 0 && this._activeLoads < MAX_CONCURRENT_LOADS) {
             const task = this._loadQueue.shift();
             this._loadQueuedKeys.delete(this._tileTaskKey(task));
+            if (task.generation !== this._loadGeneration) continue;
             this._loadTile(task.level, task.tx, task.ty);
         }
     }
@@ -1864,6 +1909,7 @@ export class TileViewer {
         // text text text text generation — text text text text text
         const int_gen = this._loadGeneration;
         const img = new Image();
+        img.decoding = 'async';
         this._inflightImages.add(img);
         img.onload = () => {
             this._inflightImages.delete(img);
@@ -1917,10 +1963,7 @@ export class TileViewer {
         this._colorCorrectionEnabled = bool_enabled;
         // text URL text text text/text text text text flag text text
         this._loadGeneration++;
-        for (const img of this._inflightImages) {
-            try { img.onload = null; img.onerror = null; img.src = ''; } catch (e) {}
-        }
-        this._inflightImages.clear();
+        this._abortInflightImages();
         this._tileCache.clear();
         this._tileLoading.clear();
         this._tileFadeStart.clear();
@@ -1934,6 +1977,8 @@ export class TileViewer {
 
     /** text text text text text (text text text text text) */
     clearCacheAndRender() {
+        this._loadGeneration++;
+        this._abortInflightImages();
         this._tileCache.clear();
         this._tileLoading.clear();
         this._tileFadeStart.clear();
@@ -2761,11 +2806,7 @@ export class TileViewer {
      */
     setVirtualStainOverlay(meta) {
         // text text text text
-        this._vsTileCache.clear();
-        this._vsTileLoading.clear();
-        this._vsTileMissing.clear();
-        this._vsLoadQueue.length = 0;
-        this._vsActiveLoads = 0;
+        this._resetVsTileLoads(true);
 
         if (!meta || !meta.levels || meta.levels.length === 0) {
             console.warn('[viewer] VS overlay: missing tile levels metadata');
@@ -2800,11 +2841,7 @@ export class TileViewer {
         this._vsOverlay = null;
         this._vsVisible = true;
         this._vsSplitMode = false;
-        this._vsTileCache.clear();
-        this._vsTileLoading.clear();
-        this._vsTileMissing.clear();
-        this._vsLoadQueue.length = 0;
-        this._vsActiveLoads = 0;
+        this._resetVsTileLoads(true);
         this.requestRender();
     }
 
