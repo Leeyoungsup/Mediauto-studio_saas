@@ -64,7 +64,62 @@
   <h3>5.6 특수 포맷 bridge 처리부</h3>
   <p>Philips iSyntax/i2Syntax 등 특수 포맷은 별도 bridge process를 통해 region extraction을 수행한다. viewer thread별 slide handling을 유지하고, bridge 결과를 raw image buffer 또는 임시 파일 방식으로 전달하여 반복적인 process startup과 PNG encode/decode 비용을 줄인다.</p>
 
-  <h2>6. 동작 절차</h2>
+  <h2>6. 구체적 제어 조건 및 데이터 구조</h2>
+  <h3>6.1 Inline generation 허용 조건</h3>
+  <p>서버는 cache miss tile에 대해 다음 조건을 모두 만족하는 경우에만 HTTP 요청 내부에서 제한 시간 내 inline generation을 수행한다.</p>
+  <ul>
+    <li>현재 inline generation 작업 수가 미리 정한 최대 동시 처리 수 이하일 것</li>
+    <li>viewer executor의 대기 queue 길이가 임계값 이하일 것</li>
+    <li>tile level이 높은 경우, background full tile generation이 과도하게 CPU를 점유하지 않을 것</li>
+    <li>Philips/iSyntax 등 특수 포맷 tile의 경우 별도 bridge queue 또는 extraction latency가 임계값 이하일 것</li>
+    <li>요청된 tile이 tissue/data envelope와 교차할 것</li>
+  </ul>
+  <p>예시 조건식은 다음과 같다.</p>
+  <p><code>allow_inline = inline_active &lt; max_inline &amp;&amp; viewer_queue &lt; queue_limit &amp;&amp; !(background_generation_active &amp;&amp; (tile_level &gt;= 2 || is_special_format))</code></p>
+
+  <h3>6.2 Queue 부하 판단 기준</h3>
+  <p>queue 부하는 viewer executor의 대기 작업 수, inline generation active count, 최근 tile response latency, background tile generation 상태, AI worker active 여부 중 적어도 하나 이상을 이용하여 판단한다. 구현 예에서는 viewer queue length와 inline active count를 1차 gate로 사용하고, high-level tile 또는 특수 포맷에서는 background generation active 여부를 추가 gate로 사용한다.</p>
+
+  <h3>6.3 Priority score 계산 요소</h3>
+  <p>priority queue가 단순 set이 아니라 score 기반 queue로 구현되는 경우, 다음 요소를 이용하여 priority score를 산출할 수 있다.</p>
+  <table>
+    <tr><th>요소</th><th>설명</th><th>예시 가중치</th></tr>
+    <tr><td>Viewport distance</td><td>tile 중심과 현재 viewport 중심 사이의 거리</td><td>가까울수록 높음</td></tr>
+    <tr><td>Visible intersection</td><td>tile 영역이 현재 viewport와 겹치는 면적</td><td>겹칠수록 높음</td></tr>
+    <tr><td>Tile level</td><td>현재 zoom에서 직접 표시되는 child tile인지 fallback parent tile인지</td><td>직접 표시 tile 우선</td></tr>
+    <tr><td>User recency</td><td>최근 interaction이 발생한 사용자 또는 slide 여부</td><td>최근 viewport 우선</td></tr>
+    <tr><td>Request age</td><td>queue에 들어온 뒤 대기한 시간</td><td>starvation 방지</td></tr>
+    <tr><td>Slide activity</td><td>같은 slide를 보고 있는 사용자 수</td><td>공유 효과가 큰 tile 우선</td></tr>
+  </table>
+  <p>예시 score는 다음과 같이 정의할 수 있다.</p>
+  <p><code>score = 0.40 * visible_ratio + 0.25 * proximity + 0.15 * direct_level + 0.10 * recency + 0.05 * wait_age + 0.05 * shared_slide_count</code></p>
+
+  <h3>6.4 Tile level별 timeout</h3>
+  <p>inline generation timeout은 tile level 및 slide format에 따라 다르게 설정한다. 낮은 level의 작은 read는 사용자가 즉시 볼 가능성이 높으므로 상대적으로 긴 시간을 허용하고, 높은 level 또는 특수 포맷은 빠르게 queued generation으로 넘긴다.</p>
+  <table>
+    <tr><th>구분</th><th>예시 timeout</th><th>처리 의도</th></tr>
+    <tr><td>Level 0</td><td>약 1.4초</td><td>확대 화면에서 직접 필요한 tile이므로 즉시 생성 기회 제공</td></tr>
+    <tr><td>Level 1</td><td>약 1.0초</td><td>중간 배율 tile. 지연이 길면 fallback 유지</td></tr>
+    <tr><td>Level 2</td><td>약 0.7초</td><td>read 영역이 커서 서버 점유 방지</td></tr>
+    <tr><td>Philips 등 특수 포맷</td><td>약 0.65초</td><td>bridge extraction 지연이 전체 서버를 막지 않도록 제한</td></tr>
+  </table>
+
+  <h3>6.5 Parent fallback 선택 방식</h3>
+  <p>target child tile이 존재하지 않으면 viewer는 상위 level에서 동일 scene 영역을 포함하는 parent tile을 찾는다. parent tile 좌표는 child tile 중심 좌표를 parent level의 scene tile size로 나누어 계산한다. parent tile이 존재하면 해당 parent tile의 일부를 crop 또는 scaling하여 child tile 영역의 fallback으로 표시한다. parent tile도 없으면 thumbnail 또는 blank background를 표시한다.</p>
+
+  <h3>6.6 Generation ID 생성, 비교 및 폐기 방식</h3>
+  <p>viewer는 slide load, slide 변경, color mode 변경, major viewport 변경 또는 tile request abort 시 generation id를 증가시킨다. 각 tile request에는 요청 당시 generation id가 저장된다. tile image의 onload event가 발생하면 현재 generation id와 request generation id를 비교하고, 서로 다르면 해당 response는 cache에 저장하지 않고 폐기한다.</p>
+  <p>이를 통해 이전 slide 또는 이전 viewport에서 도착한 늦은 tile response가 현재 화면에 잘못 표시되는 것을 방지한다.</p>
+
+  <h3>6.7 Multi-user 우선순위 충돌 처리</h3>
+  <p>복수 사용자가 서로 다른 위치를 탐색하는 경우, 서버는 사용자별 viewport request를 하나의 priority set 또는 priority queue에 병합한다. 동일 tile 또는 동일 stage block에 대한 중복 요청은 하나로 합친다. 서로 다른 사용자의 priority가 충돌하면 visible intersection, request recency, wait age, shared slide count를 기준으로 정렬하되, 특정 사용자의 요청이 장시간 대기하지 않도록 wait age를 score에 반영한다.</p>
+
+  <h2>7. Pseudocode 예시</h2>
+  <p>아래 pseudocode는 변리사 검토 및 청구항 구체화를 위한 설명용 예시이다.</p>
+  <p><code>onTileRequest(slide, level, x, y): if cache.valid(slide) and tile.exists(level,x,y): return tile.bytes; registerPriority(slide, level, x, y); if !intersectsTissue(level,x,y): return blankTile; if allowInline(level, slide.format, serverState): result = runWithTimeout(generateTile(level,x,y), timeoutFor(level, slide.format)); if result.ready: return result.bytes; return queuedResponse(retryAfter=1);</code></p>
+  <p><code>onViewportChanged(): generationId += 1; abortInflightImages(); clearLoadingQueue(); visibleTiles = computeVisibleTiles(viewport, zoom); enqueue(childTilesFirst(visibleTiles)); enqueue(parentFallbackTiles(visibleTiles));</code></p>
+
+  <h2>8. 동작 절차</h2>
   <ol>
     <li>클라이언트 viewer가 현재 viewport와 zoom level을 기준으로 표시 대상 tile 목록을 산출한다.</li>
     <li>viewer는 child tile을 우선 queue하고, 필요한 경우 parent fallback tile을 추가 queue한다.</li>
@@ -77,7 +132,7 @@
     <li>사용자 viewport가 변경되면 이전 generation tile request를 abort하고 새 tile 목록으로 재정렬한다.</li>
   </ol>
 
-  <h2>7. 효과</h2>
+  <h2>9. 효과</h2>
   <ul>
     <li>1~2명 사용 시에는 tile miss도 짧은 시간 내 즉시 생성되어 기존 사용감을 유지한다.</li>
     <li>다중 사용자 접속 시에는 서버가 무제한 inline generation으로 포화되는 것을 방지한다.</li>
@@ -86,7 +141,7 @@
     <li>캐시 hit 경로와 miss generation 경로를 분리하여 응답 안정성을 높인다.</li>
   </ul>
 
-  <h2>8. 청구항 초안</h2>
+  <h2>10. 청구항 초안</h2>
   <h3>독립항 예시</h3>
   <p>대용량 병리 슬라이드 영상을 웹 viewer에 표시하는 방법에 있어서, 현재 viewport 및 zoom level에 기초하여 복수의 tile 좌표를 산출하는 단계; 상기 tile 좌표 중 현재 viewport 내 child tile과 fallback parent tile에 우선순위를 부여하는 단계; 요청된 tile의 cache 존재 여부를 판단하는 단계; 상기 tile이 cache에 존재하지 않는 경우 서버의 viewer queue 상태, inline generation 상태 및 background tile generation 상태에 기초하여 inline generation 또는 queued generation을 선택하는 단계; inline generation이 선택된 경우 제한 시간 내 tile을 생성하여 응답하고, queued generation이 선택된 경우 상기 tile을 priority queue에 등록하고 fallback 표시를 유지하도록 하는 응답을 반환하는 단계를 포함하는 방법.</p>
 
@@ -99,7 +154,7 @@
     <li>특수 slide format에 대해 별도 bridge process를 이용하여 tile region을 추출하는 방법</li>
   </ul>
 
-  <h2>9. 선행기술 대비 차별 포인트</h2>
+  <h2>11. 선행기술 대비 차별 포인트</h2>
   <ul>
     <li>단순 tile pyramid viewer가 아니라 cache miss 상황에서 inline generation과 queued generation을 adaptive하게 전환한다.</li>
     <li>다중 사용자 상황에서 서버 부하를 tile serving 정책에 직접 반영한다.</li>

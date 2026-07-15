@@ -54,7 +54,38 @@
   <h3>5.6 Cache 재사용 및 상태 관리부</h3>
   <p>virtual stain 결과가 이미 생성되어 있고 source slide signature와 parameter가 일치하면 기존 cache를 재사용한다. 결과가 없거나 stale이면 inference task를 생성하고 progress 및 tile availability를 viewer에 표시한다.</p>
 
-  <h2>6. 동작 절차</h2>
+  <h2>6. 구체적 처리 조건 및 수식 예시</h2>
+  <h3>6.1 Patch 크기 및 overlap 결정 방식</h3>
+  <p>patch 크기는 모델 입력 크기, 목표 MPP, GPU memory, tissue mask 해상도에 따라 결정한다. 예를 들어 모델 입력이 512x512 또는 1024x1024 pixel이면, WSI level-0 좌표계에서 target MPP와 source MPP의 비율을 반영하여 read region 크기를 산출한다.</p>
+  <p>overlap은 patch size의 일정 비율 또는 고정 pixel 폭으로 설정할 수 있다. 예를 들어 overlap 폭은 patch width의 10~25% 또는 64~256 pixel 범위에서 설정된다. tissue boundary 또는 high-detail region에서는 overlap을 크게 하고, 균질한 background 영역에서는 overlap을 줄일 수 있다.</p>
+
+  <h3>6.2 Blending weight 수식 예시</h3>
+  <p>각 patch output은 중심부에 높은 weight를 부여하고 경계부로 갈수록 낮은 weight를 부여한다. 예시적으로 patch 내 pixel 좌표 (u, v)에 대해 좌우 및 상하 경계까지의 정규화 거리 d(u, v)를 계산하고, 다음과 같은 weight를 사용할 수 있다.</p>
+  <p><code>w(u,v) = max(epsilon, min(1, distance_to_edge(u,v) / overlap_width))</code></p>
+  <p>또는 Gaussian 형태로 다음과 같이 정의할 수 있다.</p>
+  <p><code>w(u,v) = exp(-((u-cx)^2 + (v-cy)^2) / (2*sigma^2))</code></p>
+  <p>최종 virtual stain pixel은 누적 output과 누적 weight의 비율로 계산한다.</p>
+  <p><code>V(x,y) = sum_i(w_i(x,y) * P_i(x,y)) / max(epsilon, sum_i(w_i(x,y)))</code></p>
+
+  <h3>6.3 좌표 변환 방식</h3>
+  <p>source WSI의 level-0 좌표를 기준 좌표계로 사용한다. patch 추출 좌표 (x0, y0), source MPP, target MPP, model input size를 이용하여 model output pixel이 WSI 좌표계의 어느 영역에 대응하는지 계산한다. model output pixel (u, v)의 WSI 좌표는 다음과 같이 표현할 수 있다.</p>
+  <p><code>X = x0 + u * output_mpp / source_mpp</code></p>
+  <p><code>Y = y0 + v * output_mpp / source_mpp</code></p>
+  <p>viewer 표시 시에는 virtual stain tile의 origin, scene width, scene height, tile level downsample을 metadata로 저장하여 원본 WSI tile과 동일한 scene coordinate에 배치한다.</p>
+
+  <h3>6.4 MPP가 다를 때의 정렬 방식</h3>
+  <p>입력 슬라이드 MPP와 virtual stain target MPP가 다르면, virtual stain 결과의 pixel spacing을 metadata에 저장하고 viewer에서 scene coordinate scaling을 적용한다. 원본 WSI 좌표계의 특정 위치 (X, Y)는 virtual stain image 좌표계에서 다음과 같이 변환된다.</p>
+  <p><code>u = (X - originX) * source_mpp / target_mpp</code></p>
+  <p><code>v = (Y - originY) * source_mpp / target_mpp</code></p>
+  <p>이 변환을 tile level별 downsample과 결합하여 overlay 및 split view에서 원본과 virtual stain의 위치를 동기화한다.</p>
+
+  <h3>6.5 Cache invalidation 방식</h3>
+  <p>virtual stain cache는 source slide signature, source filename, source file size, source modification time, model id, model version, target stain type, target MPP, ROI, preprocessing parameter, blending parameter를 포함하는 metadata로 검증한다. 이 중 하나라도 변경되면 기존 cache를 stale로 판단하고 재추론 또는 부분 재생성을 수행한다.</p>
+
+  <h3>6.6 부분 추론 결과의 tile 단위 우선 표시</h3>
+  <p>전체 virtual stain inference가 완료되기 전에도, 이미 생성된 patch 또는 tile은 tile pyramid의 일부로 먼저 저장될 수 있다. viewer는 tile metadata에서 available tile set을 확인하고, 생성된 virtual stain tile만 overlay로 표시한다. 미생성 영역은 원본 tile 또는 uncovered mask로 표시한다. 이를 통해 사용자는 전체 inference 완료 전에도 일부 결과를 확인할 수 있다.</p>
+
+  <h2>7. 동작 절차</h2>
   <ol>
     <li>입력 WSI와 target stain type, target MPP, ROI 조건을 수신한다.</li>
     <li>source slide signature와 기존 virtual stain cache metadata를 비교한다.</li>
@@ -66,7 +97,7 @@
     <li>viewer에서 원본 tile과 virtual stain tile을 동일 좌표계에 정렬하여 overlay 또는 split view로 표시한다.</li>
   </ol>
 
-  <h2>7. 효과</h2>
+  <h2>8. 효과</h2>
   <ul>
     <li>WSI 전체를 한 번에 처리하지 않고 patch 단위로 추론하여 대용량 슬라이드 처리가 가능하다.</li>
     <li>overlap blending으로 patch 경계 artifact를 줄일 수 있다.</li>
@@ -75,7 +106,7 @@
     <li>cache metadata를 이용해 stale result를 방지하고 재사용성을 높인다.</li>
   </ul>
 
-  <h2>8. 청구항 초안</h2>
+  <h2>9. 청구항 초안</h2>
   <h3>독립항 예시</h3>
   <p>Whole Slide Image로부터 virtual stain 결과를 생성하여 표시하는 방법에 있어서, 입력 WSI의 좌표계에서 복수의 patch 좌표를 산출하는 단계; 상기 patch 좌표에 따라 WSI patch를 추출하는 단계; 상기 WSI patch를 virtual stain model에 입력하여 stain output patch를 생성하는 단계; 인접 patch 간 overlap 영역에 blending weight를 적용하여 virtual stain output을 누적하는 단계; 누적된 virtual stain output으로부터 tile pyramid cache를 생성하는 단계; 상기 tile pyramid cache를 원본 WSI 좌표계에 정렬하여 viewer에서 overlay 또는 split view로 표시하는 단계를 포함하는 방법.</p>
 
@@ -88,7 +119,7 @@
     <li>split view handle 위치에 따라 원본 tile과 virtual stain tile의 표시 영역을 동적으로 분할하는 방법</li>
   </ul>
 
-  <h2>9. 선행기술 대비 차별 포인트</h2>
+  <h2>10. 선행기술 대비 차별 포인트</h2>
   <ul>
     <li>모델 추론만이 아니라 WSI patch inference, blending, tile pyramid cache, viewer overlay를 하나의 방법으로 결합한다.</li>
     <li>원본 WSI와 virtual stain 결과를 동일 coordinate system에서 interactive하게 비교 표시한다.</li>
