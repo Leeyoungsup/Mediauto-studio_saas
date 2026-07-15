@@ -49,6 +49,19 @@ VALIDATE_PER_SCAN = _env_int("MEDIAUTO_TILE_WORKER_VALIDATE_PER_SCAN", 12)
 
 _worker_task: Optional[asyncio.Task] = None
 _int_scan_count = 0
+_dict_running_log_ts: dict[str, float] = {}
+_RUNNING_LOG_THROTTLE_SEC = 120.0
+
+
+def _log_generation_running(str_filename: str, str_full_path: str) -> None:
+    import time
+
+    str_key = str_full_path or str_filename
+    float_now = time.monotonic()
+    if _dict_running_log_ts.get(str_key, 0.0) + _RUNNING_LOG_THROTTLE_SEC > float_now:
+        return
+    _dict_running_log_ts[str_key] = float_now
+    print(f"[tile_worker] generation already running, skip: {str_filename}")
 
 
 def _adaptive_parallelism(int_pending: int) -> int:
@@ -72,24 +85,24 @@ async def _process_one_slide(dict_slide: dict, bool_allow_generate: bool = True)
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
         return True
 
-    # 2) text text text text ICC text text DB text text
+    if tile_generator.is_generation_running(str_filename, str_full_path):
+        _log_generation_running(str_filename, str_full_path)
+        return False
+
+    # 2) Fast marker check. Deep validation belongs to explicit generation/repair paths.
     loop = asyncio.get_running_loop()
     try:
         bool_valid = await loop.run_in_executor(
-            _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
+            _bg_executor, tile_generator.tiles_marker_matches_file, str_filename, str_full_path
         )
     except Exception as e:
-        print(f"[tile_worker] tiles_are_valid error {str_filename}: {e}")
+        print(f"[tile_worker] tiles_marker_matches_file error {str_filename}: {e}")
         bool_valid = False
 
     if bool_valid:
         print(f"[tile_worker] marker valid, syncing DB: {str_filename}")
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
         return True
-
-    if tile_generator.is_generation_running(str_filename, str_full_path):
-        print(f"[tile_worker] generation already running, skip: {str_filename}")
-        return False
 
     if not bool_allow_generate:
         return False
@@ -126,23 +139,23 @@ async def _check_one_slide(dict_slide: dict) -> str:
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
         return "ready"
 
+    if tile_generator.is_generation_running(str_filename, str_full_path):
+        _log_generation_running(str_filename, str_full_path)
+        return "running"
+
     loop = asyncio.get_running_loop()
     try:
         bool_valid = await loop.run_in_executor(
-            _bg_executor, tile_generator.tiles_are_valid, str_filename, str_full_path
+            _bg_executor, tile_generator.tiles_marker_matches_file, str_filename, str_full_path
         )
     except Exception as e:
-        print(f"[tile_worker] tiles_are_valid error {str_filename}: {e}")
+        print(f"[tile_worker] tiles_marker_matches_file error {str_filename}: {e}")
         bool_valid = False
 
     if bool_valid:
         print(f"[tile_worker] marker valid, syncing DB: {str_filename}")
         await slide_store.mark_tiles_ready(str_rel_path, str_filename, True)
         return "ready"
-
-    if tile_generator.is_generation_running(str_filename, str_full_path):
-        print(f"[tile_worker] generation already running, skip: {str_filename}")
-        return "running"
 
     return "needs_generation"
 

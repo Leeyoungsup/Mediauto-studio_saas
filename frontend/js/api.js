@@ -439,7 +439,7 @@ export const api = {
         return res.json();
     },
 
-    async openSlide(filename, path = '', openPage = '') {
+    async openSlide(filename, path = '', openPage = '', options = {}) {
         const form = new FormData();
         form.append('filename', filename);
         form.append('path', path);
@@ -449,7 +449,7 @@ export const api = {
             : 'ai'
         );
         form.append('open_page', page);
-        const res = await _authFetch(`${API_BASE}/slides/open`, { method: 'POST', body: form });
+        const res = await _authFetch(`${API_BASE}/slides/open`, { method: 'POST', body: form, signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -733,14 +733,14 @@ export const api = {
         return res.json();
     },
 
-    async getCellGridConfig(slideId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/grid-config`);
+    async getCellGridConfig(slideId, options = {}) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/grid-config`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
-    async getCellRequiredRegions(slideId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/required-regions`);
+    async getCellRequiredRegions(slideId, options = {}) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/required-regions`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -763,9 +763,9 @@ export const api = {
         return res.json();
     },
 
-    async getCellPatches(slideId, status = '') {
+    async getCellPatches(slideId, status = '', options = {}) {
         const q = status ? `?status=${encodeURIComponent(status)}` : '';
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches${q}`);
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches${q}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -983,14 +983,14 @@ export const api = {
         return res.json();
     },
 
-    async getWsiLabelingAssistance(slideId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance`);
+    async getWsiLabelingAssistance(slideId, options = {}) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
-    async getWsiLabelingAssistanceOptions(slideId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance/options`);
+    async getWsiLabelingAssistanceOptions(slideId, options = {}) {
+        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/wsi-labeling-assistance/options`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },

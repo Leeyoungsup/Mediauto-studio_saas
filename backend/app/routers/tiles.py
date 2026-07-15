@@ -13,8 +13,8 @@ from pathlib import Path
 # text TILE_DEBUG=1 text _render_and_save text text wall-time text text
 _BOOL_TILE_DEBUG = os.environ.get("TILE_DEBUG", "").lower() in ("1", "true", "yes")
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 
 from PIL import Image
 
@@ -32,7 +32,7 @@ from app.tile_generator import (
     get_tiles_dir_for_path,
     image_to_white_rgb,
     request_priority_tile,
-    tiles_are_valid,
+    tiles_marker_matches_file,
 )
 from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
@@ -67,6 +67,48 @@ def _blank_tile_response(cache_control: str = "no-store") -> Response:
     )
 
 
+def _jpeg_file_response(path: Path, cache_control: str = "public, max-age=604800") -> Response:
+    return Response(
+        content=path.read_bytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": cache_control},
+    )
+
+
+def _save_jpeg_atomic(obj_img: Image.Image, path: Path, quality: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{threading.get_ident()}.{time.time_ns()}.tmp")
+    try:
+        obj_img.save(str(tmp_path), "JPEG", quality=quality)
+        tmp_path.replace(path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+
+def _consume_future_exception(fut) -> None:
+    try:
+        fut.exception()
+    except BaseException:
+        pass
+
+
+async def _run_viewer_job(request: Request, fn):
+    loop = asyncio.get_running_loop()
+    fut = loop.run_in_executor(viewer_executor, fn)
+    while True:
+        done, _ = await asyncio.wait({fut}, timeout=0.1)
+        if done:
+            return fut.result()
+        if await request.is_disconnected():
+            if not fut.cancel():
+                fut.add_done_callback(_consume_future_exception)
+            raise HTTPException(status_code=499, detail="Client closed request")
+
+
 def _rects_intersect(rect_a: tuple[int, int, int, int], rect_b: tuple[int, int, int, int]) -> bool:
     ax0, ax1, ay0, ay1 = rect_a
     bx0, bx1, by0, by1 = rect_b
@@ -88,21 +130,33 @@ def _tile_intersects_data_envelope(info, level: int, tile_x: int, tile_y: int) -
     return any(_rects_intersect(tile_rect, rect) for rect in rects)
 
 
-async def _ensure_philips_tile(info, filename: str, level: int, tile_x: int, tile_y: int, tile_path: Path) -> bool:
+async def _ensure_philips_tile(
+    request: Request,
+    info,
+    filename: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+    tile_path: Path,
+) -> bool:
     if not _tile_intersects_data_envelope(info, level, tile_x, tile_y):
         return False
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
-    loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(
-            viewer_executor,
-            generate_priority_single_tile,
-            filename,
-            info.file_path,
-            level,
-            tile_x,
-            tile_y,
+        await _run_viewer_job(
+            request,
+            lambda: generate_priority_single_tile(
+                filename,
+                info.file_path,
+                level,
+                tile_x,
+                tile_y,
+                info.slide,
+                info.apply_icc,
+            ),
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         print(f"[tiles] Philips priority tile failed ({filename} S{level} {tile_x},{tile_y}): {exc}")
         return False
@@ -110,6 +164,7 @@ async def _ensure_philips_tile(info, filename: str, level: int, tile_x: int, til
 
 
 async def _missing_philips_tile_response(
+    request: Request,
     info,
     filename: str,
     level: int,
@@ -118,12 +173,8 @@ async def _missing_philips_tile_response(
     tile_path: Path,
 ) -> Response:
     bool_intersects_data = _tile_intersects_data_envelope(info, level, tile_x, tile_y)
-    if await _ensure_philips_tile(info, filename, level, tile_x, tile_y, tile_path):
-        return FileResponse(
-            tile_path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=604800"},
-        )
+    if await _ensure_philips_tile(request, info, filename, level, tile_x, tile_y, tile_path):
+        return _jpeg_file_response(tile_path)
     if bool_intersects_data:
         return _blank_tile_response("no-store")
     return _blank_tile_response("public, max-age=604800")
@@ -181,6 +232,7 @@ def _find_and_open(slide_id: str):
 # Hamamatsu text "NDP text ON" text text URL text text.
 @router.get("/{slide_id}/ndp/{level}/{tile_x}/{tile_y}.jpeg")
 async def get_tile_ndp(
+    request: Request,
     slide_id: str,
     level: int,
     tile_x: int,
@@ -206,23 +258,19 @@ async def get_tile_ndp(
     filename = Path(info.file_path).name
     tiles_root = get_tiles_dir_for_path(info.file_path)
     _touch_slide_access(slide_id, tiles_root)
-    bool_cache_valid = tiles_are_valid(filename, info.file_path)
+    bool_cache_valid = tiles_marker_matches_file(filename, info.file_path)
     if not bool_cache_valid and (tiles_root / ".complete").exists():
         invalidate_tiles(filename, info.file_path)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
     if bool_cache_valid and path_ndp_tile.exists():
-        return FileResponse(
-            path_ndp_tile,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=604800"},
-        )
+        return _jpeg_file_response(path_ndp_tile)
 
     # raw text text (text text text text text)
     path_raw_tile = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     int_read_size = STAGE_READ_SIZE[level]
     if is_philips_isyntax(info.file_path) and not path_raw_tile.exists():
-        if not await _ensure_philips_tile(info, filename, level, tile_x, tile_y, path_raw_tile):
+        if not await _ensure_philips_tile(request, info, filename, level, tile_x, tile_y, path_raw_tile):
             if _tile_intersects_data_envelope(info, level, tile_x, tile_y):
                 return _blank_tile_response("no-store")
             return _blank_tile_response("public, max-age=604800")
@@ -240,8 +288,7 @@ async def get_tile_ndp(
             obj_rgb = info.apply_icc(obj_rgb)
             if int_read_size != TILE_SIZE:
                 obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
-            path_raw_tile.parent.mkdir(parents=True, exist_ok=True)
-            obj_rgb.save(str(path_raw_tile), "JPEG", quality=settings.TILE_QUALITY)
+            _save_jpeg_atomic(obj_rgb, path_raw_tile, settings.TILE_QUALITY)
             obj_region.close()
         else:
             with Image.open(str(path_raw_tile)) as obj_file:
@@ -249,8 +296,7 @@ async def get_tile_ndp(
 
         # (2) NDP fit text → text
         obj_ndp = apply_ndp_fit(obj_rgb)
-        path_ndp_tile.parent.mkdir(parents=True, exist_ok=True)
-        obj_ndp.save(str(path_ndp_tile), "JPEG", quality=settings.TILE_QUALITY)
+        _save_jpeg_atomic(obj_ndp, path_ndp_tile, settings.TILE_QUALITY)
 
         # (3) text text
         buf = io.BytesIO()
@@ -266,19 +312,21 @@ async def get_tile_ndp(
         return buf.getvalue()
 
     try:
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(viewer_executor, _make_ndp_variant)
+        content = await _run_viewer_job(request, _make_ndp_variant)
         return Response(
             content=content,
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=604800"},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"NDP text text text text: {e}")
 
 
 @router.get("/{slide_id}/{level}/{tile_x}/{tile_y}.jpeg")
 async def get_tile(
+    request: Request,
     slide_id: str,
     level: int,
     tile_x: int,
@@ -302,17 +350,13 @@ async def get_tile(
     tiles_root = get_tiles_dir_for_path(info.file_path)
     tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     _touch_slide_access(slide_id, tiles_root)
-    bool_cache_valid = tiles_are_valid(filename, info.file_path)
+    bool_cache_valid = tiles_marker_matches_file(filename, info.file_path)
     if not bool_cache_valid and (tiles_root / ".complete").exists():
         invalidate_tiles(filename, info.file_path)
 
     # 1) text text text text text
     if bool_cache_valid and tile_path.exists():
-        return FileResponse(
-            tile_path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=604800"},
-        )
+        return _jpeg_file_response(tile_path)
 
     # 2) text text text → text text → text
     if level < 0 or level >= STAGE_COUNT:
@@ -322,7 +366,7 @@ async def get_tile(
     int_sx = tile_x * int_read_size
     int_sy = tile_y * int_read_size
     if is_philips_isyntax(info.file_path):
-        return await _missing_philips_tile_response(info, filename, level, tile_x, tile_y, tile_path)
+        return await _missing_philips_tile_response(request, info, filename, level, tile_x, tile_y, tile_path)
 
     def _render_and_save() -> bytes:
         # thread-local text read — text text text text text text text
@@ -340,8 +384,7 @@ async def get_tile(
             obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
         float_t2 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
-        tile_path.parent.mkdir(parents=True, exist_ok=True)
-        obj_rgb.save(str(tile_path), "JPEG", quality=settings.TILE_QUALITY)
+        _save_jpeg_atomic(obj_rgb, tile_path, settings.TILE_QUALITY)
         float_t3 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
         buf = io.BytesIO()
@@ -366,13 +409,14 @@ async def get_tile(
 
     try:
         # viewer text pool — viewer cores text text (cpu_layout)
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(viewer_executor, _render_and_save)
+        content = await _run_viewer_job(request, _render_and_save)
         return Response(
             content=content,
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=604800"},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"text text text: {e}")
 

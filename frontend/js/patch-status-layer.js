@@ -15,6 +15,7 @@ const STATUS_STYLE = {
 export class PatchStatusLayer {
     constructor(options = {}) {
         this.patches = new Map();
+        this.patchList = [];
         this.visible = options.visible !== false;
         this.minScreenSize = options.minScreenSize || 10;
         this.selectedPatchId = '';
@@ -29,6 +30,11 @@ export class PatchStatusLayer {
             const id = patch.str_patch_id || patch.patch_id;
             if (id) this.patches.set(id, patch);
         }
+        this.patchList = Array.from(this.patches.values()).sort((a, b) => {
+            const ay = Number(a.int_y ?? a.y ?? 0);
+            const by = Number(b.int_y ?? b.y ?? 0);
+            return ay - by || Number(a.int_x ?? a.x ?? 0) - Number(b.int_x ?? b.x ?? 0);
+        });
     }
 
     setSelectedPatch(patchId) {
@@ -50,13 +56,21 @@ export class PatchStatusLayer {
 
     draw(ctx, viewer) {
         if (!this.visible || !viewer?.slideInfo) return;
+        const [sx0, sy0] = viewer.canvasToScene(0, 0);
+        const [sx1, sy1] = viewer.canvasToScene(viewer._viewW, viewer._viewH);
+        const viewport = {
+            x0: Math.min(sx0, sx1),
+            y0: Math.min(sy0, sy1),
+            x1: Math.max(sx0, sx1),
+            y1: Math.max(sy0, sy1),
+        };
         ctx.save();
-        this._drawPatches(ctx, viewer, this.pendingPatches, true);
-        this._drawPatches(ctx, viewer, this.patches.values(), false);
+        this._drawPatches(ctx, viewer, this.pendingPatches, true, viewport);
+        this._drawPatches(ctx, viewer, this.patchList, false, viewport);
         ctx.restore();
     }
 
-    _drawPatches(ctx, viewer, patches, pending) {
+    _drawPatches(ctx, viewer, patches, pending, viewport) {
         for (const patch of patches) {
             const status = pending ? (patch.str_status || patch.status || 'required') : this._displayStatus(patch);
             if (status === 'not_required' || status === 'pending') continue;
@@ -65,6 +79,13 @@ export class PatchStatusLayer {
             const w = Number(patch.int_w ?? patch.w ?? 0);
             const h = Number(patch.int_h ?? patch.h ?? 0);
             if (w <= 0 || h <= 0) continue;
+            if (viewport) {
+                if (y > viewport.y1) {
+                    if (!pending) break;
+                    continue;
+                }
+                if (y + h < viewport.y0 || x > viewport.x1 || x + w < viewport.x0) continue;
+            }
             const [cx, cy] = viewer.sceneToCanvas(x, y);
             const cw = w * viewer.zoom;
             const ch = h * viewer.zoom;

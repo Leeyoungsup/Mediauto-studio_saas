@@ -100,7 +100,7 @@ def _slide_response(slide_id: str, info, filename: str):
         "objective_power": info.objective_power,
         "physical_width_mm": info.physical_width_mm,
         "physical_height_mm": info.physical_height_mm,
-        "tiles_ready": tile_generator.tiles_are_valid(filename, info.file_path),
+        "tiles_ready": tile_generator.tiles_marker_matches_file(filename, info.file_path),
     }
 
 
@@ -140,7 +140,7 @@ async def _open_and_generate(
 
 async def _run_tile_gen(filename: str, file_path: str, bool_wait: bool) -> None:
     """?????? ???. wait ??????????? ??? (bg_executor), ??????????????????"""
-    if tile_generator.tiles_are_valid(filename, file_path):
+    if tile_generator.tiles_marker_matches_file(filename, file_path):
         return
     if not bool_wait:
         tile_generator.start_generation(filename, file_path)
@@ -975,7 +975,7 @@ async def get_slide_info(slide_id: str):
         "objective_power": info.objective_power,
         "physical_width_mm": info.physical_width_mm,
         "physical_height_mm": info.physical_height_mm,
-        "tiles_ready": tile_generator.tiles_are_valid(Path(info.file_path).name, info.file_path),
+        "tiles_ready": tile_generator.tiles_marker_matches_file(Path(info.file_path).name, info.file_path),
     }
 
 

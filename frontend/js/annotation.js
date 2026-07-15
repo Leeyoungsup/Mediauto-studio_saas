@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260708-01';
+import { api } from './api.js?v=20260713-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260609-03';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260703-02';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260707-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260713-02';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -6418,17 +6418,28 @@ function updateBreadcrumb() {
     }
 }
 
+let _openSlideAbortController = null;
+let _openSlideSeq = 0;
+
 async function openSavedSlide(filename, itemEl) {
+    _openSlideAbortController?.abort();
+    const controller = new AbortController();
+    _openSlideAbortController = controller;
+    const seq = ++_openSlideSeq;
     setStatus('Opening...');
     try {
-        const info = await api.openSlide(filename, currentBrowsePath);
+        const info = await api.openSlide(filename, currentBrowsePath, '', { signal: controller.signal });
+        if (seq !== _openSlideSeq || controller.signal.aborted) return;
         if (info.exists) {
             $slideList.querySelectorAll('.slide-list-item').forEach(el => el.classList.remove('active'));
             if (itemEl) itemEl.classList.add('active');
             onSlideLoaded(info.slide_id, info, filename);
         }
     } catch (err) {
+        if (err?.name === 'AbortError') return;
         setStatus(`Move failed: ${err.message}`);
+    } finally {
+        if (_openSlideAbortController === controller) _openSlideAbortController = null;
     }
 }
 

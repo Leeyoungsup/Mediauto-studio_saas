@@ -284,7 +284,16 @@ def _write_complete_marker(
 
 def _save_jpeg(obj_img: Image.Image, path: Path, quality: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    obj_img.save(str(path), "JPEG", quality=quality)
+    tmp_path = path.with_name(f".{path.name}.{threading.get_ident()}.{time.time_ns()}.tmp")
+    try:
+        obj_img.save(str(tmp_path), "JPEG", quality=quality)
+        tmp_path.replace(path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
 
 
 def tiles_are_valid(filename: str, file_path: str) -> bool:
@@ -440,7 +449,7 @@ def any_generation_running() -> bool:
 
 def start_generation(filename: str, file_path: str):
     """text text text text text (text text/text text text)"""
-    if tiles_are_valid(filename, file_path):
+    if tiles_marker_matches_file(filename, file_path):
         return
 
     progress_key = slide_cache_key(file_path)
@@ -484,7 +493,7 @@ def _get_priority_block_lock(progress_key: str, tx2: int, ty2: int) -> threading
 
 def request_priority_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> None:
     """Prioritize the stage-1 block(s) that contain a viewer-requested tile."""
-    if tiles_are_valid(filename, file_path):
+    if tiles_marker_matches_file(filename, file_path):
         return
     progress_key = slide_cache_key(file_path)
     with _priority_lock:
@@ -691,11 +700,19 @@ def _compose_stage2_from_stage1(
         obj_canvas.close()
 
 
-def generate_priority_single_tile(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
+def generate_priority_single_tile(
+    filename: str,
+    file_path: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+    slide=None,
+    apply_color=None,
+) -> bool:
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
     if path_target.exists():
-        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
             return True
         invalidate_tiles(filename, file_path)
     if level < 0 or level >= STAGE_COUNT:
@@ -706,13 +723,18 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
     lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
         if path_target.exists():
-            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
                 return True
             invalidate_tiles(filename, file_path)
 
-        slide = _open_slide(file_path)
+        bool_close_slide = slide is None
+        if slide is None:
+            slide = _open_slide(file_path)
         try:
-            _to_srgb, _ = build_color_corrector(slide)
+            if apply_color is None:
+                _to_srgb, _ = build_color_corrector(slide)
+            else:
+                _to_srgb = apply_color
             int_w0, int_h0 = slide.dimensions
             int_read_size = STAGE_READ_SIZE[level]
             int_nx = max(1, math.ceil(int_w0 / int_read_size))
@@ -747,17 +769,26 @@ def generate_priority_single_tile(filename: str, file_path: str, level: int, til
                 except Exception:
                     pass
         finally:
-            try:
-                slide.close()
-            except Exception:
-                pass
+            if bool_close_slide:
+                try:
+                    slide.close()
+                except Exception:
+                    pass
 
 
-def generate_priority_tile_block(filename: str, file_path: str, level: int, tile_x: int, tile_y: int) -> bool:
+def generate_priority_tile_block(
+    filename: str,
+    file_path: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+    slide=None,
+    apply_color=None,
+) -> bool:
     """Generate the stage-1 block(s) needed for a requested tile immediately."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
     if path_target.exists():
-        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+        if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
             return True
         invalidate_tiles(filename, file_path)
 
@@ -766,13 +797,18 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
     lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
         if path_target.exists():
-            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_are_valid(filename, file_path):
+            if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
                 return True
             invalidate_tiles(filename, file_path)
 
-        slide = _open_slide(file_path)
+        bool_close_slide = slide is None
+        if slide is None:
+            slide = _open_slide(file_path)
         try:
-            _to_srgb, _ = build_color_corrector(slide)
+            if apply_color is None:
+                _to_srgb, _ = build_color_corrector(slide)
+            else:
+                _to_srgb = apply_color
 
             int_w0, int_h0 = slide.dimensions
             list_stage_nx = []
@@ -840,10 +876,11 @@ def generate_priority_tile_block(filename: str, file_path: str, level: int, tile
 
             return path_target.exists() or bool_generated_any
         finally:
-            try:
-                slide.close()
-            except Exception:
-                pass
+            if bool_close_slide:
+                try:
+                    slide.close()
+                except Exception:
+                    pass
 
 
 def _generate_tiles(filename: str, file_path: str):

@@ -39,6 +39,7 @@ PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))
 PHILIPS_BRIDGE_MODE = os.environ.get("PHILIPS_BRIDGE_MODE", "auto").strip().lower() or "auto"
 PHILIPS_BYTES_MAX_PIXELS = int(os.environ.get("PHILIPS_BYTES_MAX_PIXELS", str(2048 * 2048)))
 PHILIPS_SHARED_MEMORY = os.environ.get("PHILIPS_SHARED_MEMORY", "1").strip().lower() not in {"0", "false", "no"}
+PHILIPS_RAW_FILE = os.environ.get("PHILIPS_RAW_FILE", "1").strip().lower() not in {"0", "false", "no"}
 PHILIPS_START_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_START_TIMEOUT_SECONDS", "30"))
 PHILIPS_STOP_GRACE_SECONDS = float(os.environ.get("PHILIPS_STOP_GRACE_SECONDS", "3"))
 PHILIPS_STDERR_TAIL_LINES = int(os.environ.get("PHILIPS_STDERR_TAIL_LINES", "80"))
@@ -276,9 +277,9 @@ def _bridge_key_for_current_thread() -> str:
     if name.startswith("viewer"):
         return f"viewer:{name}"
     if name.startswith("tile_worker"):
-        return f"tile:{name}"
+        return "tile"
     if name.startswith("ai_worker") or name.startswith("cell_patch"):
-        return f"ai:{name}"
+        return "ai"
     return "default"
 
 
@@ -363,6 +364,13 @@ def _image_from_bridge_response(
         if size[0] > 0 and size[1] > 0 and byte_count > 0:
             shm_map.seek(0)
             raw = shm_map.read(byte_count)
+            return Image.frombytes("RGBA", size, raw)
+    if data.get("encoding") == "raw_rgba_file":
+        size = tuple(int(v) for v in data.get("size", (0, 0)))
+        byte_count = int(data.get("byte_count") or 0)
+        if size[0] > 0 and size[1] > 0 and byte_count > 0:
+            with open(fallback_path, "rb") as fh:
+                raw = fh.read(byte_count)
             return Image.frombytes("RGBA", size, raw)
     image_b64 = data.get("image_b64")
     if image_b64:
@@ -449,7 +457,12 @@ class PhilipsSlideProxy:
         self._ensure_open()
         x, y = int(location[0]), int(location[1])
         width, height = int(size[0]), int(size[1])
-        return_image = width * height <= PHILIPS_BYTES_MAX_PIXELS and PHILIPS_BRIDGE_MODE != "cli"
+        use_raw_file = PHILIPS_RAW_FILE and PHILIPS_BRIDGE_MODE != "cli"
+        return_image = (
+            not use_raw_file
+            and width * height <= PHILIPS_BYTES_MAX_PIXELS
+            and PHILIPS_BRIDGE_MODE != "cli"
+        )
         use_shm = _can_use_shared_memory(width, height)
         shm_map: mmap.mmap | None = None
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
@@ -466,13 +479,16 @@ class PhilipsSlideProxy:
                 "view": PHILIPS_VIEW,
                 "return_image": return_image,
             }
+            if use_raw_file:
+                payload["raw_file"] = True
+                payload["output"] = out_path
             if use_shm:
                 shm_name = f"MediautoPhilips_{uuid.uuid4().hex}"
                 shm_size = width * height * 4
                 shm_map = mmap.mmap(-1, shm_size, tagname=shm_name, access=mmap.ACCESS_WRITE)
                 payload["shm_name"] = shm_name
                 payload["shm_size"] = shm_size
-            if not return_image and not use_shm:
+            if not return_image and not use_shm and not use_raw_file:
                 payload["output"] = out_path
             data = _run_bridge(
                 payload,

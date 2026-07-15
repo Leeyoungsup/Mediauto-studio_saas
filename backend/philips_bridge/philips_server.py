@@ -116,6 +116,23 @@ def _write_shared_image(req, image):
     }
 
 
+def _write_raw_file(req, image):
+    output = req.get("output")
+    if not output or not bool(req.get("raw_file")):
+        return None
+    image_rgba = image.convert("RGBA")
+    raw = image_rgba.tobytes()
+    with open(output, "wb") as fh:
+        fh.write(raw)
+    return {
+        "encoding": "raw_rgba_file",
+        "output": str(Path(output).resolve()),
+        "byte_count": len(raw),
+        "size": list(image_rgba.size),
+        "mode": "RGBA",
+    }
+
+
 def _region(req):
     slide = _get_slide(req["slide"], req.get("view", "display"))
     image = slide.read_region(
@@ -124,8 +141,9 @@ def _region(req):
         (int(req["width"]), int(req["height"])),
     )
     shm_data = _write_shared_image(req, image)
+    raw_file_data = None if shm_data else _write_raw_file(req, image)
     output = req.get("output")
-    if output:
+    if output and not raw_file_data:
         image.save(output)
     data = {
         "ok": True,
@@ -135,6 +153,9 @@ def _region(req):
     }
     if shm_data:
         data.update(shm_data)
+        return data
+    if raw_file_data:
+        data.update(raw_file_data)
         return data
     if bool(req.get("return_image")) or not output:
         buf = io.BytesIO()

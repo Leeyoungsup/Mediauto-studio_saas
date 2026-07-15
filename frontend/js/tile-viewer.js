@@ -18,7 +18,7 @@ const VIEWER_FAST_THUMBNAIL_SIZE = 300;
 // text text text text text text text text abort text text text,
 // text/text text text text text text text _activeLoads text text text
 // text text text text stall text text.
-const MAX_CONCURRENT_LOADS = 4;
+const MAX_CONCURRENT_LOADS = 6;
 const MAX_CONCURRENT_VS_LOADS = 3;
 
 // 3text stage text — text backend slide_manager.STAGE_DOWNSAMPLES text text
@@ -313,7 +313,7 @@ export class TileViewer {
         const str_preload_slide_id = this.slideId;
         this._loadThumbnailFallbackImmediate().finally(() => {
             if (this.slideId !== str_preload_slide_id) return;
-            this._preloadAllStageLevels();
+            this.requestRender();
         });
         this.fitToWindow();
         // 3 stage level text text — text text text text
@@ -1522,7 +1522,7 @@ export class TileViewer {
             const float_db = (b.tx - float_center_tx) ** 2 + (b.ty - float_center_ty) ** 2;
             return float_da - float_db;
         });
-        this._queueTileTasksFront([...list_parent_tasks, ...list_child_tasks]);
+        this._queueTileTasksFront([...list_child_tasks, ...list_parent_tasks]);
 
         // text text text text text
         this._processLoadQueue();

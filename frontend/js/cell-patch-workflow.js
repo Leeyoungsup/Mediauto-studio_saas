@@ -1,5 +1,5 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
-import { PatchStatusLayer } from './patch-status-layer.js?v=20260528-03';
+import { PatchStatusLayer } from './patch-status-layer.js?v=20260713-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
 import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260707-01';
 
@@ -66,6 +66,9 @@ export class CellPatchWorkflow {
         this.assistancePromise = null;
         this.assistanceSlideId = '';
         this.assistanceProgress = null;
+        this._loadAbortController = null;
+        this._loadSeq = 0;
+        this._assistanceAbortController = null;
         this.aiAssistanceEnabled = localStorage.getItem('mediauto:cell-patch:ai-assistance-enabled') !== '0';
         this.cellDisplayMode = localStorage.getItem('mediauto:cell-patch:display-mode') || 'bbox';
         this.aiAssistanceToggle = null;
@@ -560,6 +563,11 @@ export class CellPatchWorkflow {
     }
 
     async load(slideId) {
+        this._loadAbortController?.abort();
+        this._assistanceAbortController?.abort();
+        const controller = new AbortController();
+        this._loadAbortController = controller;
+        const seq = ++this._loadSeq;
         this.slideId = slideId || '';
         this.patches.clear();
         this.pendingRegions = [];
@@ -573,27 +581,41 @@ export class CellPatchWorkflow {
         this.renderPatchList();
         this._syncExcludeToggle();
         if (!this.slideId) return;
-        const config = await this.api.getCellGridConfig(slideId);
-        this.grid.setConfig(config);
-        const regionPayload = await this.api.getCellRequiredRegions(slideId);
-        this.required.setRegions(regionPayload.regions || []);
-        await this.refreshPatches();
-        this.viewer.requestRender();
-        this.preloadLabelingAssistance();
+        try {
+            const config = await this.api.getCellGridConfig(slideId, { signal: controller.signal });
+            if (seq !== this._loadSeq || controller.signal.aborted || this.slideId !== slideId) return;
+            this.grid.setConfig(config);
+            const regionPayload = await this.api.getCellRequiredRegions(slideId, { signal: controller.signal });
+            if (seq !== this._loadSeq || controller.signal.aborted || this.slideId !== slideId) return;
+            this.required.setRegions(regionPayload.regions || []);
+            await this.refreshPatches({ signal: controller.signal, seq });
+            if (seq !== this._loadSeq || controller.signal.aborted || this.slideId !== slideId) return;
+            this.viewer.requestRender();
+            this.preloadLabelingAssistance();
+        } catch (err) {
+            if (err?.name === 'AbortError') return;
+            throw err;
+        } finally {
+            if (this._loadAbortController === controller) this._loadAbortController = null;
+        }
     }
 
     preloadLabelingAssistance() {
         if (!this.slideId || !this.aiAssistanceEnabled) return;
         this.ensureLabelingAssistance({ silent: true }).catch((err) => {
+            if (err?.name === 'AbortError') return;
             if (!/disabled/i.test(err.message || '')) {
                 this.setStatus(`Labeling assistance preload failed: ${err.message}`);
             }
         });
     }
 
-    async refreshPatches() {
+    async refreshPatches(options = {}) {
         if (!this.slideId) return;
-        const payload = await this.api.getCellPatches(this.slideId);
+        const slideId = this.slideId;
+        const payload = await this.api.getCellPatches(slideId, '', { signal: options.signal });
+        if (options.seq && options.seq !== this._loadSeq) return;
+        if (options.signal?.aborted || this.slideId !== slideId) return;
         this.patches.clear();
         for (const patch of payload.patches || []) {
             const id = patch.str_patch_id || patch.patch_id;
@@ -2121,29 +2143,35 @@ export class CellPatchWorkflow {
         if (this.assistancePromise && this.assistanceSlideId === slideId) {
             return this.assistancePromise;
         }
+        this._assistanceAbortController?.abort();
+        const controller = new AbortController();
+        this._assistanceAbortController = controller;
         this.assistanceSlideId = slideId;
-        this.assistancePromise = this._ensureLabelingAssistanceForSlide(slideId, { silent })
+        this.assistancePromise = this._ensureLabelingAssistanceForSlide(slideId, { silent, signal: controller.signal })
             .finally(() => {
                 if (this.assistanceSlideId === slideId) {
                     this.assistancePromise = null;
                     this.assistanceSlideId = '';
                 }
+                if (this._assistanceAbortController === controller) this._assistanceAbortController = null;
             });
         return this.assistancePromise;
     }
 
-    async _ensureLabelingAssistanceForSlide(slideId, { silent = false } = {}) {
+    async _ensureLabelingAssistanceForSlide(slideId, { silent = false, signal = null } = {}) {
         const options = this.api.getWsiLabelingAssistanceOptions
-            ? await this.api.getWsiLabelingAssistanceOptions(slideId)
+            ? await this.api.getWsiLabelingAssistanceOptions(slideId, { signal })
             : null;
+        if (signal?.aborted || this.slideId !== slideId) return;
         const current = options?.current || {};
         if (!current.enabled || !current.key) {
             if (!silent) this.setStatus('Cell Annotation AI assistance is disabled for this project');
             return;
         }
         const existing = this.api.getWsiLabelingAssistance
-            ? await this.api.getWsiLabelingAssistance(slideId)
+            ? await this.api.getWsiLabelingAssistance(slideId, { signal })
             : null;
+        if (signal?.aborted || this.slideId !== slideId) return;
         const sameAssistanceModel =
             existing?.annotation_ai?.key === current.key &&
             existing?.annotation_ai?.variant === current.variant &&
