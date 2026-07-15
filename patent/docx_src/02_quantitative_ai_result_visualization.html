@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>대규모 병리 AI 정량 결과의 실시간 시각화 방법</title>
+  <style>
+    body { font-family: "Noto Sans CJK KR", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; font-size: 11pt; color: #111; }
+    h1 { font-size: 20pt; }
+    h2 { font-size: 15pt; margin-top: 20pt; border-bottom: 1px solid #999; padding-bottom: 4pt; }
+    h3 { font-size: 12.5pt; margin-top: 14pt; }
+    table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    th, td { border: 1px solid #777; padding: 6pt; vertical-align: top; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>대규모 병리 AI 정량 결과의 실시간 시각화 방법</h1>
+
+  <h2>1. 발명의 명칭</h2>
+  <p>Whole Slide Image 상의 대규모 병리 AI 정량 결과를 실시간으로 표시 및 탐색하기 위한 시각화 방법</p>
+
+  <h2>2. 기술분야</h2>
+  <p>본 발명은 디지털 병리 영상 분석, AI 기반 cell detection 및 biomarker quantification, WSI viewer overlay, 대규모 좌표 데이터의 viewport 기반 rendering 및 interactive filtering에 관한 것이다.</p>
+
+  <h2>3. 배경기술 및 문제점</h2>
+  <p>병리 AI 모델은 WSI 전체에서 cell, nucleus, tissue region, biomarker score, heatmap 등 대량의 결과를 생성한다. 하나의 슬라이드에서 수십만 개 이상의 cell result가 생성될 수 있으며, 이를 브라우저 화면에 모두 렌더링하면 pan/zoom interaction이 지연된다.</p>
+  <p>또한 병리 AI 결과는 class, confidence, marker score, patch location, hidden/visible state, user correction state 등 다양한 속성을 가진다. 사용자는 threshold를 조절하거나 특정 class를 숨기고, patch 또는 heatmap과 함께 결과를 비교해야 한다. 단순히 모든 결과를 DOM element로 표시하거나 canvas에 전체 draw하면 실시간 탐색이 어렵다.</p>
+
+  <h2>4. 해결하고자 하는 과제</h2>
+  <ul>
+    <li>대규모 AI 결과를 WSI viewer 위에서 실시간으로 표시하는 것</li>
+    <li>현재 viewport에 필요한 결과만 빠르게 선별하여 렌더링하는 것</li>
+    <li>confidence threshold, class visibility, hidden state 변경을 즉시 반영하는 것</li>
+    <li>cell, patch, heatmap, score summary를 동일 좌표계에서 결합 표시하는 것</li>
+    <li>사용자 수정 또는 검수 결과를 시각화 상태와 연결하는 것</li>
+  </ul>
+
+  <h2>5. 발명의 구성</h2>
+  <h3>5.1 AI 결과 정규화부</h3>
+  <p>AI 모델의 출력은 WSI level-0 좌표계에 대응하는 cell center, bounding box, class id, confidence, score, patch id, visibility state를 포함하는 표준 구조로 변환된다. 서로 다른 Quanti 모델, 예컨대 Quanti HE, Quanti PD-L1, Quanti IHC의 결과도 동일한 viewer coordinate system에서 다룰 수 있도록 정규화된다.</p>
+
+  <h3>5.2 Spatial index 생성부</h3>
+  <p>정규화된 cell result는 grid 또는 spatial index에 배치된다. 각 cell은 좌표에 따라 특정 grid bucket에 저장되며, viewport query 시 intersecting bucket만 조회한다. 이를 통해 전체 result 수와 무관하게 현재 화면에 필요한 cell만 빠르게 선별한다.</p>
+
+  <h3>5.3 Viewport culling 및 level-aware rendering부</h3>
+  <p>viewer는 현재 viewport의 scene coordinate 범위를 계산하고 spatial index에서 해당 범위의 result만 가져온다. zoom level이 낮을 때는 cell 개별 표시를 축약하거나 heatmap/aggregate 형태로 표시하고, zoom level이 높을 때는 bounding box 또는 point marker를 세밀하게 표시한다.</p>
+
+  <h3>5.4 Interactive filtering부</h3>
+  <p>사용자가 class visibility, confidence threshold, marker category, hidden cell display mode를 변경하면 viewer는 전체 dataset을 다시 DOM으로 구성하지 않고, spatial query와 rendering 조건만 갱신하여 canvas overlay를 다시 그린다.</p>
+
+  <h3>5.5 Multi-layer overlay부</h3>
+  <p>AI result는 WSI tile layer 위에 별도의 canvas overlay로 표시된다. cell result, patch boundary, heatmap, selected cell, hidden cell, user-edited cell은 layer 또는 drawing pass로 분리되어 렌더링될 수 있다.</p>
+
+  <h3>5.6 User correction 연동부</h3>
+  <p>사용자가 AI result를 수정하면 해당 cell의 class, position, visibility, confidence override 등이 갱신되고, 갱신된 result는 즉시 overlay에 반영된다. 수정 이력은 후속 검수, audit, model result correction 또는 reporting 단계에 연결될 수 있다.</p>
+
+  <h2>6. 동작 절차</h2>
+  <ol>
+    <li>AI 모델 결과를 WSI 좌표계 기준의 표준 result object로 변환한다.</li>
+    <li>각 result의 좌표를 기준으로 spatial grid 또는 index를 구성한다.</li>
+    <li>viewer의 pan/zoom event에 따라 현재 viewport의 scene coordinate 범위를 계산한다.</li>
+    <li>spatial index에서 viewport와 교차하는 result 후보만 조회한다.</li>
+    <li>class visibility, confidence threshold, hidden state, display mode 조건을 적용한다.</li>
+    <li>zoom level에 따라 cell point, bounding box, patch overlay 또는 heatmap 중 적절한 방식으로 표시한다.</li>
+    <li>사용자 수정이 발생하면 해당 result object와 index/cache를 갱신하고 overlay를 다시 렌더링한다.</li>
+  </ol>
+
+  <h2>7. 효과</h2>
+  <ul>
+    <li>대량 AI result를 전체 순회하지 않고 viewport 주변 result만 표시하여 rendering latency를 줄인다.</li>
+    <li>threshold 및 class filter 변경 시 전체 페이지 재구성 없이 즉시 시각적 피드백을 제공한다.</li>
+    <li>cell, patch, heatmap 결과를 동일 WSI 좌표계에서 결합하여 판독자가 쉽게 비교할 수 있다.</li>
+    <li>사용자 수정과 AI result 표시가 연결되어 human-in-the-loop 검수 workflow를 지원한다.</li>
+  </ul>
+
+  <h2>8. 청구항 초안</h2>
+  <h3>독립항 예시</h3>
+  <p>병리 AI 모델의 정량 분석 결과를 WSI viewer에 표시하는 방법에 있어서, AI 분석 결과를 WSI 좌표계의 result object로 정규화하는 단계; 상기 result object를 좌표 기반 spatial index에 저장하는 단계; viewer의 현재 viewport 범위와 zoom level을 산출하는 단계; 상기 spatial index로부터 현재 viewport와 교차하는 result object를 조회하는 단계; 조회된 result object에 class visibility 및 confidence threshold 조건을 적용하는 단계; 상기 zoom level에 따라 cell marker, bounding box, patch overlay 또는 heatmap 중 적어도 하나의 방식으로 canvas overlay에 렌더링하는 단계를 포함하는 방법.</p>
+
+  <h3>종속항 후보</h3>
+  <ul>
+    <li>hidden cell과 visible cell을 서로 다른 spatial index 또는 rendering pass로 처리하는 방법</li>
+    <li>Quanti HE, Quanti PD-L1, Quanti IHC 결과를 동일 좌표계와 공통 filtering interface로 표시하는 방법</li>
+    <li>사용자 수정 결과를 result object에 반영하고 즉시 overlay를 갱신하는 방법</li>
+    <li>zoom level에 따라 rendering density 또는 표시 형태를 변경하는 방법</li>
+    <li>patch-level result와 cell-level result를 동일 viewport에서 동기화 표시하는 방법</li>
+  </ul>
+
+  <h2>9. 선행기술 대비 차별 포인트</h2>
+  <ul>
+    <li>단순 AI 결과 표시가 아니라 WSI viewport, spatial index, interactive filtering을 결합한다.</li>
+    <li>대규모 병리 AI result를 브라우저 canvas 환경에서 실시간 탐색 가능하게 한다.</li>
+    <li>cell result, patch result, heatmap, user correction을 하나의 coordinate system에서 통합한다.</li>
+  </ul>
+</body>
+</html>

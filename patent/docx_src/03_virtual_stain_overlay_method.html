@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Virtual Stain 생성 및 WSI Overlay 표시 방법</title>
+  <style>
+    body { font-family: "Noto Sans CJK KR", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; font-size: 11pt; color: #111; }
+    h1 { font-size: 20pt; }
+    h2 { font-size: 15pt; margin-top: 20pt; border-bottom: 1px solid #999; padding-bottom: 4pt; }
+    h3 { font-size: 12.5pt; margin-top: 14pt; }
+    table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    th, td { border: 1px solid #777; padding: 6pt; vertical-align: top; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>Virtual Stain 생성 및 WSI Overlay 표시 방법</h1>
+
+  <h2>1. 발명의 명칭</h2>
+  <p>Whole Slide Image 기반 Virtual Stain 결과의 생성, 타일화 및 원본 슬라이드 정렬 표시 방법</p>
+
+  <h2>2. 기술분야</h2>
+  <p>본 발명은 디지털 병리 영상, AI 기반 virtual staining, WSI patch inference, image blending, tile pyramid generation, 원본-가상염색 overlay viewer에 관한 것이다.</p>
+
+  <h2>3. 배경기술 및 문제점</h2>
+  <p>Virtual stain 기술은 하나의 염색 슬라이드로부터 다른 염색 결과를 예측함으로써 추가 염색 비용과 시간을 줄일 수 있다. 그러나 WSI는 매우 크기 때문에 전체 이미지를 한 번에 AI 모델에 입력하기 어렵고, patch 단위로 추론하면 patch 경계에서 artifact 또는 intensity discontinuity가 발생할 수 있다.</p>
+  <p>또한 virtual stain 결과를 단일 큰 이미지로 생성하더라도 웹 viewer에서 원본 WSI와 정확히 정렬하여 pan/zoom, opacity overlay, split view로 표시하려면 별도의 tile pyramid와 coordinate alignment가 필요하다.</p>
+
+  <h2>4. 해결하고자 하는 과제</h2>
+  <ul>
+    <li>WSI를 patch 단위로 추론하면서 patch boundary artifact를 줄이는 것</li>
+    <li>virtual stain 결과를 WSI viewer에서 원본과 동일 좌표계로 표시하는 것</li>
+    <li>large virtual stain result를 tile pyramid cache로 변환하여 on-demand streaming하는 것</li>
+    <li>미처리 영역, 불확실 영역, tissue 외부 영역을 안정적으로 처리하는 것</li>
+    <li>원본과 virtual stain을 overlay 또는 split view로 자연스럽게 비교하는 것</li>
+  </ul>
+
+  <h2>5. 발명의 구성</h2>
+  <h3>5.1 Patch extraction 및 inference부</h3>
+  <p>입력 WSI는 level-0 또는 선택된 resolution의 좌표계에서 일정 크기 patch로 분할된다. 각 patch는 tissue mask, ROI, required region 또는 전체 slide 조건에 따라 선택된다. 선택된 patch는 virtual stain AI model에 입력되어 대응하는 stain output patch를 생성한다.</p>
+
+  <h3>5.2 Overlap blending부</h3>
+  <p>인접 patch 간에는 overlap 영역을 설정하고, Gaussian 또는 distance-based blending weight를 적용한다. output canvas에는 각 patch output과 blending weight가 누적되며, 최종 pixel value는 weighted average로 계산된다. 이를 통해 patch 경계의 seam artifact를 줄인다.</p>
+
+  <h3>5.3 Uncovered 및 uncertainty 처리부</h3>
+  <p>추론되지 않은 영역 또는 tissue 외부 영역은 uncovered mask로 관리된다. viewer 표시 시 해당 영역은 원본 이미지, 투명 영역, neutral background 또는 uncertainty overlay로 표시될 수 있다. 이 구성은 virtual stain 결과를 실제 판독 화면에 표시할 때 잘못된 확신을 줄인다.</p>
+
+  <h3>5.4 Tile pyramid cache 생성부</h3>
+  <p>생성된 virtual stain canvas 또는 patch stream 결과는 viewer tile size에 맞게 level-0 tile로 저장되고, 하위 resolution level의 tile pyramid가 생성된다. 각 tile은 stain type, target MPP, source slide signature, ROI metadata와 함께 cache된다.</p>
+
+  <h3>5.5 Overlay 및 split view 표시부</h3>
+  <p>viewer는 virtual stain tile pyramid를 원본 slide coordinate system에 정렬하여 표시한다. 사용자는 opacity를 조절하여 원본 위에 virtual stain을 overlay하거나, split view handle을 움직여 원본과 virtual stain을 좌우 또는 영역별로 비교할 수 있다.</p>
+
+  <h3>5.6 Cache 재사용 및 상태 관리부</h3>
+  <p>virtual stain 결과가 이미 생성되어 있고 source slide signature와 parameter가 일치하면 기존 cache를 재사용한다. 결과가 없거나 stale이면 inference task를 생성하고 progress 및 tile availability를 viewer에 표시한다.</p>
+
+  <h2>6. 동작 절차</h2>
+  <ol>
+    <li>입력 WSI와 target stain type, target MPP, ROI 조건을 수신한다.</li>
+    <li>source slide signature와 기존 virtual stain cache metadata를 비교한다.</li>
+    <li>cache가 유효하면 tile pyramid를 viewer에 연결한다.</li>
+    <li>cache가 없으면 WSI에서 patch 좌표를 산출하고 tissue/ROI 조건에 따라 patch를 추출한다.</li>
+    <li>각 patch를 AI model에 입력하여 virtual stain patch를 생성한다.</li>
+    <li>patch output을 blending weight와 함께 output canvas 또는 streaming tile buffer에 누적한다.</li>
+    <li>최종 virtual stain 결과를 tile pyramid로 저장한다.</li>
+    <li>viewer에서 원본 tile과 virtual stain tile을 동일 좌표계에 정렬하여 overlay 또는 split view로 표시한다.</li>
+  </ol>
+
+  <h2>7. 효과</h2>
+  <ul>
+    <li>WSI 전체를 한 번에 처리하지 않고 patch 단위로 추론하여 대용량 슬라이드 처리가 가능하다.</li>
+    <li>overlap blending으로 patch 경계 artifact를 줄일 수 있다.</li>
+    <li>tile pyramid cache를 통해 virtual stain 결과를 일반 WSI tile처럼 빠르게 탐색할 수 있다.</li>
+    <li>원본과 virtual stain을 동일 viewer에서 overlay/split view로 비교하여 판독 효율을 높인다.</li>
+    <li>cache metadata를 이용해 stale result를 방지하고 재사용성을 높인다.</li>
+  </ul>
+
+  <h2>8. 청구항 초안</h2>
+  <h3>독립항 예시</h3>
+  <p>Whole Slide Image로부터 virtual stain 결과를 생성하여 표시하는 방법에 있어서, 입력 WSI의 좌표계에서 복수의 patch 좌표를 산출하는 단계; 상기 patch 좌표에 따라 WSI patch를 추출하는 단계; 상기 WSI patch를 virtual stain model에 입력하여 stain output patch를 생성하는 단계; 인접 patch 간 overlap 영역에 blending weight를 적용하여 virtual stain output을 누적하는 단계; 누적된 virtual stain output으로부터 tile pyramid cache를 생성하는 단계; 상기 tile pyramid cache를 원본 WSI 좌표계에 정렬하여 viewer에서 overlay 또는 split view로 표시하는 단계를 포함하는 방법.</p>
+
+  <h3>종속항 후보</h3>
+  <ul>
+    <li>overlap 영역에 Gaussian 또는 distance-based weight를 적용하는 방법</li>
+    <li>uncovered 영역을 mask로 관리하고 viewer에서 별도 표시하는 방법</li>
+    <li>source slide signature와 target stain parameter를 이용해 virtual stain cache validity를 판단하는 방법</li>
+    <li>virtual stain tile을 원본 WSI tile과 동일 pan/zoom event에 동기화하여 표시하는 방법</li>
+    <li>split view handle 위치에 따라 원본 tile과 virtual stain tile의 표시 영역을 동적으로 분할하는 방법</li>
+  </ul>
+
+  <h2>9. 선행기술 대비 차별 포인트</h2>
+  <ul>
+    <li>모델 추론만이 아니라 WSI patch inference, blending, tile pyramid cache, viewer overlay를 하나의 방법으로 결합한다.</li>
+    <li>원본 WSI와 virtual stain 결과를 동일 coordinate system에서 interactive하게 비교 표시한다.</li>
+    <li>uncovered/uncertainty 영역 및 cache validity를 viewer workflow에 포함한다.</li>
+  </ul>
+</body>
+</html>

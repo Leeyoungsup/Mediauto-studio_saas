@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>WSI Viewer 및 Adaptive Tile Streaming 방법</title>
+  <style>
+    body { font-family: "Noto Sans CJK KR", "Malgun Gothic", Arial, sans-serif; line-height: 1.55; font-size: 11pt; color: #111; }
+    h1 { font-size: 20pt; }
+    h2 { font-size: 15pt; margin-top: 20pt; border-bottom: 1px solid #999; padding-bottom: 4pt; }
+    h3 { font-size: 12.5pt; margin-top: 14pt; }
+    table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    th, td { border: 1px solid #777; padding: 6pt; vertical-align: top; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>WSI Viewer 및 Adaptive Tile Streaming 방법</h1>
+
+  <h2>1. 발명의 명칭</h2>
+  <p>대용량 병리 슬라이드의 웹 기반 표시를 위한 WSI Viewer 및 Adaptive Tile Streaming 방법</p>
+
+  <h2>2. 기술분야</h2>
+  <p>본 발명은 디지털 병리 영상 처리, 웹 기반 whole slide image viewer, 대용량 이미지 tile streaming, 다중 사용자 환경에서의 서버 부하 제어 및 viewport 기반 rendering scheduling에 관한 것이다.</p>
+
+  <h2>3. 배경기술 및 문제점</h2>
+  <p>Whole Slide Image(WSI)는 수 기가픽셀 이상의 해상도를 가지므로 일반적인 이미지 로딩 방식으로는 웹 브라우저에서 원활히 표시하기 어렵다. 기존 WSI viewer는 이미 생성된 tile pyramid를 읽어 화면에 표시하는 방식이 많으며, tile이 존재하지 않거나 특수 포맷에서 즉시 추출해야 하는 경우에는 사용자의 pan/zoom interaction이 지연될 수 있다.</p>
+  <p>특히 복수 사용자가 동시에 서로 다른 슬라이드 또는 서로 다른 위치를 탐색하면, 서버는 tile reading, resize, color correction, JPEG encoding, disk write, network response를 동시에 처리해야 한다. 이때 cache miss tile을 HTTP 요청 내부에서 무제한 생성하면 요청 thread가 장시간 점유되고, 전체 viewer 응답성이 급격히 저하된다.</p>
+  <p>또한 사용자가 빠르게 slide를 이동하거나 viewport를 변경하면 이전 viewport에 대한 tile 요청이 계속 처리되어 현재 화면과 무관한 타일이 생성된다. 이는 서버 자원을 낭비하고 새 viewport의 tile 표시를 늦춘다.</p>
+
+  <h2>4. 해결하고자 하는 과제</h2>
+  <ul>
+    <li>대용량 WSI를 웹 브라우저에서 부드럽게 pan/zoom 표시하는 것</li>
+    <li>캐시된 tile은 즉시 제공하면서, 누락된 tile은 서버 부하 상태에 따라 즉시 생성 또는 queue 처리하는 것</li>
+    <li>복수 사용자가 동시에 접근해도 현재 viewport에 필요한 tile을 우선 생성하는 것</li>
+    <li>slide 변경, zoom, pan에 의해 stale tile 요청이 발생한 경우 이를 빠르게 abort하고 새 viewport 기준으로 queue를 재구성하는 것</li>
+    <li>background full tiling과 viewer on-demand tiling 사이에서 사용자 체감 우선순위를 보장하는 것</li>
+  </ul>
+
+  <h2>5. 발명의 구성</h2>
+  <h3>5.1 Viewport 기반 tile 산출부</h3>
+  <p>viewer는 현재 slide id, zoom level, viewport center, viewport 크기, stage downsample 정보를 이용해 화면에 필요한 tile 좌표를 산출한다. 산출된 tile은 현재 화면에 직접 표시될 child tile과 fallback에 사용될 parent tile로 구분된다.</p>
+  <p>child tile이 존재하지 않는 경우에도 parent tile 또는 thumbnail 기반 fallback을 먼저 표시하여 화면의 공백을 줄이고, child tile이 로드되면 fade-in 방식으로 교체할 수 있다.</p>
+
+  <h3>5.2 Tile queue 및 우선순위 결정부</h3>
+  <p>viewer는 산출된 tile task를 queue에 넣고, 현재 viewport 중심과 가까운 tile, child tile, 사용자가 현재 보고 있는 위치의 tile을 우선 처리한다. 이미 cache에 존재하거나 loading 중인 tile은 중복 queueing하지 않는다.</p>
+  <p>tile task에는 generation id를 부여하여 slide 변경 또는 viewport 변경 이후 도착한 stale response가 현재 화면 cache에 혼입되지 않도록 한다.</p>
+
+  <h3>5.3 Abort 및 stale request 제거부</h3>
+  <p>사용자가 pan, zoom 또는 slide 변경을 수행하면 viewer는 이전 generation의 in-flight image request를 abort한다. 또한 load queue와 loading set을 초기화하고 새 viewport 기준으로 tile task를 다시 산출한다. 이를 통해 현재 화면과 무관한 tile 요청이 서버와 브라우저 자원을 계속 점유하지 않게 한다.</p>
+
+  <h3>5.4 Hybrid tile serving부</h3>
+  <p>서버는 tile 요청 수신 시 먼저 disk cache 및 complete marker를 확인한다. cache hit이면 tile bytes를 즉시 응답한다. cache miss이면 다음 조건에 따라 inline generation 또는 queued generation으로 분기한다.</p>
+  <table>
+    <tr><th>조건</th><th>처리</th></tr>
+    <tr><td>viewer executor queue가 낮고 inline generation 수가 제한 이하</td><td>짧은 timeout 내에서 tile을 즉시 생성하고 응답</td></tr>
+    <tr><td>background tile generation이 active이고 level이 높거나 특수 포맷인 경우</td><td>priority queue 등록 후 빠른 queued response 반환</td></tr>
+    <tr><td>inline timeout 초과</td><td>진행 중 작업은 완료 시 cache에 남기고, HTTP 응답은 queued 상태로 빠르게 반환</td></tr>
+    <tr><td>tile이 tissue/data envelope 밖에 있는 경우</td><td>blank tile 또는 cache 가능한 빈 응답 반환</td></tr>
+  </table>
+
+  <h3>5.5 Priority tile generation부</h3>
+  <p>cache miss tile이 요청되면 서버는 해당 tile이 포함된 stage-1 또는 stage-2 block 좌표를 priority set에 등록한다. background tile generator는 일반 순차 생성보다 priority set의 좌표를 먼저 처리한다. 이로써 사용자가 실제 보고 있는 위치의 tile이 full tiling 순서보다 앞서 생성된다.</p>
+
+  <h3>5.6 특수 포맷 bridge 처리부</h3>
+  <p>Philips iSyntax/i2Syntax 등 특수 포맷은 별도 bridge process를 통해 region extraction을 수행한다. viewer thread별 slide handling을 유지하고, bridge 결과를 raw image buffer 또는 임시 파일 방식으로 전달하여 반복적인 process startup과 PNG encode/decode 비용을 줄인다.</p>
+
+  <h2>6. 동작 절차</h2>
+  <ol>
+    <li>클라이언트 viewer가 현재 viewport와 zoom level을 기준으로 표시 대상 tile 목록을 산출한다.</li>
+    <li>viewer는 child tile을 우선 queue하고, 필요한 경우 parent fallback tile을 추가 queue한다.</li>
+    <li>서버는 요청 tile의 cache validity를 complete marker와 source file signature로 빠르게 확인한다.</li>
+    <li>cache hit이면 tile bytes를 즉시 응답한다.</li>
+    <li>cache miss이면 서버 부하 상태, inline active count, viewer queue size, background generation 여부, tile level, slide format을 확인한다.</li>
+    <li>여유가 있으면 제한 시간 내 inline tile generation을 수행한다.</li>
+    <li>제한 시간이 초과되거나 busy 상태이면 priority tile로 등록하고 queued response를 반환한다.</li>
+    <li>클라이언트는 fallback을 유지한 상태로 일정 시간 후 재렌더링하여 생성된 tile을 다시 요청한다.</li>
+    <li>사용자 viewport가 변경되면 이전 generation tile request를 abort하고 새 tile 목록으로 재정렬한다.</li>
+  </ol>
+
+  <h2>7. 효과</h2>
+  <ul>
+    <li>1~2명 사용 시에는 tile miss도 짧은 시간 내 즉시 생성되어 기존 사용감을 유지한다.</li>
+    <li>다중 사용자 접속 시에는 서버가 무제한 inline generation으로 포화되는 것을 방지한다.</li>
+    <li>현재 보고 있는 viewport의 tile이 full tiling보다 우선 생성되어 체감 속도가 향상된다.</li>
+    <li>slide 이동 및 pan/zoom 시 이전 요청을 제거하여 렉과 불필요한 서버 작업을 줄인다.</li>
+    <li>캐시 hit 경로와 miss generation 경로를 분리하여 응답 안정성을 높인다.</li>
+  </ul>
+
+  <h2>8. 청구항 초안</h2>
+  <h3>독립항 예시</h3>
+  <p>대용량 병리 슬라이드 영상을 웹 viewer에 표시하는 방법에 있어서, 현재 viewport 및 zoom level에 기초하여 복수의 tile 좌표를 산출하는 단계; 상기 tile 좌표 중 현재 viewport 내 child tile과 fallback parent tile에 우선순위를 부여하는 단계; 요청된 tile의 cache 존재 여부를 판단하는 단계; 상기 tile이 cache에 존재하지 않는 경우 서버의 viewer queue 상태, inline generation 상태 및 background tile generation 상태에 기초하여 inline generation 또는 queued generation을 선택하는 단계; inline generation이 선택된 경우 제한 시간 내 tile을 생성하여 응답하고, queued generation이 선택된 경우 상기 tile을 priority queue에 등록하고 fallback 표시를 유지하도록 하는 응답을 반환하는 단계를 포함하는 방법.</p>
+
+  <h3>종속항 후보</h3>
+  <ul>
+    <li>상기 제한 시간이 tile level 또는 slide format에 따라 다르게 설정되는 방법</li>
+    <li>사용자의 pan 또는 zoom event 발생 시 이전 generation의 in-flight tile request를 abort하는 방법</li>
+    <li>priority queue가 stage-1 block 좌표 또는 stage-2 block 좌표 단위로 관리되는 방법</li>
+    <li>background full tiling 중에도 viewer viewport에 대응하는 tile을 우선 생성하는 방법</li>
+    <li>특수 slide format에 대해 별도 bridge process를 이용하여 tile region을 추출하는 방법</li>
+  </ul>
+
+  <h2>9. 선행기술 대비 차별 포인트</h2>
+  <ul>
+    <li>단순 tile pyramid viewer가 아니라 cache miss 상황에서 inline generation과 queued generation을 adaptive하게 전환한다.</li>
+    <li>다중 사용자 상황에서 서버 부하를 tile serving 정책에 직접 반영한다.</li>
+    <li>viewport 변경에 따른 abort와 generation id를 이용하여 stale tile 혼입을 방지한다.</li>
+    <li>background full tiling과 viewer priority tiling을 하나의 scheduling 체계로 결합한다.</li>
+  </ul>
+</body>
+</html>

@@ -27,6 +27,7 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
 )
 from app.tile_generator import (
+    any_generation_running,
     invalidate_tiles,
     generate_priority_single_tile,
     get_tiles_dir_for_path,
@@ -36,7 +37,7 @@ from app.tile_generator import (
 )
 from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
-from app.cpu_layout import viewer_executor
+from app.cpu_layout import INT_VIEWER, viewer_executor
 from app.slide_identity import slide_cache_key
 from app.thread_slide_pool import get_thread_slide
 
@@ -46,6 +47,16 @@ router = APIRouter()
 
 TILE_SIZE = TILE_SIZE_OUT
 _BLANK_TILE_BYTES: bytes | None = None
+_INLINE_ACTIVE = 0
+_INLINE_ACTIVE_LOCK = threading.Lock()
+_INLINE_MAX_ACTIVE = max(1, int(os.environ.get("MEDIAUTO_TILE_INLINE_MAX_ACTIVE", max(1, min(4, INT_VIEWER // 3)))))
+_INLINE_QUEUE_LIMIT = max(1, int(os.environ.get("MEDIAUTO_TILE_INLINE_QUEUE_LIMIT", max(2, INT_VIEWER // 2))))
+_INLINE_TIMEOUT_MS = {
+    0: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L0_MS", "1400"))),
+    1: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L1_MS", "1000"))),
+    2: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L2_MS", "700"))),
+}
+_INLINE_PHILIPS_TIMEOUT_MS = max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_PHILIPS_TIMEOUT_MS", "650")))
 
 
 def _blank_tile_bytes() -> bytes:
@@ -96,13 +107,72 @@ def _consume_future_exception(fut) -> None:
         pass
 
 
-async def _run_viewer_job(request: Request, fn):
+def _viewer_queue_size() -> int:
+    queue_obj = getattr(viewer_executor, "_work_queue", None)
+    if queue_obj is None:
+        return 0
+    try:
+        return int(queue_obj.qsize())
+    except Exception:
+        return 0
+
+
+def _inline_active_count() -> int:
+    with _INLINE_ACTIVE_LOCK:
+        return _INLINE_ACTIVE
+
+
+def _tile_inline_timeout_seconds(level: int, bool_philips: bool) -> float:
+    if bool_philips:
+        return _INLINE_PHILIPS_TIMEOUT_MS / 1000.0
+    return _INLINE_TIMEOUT_MS.get(level, _INLINE_TIMEOUT_MS[2]) / 1000.0
+
+
+def _can_inline_generate(level: int, bool_philips: bool) -> bool:
+    if _inline_active_count() >= _INLINE_MAX_ACTIVE:
+        return False
+    if _viewer_queue_size() >= _INLINE_QUEUE_LIMIT:
+        return False
+    if any_generation_running() and (bool_philips or level >= 2):
+        return False
+    return True
+
+
+def _pending_tile_response() -> Response:
+    return Response(
+        status_code=503,
+        content=b"",
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-store",
+            "Retry-After": "1",
+            "X-Mediauto-Tile-State": "queued",
+        },
+    )
+
+
+async def _run_viewer_job(request: Request, fn, *, timeout_seconds: float | None = None):
     loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(viewer_executor, fn)
+    def _tracked_fn():
+        global _INLINE_ACTIVE
+        with _INLINE_ACTIVE_LOCK:
+            _INLINE_ACTIVE += 1
+        try:
+            return fn()
+        finally:
+            with _INLINE_ACTIVE_LOCK:
+                _INLINE_ACTIVE -= 1
+
+    fut = loop.run_in_executor(viewer_executor, _tracked_fn)
+    float_started = time.monotonic()
     while True:
         done, _ = await asyncio.wait({fut}, timeout=0.1)
         if done:
             return fut.result()
+        if timeout_seconds is not None and time.monotonic() - float_started >= timeout_seconds:
+            if not fut.cancel():
+                fut.add_done_callback(_consume_future_exception)
+            raise HTTPException(status_code=503, detail="Tile generation queued", headers={"Retry-After": "1"})
         if await request.is_disconnected():
             if not fut.cancel():
                 fut.add_done_callback(_consume_future_exception)
@@ -138,6 +208,7 @@ async def _ensure_philips_tile(
     tile_x: int,
     tile_y: int,
     tile_path: Path,
+    timeout_seconds: float | None = None,
 ) -> bool:
     if not _tile_intersects_data_envelope(info, level, tile_x, tile_y):
         return False
@@ -154,6 +225,7 @@ async def _ensure_philips_tile(
                 info.slide,
                 info.apply_icc,
             ),
+            timeout_seconds=timeout_seconds,
         )
     except HTTPException:
         raise
@@ -173,11 +245,31 @@ async def _missing_philips_tile_response(
     tile_path: Path,
 ) -> Response:
     bool_intersects_data = _tile_intersects_data_envelope(info, level, tile_x, tile_y)
-    if await _ensure_philips_tile(request, info, filename, level, tile_x, tile_y, tile_path):
+    if not bool_intersects_data:
+        return _blank_tile_response("public, max-age=604800")
+
+    request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
+    if not _can_inline_generate(level, True):
+        return _pending_tile_response()
+
+    try:
+        bool_ready = await _ensure_philips_tile(
+            request,
+            info,
+            filename,
+            level,
+            tile_x,
+            tile_y,
+            tile_path,
+            timeout_seconds=_tile_inline_timeout_seconds(level, True),
+        )
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return _pending_tile_response()
+        raise
+    if bool_ready:
         return _jpeg_file_response(tile_path)
-    if bool_intersects_data:
-        return _blank_tile_response("no-store")
-    return _blank_tile_response("public, max-age=604800")
+    return _pending_tile_response()
 
 
 # ── LRU text text touch (janitor text) ──
@@ -368,6 +460,10 @@ async def get_tile(
     if is_philips_isyntax(info.file_path):
         return await _missing_philips_tile_response(request, info, filename, level, tile_x, tile_y, tile_path)
 
+    request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
+    if not _can_inline_generate(level, False):
+        return _pending_tile_response()
+
     def _render_and_save() -> bytes:
         # thread-local text read — text text text text text text text
         obj_slide = get_thread_slide(slide_id, info.file_path)
@@ -409,13 +505,19 @@ async def get_tile(
 
     try:
         # viewer text pool — viewer cores text text (cpu_layout)
-        content = await _run_viewer_job(request, _render_and_save)
+        content = await _run_viewer_job(
+            request,
+            _render_and_save,
+            timeout_seconds=_tile_inline_timeout_seconds(level, False),
+        )
         return Response(
             content=content,
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=604800"},
         )
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return _pending_tile_response()
         raise
     except Exception as e:
         raise HTTPException(500, f"text text text: {e}")

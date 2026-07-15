@@ -64,6 +64,31 @@ _export_tasks: dict[str, asyncio.Task] = {}
 _export_requested: set[str] = set()
 
 
+def _consume_future_exception(fut) -> None:
+    try:
+        fut.exception()
+    except BaseException:
+        pass
+
+
+async def _run_cancelable_request(request: Request, fn, *, poll_interval: float = 0.05):
+    loop = asyncio.get_running_loop()
+    fut = loop.run_in_executor(patch_executor, fn)
+    while True:
+        done, _ = await asyncio.wait({fut}, timeout=poll_interval)
+        if done:
+            return fut.result()
+        if await request.is_disconnected():
+            if not fut.cancel():
+                fut.add_done_callback(_consume_future_exception)
+            raise HTTPException(status_code=499, detail="Client closed request")
+
+
+async def _raise_if_disconnected(request: Request) -> None:
+    if await request.is_disconnected():
+        raise HTTPException(status_code=499, detail="Client closed request")
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -1429,9 +1454,11 @@ async def clear_all_patches(slide_id: str):
 
 
 @router.get("/{slide_id}/wsi-labeling-assistance/options")
-async def get_wsi_labeling_assistance_options(slide_id: str):
+async def get_wsi_labeling_assistance_options(request: Request, slide_id: str):
     info = _slide_info(slide_id)
+    await _raise_if_disconnected(request)
     config = await _project_annotation_ai_config(info)
+    await _raise_if_disconnected(request)
     return {
         "slide_id": slide_id,
         "project_path": _slide_project_path(info),
@@ -1442,11 +1469,14 @@ async def get_wsi_labeling_assistance_options(slide_id: str):
 
 @router.get("/{slide_id}/wsi-labeling-assistance")
 async def get_wsi_labeling_assistance(
+    request: Request,
     slide_id: str,
     include_labels: bool = Query(False),
 ):
     info = _slide_info(slide_id)
-    payload = _read_assistance_file(info)
+    await _raise_if_disconnected(request)
+    payload = await _run_cancelable_request(request, lambda: _read_assistance_file(info))
+    await _raise_if_disconnected(request)
     if not payload:
         return {"slide_id": slide_id, "exists": False, "labels": []}
     payload["exists"] = True
@@ -1459,11 +1489,14 @@ async def get_wsi_labeling_assistance(
 
 @router.post("/{slide_id}/wsi-labeling-assistance/run", dependencies=[Depends(require_not_viewer)])
 async def start_wsi_labeling_assistance(
+    request: Request,
     slide_id: str,
     payload: Optional[dict] = Body(None),
 ):
     info = _slide_info(slide_id)
+    await _raise_if_disconnected(request)
     config = await _project_annotation_ai_config(info)
+    await _raise_if_disconnected(request)
     override_key = str((payload or {}).get("annotation_ai_key") or "").strip()
     if override_key:
         option = ANNOTATION_AI_OPTION_BY_KEY.get(override_key)
@@ -1472,6 +1505,7 @@ async def start_wsi_labeling_assistance(
         config = normalize_annotation_ai_config(True, override_key)
     if not config.get("enabled"):
         raise HTTPException(400, "Cell Annotation AI assistance is disabled for this project")
+    await _raise_if_disconnected(request)
     task_id = uuid.uuid4().hex[:12]
     str_filename = Path(info.file_path).name
     with _tasks_lock:
@@ -1490,7 +1524,8 @@ async def start_wsi_labeling_assistance(
 
 
 @router.get("/wsi-labeling-assistance/task/{task_id}")
-async def get_wsi_labeling_assistance_task(task_id: str):
+async def get_wsi_labeling_assistance_task(request: Request, task_id: str):
+    await _raise_if_disconnected(request)
     cleanup_old_tasks()
     with _tasks_lock:
         task = _tasks.get(task_id)
@@ -1511,8 +1546,9 @@ async def get_wsi_labeling_assistance_task(task_id: str):
 
 
 @router.get("/{slide_id}/patches/{patch_id}/assistance-cells")
-async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
+async def get_patch_labeling_assistance_cells(request: Request, slide_id: str, patch_id: str):
     info = _slide_info(slide_id)
+    await _raise_if_disconnected(request)
     db = _require_db()
     patch = await db.patch_annotation_status.find_one(
         {"str_slide_id": slide_id, "str_patch_id": patch_id},
@@ -1529,7 +1565,9 @@ async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
             "reason": "patch_not_required",
             "cells": [],
         }
-    payload = _read_assistance_file(info)
+    await _raise_if_disconnected(request)
+    payload = await _run_cancelable_request(request, lambda: _read_assistance_file(info))
+    await _raise_if_disconnected(request)
     labels = payload.get("labels") if isinstance(payload, dict) else None
     if not isinstance(labels, list):
         return {
@@ -1542,6 +1580,8 @@ async def get_patch_labeling_assistance_cells(slide_id: str, patch_id: str):
     class_lookup = _assistance_class_lookup(info, payload)
     cells = []
     for idx, label in enumerate(labels, start=1):
+        if idx % 1000 == 0:
+            await _raise_if_disconnected(request)
         cell = _assistance_label_to_cell(label, patch, idx, class_lookup)
         if cell is not None:
             cells.append(cell)

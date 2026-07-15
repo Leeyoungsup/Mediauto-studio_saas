@@ -18,7 +18,7 @@ const VIEWER_FAST_THUMBNAIL_SIZE = 300;
 // text text text text text text text text abort text text text,
 // text/text text text text text text text _activeLoads text text text
 // text text text text stall text text.
-const MAX_CONCURRENT_LOADS = 6;
+const MAX_CONCURRENT_LOADS = 5;
 const MAX_CONCURRENT_VS_LOADS = 3;
 
 // 3text stage text — text backend slide_manager.STAGE_DOWNSAMPLES text text
@@ -112,6 +112,7 @@ export class TileViewer {
         this._inflightImages = new Set();
         // text generation — onload text text generation text text stale text
         this._loadGeneration = 0;
+        this._lastViewportTileAbortAt = 0;
 
         // 3-stage text text — text text text 3text stage level text text text text
         // text text text text text.
@@ -242,6 +243,20 @@ export class TileViewer {
 
     _abortInflightImages() {
         this._abortImageSet(this._inflightImages);
+    }
+
+    _abortTileLoadsForViewportChange(force = false) {
+        if (!this.slideId) return;
+        const now = performance.now();
+        if (!force && now - this._lastViewportTileAbortAt < 150) return;
+        if (!this._inflightImages.size && !this._tileLoading.size && !this._loadQueue.length) return;
+        this._lastViewportTileAbortAt = now;
+        this._loadGeneration++;
+        this._abortInflightImages();
+        this._tileLoading.clear();
+        this._loadQueue.length = 0;
+        this._loadQueuedKeys.clear();
+        this._activeLoads = 0;
     }
 
     _abortVsInflightImages() {
@@ -582,6 +597,7 @@ export class TileViewer {
         this.zoom = newZoom;
         this._clampView();
         this._emitZoomChange();
+        this._abortTileLoadsForViewportChange(true);
         this.requestRender();
     }
 
@@ -975,6 +991,7 @@ export class TileViewer {
             this.viewCenterX -= dx / this.zoom;
             this.viewCenterY -= dy / this.zoom;
             this._clampView();
+            this._abortTileLoadsForViewportChange();
             this.requestRender();
             if (this.onViewChange) this.onViewChange();
         });
@@ -1200,6 +1217,7 @@ export class TileViewer {
                 this.viewCenterX -= dx / this.zoom;
                 this.viewCenterY -= dy / this.zoom;
                 this._clampView();
+                this._abortTileLoadsForViewportChange();
                 this.requestRender();
             } else if (e.touches.length === 2 && lastTouchDist > 0) {
                 const dx = e.touches[1].clientX - e.touches[0].clientX;
@@ -1934,6 +1952,11 @@ export class TileViewer {
             // text "text" text text text text text text
             this._markPreloadTileDone(key);
             this._processLoadQueue();
+            if (int_gen === this._loadGeneration) {
+                setTimeout(() => {
+                    if (int_gen === this._loadGeneration) this.requestRender();
+                }, 800);
+            }
         };
         img.src = api.tileUrl(this.slideId, level, tx, ty, this._colorCorrectionEnabled);
     }

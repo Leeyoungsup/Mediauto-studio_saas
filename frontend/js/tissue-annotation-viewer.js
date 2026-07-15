@@ -1,4 +1,4 @@
-import { TileViewer } from './tile-viewer.js?v=20260715-01';
+import { TileViewer } from './tile-viewer.js?v=20260715-04';
 import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260526-01';
 
 export class TissueAnnotationViewer extends TileViewer {
