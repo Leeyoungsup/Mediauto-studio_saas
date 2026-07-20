@@ -128,12 +128,7 @@ import { api } from './api.js?v=20260526-01';
 
     function projectDisplayName(item) {
         const raw = String(item?.display_name || item?.name || item?.path || '').trim();
-        if (!raw) return '';
-        const base = raw.replace(/_[a-z0-9]{8}$/i, '');
-        const normalized = base.toLowerCase().replace(/[_\s-]+/g, '');
-        if (normalized === 'philips') return 'Philips';
-        if (normalized === 'leicapdl1st') return 'Leica-PDL1';
-        return base;
+        return raw || '';
     }
 
     function renderCaseList() {

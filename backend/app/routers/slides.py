@@ -634,10 +634,13 @@ async def list_cases(
     list_projects = []
     for p in _list_project_dirs():
         dict_info = dict_project_info.get(p.name) or {}
+        dict_public_info = _project_public_info(dict_info)
         list_projects.append({
             "name": p.name,
             "path": p.name,
+            "display_name": dict_public_info.get("title") or p.name,
             "hospital": dict_info.get("str_institution", ""),
+            "info": dict_public_info,
         })
     list_hospitals = sorted({
         (dict_info.get("str_institution") or "").strip()
