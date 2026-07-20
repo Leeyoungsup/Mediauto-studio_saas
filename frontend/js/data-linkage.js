@@ -37,7 +37,7 @@ import { api } from './api.js?v=20260526-01';
     const $caseList = document.getElementById('dl-case-list');
     const $prev = document.getElementById('dl-prev-page');
     const $next = document.getElementById('dl-next-page');
-    const $pageIndicator = document.getElementById('dl-page-indicator');
+    const $pageNumbers = document.getElementById('dl-page-numbers');
     const $totalLabel = document.getElementById('dl-total-label');
     const $previewStage = document.querySelector('.data-linkage-preview-stage');
     const $previewImg = document.getElementById('dl-preview-img');
@@ -126,6 +126,16 @@ import { api } from './api.js?v=20260526-01';
         if ([...select.options].some((opt) => opt.value === current)) select.value = current;
     }
 
+    function projectDisplayName(item) {
+        const raw = String(item?.display_name || item?.name || item?.path || '').trim();
+        if (!raw) return '';
+        const base = raw.replace(/_[a-z0-9]{8}$/i, '');
+        const normalized = base.toLowerCase().replace(/[_\s-]+/g, '');
+        if (normalized === 'philips') return 'Philips';
+        if (normalized === 'leicapdl1st') return 'Leica-PDL1';
+        return base;
+    }
+
     function renderCaseList() {
         if (!$caseList) return;
         if (!state.cases.length) {
@@ -149,12 +159,44 @@ import { api } from './api.js?v=20260526-01';
 
     function renderPager() {
         const pageCount = Math.max(1, Math.ceil(state.total / state.pageSize));
-        $pageIndicator.textContent = String(state.page);
+        state.page = clamp(state.page, 1, pageCount);
         $prev.disabled = state.page <= 1;
         $next.disabled = state.page >= pageCount;
+        if ($pageNumbers) {
+            const pages = buildPageItems(state.page, pageCount);
+            $pageNumbers.innerHTML = pages.map((item) => {
+                if (item === '...') {
+                    return '<span class="data-linkage-page-ellipsis" aria-hidden="true">...</span>';
+                }
+                const active = item === state.page ? ' active' : '';
+                return `<button type="button" class="data-linkage-page-btn${active}" data-page="${item}" ${active ? 'aria-current="page"' : ''}>${item}</button>`;
+            }).join('');
+        }
         const start = state.total ? ((state.page - 1) * state.pageSize) + 1 : 0;
         const end = Math.min(state.total, state.page * state.pageSize);
         $totalLabel.textContent = `Showing ${start} to ${end} of ${state.total} entries`;
+    }
+
+    function buildPageItems(current, total) {
+        if (total <= 7) return Array.from({ length: total }, (_, idx) => idx + 1);
+        const pages = new Set([1, total, current, current - 1, current + 1]);
+        if (current <= 3) {
+            pages.add(2);
+            pages.add(3);
+            pages.add(4);
+        }
+        if (current >= total - 2) {
+            pages.add(total - 1);
+            pages.add(total - 2);
+            pages.add(total - 3);
+        }
+        const sorted = [...pages].filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+        const out = [];
+        for (const page of sorted) {
+            if (out.length && page - out[out.length - 1] > 1) out.push('...');
+            out.push(page);
+        }
+        return out;
     }
 
     async function setPreview(slide) {
@@ -340,7 +382,7 @@ import { api } from './api.js?v=20260526-01';
         state.projects = data.projects || state.projects || [];
         state.hospitals = data.hospitals || state.hospitals || [];
         state.total = Number(data.total || 0);
-        fillSelect($project, state.projects, 'Project (all) *', (item) => item.path || item.name, (item) => item.name || item.path);
+        fillSelect($project, state.projects, 'Project (all) *', (item) => item.path || item.name, projectDisplayName);
         fillSelect($hospital, state.hospitals, 'Hospital (all) *', (item) => item, (item) => item);
         renderSortHeaders();
         renderCaseList();
@@ -389,6 +431,14 @@ import { api } from './api.js?v=20260526-01';
             state.page += 1;
             loadCases();
         }
+    });
+    $pageNumbers?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-page]');
+        if (!button) return;
+        const page = Number(button.dataset.page || 1);
+        if (!Number.isFinite(page) || page === state.page) return;
+        state.page = page;
+        loadCases();
     });
     $save?.addEventListener('click', saveClinicalInfo);
     document.querySelectorAll('[data-sort]').forEach((button) => {

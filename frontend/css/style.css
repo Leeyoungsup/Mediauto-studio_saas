@@ -4801,11 +4801,19 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     padding: 16px 0 8px;
+    flex-wrap: wrap;
+}
+.data-linkage-page-numbers {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 .data-linkage-pager button,
-.data-linkage-pager span {
+.data-linkage-page-ellipsis {
     width: 38px;
     height: 38px;
     border: 1px solid #dce1ed;
@@ -4814,11 +4822,17 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     color: #43218f;
     font-weight: 900;
 }
-.data-linkage-pager span {
+.data-linkage-page-ellipsis {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    border-color: transparent;
+    background: transparent;
+    color: #667085;
+}
+.data-linkage-page-btn.active {
     background: #43218f;
+    border-color: #43218f;
     color: #fff;
 }
 .data-linkage-total {
