@@ -32,6 +32,8 @@ from app.tile_generator import (
     generate_priority_single_tile,
     get_tiles_dir_for_path,
     image_to_white_rgb,
+    is_completed_cache_tile_repair_pending,
+    queue_completed_cache_tile_repair,
     request_priority_tile,
     tiles_marker_matches_file,
 )
@@ -248,8 +250,13 @@ async def _missing_philips_tile_response(
     if not bool_intersects_data:
         return _blank_tile_response("public, max-age=604800")
 
+    if is_completed_cache_tile_repair_pending(info.file_path, level, tile_x, tile_y):
+        return _pending_tile_response()
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
     if not _can_inline_generate(level, True):
+        queue_completed_cache_tile_repair(
+            filename, info.file_path, level, tile_x, tile_y
+        )
         return _pending_tile_response()
 
     try:
@@ -460,8 +467,13 @@ async def get_tile(
     if is_philips_isyntax(info.file_path):
         return await _missing_philips_tile_response(request, info, filename, level, tile_x, tile_y, tile_path)
 
+    if is_completed_cache_tile_repair_pending(info.file_path, level, tile_x, tile_y):
+        return _pending_tile_response()
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
     if not _can_inline_generate(level, False):
+        queue_completed_cache_tile_repair(
+            filename, info.file_path, level, tile_x, tile_y
+        )
         return _pending_tile_response()
 
     def _render_and_save() -> bytes:

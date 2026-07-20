@@ -396,6 +396,7 @@ _progress_lock = threading.Lock()
 _priority_lock = threading.Lock()
 _priority_block_locks: dict[tuple[str, int, int], threading.Lock] = {}
 _priority_stage1: dict[str, set[tuple[int, int]]] = {}
+_completed_cache_repairs: set[tuple[str, int, int, int]] = set()
 
 
 def get_tiles_dir(filename: str) -> Path:
@@ -479,6 +480,74 @@ def _stage1_coord_for_tile(level: int, tile_x: int, tile_y: int) -> tuple[int, i
 
 def _target_tile_path_for_file(file_path: str, level: int, tile_x: int, tile_y: int) -> Path:
     return get_tiles_dir_for_path(file_path) / str(level) / f"{tile_x}_{tile_y}.jpeg"
+
+
+def _completed_cache_repair_key(
+    file_path: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+) -> tuple[str, int, int, int]:
+    return (slide_cache_key(file_path), level, tile_x, tile_y)
+
+
+def is_completed_cache_tile_repair_pending(
+    file_path: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+) -> bool:
+    key = _completed_cache_repair_key(file_path, level, tile_x, tile_y)
+    with _priority_lock:
+        return key in _completed_cache_repairs
+
+
+def queue_completed_cache_tile_repair(
+    filename: str,
+    file_path: str,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+) -> bool:
+    """Queue one missing tile without restarting a completed pyramid."""
+    path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
+    if path_target.exists() or not tiles_marker_matches_file(filename, file_path):
+        return False
+
+    key = _completed_cache_repair_key(file_path, level, tile_x, tile_y)
+    with _priority_lock:
+        if key in _completed_cache_repairs:
+            return True
+        _completed_cache_repairs.add(key)
+
+    def _repair() -> None:
+        try:
+            generate_priority_single_tile(
+                filename,
+                file_path,
+                level,
+                tile_x,
+                tile_y,
+                store_blank=True,
+            )
+        except Exception as exc:
+            print(
+                f"[tile_repair] failed: {filename} "
+                f"S{level} {tile_x},{tile_y}: {exc}"
+            )
+        finally:
+            with _priority_lock:
+                _completed_cache_repairs.discard(key)
+
+    try:
+        from app.cpu_layout import viewer_executor
+
+        viewer_executor.submit(_repair)
+    except Exception:
+        with _priority_lock:
+            _completed_cache_repairs.discard(key)
+        raise
+    return True
 
 
 def _get_priority_block_lock(progress_key: str, tx2: int, ty2: int) -> threading.Lock:
@@ -708,6 +777,7 @@ def generate_priority_single_tile(
     tile_y: int,
     slide=None,
     apply_color=None,
+    store_blank: bool = False,
 ) -> bool:
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
@@ -756,7 +826,7 @@ def generate_priority_single_tile(
                 else:
                     obj_tile = obj_rgb
                 try:
-                    if _image_has_visible_content(obj_tile):
+                    if store_blank or _image_has_visible_content(obj_tile):
                         _save_jpeg(obj_tile, path_target, settings.TILE_QUALITY)
                 finally:
                     if obj_tile is not obj_rgb:
