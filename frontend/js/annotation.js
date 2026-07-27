@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260713-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260715-04';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260713-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260720-04';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -326,6 +326,7 @@ cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
         onRequiredRegionSaved: () => _markAnnotationWorkflowInProgressIfIdle(),
         onWorkflowSummaryChange: ({ slideId, summaries }) => {
             _renderCellPatchWorkflowCellsForSlide(slideId, summaries);
+            _setCellPatchProjectSummary(slideId, summaries);
         },
     })
     : null;
@@ -957,6 +958,33 @@ function _emptyCellPatchWorkflowSummaries() {
     };
 }
 
+const _cellPatchProjectSummaries = new Map();
+
+function _renderCellPatchProjectProgress() {
+    if (!$breadcrumb) return;
+    $breadcrumb.querySelector('.cell-project-termination-progress')?.remove();
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !_getCurrentProjectName()) return;
+    let completed = 0;
+    let total = 0;
+    for (const summaries of _cellPatchProjectSummaries.values()) {
+        const termination = summaries?.termination || {};
+        completed += Number(termination.completed || 0);
+        total += Number(termination.total || 0);
+    }
+    const progress = document.createElement('span');
+    progress.className = 'cell-project-termination-progress';
+    progress.textContent = `Termination ${completed.toLocaleString()}/${total.toLocaleString()}`;
+    progress.title = `Termination completed patches: ${completed.toLocaleString()} of ${total.toLocaleString()}`;
+    progress.setAttribute('aria-label', progress.title);
+    $breadcrumb.appendChild(progress);
+}
+
+function _setCellPatchProjectSummary(slideId, summaries, { render = true } = {}) {
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !slideId || !summaries) return;
+    _cellPatchProjectSummaries.set(String(slideId), summaries);
+    if (render) _renderCellPatchProjectProgress();
+}
+
 function _renderCellPatchWorkflowCells(item, summaries) {
     if (!item || !summaries) return;
     item.querySelectorAll('.slide-workflow-cell').forEach(el => el.remove());
@@ -1484,6 +1512,17 @@ function _getAnnotationClass(classId) {
     return _annotationClasses.find(c => c.id === classId) || _annotationClasses[0] || _DEFAULT_ANNOTATION_CLASSES[0];
 }
 
+function _annotationClassMetadata(ann) {
+    const classId = String(ann?.class_id || ann?.properties?.class_id || '');
+    const configured = _annotationClasses.find(cls => cls.id === classId);
+    if (configured) return configured;
+    return {
+        id: classId,
+        name: String(ann?.class_name || ann?.properties?.class_name || classId || 'Unknown'),
+        color: _normalizeColor(ann?.color),
+    };
+}
+
 function _syncActiveAnnotationClassToViewer() {
     if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow && !cellPatchWorkflow.patchFocusActive) {
         cellPatchWorkflow.syncWsiDrawColor?.();
@@ -1659,8 +1698,10 @@ function _loadAnnotationDisplayStyleFromPreferences(preferences = {}) {
 
 function _syncAnnotationClassMetadata() {
     for (const ann of viewer.annotations || []) {
-        const classId = ann.class_id || ann.properties?.class_id || _activeAnnotationClassId;
-        const cls = _getAnnotationClass(classId);
+        const classId = String(ann.class_id || ann.properties?.class_id || '');
+        const cls = _annotationClasses.find(item => item.id === classId);
+        // Saved patch classes may outlive the project's current class configuration.
+        // Keep their original id/name/color instead of silently moving them to Other.
         if (!cls) continue;
         ann.class_id = cls.id;
         ann.class_name = cls.name;
@@ -2693,7 +2734,7 @@ const _ANNOTATION_LIST_COLUMNS = [
 function _annotationSortValue(ann, index, key) {
     if (key === 'id' || key === 'del') return index + 1;
     if (key === 'class') {
-        return _getAnnotationClass(ann.class_id || ann.properties?.class_id).name.toLowerCase();
+        return _annotationClassMetadata(ann).name.toLowerCase();
     }
     if (key === 'memo') {
         const memo = _annotationMemo(ann);
@@ -2849,7 +2890,10 @@ function renderAnnotationPanel() {
     });
     $annList.appendChild(header);
     for (const { ann } of renderEntries) {
-        const annClass = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
+        const annClass = _annotationClassMetadata(ann);
+        const classOptions = _annotationClasses.some(cls => cls.id === annClass.id)
+            ? _annotationClasses
+            : [annClass, ..._annotationClasses];
         const displayId = _annotationDisplayId(ann);
         const memo = _annotationMemo(ann);
         const memoHistory = _annotationMemoHistory(ann);
@@ -2865,7 +2909,7 @@ function renderAnnotationPanel() {
             <span class="ann-id" title="Double-click to center">${_esc(displayId)}</span>
             <span class="ann-class-wrap" style="--ann-class-color: rgb(${_normalizeColor(annClass.color).join(',')})">
                 <select class="ann-class-select" title="Annotation class">
-                    ${_annotationClasses.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
+                    ${classOptions.map(cls => `<option value="${_esc(cls.id)}"${cls.id === annClass.id ? ' selected' : ''}>${_esc(cls.name)}</option>`).join('')}
                 </select>
             </span>
             <button class="ann-btn-memo${memoClass}" title="${_esc(memoTitle)}">${memoLabel}</button>
@@ -3194,7 +3238,8 @@ viewer.onAnnotationSelected = (ann) => {
         _clearPatchCellBulkSelection({ render: false });
     }
     if (ann?.class_id || ann?.properties?.class_id) {
-        const cls = _getAnnotationClass(ann.class_id || ann.properties?.class_id);
+        const classId = ann.class_id || ann.properties?.class_id;
+        const cls = _annotationClasses.find(item => item.id === classId);
         if (cls) {
             _activeAnnotationClassId = cls.id;
             _syncActiveAnnotationClassToViewer();
@@ -6098,6 +6143,7 @@ async function loadSlideList() {
     try {
         await _loadAnnotationClassesForCurrentProject();
         const data = await api.browse(currentBrowsePath);
+        if (ANNOTATION_PAGE_KIND === 'cell') _cellPatchProjectSummaries.clear();
         $slideList.innerHTML = '';
         _appendAnnotationSlideListHeader();
         _syncProjectSelect();
@@ -6191,6 +6237,7 @@ async function loadSlideList() {
                 const summaries = cellPatchWorkflow?.slideId === s.slide_id
                     ? cellPatchWorkflow.getWsiStepSummaries?.()
                     : (s.cell_annotation_summary || _emptyCellPatchWorkflowSummaries());
+                _setCellPatchProjectSummary(s.slide_id, summaries, { render: false });
                 _renderCellPatchWorkflowCells(item, summaries);
             } else {
                 _renderAnnotationWorkflowCells(item, strRawSlideStatus);
@@ -6416,6 +6463,7 @@ function updateBreadcrumb() {
             $breadcrumb.appendChild(crumb);
         }
     }
+    _renderCellPatchProjectProgress();
 }
 
 let _openSlideAbortController = null;

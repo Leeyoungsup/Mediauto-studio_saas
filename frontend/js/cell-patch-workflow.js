@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260713-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260707-01';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260720-04';
 
 class PatchFocusLayer {
     constructor() {
@@ -417,9 +417,7 @@ export class CellPatchWorkflow {
         if (this.viewer) {
             this.viewer.cellAnnotationDisplayMode = this.cellDisplayMode;
             this.viewer.cellAnnotationPatchViewActive = Boolean(this.patchFocusActive);
-            this.viewer.setDetectionResults?.([]);
         }
-        if (this.patchFocusActive) this.editor.syncViewer?.();
         this._syncCellDisplayModeButtons();
         this.viewer?.requestRender?.();
     }
@@ -1663,10 +1661,21 @@ export class CellPatchWorkflow {
             };
         }
         this.selectedPatch = this._normalizePatchView(patch);
+        const slideId = this.slideId;
+        const patchId = this.selectedPatchId();
+        const syncViewer = this.patchFocusActive;
         if (!this.patchFocusActive) {
             this.editor.clearViewerAnnotations?.();
         }
-        await this.editor.open(this.slideId, this.selectedPatch, { syncViewer: this.patchFocusActive });
+        const opened = await this.editor.open(this.slideId, this.selectedPatch, {
+            syncViewer,
+            isCurrent: () => (
+                this.slideId === slideId &&
+                this.selectedPatchId() === patchId &&
+                (!syncViewer || this.patchFocusActive)
+            ),
+        });
+        if (!opened) return;
         if (this.patchFocusActive) {
             this.viewer.setViewBounds?.(this.selectedPatch);
             this.focusLayer.setPatch(this.selectedPatch);
@@ -1770,6 +1779,7 @@ export class CellPatchWorkflow {
         await this.ensureLabelingAssistance({ silent: false });
         if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) return false;
         const payload = await this.api.getPatchAssistanceCells(this.slideId, patchId);
+        if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) return false;
         if (!payload?.exists || !Array.isArray(payload.cells) || !payload.cells.length) return false;
         const applied = this.editor.applyAssistanceCells?.(payload.cells);
         if (applied) {

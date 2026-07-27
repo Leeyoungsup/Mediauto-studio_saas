@@ -34,8 +34,10 @@ export class CellAnnotationEditor {
         this.onStatus(`Patch selected: ${this.patch.patch_id}`);
         try {
             const payload = await this.api.getPatchCells(slideId, this.patch.patch_id);
+            if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;
             this.cells = payload.cells || [];
         } catch (err) {
+            if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;
             this.cells = [];
             this.onStatus(`Patch cells unavailable: ${err.message}`);
         }
@@ -43,6 +45,7 @@ export class CellAnnotationEditor {
         else this.viewerSynced = false;
         this.viewer.requestRender();
         this.render();
+        return true;
     }
 
     hasCells() {
@@ -54,7 +57,7 @@ export class CellAnnotationEditor {
         const list = Array.isArray(cells) ? cells.filter(Boolean) : [];
         if (!list.length) return false;
         this.cells = list;
-        if (this.viewerSynced) this.syncViewer();
+        this.syncViewer();
         this.onStatus(`AI assistance labels loaded: ${list.length.toLocaleString()} cells`);
         this.render();
         return true;
@@ -259,6 +262,9 @@ export class CellAnnotationEditor {
         this.viewer.setDetectionResults?.([]);
         this.viewer.annotations = (this.cells || []).map((cell, idx) => this._cellToAnnotation(cell, idx));
         this.viewer.selectedAnnotationId = null;
+        this.viewer._highlightedCellIdx = -1;
+        this.viewer._highlightedCellIdxSet = null;
+        this.viewer._highlightedHiddenCellIdxSet = null;
         this.viewer._annotationCounter = this.viewer.annotations.length;
         this.viewerSynced = true;
         this.viewer.requestRender?.();
@@ -326,9 +332,12 @@ export class CellAnnotationEditor {
     }
 
     clearViewerAnnotations() {
-        if (!this.viewerSynced || !this.viewer) return;
+        if (!this.viewer) return;
         this.viewer.annotations = [];
         this.viewer.selectedAnnotationId = null;
+        this.viewer._highlightedCellIdx = -1;
+        this.viewer._highlightedCellIdxSet = null;
+        this.viewer._highlightedHiddenCellIdxSet = null;
         this.viewer._annotationCounter = 0;
         this.viewerSynced = false;
         this.viewer.requestRender?.();

@@ -1616,7 +1616,10 @@ async def save_patch_cells(
 ):
     info = _slide_info(slide_id)
     db = _require_db()
-    patch = await db.patch_annotation_status.find_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
+    patch = await db.patch_annotation_status.find_one(
+        {"str_slide_id": slide_id, "str_patch_id": patch_id},
+        {"_id": 0},
+    )
     if not patch:
         raise HTTPException(404, "Patch not found")
     if user.get("str_role") == UserRole.LABELER.value:
