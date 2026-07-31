@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260713-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260720-04';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260730-02';
 
 class PatchFocusLayer {
     constructor() {

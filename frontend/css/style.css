@@ -3490,6 +3490,9 @@ body.cell-patch-workflow-page.cell-patch-view-active .cell-patch-exclude-separat
     height: 15px;
     display: block;
 }
+.class-visibility-all-btn {
+    flex: 0 0 24px;
+}
 .class-color-input {
     width: 22px;
     height: 22px;

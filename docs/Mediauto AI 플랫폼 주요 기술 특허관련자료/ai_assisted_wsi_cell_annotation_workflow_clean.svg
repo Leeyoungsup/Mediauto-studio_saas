@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1000" viewBox="0 0 2200 1000">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="10" flood-color="#17325C" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#7A8AA3"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#D4565E"/>
+    </marker>
+    <style>
+      text { font-family: "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #172B4D; }
+      .title { font-size: 54px; font-weight: 700; fill: #162B55; }
+      .subtitle { font-size: 24px; fill: #6C7B91; }
+      .num { font-size: 22px; font-weight: 700; fill: #FFFFFF; }
+      .head { font-size: 26px; font-weight: 700; }
+      .body { font-size: 20px; fill: #445673; }
+      .small { font-size: 17px; fill: #6A7890; }
+      .status { font-size: 17px; font-weight: 700; }
+      .card { fill: #FFFFFF; stroke: #D9E2ED; stroke-width: 2.5; filter: url(#shadow); }
+      .flow { fill: none; stroke: #7A8AA3; stroke-width: 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="2200" height="1000" fill="#F7F9FC"/>
+  <text x="80" y="83" class="title">AI-assisted WSI Cell Annotation Workflow</text>
+  <text x="82" y="125" class="subtitle">영역 지정부터 AI Cell 후보 제안, 사람 검수 및 최종 확정까지의 전체 흐름</text>
+
+  <!-- connectors -->
+  <path d="M390 415 H430" class="flow"/>
+  <path d="M730 415 H770" class="flow"/>
+  <path d="M1070 415 H1110" class="flow"/>
+  <path d="M1410 415 H1450" class="flow"/>
+  <path d="M1750 415 H1790" class="flow"/>
+
+  <!-- 1 -->
+  <g transform="translate(70,210)">
+    <rect class="card" width="320" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#416FE5"/>
+    <text x="36" y="51" class="num">1</text>
+    <text x="80" y="51" class="head">영역 지정</text>
+
+    <rect x="45" y="98" width="230" height="160" rx="18" fill="#F6F9FD" stroke="#CCD8E6" stroke-width="2"/>
+    <path d="M75 145 L125 118 L218 131 L251 182 L226 232 L130 242 L70 205 Z"
+          fill="#E8F6F4" stroke="#0A8792" stroke-width="5"/>
+    <path d="M139 165 L174 143 L216 167 L204 207 L158 216 L127 193 Z"
+          fill="#FFF4F3" stroke="#D4565E" stroke-width="4" stroke-dasharray="8 6"/>
+
+    <text x="48" y="301" class="body">패치 생성 대상 영역</text>
+    <text x="48" y="337" class="body">패치 생성 제외 영역</text>
+    <text x="48" y="380" class="small">WSI Level-0 다각형 좌표</text>
+  </g>
+
+  <!-- 2 -->
+  <g transform="translate(430,210)">
+    <rect class="card" width="300" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#416FE5"/>
+    <text x="36" y="51" class="num">2</text>
+    <text x="80" y="51" class="head">Patch Task 생성</text>
+
+    <rect x="48" y="100" width="204" height="158" rx="17" fill="#F6F9FD" stroke="#CCD8E6" stroke-width="2"/>
+    <g stroke="#7392E8" stroke-width="2">
+      <path d="M48 140 H252 M48 180 H252 M48 220 H252"/>
+      <path d="M89 100 V258 M130 100 V258 M171 100 V258 M212 100 V258"/>
+    </g>
+    <rect x="130" y="140" width="41" height="40" fill="#DCE7FF" stroke="#315FCF" stroke-width="4"/>
+    <rect x="171" y="180" width="41" height="40" fill="#DCE7FF" stroke="#315FCF" stroke-width="4"/>
+
+    <text x="46" y="303" class="body">대상 영역과 교차하는</text>
+    <text x="46" y="336" class="body">고정 격자를 작업 단위화</text>
+    <text x="46" y="380" class="small">약 512 μm × 512 μm</text>
+  </g>
+
+  <!-- 3 -->
+  <g transform="translate(770,210)">
+    <rect class="card" width="300" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#0A8792"/>
+    <text x="36" y="51" class="num">3</text>
+    <text x="80" y="51" class="head">AI Cell 후보</text>
+
+    <rect x="48" y="100" width="204" height="158" rx="17" fill="#F5FAFA" stroke="#BFD8DA" stroke-width="2"/>
+    <g fill="#CABBD8" stroke-width="4">
+      <circle cx="97" cy="145" r="16"/><rect x="77" y="125" width="40" height="40" fill="none" stroke="#19955E"/>
+      <circle cx="179" cy="139" r="15"/><rect x="160" y="120" width="38" height="38" fill="none" stroke="#D4565E"/>
+      <circle cx="126" cy="208" r="18"/><rect x="104" y="186" width="44" height="44" fill="none" stroke="#19955E"/>
+      <circle cx="210" cy="205" r="15"/><rect x="191" y="186" width="38" height="38" fill="none" stroke="#D4565E"/>
+    </g>
+
+    <text x="46" y="302" class="body">WSI 전체 AI 결과 생성</text>
+    <text x="46" y="337" class="body">좌표 · 클래스 · 신뢰도</text>
+    <text x="46" y="380" class="small">패치별 AI 재실행 방식 아님</text>
+  </g>
+
+  <!-- 4 -->
+  <g transform="translate(1110,210)">
+    <rect class="card" width="300" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#0A8792"/>
+    <text x="36" y="51" class="num">4</text>
+    <text x="80" y="51" class="head">조건 확인</text>
+
+    <path d="M150 94 L257 169 L150 244 L43 169 Z" fill="#FFF8E8" stroke="#D9961D" stroke-width="4"/>
+    <text x="87" y="158" class="body" style="font-weight:700">상태가 required?</text>
+    <text x="77" y="191" class="body" style="font-weight:700">저장된 Cell 없음?</text>
+
+    <rect x="42" y="278" width="216" height="74" rx="16" fill="#EAF8F3" stroke="#19955E" stroke-width="3"/>
+    <text x="80" y="309" class="body" style="font-weight:700;fill:#167B52">Yes: 후보 배분</text>
+    <text x="68" y="337" class="small">패치 내부의 Cell만 추출</text>
+
+    <text x="57" y="389" class="small" style="fill:#C64C55">No: 기존 Cell 유지 · 덮어쓰기 없음</text>
+  </g>
+
+  <!-- 5 -->
+  <g transform="translate(1450,210)">
+    <rect class="card" width="300" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#6554D9"/>
+    <text x="36" y="51" class="num">5</text>
+    <text x="80" y="51" class="head">사람 검수</text>
+
+    <rect x="48" y="100" width="204" height="158" rx="17" fill="#F8F6FF" stroke="#CCC4F3" stroke-width="2"/>
+    <g fill="none" stroke-width="4">
+      <rect x="72" y="127" width="39" height="34" stroke="#19955E"/>
+      <rect x="127" y="144" width="45" height="41" stroke="#D4565E"/>
+      <rect x="185" y="120" width="39" height="37" stroke="#19955E"/>
+      <rect x="197" y="196" width="34" height="31" stroke="#416FE5"/>
+      <rect x="88" y="202" width="43" height="35" stroke="#19955E"/>
+    </g>
+
+    <text x="46" y="300" class="body">유지 · 삭제 · 수정</text>
+    <text x="46" y="335" class="body">클래스 변경 · 신규 추가</text>
+    <text x="46" y="380" class="small">Patch View에서 Cell 단위 검수</text>
+  </g>
+
+  <!-- 6 -->
+  <g transform="translate(1790,210)">
+    <rect class="card" width="340" height="410" rx="26"/>
+    <circle cx="43" cy="43" r="25" fill="#6554D9"/>
+    <text x="36" y="51" class="num">6</text>
+    <text x="80" y="51" class="head">저장 및 검수</text>
+
+    <rect x="39" y="103" width="262" height="52" rx="15" fill="#EAF0FF" stroke="#7594E8" stroke-width="2"/>
+    <text x="61" y="136" class="status" style="fill:#315FCF">required → in_progress</text>
+    <path d="M170 155 V187" class="flow"/>
+    <rect x="39" y="190" width="262" height="52" rx="15" fill="#EDF8F3" stroke="#65B998" stroke-width="2"/>
+    <text x="86" y="223" class="status" style="fill:#168A57">completed → review</text>
+
+    <path d="M170 242 V274" class="flow"/>
+    <rect x="39" y="277" width="120" height="48" rx="14" fill="#E4F5EB" stroke="#19955E" stroke-width="2"/>
+    <text x="58" y="308" class="status" style="fill:#168A57">reviewed</text>
+    <path d="M161 301 H201" class="flow"/>
+    <text x="213" y="308" class="status" style="fill:#087F8C">확정</text>
+
+    <rect x="39" y="340" width="120" height="44" rx="14" fill="#FFF0F1" stroke="#D4565E" stroke-width="2"/>
+    <text x="61" y="369" class="status" style="fill:#C64C55">rejected</text>
+    <path d="M161 362 H253" fill="none" stroke="#D4565E" stroke-width="4" marker-end="url(#arrowRed)"/>
+    <text x="203" y="348" class="small" style="fill:#C64C55">재수정</text>
+  </g>
+
+  <!-- coordinate band -->
+  <g transform="translate(70,700)">
+    <rect width="2060" height="210" rx="26" fill="#FFFFFF" stroke="#C8D6E5" stroke-width="2.5" filter="url(#shadow)"/>
+    <rect width="470" height="210" rx="26" fill="#173966"/>
+    <rect x="440" width="30" height="210" fill="#173966"/>
+    <text x="42" y="64" style="font-size:29px;font-weight:700;fill:white">공통 WSI Level-0 좌표계</text>
+    <text x="42" y="109" style="font-size:21px;fill:#DCE7F5">전체 WSI와 Patch View가</text>
+    <text x="42" y="143" style="font-size:21px;fill:#DCE7F5">동일한 기준 좌표 사용</text>
+    <text x="42" y="181" style="font-size:18px;fill:#AFC3DC">전체 좌표 + 패치 로컬 좌표 이중 저장</text>
+
+    <text x="540" y="71" style="font-family:'Noto Sans Mono CJK KR',monospace;font-size:28px">x = x_p + u,    y = y_p + v</text>
+    <text x="540" y="120" style="font-family:'Noto Sans Mono CJK KR',monospace;font-size:28px">u = x − x_p,    v = y − y_p</text>
+    <line x1="540" y1="148" x2="1980" y2="148" stroke="#C5D2E1" stroke-width="2"/>
+    <text x="540" y="182" class="body">Patch View에서 수정한 Cell을 전체 WSI의 정확히 동일한 위치에 표시</text>
+  </g>
+
+  <text x="80" y="962" class="small">핵심: 물리 크기 기반 Patch Task 생성 → required 상태의 빈 패치에만 AI Cell 후보 제공 → 사람 검수 결과 저장</text>
+</svg>

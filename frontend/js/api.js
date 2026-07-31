@@ -779,13 +779,21 @@ export const api = {
     },
 
     async getPatchCells(slideId, patchId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells`);
+        const cacheBust = Date.now();
+        const res = await _authFetch(
+            `${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/cells?_=${cacheBust}`,
+            { cache: 'no-store' },
+        );
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     async getPatchAssistanceCells(slideId, patchId) {
-        const res = await _authFetch(`${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/assistance-cells`);
+        const cacheBust = Date.now();
+        const res = await _authFetch(
+            `${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/assistance-cells?_=${cacheBust}`,
+            { cache: 'no-store' },
+        );
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },

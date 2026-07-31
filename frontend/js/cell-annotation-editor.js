@@ -29,9 +29,15 @@ export class CellAnnotationEditor {
     async open(slideId, patch, options = {}) {
         this.slideId = slideId;
         this.patch = patch;
+        this.cells = [];
+        this.viewerSynced = false;
+        if (options.syncViewer !== false) {
+            this.clearViewerAnnotations();
+        }
         this.statusLayer?.setSelectedPatch(patch?.patch_id || patch?.str_patch_id || '');
         this.viewer?.requestRender();
         this.onStatus(`Patch selected: ${this.patch.patch_id}`);
+        this.render();
         try {
             const payload = await this.api.getPatchCells(slideId, this.patch.patch_id);
             if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;

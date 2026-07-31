@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1320" viewBox="0 0 1600 1320">
+  <defs>
+    <style>
+      .title { font: 700 38px "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #172033; }
+      .box-title { font: 700 25px "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #172033; }
+      .body { font: 500 20px "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #344054; }
+      .small { font: 500 18px "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #475467; }
+      .label { font: 700 18px "Noto Sans CJK KR", "Noto Sans KR", sans-serif; fill: #344054; }
+      .box { stroke-width: 2.5; rx: 18; ry: 18; }
+      .flow { fill: none; stroke: #344054; stroke-width: 3; marker-end: url(#arrow); }
+      .return { fill: none; stroke: #667085; stroke-width: 3; stroke-dasharray: 10 8; marker-end: url(#arrow-muted); }
+      .reject { fill: none; stroke: #c84a52; stroke-width: 3; stroke-dasharray: 10 8; marker-end: url(#arrow-red); }
+      .divider { stroke: #98a2b3; stroke-width: 1.5; stroke-dasharray: 6 6; }
+    </style>
+    <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0,0 L11,5.5 L0,11 Z" fill="#344054"/>
+    </marker>
+    <marker id="arrow-muted" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0,0 L11,5.5 L0,11 Z" fill="#667085"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
+      <path d="M0,0 L11,5.5 L0,11 Z" fill="#c84a52"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#101828" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1320" fill="#ffffff"/>
+  <text x="800" y="62" text-anchor="middle" class="title">AI-assisted WSI Cell Annotation Workflow 구성 및 데이터 흐름</text>
+
+  <!-- WSI viewer -->
+  <rect x="450" y="100" width="700" height="145" class="box" fill="#eef4ff" stroke="#5285d8" filter="url(#shadow)"/>
+  <text x="800" y="145" text-anchor="middle" class="box-title">클라이언트 WSI Cell Annotation 화면</text>
+  <text x="800" y="183" text-anchor="middle" class="body">WSI Level-0 좌표계에서 패치 생성 대상·제외 영역을 다각형으로 지정</text>
+  <text x="800" y="216" text-anchor="middle" class="small">영역 적용 후 Patch Task 목록 및 전체 WSI 작업 상태 표시</text>
+
+  <path d="M800 245 L800 315" class="flow"/>
+  <text x="822" y="287" class="label">영역 Apply</text>
+
+  <!-- Patch task generator -->
+  <rect x="360" y="320" width="760" height="185" class="box" fill="#f2f8ff" stroke="#3973bd" filter="url(#shadow)"/>
+  <text x="740" y="365" text-anchor="middle" class="box-title">Patch Task Generator</text>
+  <text x="740" y="404" text-anchor="middle" class="body">슬라이드 MPP에 따라 약 512 μm × 512 μm의 고정 격자 구성</text>
+  <line x1="500" y1="429" x2="980" y2="429" class="divider"/>
+  <text x="740" y="463" text-anchor="middle" class="body">대상 다각형과 교차하는 격자를 생성하고 제외 영역과 교차하는 격자는 제거</text>
+  <text x="740" y="492" text-anchor="middle" class="small">Level-0 원점 기반 patch ID·좌표·경계 크기 저장</text>
+
+  <!-- Data store -->
+  <rect x="1190" y="300" width="350" height="285" class="box" fill="#effaf4" stroke="#3b9b65" filter="url(#shadow)"/>
+  <text x="1365" y="345" text-anchor="middle" class="box-title">Patch / Cell 저장소</text>
+  <text x="1365" y="386" text-anchor="middle" class="body">Patch ID · Level-0 경계</text>
+  <text x="1365" y="420" text-anchor="middle" class="body">Annotation 작업 상태</text>
+  <text x="1365" y="454" text-anchor="middle" class="body">Review · Termination 상태</text>
+  <line x1="1235" y1="478" x2="1495" y2="478" class="divider"/>
+  <text x="1365" y="515" text-anchor="middle" class="small">Cell 전체 WSI 좌표</text>
+  <text x="1365" y="547" text-anchor="middle" class="small">Cell 패치 로컬 좌표</text>
+
+  <path d="M1120 380 L1185 380" class="flow"/>
+  <text x="1152" y="360" text-anchor="middle" class="label">Task 저장</text>
+
+  <!-- WSI AI result -->
+  <rect x="60" y="565" width="370" height="190" class="box" fill="#f8fafc" stroke="#64748b" filter="url(#shadow)"/>
+  <text x="245" y="610" text-anchor="middle" class="box-title">WSI AI Assistance 결과</text>
+  <text x="245" y="650" text-anchor="middle" class="body">WSI 전체 Cell 후보</text>
+  <text x="245" y="684" text-anchor="middle" class="small">중심 좌표 · Bounding Box</text>
+  <text x="245" y="716" text-anchor="middle" class="small">클래스 · 예측 신뢰도</text>
+  <text x="245" y="746" text-anchor="middle" class="small">패치별 AI 재실행 방식 아님</text>
+
+  <!-- Decision -->
+  <path d="M740 505 L740 570" class="flow"/>
+  <text x="762" y="548" class="label">Patch 선택·진입</text>
+  <polygon points="740,565 900,655 740,745 580,655" fill="#fff7e8" stroke="#db8b23" stroke-width="2.5" filter="url(#shadow)"/>
+  <text x="740" y="638" text-anchor="middle" class="box-title">AI 후보 제공 여부</text>
+  <text x="740" y="674" text-anchor="middle" class="small">상태가 required인가?</text>
+  <text x="740" y="705" text-anchor="middle" class="small">저장된 Cell이 없는가?</text>
+
+  <!-- Store query -->
+  <path d="M1190 525 L1050 525 L1050 655 L905 655" class="return"/>
+  <text x="1065" y="505" text-anchor="middle" class="label">상태·Cell 존재 조회</text>
+
+  <!-- Yes branch -->
+  <path d="M580 655 L485 655 L485 805" class="flow"/>
+  <text x="530" y="633" text-anchor="middle" class="label">Yes</text>
+  <rect x="180" y="810" width="610" height="150" class="box" fill="#fff5e8" stroke="#dc8a26" filter="url(#shadow)"/>
+  <text x="485" y="854" text-anchor="middle" class="box-title">AI Cell Candidate Allocation</text>
+  <text x="485" y="894" text-anchor="middle" class="body">후보 중심 좌표가 선택 패치의 경계 안에 포함되는 Cell만 추출</text>
+  <text x="485" y="929" text-anchor="middle" class="small">annotation 대기 중인 빈 패치의 초기 작업 데이터로 표시</text>
+
+  <path d="M430 660 L485 660 L485 805" class="flow"/>
+
+  <!-- No branch -->
+  <path d="M900 655 L1085 655 L1085 805" class="flow"/>
+  <text x="995" y="633" text-anchor="middle" class="label">No</text>
+  <rect x="840" y="810" width="490" height="150" class="box" fill="#f5f3ff" stroke="#7666c9" filter="url(#shadow)"/>
+  <text x="1085" y="854" text-anchor="middle" class="box-title">Existing Cell Load</text>
+  <text x="1085" y="894" text-anchor="middle" class="body">기존에 저장된 Cell Annotation을 그대로 로드</text>
+  <text x="1085" y="929" text-anchor="middle" class="small">AI 후보를 재적용하거나 기존 Cell을 덮어쓰지 않음</text>
+
+  <path d="M1365 585 L1365 760 L1215 760 L1215 805" class="return"/>
+  <text x="1378" y="690" transform="rotate(-90 1378 690)" text-anchor="middle" class="label">저장 Cell 조회</text>
+
+  <!-- Converge to patch view -->
+  <path d="M485 960 L485 995 L700 995 L700 1025" class="flow"/>
+  <path d="M1085 960 L1085 995 L900 995 L900 1025" class="flow"/>
+
+  <rect x="400" y="1030" width="800" height="170" class="box" fill="#eef4ff" stroke="#5285d8" filter="url(#shadow)"/>
+  <text x="800" y="1075" text-anchor="middle" class="box-title">Patch View / Cell Annotation Editor</text>
+  <text x="800" y="1114" text-anchor="middle" class="body">패치 경계로 화면 범위를 제한하고 Cell을 유지·삭제·수정·클래스 변경·추가</text>
+  <line x1="535" y1="1138" x2="1065" y2="1138" class="divider"/>
+  <text x="800" y="1173" text-anchor="middle" class="small">전체 WSI 좌표 (x, y)와 패치 로컬 좌표 (u, v)를 함께 저장</text>
+
+  <!-- Workflow state box -->
+  <rect x="470" y="1240" width="660" height="70" class="box" fill="#effaf4" stroke="#3b9b65" filter="url(#shadow)"/>
+  <text x="800" y="1269" text-anchor="middle" class="body">required → in_progress → completed</text>
+  <text x="800" y="1298" text-anchor="middle" class="small">reviewed / rejected → termination</text>
+  <path d="M800 1200 L800 1235" class="flow"/>
+  <text x="824" y="1228" class="label">저장·상태 갱신</text>
+
+  <!-- Workflow writes -->
+  <path d="M1130 1275 L1510 1275 L1510 590" class="flow"/>
+  <text x="1488" y="925" transform="rotate(-90 1488 925)" text-anchor="middle" class="label">Cell·Workflow 상태 저장</text>
+
+  <!-- Rejected return -->
+  <path d="M470 1275 L120 1275 L120 1115 L395 1115" class="reject"/>
+  <text x="140" y="1090" class="label" style="fill:#c84a52">Review rejected → 기존 Cell 재수정</text>
+
+  <!-- Legend -->
+  <line x1="1270" y1="1220" x2="1335" y2="1220" class="flow"/>
+  <text x="1350" y="1227" class="small">처리·저장 흐름</text>
+  <line x1="1270" y1="1255" x2="1335" y2="1255" class="return"/>
+  <text x="1350" y="1262" class="small">조회·로드 흐름</text>
+  <line x1="1270" y1="1290" x2="1335" y2="1290" class="reject"/>
+  <text x="1350" y="1297" class="small">반려·재수정 흐름</text>
+</svg>

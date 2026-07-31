@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260713-01';
+import { api } from './api.js?v=20260730-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260715-04';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260720-04';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260730-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260730-02';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -685,6 +685,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     }
 
     viewer.canEditDetectionResults = _canEditAiDetections();
+    viewer.cellAnnotationForceTumorBbox = _isPdL1StCellAnnotationProject();
     if (_isViewerRole()) {
         _applyViewerRoleRestrictions();
     }
@@ -1230,12 +1231,11 @@ const drawButtons = {
     ruler: $btnRuler,
 };
 
-const CELL_PATCH_RECTANGLE_ONLY_TOOLS = [
+const CELL_PATCH_HIDDEN_TOOLS = [
     $btnDrawPolygon,
     $btnDrawBrush,
     $btnDrawRect1mm2,
     $btnDrawCircle1mm2,
-    $btnRuler,
 ];
 
 function _setToolHidden(button, hidden) {
@@ -1256,7 +1256,7 @@ function _syncCellPatchAnnotationTools() {
         if (button) button.disabled = true;
     });
     if (boolPatchView) {
-        CELL_PATCH_RECTANGLE_ONLY_TOOLS.forEach((button) => {
+        CELL_PATCH_HIDDEN_TOOLS.forEach((button) => {
             _setToolHidden(button, true);
             if (!button) return;
             button.disabled = true;
@@ -1270,13 +1270,22 @@ function _syncCellPatchAnnotationTools() {
                 : 'Patch annotation is locked for the current role and workflow state.';
             if ($btnDrawRect.disabled) $btnDrawRect.classList.remove('active');
         }
-        if (viewer?.drawMode && (viewer.drawMode !== 'rectangle' || !boolCanAnnotatePatch || boolViewer)) {
+        _setToolHidden($btnRuler, false);
+        if ($btnRuler) {
+            $btnRuler.disabled = boolNoSlide || boolViewer;
+            $btnRuler.title = $btnRuler.dataset.defaultTitle;
+            if ($btnRuler.disabled) $btnRuler.classList.remove('active');
+        }
+        const boolPatchDrawModeAllowed = viewer?.drawMode === 'ruler'
+            ? !boolNoSlide && !boolViewer
+            : viewer?.drawMode === 'rectangle' && boolCanAnnotatePatch && !boolViewer;
+        if (viewer?.drawMode && !boolPatchDrawModeAllowed) {
             viewer.setDrawMode(null);
             Object.values(drawButtons).forEach(button => button?.classList.remove('active'));
         }
         return;
     }
-    [...CELL_PATCH_RECTANGLE_ONLY_TOOLS, $btnDrawRect].forEach((button) => {
+    [...CELL_PATCH_HIDDEN_TOOLS, $btnDrawRect].forEach((button) => {
         _setToolHidden(button, false);
         if (!button) return;
         button.disabled = boolNoSlide || boolViewer || boolLabelerWsiLocked;
@@ -1297,12 +1306,12 @@ function setDrawMode(mode) {
     if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     if (ANNOTATION_PAGE_KIND === 'cell' && cellPatchWorkflow?.patchFocusActive) {
         const boolCanAnnotatePatch = Boolean(cellPatchWorkflow.canAnnotateSelectedPatch?.());
-        if (mode !== 'rectangle') {
+        if (mode !== 'rectangle' && mode !== 'ruler') {
             _syncCellPatchAnnotationTools();
-            setStatus('Cell Annotation patch view supports rectangle annotations only.');
+            setStatus('Cell Annotation patch view supports rectangle annotations and ruler measurements only.');
             return;
         }
-        if (!boolCanAnnotatePatch) {
+        if (mode === 'rectangle' && !boolCanAnnotatePatch) {
             _syncCellPatchAnnotationTools();
             setStatus('Patch annotation is locked for the current role and workflow state.');
             return;
@@ -1482,6 +1491,7 @@ const $btnClassAdd = $('#btn-class-add');
 const $btnClassApply = $('#btn-class-apply');
 const $btnClassSetting = $('#btn-class-setting');
 const $btnClassDone = $('#btn-class-done');
+const $btnClassVisibilityAll = $('#btn-class-visibility-all');
 
 const _DEFAULT_ANNOTATION_CLASSES = [
     { id: 'default', name: 'Default', color: [0, 255, 0] },
@@ -1564,6 +1574,19 @@ function _toggleAnnotationClassVisibility(classId) {
     renderClassManagementPanel();
     renderAnnotationPanel();
 }
+
+function _toggleAllAnnotationClassVisibility() {
+    const allHidden = _annotationClasses.length > 0 &&
+        _annotationClasses.every(cls => _hiddenAnnotationClassIds.has(cls.id));
+    _hiddenAnnotationClassIds = allHidden
+        ? new Set()
+        : new Set(_annotationClasses.map(cls => cls.id));
+    _syncHiddenAnnotationClassesToViewer();
+    renderClassManagementPanel();
+    renderAnnotationPanel();
+}
+
+$btnClassVisibilityAll?.addEventListener('click', _toggleAllAnnotationClassVisibility);
 
 function _makeClassId(name) {
     const base = String(name || 'Class')
@@ -1779,7 +1802,23 @@ function renderClassManagementPanel() {
     const isSettings = canManage && _classManagementMode === 'settings';
     if (!canManage && _classManagementMode !== 'apply') _classManagementMode = 'apply';
     const isCellPatchView = Boolean(cellPatchWorkflow?.patchFocusActive);
+    const allClassesHidden = _annotationClasses.length > 0 &&
+        _annotationClasses.every(cls => _hiddenAnnotationClassIds.has(cls.id));
+    const allClassesVisible = _annotationClasses.length > 0 &&
+        _annotationClasses.every(cls => !_hiddenAnnotationClassIds.has(cls.id));
     const lockedCellClassIds = isSettings ? _lockedCellClassIdsForCurrentProject() : new Set();
+    if ($btnClassVisibilityAll) {
+        const actionLabel = allClassesHidden ? 'Show all classes' : 'Hide all classes';
+        $btnClassVisibilityAll.hidden = !isCellPatchView;
+        $btnClassVisibilityAll.disabled = !isCellPatchView || _annotationClasses.length === 0;
+        $btnClassVisibilityAll.title = actionLabel;
+        $btnClassVisibilityAll.setAttribute('aria-label', actionLabel);
+        $btnClassVisibilityAll.setAttribute(
+            'aria-pressed',
+            allClassesVisible ? 'true' : allClassesHidden ? 'false' : 'mixed'
+        );
+        $btnClassVisibilityAll.innerHTML = _visibilityIcon(!allClassesHidden);
+    }
     if ($btnClassApply) {
         $btnClassApply.hidden = isSettings || isCellPatchView;
         $btnClassApply.disabled = _isViewerRole();
@@ -5696,6 +5735,21 @@ const $breadcrumb = $('#folder-breadcrumb');
 
 function _getCurrentProjectName() {
     return (currentBrowsePath || '').split('/').filter(Boolean)[0] || '';
+}
+
+function _isPdL1StCellAnnotationProject() {
+    if (ANNOTATION_PAGE_KIND !== 'cell') return false;
+    const projectPath = _getCurrentProjectName();
+    const project = (_projectListCache || []).find(item =>
+        (item?.path || item?.name || '') === projectPath
+    );
+    const title = String(
+        project?.info?.title ||
+        project?.info?.str_title ||
+        project?.title ||
+        ''
+    ).trim().toLowerCase();
+    return title === 'pd-l1(st)' || projectPath === 'IHC(PD-L1)';
 }
 
 function _setProjectControlsEnabled() {

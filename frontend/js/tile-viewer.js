@@ -184,6 +184,7 @@ export class TileViewer {
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
         this.cellAnnotationDisplayMode = 'bbox';
+        this.cellAnnotationForceTumorBbox = false;
         this.drawMode = null;         // 'polygon' | 'brush' | 'rectangle' | 'point' | 'cut' | 'rect-1mm2' | 'circle-1mm2' | 'ruler' | null
         this._drawingPoints = [];     // text text text text (scene)
         this._drawingStart = null;    // text text (scene)
@@ -3965,7 +3966,11 @@ export class TileViewer {
                 Boolean(this.cellAnnotationPatchViewActive && ann.type === 'rectangle');
             if (isCellAnnotation && !intersectsView(ann)) continue;
 
-            if (isCellAnnotation && this.cellAnnotationDisplayMode === 'point') {
+            const className = String(ann.class_name || ann.properties?.class_name || '').trim().toLowerCase();
+            const forceTumorBbox = this.cellAnnotationPatchViewActive &&
+                this.cellAnnotationForceTumorBbox &&
+                className === 'tumor';
+            if (isCellAnnotation && this.cellAnnotationDisplayMode === 'point' && !forceTumorBbox) {
                 const center = this._annotationCellCenter(ann);
                 if (Array.isArray(center) && center.length >= 2) {
                     this._drawCellAnnotationPoint(octx, Number(center[0]), Number(center[1]), [r, g, b], ann.selected);

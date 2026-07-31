@@ -62,6 +62,7 @@ CELL_CLASSES_MAX_BYTES = 256 * 1024
 DEFAULT_CELL_CLASSES = [dict(OTHER_CELL_CLASS)]
 _export_tasks: dict[str, asyncio.Task] = {}
 _export_requested: set[str] = set()
+_slide_path_cache: dict[str, str] = {}
 
 
 def _consume_future_exception(fut) -> None:
@@ -101,9 +102,38 @@ def _require_db():
 
 def _slide_info(slide_id: str):
     info = slide_manager.get(slide_id)
-    if not info:
-        raise HTTPException(404, "Slide not found")
-    return info
+    if info:
+        _slide_path_cache[slide_id] = info.file_path
+        return info
+
+    # A slide may be evicted from SlideManager while its Cell Annotation page
+    # remains open. Reopen the original WSI instead of treating that in-memory
+    # cache miss as a missing slide.
+    cached_path = Path(_slide_path_cache.get(slide_id, ""))
+    if cached_path.is_file():
+        try:
+            if slide_cache_key(str(cached_path)) == slide_id:
+                info = slide_manager.open(slide_id, str(cached_path))
+                _slide_path_cache[slide_id] = info.file_path
+                return info
+        except Exception:
+            _slide_path_cache.pop(slide_id, None)
+
+    upload_root = Path(settings.UPLOAD_DIR)
+    if upload_root.is_dir():
+        for path in upload_root.rglob("*"):
+            try:
+                if not path.is_file() or path.suffix.lower() not in settings.SUPPORTED_EXTENSIONS:
+                    continue
+                if slide_cache_key(str(path)) != slide_id:
+                    continue
+                info = slide_manager.open(slide_id, str(path))
+                _slide_path_cache[slide_id] = info.file_path
+                return info
+            except Exception:
+                continue
+
+    raise HTTPException(404, "Slide not found")
 
 
 def _patch_slide_size(info) -> int:

@@ -798,12 +798,6 @@ def run_virtual_stain(task_id: str, slide_id: str,
         except Exception:
             pass
         try:
-            # VS IHC is a heavy one-shot task; close the shared handle so Windows
-            # can reclaim file-cache pressure without waiting for server shutdown.
-            slide_manager.close(slide_id)
-        except Exception:
-            pass
-        try:
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
