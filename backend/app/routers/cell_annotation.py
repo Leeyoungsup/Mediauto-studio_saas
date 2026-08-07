@@ -1072,8 +1072,26 @@ def _result_cells_to_bbox_labels(result: dict, config: dict) -> list[dict]:
             x0, y0, x1, y1 = bbox
             used_model_bbox = True
         str_class_id = str(class_id)
-        label_class_id = str_class_id if inherit_classes else default_class_id
-        label_class_name = str(class_names.get(str_class_id, "")) if inherit_classes else default_class_name
+        assistance_class_map = config.get("assistance_class_map") or {}
+        mapped_class_id = assistance_class_map.get(str_class_id)
+        if mapped_class_id is not None:
+            label_class_id = str(mapped_class_id)
+            assistance_classes = config.get("assistance_classes") or []
+            mapped_class_name = next(
+                (
+                    str(cls.get("name", ""))
+                    for cls in assistance_classes
+                    if str(cls.get("id", "")) == label_class_id
+                ),
+                "",
+            )
+            label_class_name = mapped_class_name or (
+                default_class_name if label_class_id == default_class_id
+                else str(class_names.get(str_class_id, ""))
+            )
+        else:
+            label_class_id = str_class_id if inherit_classes else default_class_id
+            label_class_name = str(class_names.get(str_class_id, "")) if inherit_classes else default_class_name
         labels.append({
             "id": f"assist_{idx}",
             "x": round(x0, 2),

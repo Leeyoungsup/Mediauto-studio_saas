@@ -588,6 +588,13 @@ export class TileViewer {
         newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
         if (newZoom === this.zoom) return;
 
+        // Patch View keeps the selected patch centered while zooming. The
+        // regular WSI viewer intentionally zooms toward the mouse position.
+        if (this.cellAnnotationPatchViewActive) {
+            anchorCanvasX = null;
+            anchorCanvasY = null;
+        }
+
         if (anchorCanvasX !== null && anchorCanvasY !== null) {
             const [sceneX, sceneY] = this.canvasToScene(anchorCanvasX, anchorCanvasY);
             const strength = 0.3;

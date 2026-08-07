@@ -1,0 +1,66 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 2cm; }
+body { font-family: Arial, "Malgun Gothic", sans-serif; color:#1f2937; line-height:1.45; font-size:10.5pt; }
+h1 { color:#243b6b; font-size:20pt; border-bottom:2px solid #243b6b; padding-bottom:8px; }
+h2 { color:#243b6b; font-size:15pt; margin-top:22px; }
+h3 { color:#334e7d; font-size:11.5pt; margin-top:16px; margin-bottom:5px; }
+p { margin: 7px 0; }
+ul { margin-top:4px; }
+li { margin:3px 0; }
+code { font-family: Consolas, monospace; background:#f1f3f5; padding:1px 3px; }
+hr { border:0; border-top:1px solid #cfd6e0; margin:18px 0; }
+.meta { color:#6b7280; font-size:9pt; margin-bottom:15px; }
+</style></head><body><h1>Kaiser Permanente – Technical Security Questionnaire Response</h1>
+<p class="meta">Technical and infrastructure-related responses for the selected deployment architecture.</p><h2>Option A — AWS U.S. Region Deployment</h2><h3>2. Encryption at rest and in transit</h3>
+<p>The de-identified image set and associated AI outputs are encrypted at rest within the dedicated AWS U.S. environment. WSI files, AI results, Virtual Stain results, tile caches, annotations, databases, and backups are stored on encrypted AWS storage volumes or buckets. AWS KMS is used for encryption-key management.</p>
+<p>All user and service traffic is encrypted in transit using HTTPS/TLS 1.2 or later. Connections to the application database use authenticated TLS. The application also uses bcrypt password hashing, AES-256-GCM encryption for MFA secrets, and short-lived HMAC-signed media tickets for tile and image requests.</p>
+<h3>3. Access-control model</h3>
+<p>The platform uses least-privilege, role-based access control:</p>
+<ul>
+<li><code>admin</code>: user, project, and system administration;</li>
+<li><code>doctor</code>: AI analysis and annotation functions; and</li>
+<li><code>viewer</code>: approved slide viewing without modification privileges.</li>
+</ul>
+<p>Only specifically approved personnel assigned to the KP project may access KP data. Application permissions and AWS IAM permissions are separated, and end users do not receive direct access to the database, S3 buckets, or server file system. MFA is required for authenticated access.</p>
+<h3>5. Logging, monitoring, and incident response</h3>
+<p>The platform records authentication events, failed logins, slide access, AI-processing activity, administrative actions, and permission changes. Audit records include the relevant user, timestamp, source information, and change details. Audit records are linked using an HMAC chain so that tampering can be detected.</p>
+<p>The AWS environment also monitors API access, storage access, database events, GPU/compute health, authentication anomalies, and infrastructure errors. The incident-response process includes access revocation, session termination, network isolation where necessary, preservation of relevant logs, investigation, remediation, and recovery.</p>
+<h3>6. Retention and destruction</h3>
+<p>The agreed retention period is six months from the date the de-identified image set is received.</p>
+<p>At the end of the study or when the approved retention period expires, the following are deleted from the production environment and applicable backups:</p>
+<ul>
+<li>de-identified WSI files;</li>
+<li>AI and Virtual Stain outputs;</li>
+<li>tile caches;</li>
+<li>annotation and review data;</li>
+<li>related database records;</li>
+<li>temporary processing files; and</li>
+<li>applicable snapshots and backup copies.</li>
+</ul>
+<p>Deletion is verified across active storage, databases, snapshots, and backup-retention systems. No indefinite retention is intended.</p>
+<h3>7. Hosting and data location</h3>
+<p>The de-identified image set is stored and processed in a dedicated AWS environment located in a U.S. AWS Region.</p>
+<p>Application services, GPU processing, databases, storage, and backups are restricted to the approved U.S. AWS environment.</p>
+<h3>8. Cloud provider / sub-vendor</h3>
+<p>Amazon Web Services (AWS) is used as the cloud infrastructure service provider and sub-vendor. AWS provides the compute, GPU, networking, storage, backup, and monitoring infrastructure. No external annotation or AI-processing sub-vendor is used by the platform.</p>
+<h3>9. Access by South Korea personnel</h3>
+<p>South Korea personnel access the data remotely through the U.S.-hosted AWS environment using authenticated HTTPS and/or VPN connections. No routine production copy or backup of the KP image set is stored in South Korea. Operational data remains in the approved U.S. environment.</p>
+<h3>10. Standalone KP-dedicated environment</h3>
+<p>Yes. The KP project is operated in a dedicated environment consisting of dedicated application and GPU resources, a dedicated database, dedicated storage, and isolated network controls within the U.S. AWS environment.</p>
+<h3>11. Designated work location and enforcement</h3>
+<p>Personnel assigned to the KP account are required to use approved company locations and company-managed devices. Access is enforced through VPN and/or IP allowlisting, MFA, user-specific access logging, and administrative approval of project access. Access from unapproved locations or networks is blocked.</p>
+<h3>12. Approved-country controls</h3>
+<p>Service access is restricted to approved operating countries, South Korea and the United States. VPN policies, source-IP restrictions, AWS security groups, firewall rules, MFA, and access-log review are used to enforce and verify the location restrictions.</p>
+<h3>13. Vendor-owned devices</h3>
+<p>Work on the KP account is performed using vendor-owned or vendor-managed devices. Devices use full-disk encryption, centrally managed security settings, endpoint protection, security updates, and access controls appropriate for the project.</p>
+<h3>14. Personal-device model</h3>
+<p>No personal-device or hybrid personal-device workflow is permitted. KP data is accessed only through the approved environment and vendor-managed devices.</p>
+<h3>15. Download, local storage, replication, and backup controls</h3>
+<p>Direct end-user access to S3, databases, and server storage is disabled. Access is provided through the authenticated application. The environment applies least-privilege IAM policies, private storage access, download restrictions, managed-device controls, and DLP/endpoint policies where applicable.</p>
+<p>Production data and backups are restricted to the approved U.S. AWS environment. Replication to South Korea, unapproved regions, personal devices, removable media, or unapproved storage is prohibited and technically restricted through network, IAM, storage, and endpoint controls.</p>
+<h3>16. Personnel list and provisioning/deprovisioning</h3>
+<p>The named personnel assigned to the KP account will be provided separately by the project owner through an approved secure channel. From a technical perspective, provisioning requires manager/project approval, identity verification, MFA enrollment, and assignment of the minimum required role.</p>
+<p>When personnel leave the project, their application, VPN, AWS/IAM, and active-session access are revoked. Access changes are logged.</p>
+<h3>17. Offshore sub-vendors</h3>
+<p>No offshore annotation, AI-support, or storage sub-vendor is used. AWS is the U.S.-based cloud infrastructure sub-vendor described in Question 8.</p>
+<hr></body></html>

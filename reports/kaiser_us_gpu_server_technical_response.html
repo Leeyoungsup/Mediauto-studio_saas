@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 2cm; }
+body { font-family: Arial, "Malgun Gothic", sans-serif; color:#1f2937; line-height:1.45; font-size:10.5pt; }
+h1 { color:#243b6b; font-size:20pt; border-bottom:2px solid #243b6b; padding-bottom:8px; }
+h2 { color:#243b6b; font-size:15pt; margin-top:22px; }
+h3 { color:#334e7d; font-size:11.5pt; margin-top:16px; margin-bottom:5px; }
+p { margin: 7px 0; }
+ul { margin-top:4px; }
+li { margin:3px 0; }
+code { font-family: Consolas, monospace; background:#f1f3f5; padding:1px 3px; }
+hr { border:0; border-top:1px solid #cfd6e0; margin:18px 0; }
+.meta { color:#6b7280; font-size:9pt; margin-bottom:15px; }
+</style></head><body><h1>Kaiser Permanente – Technical Security Questionnaire Response</h1>
+<p class="meta">Technical and infrastructure-related responses for the selected deployment architecture.</p><h2>Option B — U.S.-Located Dedicated GPU Server Deployment</h2><h3>2. Encryption at rest and in transit</h3>
+<p>The de-identified image set and associated AI outputs are stored and processed on a dedicated GPU server physically located in the United States. The server operating system, WSI storage, AI-result storage, tile cache, annotation storage, database, and backup volumes use full-disk or volume-level encryption.</p>
+<p>All user and service traffic is encrypted in transit using HTTPS/TLS 1.2 or later. Database connections use authentication and TLS. The application also uses bcrypt password hashing, AES-256-GCM encryption for MFA secrets, and short-lived HMAC-signed media tickets for tile and image requests.</p>
+<h3>3. Access-control model</h3>
+<p>The platform uses least-privilege, role-based access control:</p>
+<ul>
+<li><code>admin</code>: user, project, and system administration;</li>
+<li><code>doctor</code>: AI analysis and annotation functions; and</li>
+<li><code>viewer</code>: approved slide viewing without modification privileges.</li>
+</ul>
+<p>Only approved personnel assigned to the KP project may access KP data. End users do not receive direct operating-system, database, or file-system access. Server, VPN, and application permissions are separately managed, and MFA is required.</p>
+<h3>5. Logging, monitoring, and incident response</h3>
+<p>The platform records authentication events, failed logins, slide access, AI-processing activity, administrative actions, and permission changes. Audit records include the relevant user, timestamp, source information, and change details. An HMAC chain is used to detect audit-log tampering.</p>
+<p>The server environment also monitors VPN access, operating-system logins, file access, GPU/CPU utilization, disk capacity, backup activity, authentication anomalies, and service errors. The incident-response process includes account and session revocation, network isolation where necessary, log preservation, investigation, remediation, and recovery.</p>
+<h3>6. Retention and destruction</h3>
+<p>The agreed retention period is six months from the date the de-identified image set is received.</p>
+<p>At the end of the study or when the approved retention period expires, the following are deleted from the U.S. server and applicable backups:</p>
+<ul>
+<li>de-identified WSI files;</li>
+<li>AI and Virtual Stain outputs;</li>
+<li>tile caches;</li>
+<li>annotation and review data;</li>
+<li>related database records;</li>
+<li>temporary processing files; and</li>
+<li>backup copies.</li>
+</ul>
+<p>Deletion is verified across the active server, database, backup media, and any hosted storage used for disaster recovery. No indefinite retention is intended.</p>
+<h3>7. Hosting and data location</h3>
+<p>The de-identified image set is stored and processed on a dedicated GPU server physically located within the United States. The application, GPU processing, database, storage, and backups remain within the approved U.S. environment.</p>
+<h3>8. Cloud provider / sub-vendor</h3>
+<p>No commercial cloud provider is used for the production image-processing environment. The platform is operated on the U.S.-located dedicated GPU server. If the server is hosted by a third-party U.S. data-center operator, that operator will be listed separately as the hosting service provider.</p>
+<h3>9. Access by South Korea personnel</h3>
+<p>South Korea personnel access the data remotely through authenticated HTTPS and/or VPN connections to the U.S.-located server. No routine production copy or backup of the KP image set is stored in South Korea. Operational data remains on the approved U.S. server and its approved U.S. backup media.</p>
+<h3>10. Standalone KP-dedicated environment</h3>
+<p>Yes. The KP project is operated on a dedicated U.S.-located GPU server with dedicated storage, database, and network controls. The environment is isolated from unrelated projects.</p>
+<h3>11. Designated work location and enforcement</h3>
+<p>Personnel assigned to the KP account are required to use approved company locations and company-managed devices. Access is enforced through VPN and/or IP allowlisting, MFA, user-specific access logging, and administrative approval. Access from unapproved locations or networks is blocked.</p>
+<h3>12. Approved-country controls</h3>
+<p>Service access is restricted to approved operating countries, South Korea and the United States. VPN policy, firewall rules, source-IP restrictions, MFA, and access-log review are used to enforce and verify the country restrictions.</p>
+<h3>13. Vendor-owned devices</h3>
+<p>Work on the KP account is performed using vendor-owned or vendor-managed devices. Devices use full-disk encryption, centrally managed security settings, endpoint protection, security updates, and project-specific access controls.</p>
+<h3>14. Personal-device model</h3>
+<p>No personal-device or hybrid personal-device workflow is permitted. KP data is accessed only through the approved environment and vendor-managed devices.</p>
+<h3>15. Download, local storage, replication, and backup controls</h3>
+<p>Direct end-user access to the server file system and database is disabled. Access is provided through the authenticated application. Server firewall rules, VPN controls, operating-system permissions, managed-device controls, download restrictions, and DLP/endpoint policies are used to restrict data export.</p>
+<p>Production data and backups are restricted to the approved U.S. server environment. Replication to South Korea, personal devices, removable media, or unapproved storage is prohibited and technically restricted through network, operating-system, application, and endpoint controls.</p>
+<h3>16. Personnel list and provisioning/deprovisioning</h3>
+<p>The named personnel assigned to the KP account will be provided separately by the project owner through an approved secure channel. From a technical perspective, provisioning requires manager/project approval, identity verification, MFA enrollment, and minimum-role assignment. When personnel leave the project, their application, VPN, server, and active-session access are revoked. Access changes are logged.</p>
+<h3>17. Offshore sub-vendors</h3>
+<p>No offshore annotation, AI-support, or storage sub-vendor is used. The production environment is operated on the dedicated GPU server located in the United States. Any third-party U.S. data-center or server-hosting operator will be identified separately if applicable.</p>
+<hr></body></html>

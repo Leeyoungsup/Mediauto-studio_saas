@@ -5,7 +5,7 @@
 import { api } from './api.js?v=20260730-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260730-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260730-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260807-02';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -29,7 +29,17 @@ const $canvas = $('#wsi-canvas');
 const $overlay = $('#overlay-canvas');
 const $slideName = $('#slide-name');
 const $statusText = $('#status-text');
+const $aiAssistanceToolbarStatus = $('#ai-assistance-toolbar-status');
+const $aiAssistanceToolbarLabel = $('#ai-assistance-toolbar-label');
+const $aiAssistanceToolbarPercent = $('#ai-assistance-toolbar-percent');
+const $aiAssistanceToolbarFill = $('#ai-assistance-toolbar-fill');
 const $zoomInfo = $('#zoom-info');
+const $patchZoomControl = $('#patch-zoom-control');
+const $patchZoomInfo = $('#patch-zoom-info');
+const $zoomSlider = $('#zoom-slider');
+const $patchScaleBar = $('#patch-scale-bar');
+const $patchScaleBarLine = $('#patch-scale-bar-line');
+const $patchScaleBarLabel = $('#patch-scale-bar-label');
 const $fileInput = $('#file-input');
 const $dropOverlay = $('#drop-overlay');
 const $minimapContainer = $('#minimap-container');
@@ -317,12 +327,36 @@ const ViewerClass = ANNOTATION_PAGE_KIND === 'cell'
     ? CellAnnotationViewer
     : TissueAnnotationViewer;
 const viewer = new ViewerClass($canvas, $overlay);
+
+function _updateAiAssistanceToolbarStatus(payload = {}) {
+    if (!$aiAssistanceToolbarStatus) return;
+    const state = String(payload.state || 'idle');
+    if (state === 'idle') {
+        $aiAssistanceToolbarStatus.hidden = true;
+        return;
+    }
+    const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+    const label = String(payload.label || (state === 'ready'
+        ? 'AI assistance ready'
+        : state === 'running' ? 'AI assistance' : state === 'disabled'
+            ? 'AI assistance disabled' : 'AI assistance failed'));
+    $aiAssistanceToolbarStatus.hidden = false;
+    $aiAssistanceToolbarStatus.classList.toggle('is-ready', state === 'ready');
+    $aiAssistanceToolbarStatus.classList.toggle('is-error', state === 'error');
+    $aiAssistanceToolbarStatus.classList.toggle('is-disabled', state === 'disabled');
+    $aiAssistanceToolbarLabel.textContent = label;
+    $aiAssistanceToolbarPercent.textContent = state === 'running' ? `${Math.round(percent)}%` : '';
+    $aiAssistanceToolbarFill.style.width = `${Math.round(percent)}%`;
+    $aiAssistanceToolbarStatus.title = payload.detail ? `${label}: ${payload.detail}` : label;
+}
+
 cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
     ? new CellPatchWorkflow({
         api,
         viewer,
         canvas: $canvas,
         setStatus,
+        onAssistanceStatusChange: _updateAiAssistanceToolbarStatus,
         onRequiredRegionSaved: () => _markAnnotationWorkflowInProgressIfIdle(),
         onWorkflowSummaryChange: ({ slideId, summaries }) => {
             _renderCellPatchWorkflowCellsForSlide(slideId, summaries);
@@ -331,10 +365,84 @@ cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
     })
     : null;
 
+function _niceScaleLength(rawLength) {
+    if (!Number.isFinite(rawLength) || rawLength <= 0) return 1;
+    const exponent = Math.floor(Math.log10(rawLength));
+    const magnitude = 10 ** exponent;
+    const normalized = rawLength / magnitude;
+    const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return factor * magnitude;
+}
+
+function _formatScaleLength(lengthUm) {
+    if (lengthUm >= 1000) {
+        const mm = lengthUm / 1000;
+        return `${mm >= 10 ? mm.toFixed(0) : mm.toFixed(1).replace(/\.0$/, '')} mm`;
+    }
+    return `${lengthUm >= 10 ? lengthUm.toFixed(0) : lengthUm.toFixed(1).replace(/\.0$/, '')} μm`;
+}
+
+function _updatePatchScaleBar(zoom, mpp) {
+    if (!$patchScaleBar || !$patchScaleBarLine || !$patchScaleBarLabel) return;
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !cellPatchWorkflow?.patchFocusActive ||
+            !Number.isFinite(zoom) || zoom <= 0 || !Number.isFinite(mpp) || mpp <= 0) {
+        $patchScaleBar.hidden = true;
+        return;
+    }
+
+    // mpp is the effective micrometers-per-screen-pixel value reported by the viewer.
+    const screenPixelsPerMicrometer = 1 / mpp;
+    const targetScreenPixels = 110;
+    const scaleLengthUm = _niceScaleLength(targetScreenPixels / screenPixelsPerMicrometer);
+    const screenWidth = Math.max(36, Math.round(scaleLengthUm * screenPixelsPerMicrometer));
+    $patchScaleBarLine.style.width = `${screenWidth}px`;
+    $patchScaleBarLabel.textContent = _formatScaleLength(scaleLengthUm);
+    $patchScaleBar.setAttribute('aria-label', `Scale bar: ${_formatScaleLength(scaleLengthUm)}`);
+    $patchScaleBar.hidden = false;
+}
+
 viewer.onZoomChange = (zoom, mag, mpp) => {
-    $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
+    const zoomText = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
+    $zoomInfo.textContent = zoomText;
+    if ($patchZoomInfo) $patchZoomInfo.textContent = zoomText;
+    if ($zoomSlider) {
+        const minZoom = Math.max(Number(viewer.minZoom) || 0.000001, 0.000001);
+        const maxZoom = Math.max(minZoom, Number(viewer.maxZoom) || minZoom);
+        const span = Math.log(maxZoom / minZoom);
+        const ratio = span > 0 ? Math.log(Math.max(minZoom, zoom) / minZoom) / span : 0;
+        $zoomSlider.value = String(Math.round(Math.max(0, Math.min(1, ratio)) * 1000));
+        $zoomSlider.setAttribute('aria-valuetext', `${mag.toFixed(1)}x, ${mpp.toFixed(3)} micrometers per pixel`);
+    }
+    _updatePatchScaleBar(zoom, mpp);
 };
 viewer.onViewChange = () => updateMinimap();
+
+function _setPatchZoomSliderVisible(visible) {
+    const isVisible = ANNOTATION_PAGE_KIND === 'cell' && Boolean(visible);
+    if ($patchZoomControl) $patchZoomControl.hidden = !isVisible;
+    if ($zoomInfo) $zoomInfo.hidden = isVisible;
+    if ($patchScaleBar) $patchScaleBar.hidden = !isVisible;
+}
+
+function _zoomFromSliderValue(value) {
+    const minZoom = Math.max(Number(viewer.minZoom) || 0.000001, 0.000001);
+    const maxZoom = Math.max(minZoom, Number(viewer.maxZoom) || minZoom);
+    const ratio = Math.max(0, Math.min(1, Number(value) / 1000));
+    const span = Math.log(maxZoom / minZoom);
+    return span > 0 ? minZoom * Math.exp(span * ratio) : minZoom;
+}
+
+$zoomSlider?.addEventListener('input', (event) => {
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !cellPatchWorkflow?.patchFocusActive) return;
+    viewer.setZoom(_zoomFromSliderValue(event.target.value));
+});
+
+_setPatchZoomSliderVisible(false);
+window.addEventListener('cellpatch:viewchange', (event) => {
+    const isPatchView = Boolean(event.detail?.patchFocusActive);
+    _setPatchZoomSliderVisible(isPatchView);
+    if (isPatchView) _updatePatchScaleBar(viewer.zoom, viewer.getEffectiveMpp?.());
+});
 
 const $slideLoadingOverlay = document.getElementById('slide-loading-overlay');
 const $slideLoadingBarFill = document.getElementById('slide-loading-bar-fill');
@@ -1588,6 +1696,38 @@ function _toggleAllAnnotationClassVisibility() {
 
 $btnClassVisibilityAll?.addEventListener('click', _toggleAllAnnotationClassVisibility);
 
+// Cell Annotation Patch View keyboard shortcuts:
+//   Ctrl/Cmd + 1~9/0 — toggle the corresponding class visibility
+//   Ctrl/Cmd + `     — toggle visibility for all classes
+// The numeric mapping follows the shortcut labels rendered beside each class
+// (1-9, then 0 for the tenth class).
+window.addEventListener('keydown', (event) => {
+    if (ANNOTATION_PAGE_KIND !== 'cell' || !cellPatchWorkflow?.patchFocusActive) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.repeat) return;
+
+    const target = event.target;
+    const tag = String(target?.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+
+    const isBackquote = event.code === 'Backquote' || event.key === '`';
+    if (isBackquote) {
+        _toggleAllAnnotationClassVisibility();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+    }
+
+    const key = String(event.key || '');
+    const digit = /^[0-9]$/.test(key) ? Number(key) : null;
+    if (digit === null) return;
+    const classIndex = digit === 0 ? 9 : digit - 1;
+    const cls = _annotationClasses[classIndex];
+    if (!cls) return;
+    _toggleAnnotationClassVisibility(cls.id);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+}, true);
+
 function _makeClassId(name) {
     const base = String(name || 'Class')
         .trim()
@@ -1811,7 +1951,7 @@ function renderClassManagementPanel() {
         const actionLabel = allClassesHidden ? 'Show all classes' : 'Hide all classes';
         $btnClassVisibilityAll.hidden = !isCellPatchView;
         $btnClassVisibilityAll.disabled = !isCellPatchView || _annotationClasses.length === 0;
-        $btnClassVisibilityAll.title = actionLabel;
+        $btnClassVisibilityAll.title = actionLabel + ' (Ctrl+`)';
         $btnClassVisibilityAll.setAttribute('aria-label', actionLabel);
         $btnClassVisibilityAll.setAttribute(
             'aria-pressed',
@@ -1843,6 +1983,12 @@ function renderClassManagementPanel() {
     for (const cls of _annotationClasses) {
         const [r, g, b] = _normalizeColor(cls.color);
         const classHidden = _hiddenAnnotationClassIds.has(cls.id);
+        const classIndex = _annotationClasses.indexOf(cls);
+        const classShortcut = classIndex < 9 ? classIndex + 1 : classIndex === 9 ? 0 : null;
+        const visibilityTitle = classHidden ? 'Show class' : 'Hide class';
+        const visibilityShortcutTitle = classShortcut === null
+            ? visibilityTitle
+            : `${visibilityTitle} (Ctrl+${classShortcut})`;
         const isOther = String(cls.name || '').trim().toLowerCase() === 'other';
         const isLockedCellClass = isSettings && ANNOTATION_PAGE_KIND === 'cell' && (isOther || lockedCellClassIds.has(cls.id));
         const row = document.createElement('div');
@@ -1853,13 +1999,13 @@ function renderClassManagementPanel() {
             <button type="button" class="class-active-btn" title="Use this class"></button>
             <input type="color" class="class-color-input" value="${rgbToHex(r, g, b)}" title="${isLockedCellClass ? 'AI/required class color is locked' : 'Class color'}"${isLockedCellClass ? ' disabled' : ''}>
             <input type="text" class="class-name-input" value="${_esc(cls.name)}" title="${isLockedCellClass ? 'AI/required class name is locked' : 'Class name'}"${isLockedCellClass ? ' disabled' : ''}>
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}" aria-label="${classHidden ? 'Show class' : 'Hide class'}">${_visibilityIcon(!classHidden)}</button>
+            <button type="button" class="class-visibility-btn" title="${visibilityShortcutTitle}" aria-label="${visibilityShortcutTitle}">${_visibilityIcon(!classHidden)}</button>
             <button type="button" class="class-delete-btn" title="${isLockedCellClass ? 'AI/required class cannot be deleted' : 'Delete class'}"${isLockedCellClass ? ' disabled' : ''}>Delete</button>
         ` : `
             <button type="button" class="class-active-btn" title="Select class"></button>
             <span class="class-color-chip" style="background:rgb(${r},${g},${b})"></span>
             <span class="class-name-label" title="${_esc(cls.name)}">${_esc(cls.name)}</span>
-            <button type="button" class="class-visibility-btn" title="${classHidden ? 'Show class' : 'Hide class'}" aria-label="${classHidden ? 'Show class' : 'Hide class'}">${_visibilityIcon(!classHidden)}</button>
+            <button type="button" class="class-visibility-btn" title="${visibilityShortcutTitle}" aria-label="${visibilityShortcutTitle}">${_visibilityIcon(!classHidden)}</button>
             <span class="class-shortcut-label">${_annotationClasses.indexOf(cls) < 9 ? _annotationClasses.indexOf(cls) + 1 : _annotationClasses.indexOf(cls) === 9 ? 0 : ''}</span>
         `;
         const activeBtn = row.querySelector('.class-active-btn');
@@ -2044,10 +2190,16 @@ const CELL_ANNOTATION_AI_OPTIONS = [
     { key: 'hne', label: 'HnE', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
     { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
     { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI', inheritClasses: false, preset: 'other' },
+    { key: 'ihc_membrane_breast', label: 'IHC Membrane (Breast)', group: 'Non-inherited AI', inheritClasses: false, preset: 'ihc_breast' },
+    { key: 'ihc_nucleus_breast', label: 'IHC Nucleus (Breast)', group: 'Non-inherited AI', inheritClasses: false, preset: 'ihc_breast' },
 ];
 
 const CELL_ANNOTATION_CLASS_PRESETS = {
     other: [
+        { id: 'other', name: 'Other', color: [149, 165, 166] },
+    ],
+    ihc_breast: [
+        { id: 'tumor', name: 'Tumor', color: [231, 76, 60] },
         { id: 'other', name: 'Other', color: [149, 165, 166] },
     ],
     quanti_he: [
@@ -2306,9 +2458,11 @@ async function _openProjectClassManager(project) {
         if (!presetClasses.length) return;
         localClasses = _mergeProjectClassList(localClasses, presetClasses);
         const opt = CELL_ANNOTATION_AI_OPTIONS.find(item => item.key === key);
-        statusEl.textContent = opt?.inheritClasses
-            ? `${localClasses.length} classes`
-            : `${localClasses.length} classes (Other required)`;
+        statusEl.textContent = opt?.preset === 'ihc_breast'
+            ? `${localClasses.length} classes (Tumor/Other)`
+            : opt?.inheritClasses
+                ? `${localClasses.length} classes`
+                : `${localClasses.length} classes (Other required)`;
         render();
     };
 

@@ -173,6 +173,39 @@ PRECISE_IHC_CONFIG = {
         "score_type": "KI67",
         "exclude_classes": [4],
     },
+    # Breast IHC cell-assistance models.  These checkpoints are trained with
+    # the same YOLOv11m/DFL layout used by the marker pipeline and emit two
+    # detection classes.  They are exposed as non-inherited cell annotation
+    # AIs, so the annotation layer maps both model classes to the project's
+    # `Other` class while retaining the model class in the source result.
+    "IHC_MEMBRANE_BREAST": {
+        "model_file": "IHC_Membrane(Breast).pt",
+        "num_classes": 2,
+        "class_names": {
+            0: "Tumor",
+            1: "Non_Tumor",
+        },
+        "class_colors": {
+            0: "#e74c3c",
+            1: "#95a5a6",
+        },
+        "score_type": "Detection",
+        "exclude_classes": [],
+    },
+    "IHC_NUCLEUS_BREAST": {
+        "model_file": "IHC_Nucleus(Breast).pt",
+        "num_classes": 2,
+        "class_names": {
+            0: "Tumor",
+            1: "Non_Tumor",
+        },
+        "class_colors": {
+            0: "#3498db",
+            1: "#95a5a6",
+        },
+        "score_type": "Detection",
+        "exclude_classes": [],
+    },
 }
 
 

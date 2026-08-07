@@ -306,6 +306,34 @@ body.project-gate-open .project-mode-header { display: block; }
     content: ''; width: 6px; height: 6px; border-radius: 50%;
     background: var(--success); box-shadow: 0 0 0 2px rgba(30,142,62,0.2);
 }
+.ai-assistance-toolbar-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-width: 92px; max-width: 230px; height: 26px;
+    padding: 3px 9px; box-sizing: border-box;
+    color: #31506d; background: #eef5fb; border: 1px solid #c9dceb;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+    white-space: nowrap; overflow: hidden;
+}
+.ai-assistance-toolbar-status[hidden] { display: none; }
+.ai-assistance-toolbar-label { overflow: hidden; text-overflow: ellipsis; }
+.ai-assistance-toolbar-percent { color: #55718b; font-variant-numeric: tabular-nums; }
+.ai-assistance-toolbar-track {
+    width: 42px; height: 4px; flex: 0 0 42px; overflow: hidden;
+    border-radius: 99px; background: #d6e3ed;
+}
+.ai-assistance-toolbar-fill {
+    width: 0; height: 100%; border-radius: inherit;
+    background: #3887c5; transition: width .2s ease;
+}
+.ai-assistance-toolbar-status.is-ready {
+    color: #18753a; background: #e8f5ed; border-color: #bfe3ca;
+}
+.ai-assistance-toolbar-status.is-ready .ai-assistance-toolbar-fill { background: #1e8e3e; }
+.ai-assistance-toolbar-status.is-error {
+    color: #a12a2a; background: #fff0f0; border-color: #f1c5c5;
+}
+.ai-assistance-toolbar-status.is-error .ai-assistance-toolbar-fill { background: #d9534f; }
+.ai-assistance-toolbar-status.is-disabled { color: #68798a; background: #f1f3f5; border-color: #d9dfe5; }
 .user-name-text {
     display: inline-flex; align-items: center; gap: 8px;
     font-size: 13px; color: var(--text-bright); font-weight: 600;
@@ -433,6 +461,57 @@ html.project-gate-boot #toolbar {
     white-space: nowrap; font-weight: 600;
     background: var(--accent-soft); border: 1px solid var(--accent-light);
     border-radius: 999px; padding: 3px 12px;
+}
+
+.zoom-slider {
+    width: 148px;
+    height: 22px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.zoom-slider[hidden] { display: none; }
+.patch-zoom-control {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+}
+.patch-zoom-control[hidden] { display: none; }
+.patch-zoom-control .zoom-info-text {
+    font-size: 10px;
+    padding: 2px 8px;
+}
+
+.patch-scale-bar {
+    position: absolute;
+    top: 16px;
+    right: 18px;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    padding: 6px 8px 5px;
+    border-radius: 5px;
+    background: rgba(20, 24, 38, 0.72);
+    color: #fff;
+    pointer-events: none;
+    user-select: none;
+}
+.patch-scale-bar[hidden] { display: none; }
+.patch-scale-bar-line {
+    height: 4px;
+    min-width: 36px;
+    border: 1px solid #fff;
+    border-top: 0;
+    background: #fff;
+    box-sizing: border-box;
+}
+.patch-scale-bar-label {
+    font-size: 11px;
+    line-height: 1;
+    font-family: 'Consolas', 'Courier New', monospace;
+    white-space: nowrap;
 }
 
 /* ═══ text text ═══ */
@@ -4465,7 +4544,7 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     .menu-center { padding: 0 4px; min-width: 0; }
     .slide-name { font-size: 12px; }
     .menu-right { padding-right: 6px; gap: 4px; }
-    .user-name-text, .status-text { display: none; }
+    .user-name-text, .status-text, .ai-assistance-toolbar-status { display: none; }
     .btn-admin { padding: 4px 10px; font-size: 11px; }
     .btn-logout { padding: 4px 10px; font-size: 11px; }
 
@@ -4492,6 +4571,10 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
         text-overflow: ellipsis;
     }
     .zoom-info-text { font-size: 10px; padding: 2px 8px; }
+    .zoom-slider { width: 112px; }
+    .patch-zoom-control .zoom-info-text { font-size: 9px; padding: 1px 6px; }
+    .patch-scale-bar { top: 10px; right: 10px; }
+    .patch-scale-bar-label { font-size: 10px; }
     .toolbar-separator { margin: 0 4px; }
 
     #app-body {

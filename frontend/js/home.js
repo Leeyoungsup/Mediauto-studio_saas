@@ -95,6 +95,8 @@
         { key: 'hne', label: 'HnE', group: 'Non-inherited AI' },
         { key: 'ihc_membrane', label: 'IHC Membrane', group: 'Non-inherited AI' },
         { key: 'ihc_nucleus', label: 'IHC Nucleus', group: 'Non-inherited AI' },
+        { key: 'ihc_membrane_breast', label: 'IHC Membrane (Breast)', group: 'Non-inherited AI' },
+        { key: 'ihc_nucleus_breast', label: 'IHC Nucleus (Breast)', group: 'Non-inherited AI' },
     ];
     const PROJECT_CHART_COLORS = [
         '#67b7dc', '#6794dc', '#6771dc', '#8067dc', '#a367dc',

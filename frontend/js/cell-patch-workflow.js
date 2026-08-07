@@ -43,13 +43,14 @@ class PatchFocusLayer {
 }
 
 export class CellPatchWorkflow {
-    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved, onWorkflowSummaryChange } = {}) {
+    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved, onWorkflowSummaryChange, onAssistanceStatusChange } = {}) {
         this.api = api;
         this.viewer = viewer;
         this.canvas = canvas;
         this.setStatus = setStatus || (() => {});
         this.onRequiredRegionSaved = onRequiredRegionSaved || (() => {});
         this.onWorkflowSummaryChange = onWorkflowSummaryChange || (() => {});
+        this.onAssistanceStatusChange = onAssistanceStatusChange || (() => {});
         this.slideId = '';
         this.grid = new PatchGridLayer();
         this.status = new PatchStatusLayer();
@@ -66,6 +67,7 @@ export class CellPatchWorkflow {
         this.assistancePromise = null;
         this.assistanceSlideId = '';
         this.assistanceProgress = null;
+        this.assistanceReady = false;
         this._loadAbortController = null;
         this._loadSeq = 0;
         this._assistanceAbortController = null;
@@ -298,10 +300,12 @@ export class CellPatchWorkflow {
             if (this.aiAssistanceEnabled) {
                 this.ensureLabelingAssistance({ silent: false }).catch((err) => {
                     if (!/disabled/i.test(err.message || '')) {
+                        this.onAssistanceStatusChange({ state: 'error', label: 'AI assistance failed', detail: err.message || '' });
                         this.setStatus(`Labeling assistance failed: ${err.message}`);
                     }
                 });
             } else {
+                this.assistanceReady = false;
                 this.setAssistanceProgress('', 0, false);
                 this.setStatus('Cell Annotation AI assistance turned off');
             }
@@ -321,6 +325,12 @@ export class CellPatchWorkflow {
     setAssistanceProgress(label = '', percent = 0, active = false, detail = '') {
         const pct = Math.max(0, Math.min(100, Number(percent) || 0));
         this.assistanceProgress = label ? { label, percent: pct, active: Boolean(active), detail } : null;
+        this.onAssistanceStatusChange({
+            state: label ? (active ? 'running' : 'ready') : (this.assistanceReady ? 'ready' : 'idle'),
+            label: label || (this.assistanceReady ? 'AI assistance ready' : ''),
+            percent: label ? pct : (this.assistanceReady ? 100 : 0),
+            detail,
+        });
         this._renderAssistanceProgress();
     }
 
@@ -567,6 +577,8 @@ export class CellPatchWorkflow {
         this._loadAbortController = controller;
         const seq = ++this._loadSeq;
         this.slideId = slideId || '';
+        this.assistanceReady = false;
+        this.onAssistanceStatusChange({ state: 'idle' });
         this.patches.clear();
         this.pendingRegions = [];
         this._syncPendingPatchPreview();
@@ -603,6 +615,7 @@ export class CellPatchWorkflow {
         this.ensureLabelingAssistance({ silent: true }).catch((err) => {
             if (err?.name === 'AbortError') return;
             if (!/disabled/i.test(err.message || '')) {
+                this.onAssistanceStatusChange({ state: 'error', label: 'AI assistance failed', detail: err.message || '' });
                 this.setStatus(`Labeling assistance preload failed: ${err.message}`);
             }
         });
@@ -2158,6 +2171,12 @@ export class CellPatchWorkflow {
         this._assistanceAbortController = controller;
         this.assistanceSlideId = slideId;
         this.assistancePromise = this._ensureLabelingAssistanceForSlide(slideId, { silent, signal: controller.signal })
+            .catch((err) => {
+                if (err?.name !== 'AbortError' && this.slideId === slideId) {
+                    this.onAssistanceStatusChange({ state: 'error', label: 'AI assistance failed', detail: err.message || '' });
+                }
+                throw err;
+            })
             .finally(() => {
                 if (this.assistanceSlideId === slideId) {
                     this.assistancePromise = null;
@@ -2175,6 +2194,8 @@ export class CellPatchWorkflow {
         if (signal?.aborted || this.slideId !== slideId) return;
         const current = options?.current || {};
         if (!current.enabled || !current.key) {
+            this.assistanceReady = false;
+            this.onAssistanceStatusChange({ state: 'disabled', label: 'AI assistance disabled' });
             if (!silent) this.setStatus('Cell Annotation AI assistance is disabled for this project');
             return;
         }
@@ -2185,7 +2206,9 @@ export class CellPatchWorkflow {
         const sameAssistanceModel =
             existing?.annotation_ai?.key === current.key &&
             existing?.annotation_ai?.variant === current.variant &&
-            Boolean(existing?.annotation_ai?.inherit_classes) === Boolean(current.inherit_classes);
+            Boolean(existing?.annotation_ai?.inherit_classes) === Boolean(current.inherit_classes) &&
+            JSON.stringify(existing?.annotation_ai?.assistance_class_map || {}) ===
+                JSON.stringify(current.assistance_class_map || {});
         const hasModelBboxAssistance = existing?.exists &&
             sameAssistanceModel &&
             existing?.base_result_format === 'bbox' &&
@@ -2195,12 +2218,14 @@ export class CellPatchWorkflow {
                 (existing?.labels || []).some(label => label?.bbox_source === 'model')
             );
         if (hasModelBboxAssistance) {
+            this.assistanceReady = true;
             this.setAssistanceProgress('', 0, false);
             return;
         }
         const start = await this.api.startWsiLabelingAssistance(slideId, current.key);
         const taskId = start?.task_id;
         if (!taskId || !this.api.getWsiLabelingAssistanceTask) return;
+        this.assistanceReady = false;
         this.setAssistanceProgress('Preparing AI assistance', 1, true, start.annotation_ai?.label || '');
         if (!silent) {
             this.setStatus(`Cell Annotation AI assistance started: ${start.annotation_ai?.label || 'Cell Annotation AI'}`);
@@ -2215,6 +2240,7 @@ export class CellPatchWorkflow {
             }
             if (task.status === 'completed') {
                 const count = Number(task.result?.total_labels || 0);
+                this.assistanceReady = true;
                 if (!silent || this.slideId === slideId) {
                     this.setStatus(`Labeling assistance ready: ${count.toLocaleString()} bbox labels`);
                 }
@@ -2222,7 +2248,11 @@ export class CellPatchWorkflow {
                 return;
             }
             if (task.status === 'error') {
+                this.assistanceReady = false;
                 if (this.slideId === slideId) this.setAssistanceProgress('', 0, false);
+                if (this.slideId === slideId) {
+                    this.onAssistanceStatusChange({ state: 'error', label: 'AI assistance failed', detail: task.error || '' });
+                }
                 throw new Error(task.error || 'Labeling assistance task failed');
             }
         }

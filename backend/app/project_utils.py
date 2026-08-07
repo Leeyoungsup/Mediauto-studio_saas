@@ -100,6 +100,32 @@ ANNOTATION_AI_OPTIONS = [
         "variant": "ER_PR",
         "inherit_classes": False,
     },
+    {
+        "key": "ihc_membrane_breast",
+        "label": "IHC Membrane (Breast)",
+        "group": "non_inherited",
+        "base_model": "Quanti IHC",
+        "variant": "IHC_MEMBRANE_BREAST",
+        "inherit_classes": False,
+        "assistance_classes": [
+            {"id": "tumor", "name": "Tumor", "color": [231, 76, 60]},
+            {"id": "other", "name": "Other", "color": [149, 165, 166]},
+        ],
+        "assistance_class_map": {"0": "tumor", "1": "other"},
+    },
+    {
+        "key": "ihc_nucleus_breast",
+        "label": "IHC Nucleus (Breast)",
+        "group": "non_inherited",
+        "base_model": "Quanti IHC",
+        "variant": "IHC_NUCLEUS_BREAST",
+        "inherit_classes": False,
+        "assistance_classes": [
+            {"id": "tumor", "name": "Tumor", "color": [52, 152, 219]},
+            {"id": "other", "name": "Other", "color": [149, 165, 166]},
+        ],
+        "assistance_class_map": {"0": "tumor", "1": "other"},
+    },
 ]
 
 ANNOTATION_AI_OPTION_BY_KEY = {item["key"]: item for item in ANNOTATION_AI_OPTIONS}
@@ -198,6 +224,8 @@ def cell_annotation_classes_for_ai(enabled: bool, key: str) -> list[dict]:
     dict_config = normalize_annotation_ai_config(enabled, key)
     if not dict_config.get("enabled"):
         return []
+    if dict_config.get("assistance_classes"):
+        return _normalize_cell_classes(dict_config["assistance_classes"])
     if not dict_config.get("inherit_classes"):
         return [dict(OTHER_CELL_CLASS)]
     str_base_model = dict_config.get("base_model")
@@ -327,7 +355,7 @@ def normalize_annotation_ai_config(enabled: bool, key: str) -> dict:
     option = ANNOTATION_AI_OPTION_BY_KEY.get(str_key)
     if not option:
         return {"enabled": False, "key": "", "label": ""}
-    return {
+    result = {
         "enabled": bool(enabled),
         "key": option["key"],
         "label": option["label"],
@@ -336,6 +364,10 @@ def normalize_annotation_ai_config(enabled: bool, key: str) -> dict:
         "variant": option["variant"],
         "inherit_classes": bool(option["inherit_classes"]),
     }
+    for extra_key in ("assistance_classes", "assistance_class_map"):
+        if option.get(extra_key):
+            result[extra_key] = option[extra_key]
+    return result
 
 
 async def upsert_project_info(

@@ -614,7 +614,7 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
 
 
 def run_precise_ihc(task_id, slide_id, roi_polygons, marker: str):
-    """Quanti IHC text wrapper — HER2 / ER_PR / KI_67 text."""
+    """Quanti IHC wrapper for scoring markers and breast cell-assistance models."""
     if marker not in PRECISE_IHC_CONFIG:
         update_task(task_id, status="error", error=f"Unsupported marker: {marker}")
         return

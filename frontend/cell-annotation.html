@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260727-01">
+    <link rel="stylesheet" href="css/style.css?v=20260807-01">
 </head>
 <body class="annotation-page">
     <!-- ═══ text ═══ -->
@@ -32,6 +32,13 @@
         </div>
         <div class="menu-right">
             <span id="status-text" class="status-text">Ready</span>
+            <div id="ai-assistance-toolbar-status" class="ai-assistance-toolbar-status" role="status" aria-live="polite" hidden>
+                <span id="ai-assistance-toolbar-label" class="ai-assistance-toolbar-label"></span>
+                <span id="ai-assistance-toolbar-percent" class="ai-assistance-toolbar-percent"></span>
+                <div class="ai-assistance-toolbar-track" aria-hidden="true">
+                    <div id="ai-assistance-toolbar-fill" class="ai-assistance-toolbar-fill"></div>
+                </div>
+            </div>
             <span class="toolbar-separator" style="height:20px;"></span>
             <span id="user-name" class="user-name-text"></span>
             <a id="link-admin" class="btn-admin" href="/admin" title="Admin" hidden>Admin</a>
@@ -194,6 +201,11 @@
             </div>
             <span id="slide-scanner" class="slide-scanner" hidden></span>
             <span id="zoom-info" class="zoom-info-text"></span>
+            <div id="patch-zoom-control" class="patch-zoom-control" hidden>
+                <input id="zoom-slider" class="zoom-slider" type="range" min="0" max="1000" step="1" value="0"
+                       aria-label="Patch View zoom" aria-valuetext="Zoom">
+                <span id="patch-zoom-info" class="zoom-info-text"></span>
+            </div>
         </div>
         <div class="toolbar-separator toolbar-legacy-help"></div>
         <!-- text -->
@@ -341,6 +353,10 @@
 
             <canvas id="wsi-canvas"></canvas>
             <canvas id="overlay-canvas"></canvas>
+            <div id="patch-scale-bar" class="patch-scale-bar" hidden aria-label="Scale bar">
+                <div id="patch-scale-bar-line" class="patch-scale-bar-line"></div>
+                <span id="patch-scale-bar-label" class="patch-scale-bar-label"></span>
+            </div>
             <!-- Hamamatsu NDP color matching toggle. -->
             <button id="btn-ndp-color" class="ndp-color-toggle active" type="button" hidden
                     title="NDP color matching (Hamamatsu)">
@@ -695,6 +711,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/annotation.js?v=20260730-02"></script>
+    <script type="module" src="js/annotation.js?v=20260807-04"></script>
 </body>
 </html>
