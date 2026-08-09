@@ -3990,6 +3990,84 @@ body.annotation-page.cell-patch-workflow-page.cell-patch-view-active .ann-list-h
 }
 .ann-item:hover { background: var(--bg-hover); }
 .ann-item.selected { background: rgba(47, 128, 237, 0.12); }
+.region-empty-state {
+    padding: 12px 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.4;
+    text-align: center;
+}
+.region-quanti-summary {
+    grid-column: 1 / -1;
+    margin: 2px 0 3px 23px;
+    padding: 5px 7px;
+    border-left: 3px solid var(--accent);
+    border-radius: 3px;
+    background: rgba(47, 128, 237, 0.06);
+    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1.35;
+}
+.region-quanti-summary-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-weight: 700;
+}
+.region-quanti-summary-model {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.region-quanti-summary-total {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    color: var(--text);
+    white-space: nowrap;
+}
+.region-quanti-summary-total strong,
+.region-quanti-summary-score { color: var(--accent); }
+.region-quanti-summary-total span { color: var(--text-dim); font-size: 9px; font-weight: 500; }
+.region-quanti-summary-score { white-space: nowrap; }
+.region-quanti-summary-detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+}
+.region-quanti-class-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 5px;
+    border: 1px solid rgba(47, 128, 237, 0.18);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--text-dim);
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.region-quanti-class-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+.region-quanti-class-chip > span:not(.region-quanti-class-dot) {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.region-quanti-class-chip strong { color: var(--text); }
+.region-ai-item .ann-color-swatch:disabled,
+.region-ai-item .ann-btn-vis:disabled,
+.region-ai-item .ann-btn-del:disabled { opacity: .55; cursor: default; }
 .ann-color-swatch {
     width: 18px; height: 18px; border-radius: 3px;
     border: 1px solid rgba(0,0,0,0.15); cursor: pointer; flex-shrink: 0;

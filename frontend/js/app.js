@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js?v=20260713-01';
-import { AiViewer } from './ai-viewer.js?v=20260715-04';
+import { AiViewer } from './ai-viewer.js?v=20260810-02';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -1011,8 +1011,26 @@ const $btnAnnLoad = $('#btn-ann-load');
 function renderAnnotationPanel() {
     if (!$annList) return;
     $annList.innerHTML = '';
-    for (const ann of viewer.annotations) {
-        const [r, g, b] = ann.color;
+    const listAnnotations = viewer.annotations.length
+        ? viewer.annotations
+        : (_lastDetectionRoi || []).map((coordinates, index) => ({
+            id: `ai-region-${index + 1}`,
+            name: `AI Region ${index + 1}`,
+            type: 'polygon',
+            coordinates,
+            color: [47, 128, 237],
+            visible: true,
+            _aiRegion: true,
+        }));
+    if (!listAnnotations.length) {
+        const empty = document.createElement('div');
+        empty.className = 'region-empty-state';
+        empty.textContent = 'No regions. Draw a polygon or rectangle before running Quanti.';
+        $annList.appendChild(empty);
+        return;
+    }
+    for (const ann of listAnnotations) {
+        const [r, g, b] = _normalizeColor(ann.color);
         const el = document.createElement('div');
         el.className = 'ann-item' + (ann.selected ? ' selected' : '');
         el.dataset.id = ann.id;
@@ -1024,10 +1042,18 @@ function renderAnnotationPanel() {
             <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? 'Hide' : 'Show'}</button>
             <button class="ann-btn-del" title="Delete">Del</button>
         `;
+        if (ann._aiRegion) {
+            el.classList.add('region-ai-item');
+            el.style.gridTemplateColumns = '34px minmax(82px, 1fr) 42px 42px 34px';
+            el.querySelector('.ann-color-swatch').disabled = true;
+            el.querySelector('.ann-btn-vis').disabled = true;
+            el.querySelector('.ann-btn-del').disabled = true;
+        }
         el.addEventListener('click', (e) => {
             if (e.target.closest('.ann-color-swatch') || e.target.closest('.ann-btn-vis') ||
                 e.target.closest('.ann-btn-del') || e.target.closest('.ann-name-input')) return;
-            viewer.selectAnnotation(ann.id);
+            if (ann._aiRegion) viewer.centerOnAnnotation(ann);
+            else viewer.selectAnnotation(ann.id);
         });
         // Rename on double click.
         el.querySelector('.ann-name').addEventListener('dblclick', (e) => {
@@ -1066,7 +1092,137 @@ function renderAnnotationPanel() {
             viewer.deleteAnnotation(ann.id);
         });
         $annList.appendChild(el);
+        if (ann.coordinates?.length >= 3 && ann.type !== 'point') {
+            el.appendChild(_buildRegionQuantiSummary(ann.coordinates));
+        }
     }
+}
+
+function _regionPointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = Number(polygon[i]?.[0]);
+        const yi = Number(polygon[i]?.[1]);
+        const xj = Number(polygon[j]?.[0]);
+        const yj = Number(polygon[j]?.[1]);
+        if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) continue;
+        const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function _getRegionQuantiCounts(polygon) {
+    const counts = {};
+    let total = 0;
+    for (const cell of viewer.detectionCells || []) {
+        if (!_regionPointInPolygon(Number(cell.x), Number(cell.y), polygon)) continue;
+        const threshold = viewer.classConfidence?.[cell.class_id] ?? 0.01;
+        if ((cell.confidence ?? 1) < threshold) continue;
+        const id = Number(cell.class_id);
+        counts[id] = (counts[id] || 0) + 1;
+        total += 1;
+    }
+    return { counts, total };
+}
+
+function _getRegionScoreText(counts) {
+    if (!_lastDetectionResult) return '';
+    const result = _lastDetectionResult;
+    if (_lastDetectionModel === 'Quanti PD-L1' && result.pd_score) {
+        const type = result.pd_score.score_type || 'Score';
+        if (type === 'CPS') {
+            const positiveTumor = counts[3] || 0;
+            const positiveImmune = (counts[4] || 0) + (counts[5] || 0);
+            const negativeTumor = counts[0] || 0;
+            const viableTumor = positiveTumor + negativeTumor;
+            const score = viableTumor ? Math.min(100, (positiveTumor + positiveImmune) / viableTumor * 100) : 0;
+            return `CPS ${score.toFixed(1)}%`;
+        }
+        if (type === 'TPS') {
+            const positive = counts[1] || 0;
+            const negative = counts[0] || 0;
+            const total = positive + negative;
+            return `TPS ${(total ? positive / total * 100 : 0).toFixed(1)}%`;
+        }
+    }
+    if (_lastDetectionModel === 'Quanti IHC') {
+        if (result.her2_score) {
+            const values = [counts[0] || 0, counts[1] || 0, counts[2] || 0, counts[3] || 0];
+            const total = values.reduce((sum, value) => sum + value, 0);
+            const weighted = total ? values.reduce((sum, value, index) => sum + index * value, 0) / total : 0;
+            const dominant = total ? values.indexOf(Math.max(...values)) : 0;
+            return `HER2 ${dominant}+ (${weighted.toFixed(2)})`;
+        }
+        if (result.allred_score) {
+            const allred = _computeAllredFromCounts(counts);
+            return `Allred ${allred.ts}/8 (${allred.interpretation})`;
+        }
+        if (result.ki67_score) {
+            const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+            const positive = (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0);
+            return `KI-67 ${total ? (positive / total * 100).toFixed(1) : '0.0'}%`;
+        }
+    }
+    return '';
+}
+
+function _buildRegionQuantiSummary(polygon) {
+    const summary = document.createElement('div');
+    summary.className = 'region-quanti-summary';
+    if (!_lastDetectionResult) {
+        summary.textContent = 'Quanti result will be shown after AI analysis.';
+        return summary;
+    }
+    const { counts, total } = _getRegionQuantiCounts(polygon);
+    const classNames = _lastDetectionResult.class_names || {};
+    const classColors = _lastDetectionResult.class_colors || {};
+    const breakdown = Object.entries(counts)
+        .sort(([, a], [, b]) => b - a)
+        .map(([id, count]) => ({
+            name: classNames[id] || `Class ${id}`,
+            count,
+            color: _toCssColor(classColors[id] ?? CLASS_COLORS[Number(id)]),
+        }));
+    const score = _getRegionScoreText(counts);
+    const header = document.createElement('div');
+    header.className = 'region-quanti-summary-header';
+    const modelEl = document.createElement('span');
+    modelEl.className = 'region-quanti-summary-model';
+    modelEl.textContent = _lastDetectionModel || 'Quanti';
+    const totalEl = document.createElement('span');
+    totalEl.className = 'region-quanti-summary-total';
+    totalEl.innerHTML = `<strong>${total.toLocaleString()}</strong><span>cells</span>`;
+    header.append(modelEl, totalEl);
+    if (score) {
+        const scoreEl = document.createElement('strong');
+        scoreEl.className = 'region-quanti-summary-score';
+        scoreEl.textContent = score;
+        header.appendChild(scoreEl);
+    }
+    const detail = document.createElement('div');
+    detail.className = 'region-quanti-summary-detail';
+    if (!breakdown.length) {
+        detail.textContent = 'No cells in this region';
+    } else {
+        for (const item of breakdown) {
+            const chip = document.createElement('span');
+            chip.className = 'region-quanti-class-chip';
+            chip.title = `${item.name}: ${item.count.toLocaleString()}`;
+            const dotEl = document.createElement('span');
+            dotEl.className = 'region-quanti-class-dot';
+            dotEl.style.backgroundColor = item.color;
+            const nameEl = document.createElement('span');
+            nameEl.textContent = item.name;
+            const countEl = document.createElement('strong');
+            countEl.textContent = item.count.toLocaleString();
+            chip.append(dotEl, nameEl, countEl);
+            detail.appendChild(chip);
+        }
+    }
+    summary.append(header, detail);
+    return summary;
 }
 
 function rgbToHex(r, g, b) {
@@ -1974,8 +2130,11 @@ window.addEventListener('keydown', (e) => {
 $btnAnnClear?.addEventListener('click', () => {
     if (_blockViewerAction('Viewer role cannot use annotation features.')) return;
     viewer.clearAnnotations();
+    // Explicitly clearing Regions also removes the synthetic ROI summary
+    // retained after an AI run; the detection result itself remains available.
+    _lastDetectionRoi = null;
     renderAnnotationPanel();
-    setStatus('Annotations cleared');
+    setStatus('Regions cleared');
 });
 
 // JSON schema:
@@ -2444,6 +2603,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
     if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+    renderAnnotationPanel();
 }
 
 const CLASS_COLORS = {
@@ -2520,6 +2680,7 @@ function _updateResultCounts() {
     _updateHer2ScoreDisplay(counts);
     _updateAllredScoreDisplay(counts);
     _updateKi67ScoreDisplay(counts);
+    renderAnnotationPanel();
 }
 
 function _updatePdScoreDisplay(counts) {
@@ -2708,6 +2869,7 @@ function buildResultList(result) {
             viewer.classVisibility[parseInt(id)] = checked;
         }
         viewer.requestRender();
+        _updateResultCounts();
     });
 
     const totalName = document.createElement('span');
@@ -2751,6 +2913,7 @@ function buildResultList(result) {
             totalCb.checked = allChecked;
             totalCb.indeterminate = !allChecked && !noneChecked;
             viewer.requestRender();
+            _updateResultCounts();
         });
 
         const dot = document.createElement('span');
@@ -2795,6 +2958,7 @@ function clearResults() {
     _hideStickyHud();
     _lastDetectionModel = null;
     _lastDetectionRoi = null;
+    renderAnnotationPanel();
 }
 
 $btnClearResults.addEventListener('click', () => {
@@ -4566,6 +4730,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
     if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+    renderAnnotationPanel();
 }
 
 $btnIhcHer2?.addEventListener('click', () => startPreciseIhc('HER2'));
@@ -4724,6 +4889,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     if ($btnLoadResults) $btnLoadResults.disabled = false;
     if (_isViewerRole()) _applyViewerRoleRestrictions();
     if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+    renderAnnotationPanel();
 }
 
 function _setVsToggleState(visible, disabled) {

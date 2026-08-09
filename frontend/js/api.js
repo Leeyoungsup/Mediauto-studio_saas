@@ -413,6 +413,26 @@ export const api = {
         return res.json();
     },
 
+    async downloadTerminationCompletedCellPatches(projectPath) {
+        const res = await _authFetch(
+            `${API_BASE}/cell-annotation/projects/${encodeURIComponent(projectPath)}/termination-export`
+        );
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        const disposition = res.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const filename = match?.[1] || `${projectPath}_termination_completed_cell_patches.zip`;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { filename };
+    },
+
     async renameProject(name, newName) {
         const form = new FormData();
         form.append('name', name);
@@ -788,14 +808,32 @@ export const api = {
         return res.json();
     },
 
-    async getPatchAssistanceCells(slideId, patchId) {
+    async getPatchAssistanceCells(slideId, patchId, options = {}) {
         const cacheBust = Date.now();
         const res = await _authFetch(
             `${API_BASE}/cell-annotation/${slideId}/patches/${encodeURIComponent(patchId)}/assistance-cells?_=${cacheBust}`,
-            { cache: 'no-store' },
+            { cache: 'no-store', signal: options.signal },
         );
         if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        // Large patch result JSON can take noticeable time to arrive. Read the
+        // response stream so Patch View can report actual download progress.
+        if (typeof options.onProgress !== 'function' || !res.body?.getReader) return res.json();
+        const total = Number(res.headers.get('content-length')) || 0;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let loaded = 0;
+        let text = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            loaded += value?.byteLength || 0;
+            text += decoder.decode(value, { stream: true });
+            const percent = total ? Math.min(100, loaded / total * 100) : 0;
+            try { options.onProgress({ loaded, total, percent }); } catch (_) { /* UI progress must not break API parsing. */ }
+        }
+        text += decoder.decode();
+        try { options.onProgress({ loaded, total, percent: 100 }); } catch (_) { /* noop */ }
+        return JSON.parse(text);
     },
 
     async savePatchCells(slideId, patchId, cells, options = {}) {

@@ -134,6 +134,7 @@ export class TileViewer {
         this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
         this.classConfidence = {};   // {class_id: float} text threshold (text defaultConfidence)
         this.defaultConfidence = 0.01;  // text text text text text (PD-L1/HER2 text 0.1)
+        this.detectionHeatmapMppThreshold = 3.0;
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._hiddenSpatialGrid = null;
         this._highlightedCellIdx = -1; // Alt+Click text text text
@@ -2897,10 +2898,10 @@ export class TileViewer {
                 !(this._lassoActive && this._cellAnnotationEditModeActive())) return;
 
         // effectiveMpp text: text text text text text
-        // mpp < 3.0 → text text, mpp >= 3.0 → text → text
+        // The concrete threshold is configured by the viewer type.
         const effectiveMpp = this.getEffectiveMpp();
         if (this.detectionCells.length) {
-            if (effectiveMpp >= 3.0) {
+            if (effectiveMpp >= this.detectionHeatmapMppThreshold) {
                 this._renderHeatmap(octx);
             } else {
                 this._renderCells(octx);

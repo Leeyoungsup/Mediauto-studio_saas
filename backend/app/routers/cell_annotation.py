@@ -6,10 +6,14 @@ import json
 from math import ceil, floor
 from pathlib import Path
 import re
+import tempfile
 import uuid
+import zipfile
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.database import get_db, is_db_connected
@@ -759,6 +763,131 @@ def _clear_cell_annotation_patch_files(slide_id: str, info) -> dict:
     (root / "WSI_regions.json").unlink(missing_ok=True)
     _write_cell_annotation_info(slide_id, info, [])
     return counts
+
+
+def _remove_temporary_export(path: str) -> None:
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+@router.get("/projects/{project_path}/termination-export")
+async def download_termination_completed_cell_patches(
+    project_path: str,
+    dict_user: dict = Depends(get_current_user),
+):
+    """Download termination-completed cell patches and their paired JSON labels.
+
+    This export is intentionally restricted to the YoungSeopLee account.  Each
+    ZIP member is grouped by slide and contains only patches whose
+    ``str_termination_status`` is ``completed``.
+    """
+    str_login_id = str(dict_user.get("str_login_id") or "").strip().lower()
+    str_user_name = str(dict_user.get("str_name") or "").strip().lower()
+    if str_login_id != "youngseoplee" and str_user_name != "youngseoplee":
+        raise HTTPException(403, "Termination export is restricted to the YoungSeopLee account")
+
+    str_project = _safe_project_name(project_path)
+    project_dir = safe_subpath(str_project)
+    db = _require_db()
+    supported_extensions = {str(ext).lower() for ext in settings.SUPPORTED_EXTENSIONS}
+    slide_paths = sorted(
+        path for path in project_dir.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in supported_extensions
+        and not any(part.startswith(".") or part.startswith("_chunks_") for part in path.relative_to(project_dir).parts)
+    )
+
+    temp_zip = tempfile.NamedTemporaryFile(
+        prefix=f"cell_annotation_termination_{str_project}_",
+        suffix=".zip",
+        delete=False,
+    )
+    temp_zip_path = temp_zip.name
+    temp_zip.close()
+    manifest = {
+        "project": str_project,
+        "generated_at": _now().isoformat(),
+        "termination_status": "completed",
+        "pair_format": "<slide_cache_key>/patch_N.jpeg + <slide_cache_key>/patch_N.json",
+        "slides": [],
+        "total_patches": 0,
+    }
+
+    try:
+        with zipfile.ZipFile(temp_zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            loop = asyncio.get_running_loop()
+            for slide_path in slide_paths:
+                slide_id = slide_cache_key(str(slide_path))
+                patches = await db.patch_annotation_status.find(
+                    {
+                        "str_slide_id": slide_id,
+                        "str_termination_status": "completed",
+                        "str_status": {"$ne": "not_required"},
+                    },
+                    {"_id": 0},
+                ).sort([("int_py", 1), ("int_px", 1)]).to_list(length=200000)
+                if not patches:
+                    continue
+
+                info = _slide_info(slide_id)
+                slide_member = re.sub(r"[^A-Za-z0-9._-]+", "_", slide_id).strip("._") or "slide"
+                slide_manifest = {
+                    "slide_id": slide_id,
+                    "slide_filename": slide_path.name,
+                    "patches": [],
+                }
+                with tempfile.TemporaryDirectory(prefix="cell_annotation_export_") as staging_dir:
+                    staging = Path(staging_dir)
+                    for patch in patches:
+                        patch_id = str(patch.get("str_patch_id") or "").strip()
+                        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", patch_id):
+                            continue
+                        cells_doc = await db.patch_cell_annotations.find_one(
+                            {"str_slide_id": slide_id, "str_patch_id": patch_id},
+                            {"_id": 0},
+                        )
+                        json_payload = {
+                            "slide_id": slide_id,
+                            "patch_id": patch_id,
+                            "patch_key": patch.get("str_patch_key", ""),
+                            "termination_status": patch.get("str_termination_status", ""),
+                            "cells": (cells_doc or {}).get("list_cells", []),
+                        }
+                        image_path = staging / f"{patch_id}.jpeg"
+                        cached_image_path = _cell_annotation_slide_dir(info) / "patches" / f"{patch_id}.jpeg"
+                        if cached_image_path.is_file() and cached_image_path.stat().st_size > 0:
+                            image_path.write_bytes(cached_image_path.read_bytes())
+                        else:
+                            await loop.run_in_executor(patch_executor, _write_patch_image, info, patch, image_path)
+                        if not image_path.exists() or image_path.stat().st_size <= 0:
+                            continue
+                        json_path = staging / f"{patch_id}.json"
+                        json_path.write_text(
+                            json.dumps(json_payload, ensure_ascii=False, indent=2, default=_json_default),
+                            encoding="utf-8",
+                        )
+                        archive.write(image_path, f"{slide_member}/{patch_id}.jpeg")
+                        archive.write(json_path, f"{slide_member}/{patch_id}.json")
+                        slide_manifest["patches"].append(patch_id)
+
+                if slide_manifest["patches"]:
+                    manifest["slides"].append(slide_manifest)
+                    manifest["total_patches"] += len(slide_manifest["patches"])
+
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    except Exception:
+        _remove_temporary_export(temp_zip_path)
+        raise
+
+    filename = f"{str_project}_termination_completed_cell_patches.zip"
+    return FileResponse(
+        temp_zip_path,
+        media_type="application/zip",
+        filename=filename,
+        background=BackgroundTask(_remove_temporary_export, temp_zip_path),
+    )
 
 
 async def _project_annotation_ai_config(info) -> dict:

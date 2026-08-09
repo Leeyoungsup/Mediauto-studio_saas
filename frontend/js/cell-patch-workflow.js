@@ -43,7 +43,7 @@ class PatchFocusLayer {
 }
 
 export class CellPatchWorkflow {
-    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved, onWorkflowSummaryChange, onAssistanceStatusChange } = {}) {
+    constructor({ api, viewer, canvas, setStatus, onRequiredRegionSaved, onWorkflowSummaryChange, onAssistanceStatusChange, onPatchAssistanceStatusChange } = {}) {
         this.api = api;
         this.viewer = viewer;
         this.canvas = canvas;
@@ -51,6 +51,7 @@ export class CellPatchWorkflow {
         this.onRequiredRegionSaved = onRequiredRegionSaved || (() => {});
         this.onWorkflowSummaryChange = onWorkflowSummaryChange || (() => {});
         this.onAssistanceStatusChange = onAssistanceStatusChange || (() => {});
+        this.onPatchAssistanceStatusChange = onPatchAssistanceStatusChange || (() => {});
         this.slideId = '';
         this.grid = new PatchGridLayer();
         this.status = new PatchStatusLayer();
@@ -1789,24 +1790,57 @@ export class CellPatchWorkflow {
         if (this.editor.hasCells?.()) return false;
         const patchId = this.selectedPatchId();
         if (!patchId || !this.api?.getPatchAssistanceCells) return false;
-        await this.ensureLabelingAssistance({ silent: false });
-        if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) return false;
-        const payload = await this.api.getPatchAssistanceCells(this.slideId, patchId);
-        if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) return false;
-        if (!payload?.exists || !Array.isArray(payload.cells) || !payload.cells.length) return false;
-        const applied = this.editor.applyAssistanceCells?.(payload.cells);
-        if (applied) {
-            window.dispatchEvent(new CustomEvent('cellpatch:annotationschange', {
-                detail: {
-                    patchId,
-                    source: 'wsi_labeling_assistance',
-                    count: payload.cells.length,
-                    classes: Array.isArray(payload.classes) ? payload.classes : [],
+        const notify = (payload) => this.onPatchAssistanceStatusChange(payload);
+        notify({ state: 'running', label: 'Loading patch AI labels', percent: 5, detail: patchId });
+        try {
+            await this.ensureLabelingAssistance({ silent: false });
+            if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) {
+                notify({ state: 'idle' });
+                return false;
+            }
+            notify({ state: 'running', label: 'Loading patch AI labels', percent: 25, detail: 'Preparing result JSON' });
+            const payload = await this.api.getPatchAssistanceCells(this.slideId, patchId, {
+                onProgress: ({ loaded, total, percent }) => {
+                    const detail = total
+                        ? `${Math.round(loaded / 1024).toLocaleString()} KB / ${Math.round(total / 1024).toLocaleString()} KB`
+                        : `${Math.round(loaded / 1024).toLocaleString()} KB received`;
+                    notify({
+                        state: 'running',
+                        label: 'Loading patch AI labels',
+                        percent: total ? 25 + Math.min(60, percent * 0.6) : 45,
+                        detail,
+                    });
                 },
-            }));
-            this.setStatus(`Patch AI assistance loaded: ${payload.cells.length.toLocaleString()} labels`);
+            });
+            if (!this.patchFocusActive || this.selectedPatchId() !== patchId || this.editor.hasCells?.()) {
+                notify({ state: 'idle' });
+                return false;
+            }
+            if (!payload?.exists || !Array.isArray(payload.cells) || !payload.cells.length) {
+                notify({ state: 'ready', label: 'Patch AI ready', percent: 100, detail: 'No labels for this patch' });
+                window.setTimeout(() => notify({ state: 'idle' }), 1800);
+                return false;
+            }
+            notify({ state: 'running', label: 'Applying patch AI labels', percent: 90, detail: `${payload.cells.length.toLocaleString()} labels` });
+            const applied = this.editor.applyAssistanceCells?.(payload.cells);
+            if (applied) {
+                window.dispatchEvent(new CustomEvent('cellpatch:annotationschange', {
+                    detail: {
+                        patchId,
+                        source: 'wsi_labeling_assistance',
+                        count: payload.cells.length,
+                        classes: Array.isArray(payload.classes) ? payload.classes : [],
+                    },
+                }));
+                this.setStatus(`Patch AI assistance loaded: ${payload.cells.length.toLocaleString()} labels`);
+            }
+            notify({ state: 'ready', label: 'Patch AI ready', percent: 100, detail: `${payload.cells.length.toLocaleString()} labels loaded` });
+            window.setTimeout(() => notify({ state: 'idle' }), 1800);
+            return Boolean(applied);
+        } catch (err) {
+            notify({ state: 'error', label: 'Patch AI load failed', detail: err?.message || '' });
+            throw err;
         }
-        return Boolean(applied);
     }
 
     async addPatchLabelFromAnnotation(annotation) {

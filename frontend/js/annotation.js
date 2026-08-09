@@ -2,10 +2,10 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260730-02';
+import { api } from './api.js?v=20260807-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260730-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260807-02';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260807-03';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -350,6 +350,14 @@ function _updateAiAssistanceToolbarStatus(payload = {}) {
     $aiAssistanceToolbarStatus.title = payload.detail ? `${label}: ${payload.detail}` : label;
 }
 
+function _updatePatchAiAssistanceToolbarStatus(payload = {}) {
+    if (payload.state === 'idle' && cellPatchWorkflow?.assistanceReady) {
+        _updateAiAssistanceToolbarStatus({ state: 'ready', label: 'AI assistance ready', percent: 100 });
+        return;
+    }
+    _updateAiAssistanceToolbarStatus(payload);
+}
+
 cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
     ? new CellPatchWorkflow({
         api,
@@ -357,6 +365,7 @@ cellPatchWorkflow = ANNOTATION_PAGE_KIND === 'cell'
         canvas: $canvas,
         setStatus,
         onAssistanceStatusChange: _updateAiAssistanceToolbarStatus,
+        onPatchAssistanceStatusChange: _updatePatchAiAssistanceToolbarStatus,
         onRequiredRegionSaved: () => _markAnnotationWorkflowInProgressIfIdle(),
         onWorkflowSummaryChange: ({ slideId, summaries }) => {
             _renderCellPatchWorkflowCellsForSlide(slideId, summaries);
@@ -1618,6 +1627,12 @@ let _annotationPanelRenderLimit = 300;
 
 function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
+}
+
+function _isYoungSeopLeeAccount() {
+    return [window.__currentUserLoginId, window.__currentUserName]
+        .map(value => String(value || '').trim().toLowerCase())
+        .includes('youngseoplee');
 }
 
 function _blockClassManageAction() {
@@ -6287,6 +6302,27 @@ function _renderProjectGate(list_projects) {
             ? (ANNOTATION_PAGE_KIND === 'cell' ? 'Manage Cell Annotation settings' : 'Manage classes')
             : 'Doctor/Admin only';
         actionEl.append(openBtn, classBtn);
+        if (ANNOTATION_PAGE_KIND === 'cell' && _isYoungSeopLeeAccount()) {
+            const exportBtn = document.createElement('button');
+            exportBtn.type = 'button';
+            exportBtn.className = 'project-gate-action secondary';
+            exportBtn.textContent = 'Download ZIP';
+            exportBtn.title = 'Download termination-completed patches and paired JSON files';
+            exportBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                exportBtn.disabled = true;
+                setStatus('Preparing termination-completed patch ZIP...');
+                try {
+                    const result = await api.downloadTerminationCompletedCellPatches(path);
+                    setStatus(`Downloaded ${result.filename}`);
+                } catch (err) {
+                    setStatus(`Termination export failed: ${err.message}`);
+                } finally {
+                    exportBtn.disabled = false;
+                }
+            });
+            actionEl.appendChild(exportBtn);
+        }
         actionEl.addEventListener('click', (e) => e.stopPropagation());
 
         row.append(projectEl, hospitalEl, ownerEl, slidesEl, annotationEl, reviewEl, terminationEl, foldersEl, statusEl, actionEl);
@@ -7788,6 +7824,8 @@ $btnVsSplit?.addEventListener('click', () => {
         });
         window.__currentUserRole = normalizedRole;
         window.__currentUserId = String(dict_me._id || '');
+        window.__currentUserLoginId = String(dict_me.str_login_id || '');
+        window.__currentUserName = String(dict_me.str_name || '');
         _loadAnnotationDisplayStyleFromPreferences(dict_me.dict_preferences || {});
         localStorage.setItem('user', JSON.stringify({ ...dict_me, str_role: normalizedRole }));
         if (window.__currentUserRole === 'viewer') {
