@@ -4961,6 +4961,18 @@ $btnVsSplit?.addEventListener('click', () => {
 
 // On page load, verify auth and load projects/slides.
 (async () => {
+    const _urlParams = new URLSearchParams(location.search);
+    const _paramSlide = _urlParams.get('slide');
+    const _paramPath = _urlParams.get('path');
+    if (_paramPath !== null) currentBrowsePath = _paramPath;
+    const bool_show_project_gate = !_paramSlide && _paramPath === null;
+
+    // Project metadata does not depend on the user profile. Start it while
+    // the authentication request is in flight instead of waiting for /me.
+    // api._authFetch serializes the initial media-ticket request, then both
+    // authenticated API requests can complete in parallel.
+    const _projectListPromise = loadProjectList();
+
     try {
         const dict_me = await api.me();
         if ($userName && dict_me.str_name) {
@@ -5002,13 +5014,8 @@ $btnVsSplit?.addEventListener('click', () => {
     } catch (_) {
         return;
     }
-    const _urlParams = new URLSearchParams(location.search);
-    const _paramSlide = _urlParams.get('slide');
-    const _paramPath = _urlParams.get('path');
-    if (_paramPath !== null) currentBrowsePath = _paramPath;
-    const bool_show_project_gate = !_paramSlide && _paramPath === null;
 
-    const list_projects = await loadProjectList();
+    const list_projects = await _projectListPromise;
     if (bool_show_project_gate) {
         _showProjectGate(list_projects);
         return;
