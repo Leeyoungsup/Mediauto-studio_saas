@@ -70,6 +70,47 @@ class SpatialGrid {
         }
         return result;
     }
+
+    // Count viewport candidates without allocating an array of cell references.
+    // This is used to select a dense rendering path before the normal Canvas
+    // per-cell loop would create a large temporary array.
+    count(xMin, yMin, xMax, yMax, limit = Infinity) {
+        const gs = this.gridSize;
+        const gxMin = Math.floor(xMin / gs);
+        const gyMin = Math.floor(yMin / gs);
+        const gxMax = Math.floor(xMax / gs);
+        const gyMax = Math.floor(yMax / gs);
+        let count = 0;
+        for (let gx = gxMin; gx <= gxMax; gx++) {
+            for (let gy = gyMin; gy <= gyMax; gy++) {
+                const bucket = this.grid.get((gx << 16) | (gy & 0xFFFF));
+                if (!bucket) continue;
+                for (const c of bucket) {
+                    if (c.x < xMin || c.x >= xMax || c.y < yMin || c.y >= yMax) continue;
+                    count += 1;
+                    if (count > limit) return count;
+                }
+            }
+        }
+        return count;
+    }
+
+    forEach(xMin, yMin, xMax, yMax, callback) {
+        const gs = this.gridSize;
+        const gxMin = Math.floor(xMin / gs);
+        const gyMin = Math.floor(yMin / gs);
+        const gxMax = Math.floor(xMax / gs);
+        const gyMax = Math.floor(yMax / gs);
+        for (let gx = gxMin; gx <= gxMax; gx++) {
+            for (let gy = gyMin; gy <= gyMax; gy++) {
+                const bucket = this.grid.get((gx << 16) | (gy & 0xFFFF));
+                if (!bucket) continue;
+                for (const c of bucket) {
+                    if (c.x >= xMin && c.x < xMax && c.y >= yMin && c.y < yMax) callback(c);
+                }
+            }
+        }
+    }
 }
 
 export class TileViewer {
@@ -134,7 +175,13 @@ export class TileViewer {
         this.classColorOverride = null;  // {class_id: '#hex'} — set per AI task to override CLASS_COLORS
         this.classConfidence = {};   // {class_id: float} text threshold (text defaultConfidence)
         this.defaultConfidence = 0.01;  // text text text text text (PD-L1/HER2 text 0.1)
-        this.detectionHeatmapMppThreshold = 3.0;
+        // Heatmap is an explicit display mode, controlled by the Detection
+        // Results panel. It is never selected automatically from zoom/MPP.
+        this.heatmapVisible = false;
+        this.detailedCellMppThreshold = 5.0;
+        this.maxIndividualDetectionCells = 50000;
+        this.denseCellPointSize = 2.0;
+        this._denseCellRaster = null;
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._hiddenSpatialGrid = null;
         this._highlightedCellIdx = -1; // Alt+Click text text text
@@ -314,6 +361,7 @@ export class TileViewer {
         this._activeLoads = 0;
         this._thumbnailBitmap = null;
         this.detectionCells = [];
+        this.heatmapVisible = false;
         this.annotations = [];
         this.selectedAnnotationId = null;
         this._annotationCounter = 0;
@@ -549,6 +597,11 @@ export class TileViewer {
         return this.slideInfo.mpp / this.zoom;
     }
 
+    setHeatmapVisible(visible) {
+        this.heatmapVisible = Boolean(visible);
+        this.requestRender();
+    }
+
     getMagnification() {
         if (!this.slideInfo || this.zoom <= 0) return 0;
         const baseMag = (0.25 / this.slideInfo.mpp) * 40.0;
@@ -589,8 +642,9 @@ export class TileViewer {
         newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
         if (newZoom === this.zoom) return;
 
-        // Patch View keeps the selected patch centered while zooming. The
-        // regular WSI viewer intentionally zooms toward the mouse position.
+        // Zoom is centered on the current viewport. Mouse-position anchoring
+        // is intentionally disabled so the slide does not jump under the
+        // pointer while the user scrolls.
         if (this.cellAnnotationPatchViewActive) {
             anchorCanvasX = null;
             anchorCanvasY = null;
@@ -670,11 +724,9 @@ export class TileViewer {
                 return;
             }
             if (!this.slideInfo) return;
-            const rect = this.canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
-            if (e.deltaY < 0) this.zoomIn(cx, cy);
-            else this.zoomOut(cx, cy);
+            // Keep the viewport center fixed; do not zoom toward the mouse.
+            if (e.deltaY < 0) this.zoomIn();
+            else this.zoomOut();
         }, { passive: false });
 
         let suppressContextMenuUntil = 0;
@@ -1268,6 +1320,7 @@ export class TileViewer {
         this.overlayCanvas.height = Math.round(h * float_dpr);
         this.overlayCanvas.style.width = w + 'px';
         this.overlayCanvas.style.height = h + 'px';
+        this._denseCellRaster = null;
         if (this.slideInfo) {
             this._clampView();
             this.requestRender();
@@ -2053,6 +2106,7 @@ export class TileViewer {
         this._heatmapDirty = true;
         this._heatmapImage = null;
         this._buildHeatmapCache();
+        this.heatmapVisible = false;
         this.requestRender();
     }
 
@@ -2897,15 +2951,9 @@ export class TileViewer {
         if (!this.detectionCells.length && !this._highlightedCellIdxSet && !this._highlightedHiddenCellIdxSet &&
                 !(this._lassoActive && this._cellAnnotationEditModeActive())) return;
 
-        // effectiveMpp text: text text text text text
-        // The concrete threshold is configured by the viewer type.
-        const effectiveMpp = this.getEffectiveMpp();
         if (this.detectionCells.length) {
-            if (effectiveMpp >= this.detectionHeatmapMppThreshold) {
-                this._renderHeatmap(octx);
-            } else {
-                this._renderCells(octx);
-            }
+            if (this.heatmapVisible) this._renderHeatmap(octx);
+            else this._renderCells(octx);
         }
 
         // text text text text text text text text
@@ -3207,6 +3255,86 @@ export class TileViewer {
         };
     }
 
+    /**
+     * Dense individual-cell rendering path.
+     *
+     * At overview/medium zoom many cells occupy the same screen pixels. A
+     * Canvas arc/stroke call per cell becomes the bottleneck even though the
+     * visible information is still only a few pixels wide. Rasterize every
+     * visible cell into a reusable pixel buffer instead: no cell is removed
+     * from the result, but overlapping cells are represented at screen
+     * resolution and the browser performs one putImageData operation.
+     */
+    _renderDenseCellsRaster(octx, viewLeft, viewTop, viewRight, viewBottom) {
+        const dpr = this._dpr || 1;
+        const width = Math.max(1, Math.round(this._viewW * dpr));
+        const height = Math.max(1, Math.round(this._viewH * dpr));
+        let raster = this._denseCellRaster;
+        if (!raster || raster.width !== width || raster.height !== height) {
+            raster = {
+                width,
+                height,
+                imageData: new ImageData(width, height),
+            };
+            this._denseCellRaster = raster;
+        } else {
+            raster.imageData.data.fill(0);
+        }
+
+        const CLASS_COLORS = {
+            0: '#FF4500', 1: '#00FF00', 2: '#0000FF', 3: '#FFFF00',
+            4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
+        };
+        const colorCache = new Map();
+        const getColor = (classId) => {
+            if (colorCache.has(classId)) return colorCache.get(classId);
+            const raw = (this.classColorOverride && this.classColorOverride[classId]) || CLASS_COLORS[classId] || '#00FF00';
+            let rgb = [0, 255, 0];
+            if (Array.isArray(raw)) {
+                rgb = raw.slice(0, 3).map(v => Math.max(0, Math.min(255, Number(v) || 0)));
+            } else {
+                const match = String(raw).match(/^#?([0-9a-f]{6})$/i);
+                if (match) rgb = [
+                    parseInt(match[1].slice(0, 2), 16),
+                    parseInt(match[1].slice(2, 4), 16),
+                    parseInt(match[1].slice(4, 6), 16),
+                ];
+            }
+            colorCache.set(classId, rgb);
+            return rgb;
+        };
+
+        const data = raster.imageData.data;
+        const zoom = this.zoom;
+        const offsetX = this._viewW / 2 - this.viewCenterX * zoom;
+        const offsetY = this._viewH / 2 - this.viewCenterY * zoom;
+        // Use a small screen-space sprite rather than a single pixel so dense
+        // individual cells remain visible on high-DPI and large displays.
+        const halfPoint = Math.max(1, Math.round((Number(this.denseCellPointSize) || 2) * dpr / 2));
+        this._spatialGrid.forEach(viewLeft, viewTop, viewRight, viewBottom, (cell) => {
+            const threshold = this.classConfidence[cell.class_id] ?? 0.01;
+            if ((cell.confidence ?? 1) < threshold || this.classVisibility[cell.class_id] === false) return;
+            const px = Math.round((cell.x * zoom + offsetX) * dpr);
+            const py = Math.round((cell.y * zoom + offsetY) * dpr);
+            if (px < 0 || px >= width || py < 0 || py >= height) return;
+            const [r, g, b] = getColor(cell.class_id);
+            const minX = Math.max(0, px - halfPoint + 1);
+            const maxX = Math.min(width - 1, px + halfPoint);
+            const minY = Math.max(0, py - halfPoint + 1);
+            const maxY = Math.min(height - 1, py + halfPoint);
+            for (let drawY = minY; drawY <= maxY; drawY++) {
+                for (let drawX = minX; drawX <= maxX; drawX++) {
+                    const idx = (drawY * width + drawX) * 4;
+                    data[idx] = r;
+                    data[idx + 1] = g;
+                    data[idx + 2] = b;
+                    data[idx + 3] = 220;
+                }
+            }
+        });
+        octx.putImageData(raster.imageData, 0, 0);
+    }
+
     _renderCells(octx) {
         if (!this._spatialGrid) return;
 
@@ -3217,11 +3345,26 @@ export class TileViewer {
         const viewRight = this.viewCenterX + halfVW;
         const viewBottom = this.viewCenterY + halfVH;
 
-        // SpatialGridtext text text text text (O(1), text text text)
+        // Detailed geometry is shown only when the view is at 5 µm/px or
+        // closer. At a wider view, use the screen-space individual-cell
+        // raster to preserve cell visibility without creating one Canvas
+        // path per cell. The count limit remains a safety fallback.
+        const effectiveMpp = this.getEffectiveMpp();
+        const detailedMpp = Number(this.detailedCellMppThreshold) || 5.0;
+        const maxIndividualCells = Math.max(1, Number(this.maxIndividualDetectionCells) || 50000);
+        if (effectiveMpp > detailedMpp) {
+            this._renderDenseCellsRaster(octx, viewLeft, viewTop, viewRight, viewBottom);
+            return;
+        }
+        const visibleCount = this._spatialGrid.count(viewLeft, viewTop, viewRight, viewBottom, maxIndividualCells);
+        if (visibleCount > maxIndividualCells) {
+            this._renderDenseCellsRaster(octx, viewLeft, viewTop, viewRight, viewBottom);
+            return;
+        }
+
+        // SpatialGrid query is now bounded by the dense-render threshold.
         const visible = this._spatialGrid.query(viewLeft, viewTop, viewRight, viewBottom);
 
-        // effectiveMpptext text text text/text text
-        const effectiveMpp = this.getEffectiveMpp();
         let baseRadius, lineW;
         if (effectiveMpp < 1.0) {
             baseRadius = 8;

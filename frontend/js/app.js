@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js?v=20260713-01';
-import { AiViewer } from './ai-viewer.js?v=20260810-02';
+import { AiViewer } from './ai-viewer.js?v=20260810-05';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -57,6 +57,7 @@ const $btnZoomIn = $('#btn-zoom-in');
 const $btnZoomOut = $('#btn-zoom-out');
 const $btnDetect = $('#btn-detect');
 const $btnVisualize = $('#btn-visualize');
+const $btnHeatmapToggle = $('#btn-heatmap-toggle');
 const $btnClearResults = $('#btn-clear-results');
 const $btnSaveResults = $('#btn-save-results');
 const $btnLoadResults = $('#btn-load-results');
@@ -93,6 +94,7 @@ function _blockViewerAction(message = 'Viewer role cannot use AI or annotation f
 }
 
 const $btnDrawPolygon = $('#btn-draw-polygon');
+const $btnDrawBrush = $('#btn-draw-brush');
 const $btnDrawRect = $('#btn-draw-rect');
 const $btnDrawRect1mm2 = $('#btn-draw-rect-1mm2');
 const $btnDrawCircle1mm2 = $('#btn-draw-circle-1mm2');
@@ -600,7 +602,7 @@ function _applyViewerRoleRestrictions() {
     _stopAiActivePolling();
     if (viewer) viewer.canEditDetectionResults = false;
 
-    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-rect',
+    const list_draw_btns = ['btn-draw-polygon', 'btn-draw-brush', 'btn-draw-rect',
                             'btn-draw-rect-1mm2', 'btn-draw-circle-1mm2', 'btn-ruler'];
     list_draw_btns.forEach(id => {
         const el = document.getElementById(id);
@@ -616,7 +618,7 @@ function _applyViewerRoleRestrictions() {
     const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
         'btn-ihc-ki67', 'btn-vs-membrane', 'btn-vs-toggle', 'btn-vs-split',
-        'btn-visualize', 'btn-clear-results', 'btn-save-results', 'btn-load-results',
+        'btn-visualize', 'btn-heatmap-toggle', 'btn-clear-results', 'btn-save-results', 'btn-load-results',
     ];
     list_ai_btn_ids.forEach(id => {
         const el = document.getElementById(id);
@@ -845,6 +847,7 @@ $btnFit.addEventListener('click', () => viewer.fitToWindow());
 
 const drawButtons = {
     polygon: $btnDrawPolygon,
+    brush: $btnDrawBrush,
     rectangle: $btnDrawRect,
     'rect-1mm2': $btnDrawRect1mm2,
     'circle-1mm2': $btnDrawCircle1mm2,
@@ -860,6 +863,7 @@ function setDrawMode(mode) {
 }
 
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
+if ($btnDrawBrush) $btnDrawBrush.addEventListener('click', () => setDrawMode('brush'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
@@ -2598,6 +2602,7 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
     buildResultList(result);
 
     $btnVisualize.disabled = false;
+    _syncHeatmapToggle();
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
@@ -2949,6 +2954,7 @@ function clearResults() {
     $btnClearResults.disabled = true;
     $btnSaveResults.disabled = true;
     if ($btnLoadResults) $btnLoadResults.disabled = true;
+    viewer.setHeatmapVisible?.(false);
     viewer.setDetectionResults([]);
     viewer.setHiddenDetectionResults?.([]);
     lastSegData = null;
@@ -2960,6 +2966,23 @@ function clearResults() {
     _lastDetectionRoi = null;
     renderAnnotationPanel();
 }
+
+function _syncHeatmapToggle() {
+    if (!$btnHeatmapToggle) return;
+    const enabled = Boolean(viewer.heatmapVisible);
+    const hasResults = Array.isArray(viewer.detectionCells) && viewer.detectionCells.length > 0;
+    $btnHeatmapToggle.disabled = !hasResults;
+    $btnHeatmapToggle.textContent = enabled ? 'Heatmap: On' : 'Heatmap: Off';
+    $btnHeatmapToggle.classList.toggle('active', enabled);
+    $btnHeatmapToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+}
+
+$btnHeatmapToggle?.addEventListener('click', () => {
+    if (_blockViewerAction() || !viewer.detectionCells?.length) return;
+    viewer.setHeatmapVisible?.(!viewer.heatmapVisible);
+    _syncHeatmapToggle();
+    setStatus(viewer.heatmapVisible ? 'Heatmap display enabled' : 'Individual cell display enabled');
+});
 
 $btnClearResults.addEventListener('click', () => {
     if (_blockViewerAction()) return;
@@ -4725,6 +4748,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     buildResultList(_lastDetectionResult);
     _updateResultCounts();
     $btnVisualize.disabled = false;
+    _syncHeatmapToggle();
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;
@@ -4884,6 +4908,7 @@ function onPreciseIhcComplete(result, roiPolygons = null, marker = 'HER2') {
     buildResultList(_lastDetectionResult);
     _updateResultCounts();
     $btnVisualize.disabled = false;
+    _syncHeatmapToggle();
     $btnClearResults.disabled = false;
     $btnSaveResults.disabled = false;
     if ($btnLoadResults) $btnLoadResults.disabled = false;

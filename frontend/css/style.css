@@ -2380,6 +2380,7 @@ body.annotation-page .project-gate-row {
 }
 .action-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.action-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .action-btn.primary {
     background: var(--accent); color: #fff; border-color: var(--accent);
     box-shadow: 0 2px 8px rgba(108, 92, 231, 0.3);

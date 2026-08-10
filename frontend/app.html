@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260810-03">
+    <link rel="stylesheet" href="css/style.css?v=20260810-04">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -105,6 +105,16 @@
         <div class="toolbar-group">
             <button id="btn-draw-polygon" class="toolbar-btn toggle-btn" title="Draw Polygon" disabled>
                 <img src="assets/Polygon.png" alt="Polygon">
+            </button>
+            <button id="btn-draw-brush" class="toolbar-btn toggle-btn" title="Polygon Brush (Alt + wheel: brush size)" aria-label="Polygon Brush" disabled>
+                <span class="toolbar-combo-icon">
+                    <img src="assets/Polygon.png" alt="">
+                    <svg class="toolbar-combo-badge" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M8.2 1.8l2 2-4.3 4.3-2.4.6.6-2.4z"/>
+                        <path d="M2.1 10.1c1.6.6 3.6.5 5.4-.2"/>
+                    </svg>
+                </span>
             </button>
             <button id="btn-draw-rect" class="toolbar-btn toggle-btn" title="Draw Rectangle" disabled>
                 <img src="assets/Rectangular_ROI_measurement.png" alt="Rectangle">
@@ -500,6 +510,7 @@
 
                 <div class="btn-row">
                     <button id="btn-visualize" class="action-btn" disabled>Visualize</button>
+                    <button id="btn-heatmap-toggle" class="action-btn" disabled aria-pressed="false">Heatmap: Off</button>
                 </div>
                 <div class="btn-row compact">
                     <button id="btn-clear-results" class="small-btn" disabled>Clear</button>
@@ -568,7 +579,7 @@
             <div class="ux-help-section">Slide Navigation</div>
             <ul>
                 <li>Drag to pan the slide.</li>
-                <li>Use the mouse wheel to zoom around the cursor.</li>
+                <li>Use the mouse wheel to zoom around the viewport center.</li>
                 <li>Double click an annotation to center it in the viewer.</li>
                 <li>The lower-right overlay shows the current slide coordinates in pixels.</li>
             </ul>
@@ -622,7 +633,7 @@
                 <div class="shortcut-row" data-preview="cancel-or-close"><span class="shortcut-keys"><kbd>Esc</kbd></span><span>Cancel drawing mode or close the active popup.</span></div>
                 <div class="ux-help-section">Slide Navigation</div>
                 <div class="shortcut-row" data-preview="pan-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan the slide.</span></div>
-                <div class="shortcut-row" data-preview="zoom-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Zoom around the cursor.</span></div>
+                <div class="shortcut-row" data-preview="zoom-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Zoom around the viewport center.</span></div>
                 <div class="shortcut-row"><span class="shortcut-keys"><kbd>Double click</kbd></span><span>Center the selected annotation in the viewer.</span></div>
                 <div class="ux-help-section">Annotation Tools</div>
                 <div class="shortcut-row" data-preview="draw-active-tool"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Draw with the active tool: Polygon, Brush, Rectangle, Point, Cut, fixed 1mm shape, or Ruler.</span></div>
@@ -657,6 +668,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260810-04"></script>
+    <script type="module" src="js/app.js?v=20260810-08"></script>
 </body>
 </html>
