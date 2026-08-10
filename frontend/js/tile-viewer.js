@@ -182,6 +182,7 @@ export class TileViewer {
         this.maxIndividualDetectionCells = 50000;
         this.denseCellPointSize = 2.0;
         this._denseCellRaster = null;
+        this._denseCellRasterKey = null;
         this._spatialGrid = null;    // SpatialGrid for O(1) viewport query
         this._hiddenSpatialGrid = null;
         this._highlightedCellIdx = -1; // Alt+Click text text text
@@ -362,6 +363,8 @@ export class TileViewer {
         this._thumbnailBitmap = null;
         this.detectionCells = [];
         this.heatmapVisible = false;
+        this._denseCellRaster = null;
+        this._denseCellRasterKey = null;
         this.annotations = [];
         this.selectedAnnotationId = null;
         this._annotationCounter = 0;
@@ -1321,6 +1324,7 @@ export class TileViewer {
         this.overlayCanvas.style.width = w + 'px';
         this.overlayCanvas.style.height = h + 'px';
         this._denseCellRaster = null;
+        this._denseCellRasterKey = null;
         if (this.slideInfo) {
             this._clampView();
             this.requestRender();
@@ -2107,6 +2111,8 @@ export class TileViewer {
         this._heatmapImage = null;
         this._buildHeatmapCache();
         this.heatmapVisible = false;
+        this._denseCellRaster = null;
+        this._denseCellRasterKey = null;
         this.requestRender();
     }
 
@@ -2695,6 +2701,8 @@ export class TileViewer {
         this._heatmapDirty = true;
         this._heatmapImage = null;
         this._buildHeatmapCache();
+        this._denseCellRaster = null;
+        this._denseCellRasterKey = null;
         this.requestRender();
 
         if (this.onCellEdited) this.onCellEdited();
@@ -3269,14 +3277,34 @@ export class TileViewer {
         const dpr = this._dpr || 1;
         const width = Math.max(1, Math.round(this._viewW * dpr));
         const height = Math.max(1, Math.round(this._viewH * dpr));
+        const visibilityKey = Object.keys(this.classVisibility)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(id => `${id}:${this.classVisibility[id] !== false ? 1 : 0}:${this.classConfidence[id] ?? 0.01}`)
+            .join(',');
+        const rasterKey = [
+            width,
+            height,
+            this.viewCenterX.toFixed(3),
+            this.viewCenterY.toFixed(3),
+            this.zoom.toFixed(6),
+            this.denseCellPointSize,
+            this.detectionCells.length,
+            visibilityKey,
+        ].join('|');
         let raster = this._denseCellRaster;
         if (!raster || raster.width !== width || raster.height !== height) {
             raster = {
                 width,
                 height,
                 imageData: new ImageData(width, height),
+                key: null,
             };
             this._denseCellRaster = raster;
+        } else if (raster.key === rasterKey) {
+            // Tile arrivals can trigger repaints without changing the cell
+            // viewport. Reuse the expensive raster in that case.
+            octx.putImageData(raster.imageData, 0, 0);
+            return;
         } else {
             raster.imageData.data.fill(0);
         }
@@ -3332,6 +3360,8 @@ export class TileViewer {
                 }
             }
         });
+        raster.key = rasterKey;
+        this._denseCellRasterKey = rasterKey;
         octx.putImageData(raster.imageData, 0, 0);
     }
 

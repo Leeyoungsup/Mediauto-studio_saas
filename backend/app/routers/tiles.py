@@ -14,7 +14,7 @@ from pathlib import Path
 _BOOL_TILE_DEBUG = os.environ.get("TILE_DEBUG", "").lower() in ("1", "true", "yes")
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from PIL import Image
 
@@ -80,9 +80,17 @@ def _blank_tile_response(cache_control: str = "no-store") -> Response:
     )
 
 
-def _jpeg_file_response(path: Path, cache_control: str = "public, max-age=604800") -> Response:
-    return Response(
-        content=path.read_bytes(),
+def _jpeg_file_response(path: Path, cache_control: str = "public, max-age=604800") -> FileResponse:
+    """Serve a cached tile without synchronously reading it on the event loop.
+
+    The previous ``path.read_bytes()`` implementation performed the complete
+    disk read before returning a response.  During viewport loads several
+    cache-hit tiles can arrive together, so slow storage could block the ASGI
+    event loop and delay unrelated API/image requests.  FileResponse streams
+    the file through Starlette's threadpool-backed file response path.
+    """
+    return FileResponse(
+        path=str(path),
         media_type="image/jpeg",
         headers={"Cache-Control": cache_control},
     )

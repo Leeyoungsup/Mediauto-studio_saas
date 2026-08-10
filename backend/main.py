@@ -215,7 +215,17 @@ class NoCacheStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         str_lower = path.lower()
         if str_lower.endswith((".js", ".mjs", ".html", ".css")):
-            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            # All deployed JS/CSS imports carry an explicit version query
+            # parameter (for example ``app.js?v=...``).  Those immutable
+            # assets do not need a conditional request on every page change;
+            # revalidating them through the public domain added ~200–300 ms
+            # per asset before the browser could execute the page.
+            query = scope.get("query_string", b"")
+            bool_versioned_asset = b"v=" in query
+            if bool_versioned_asset and not str_lower.endswith(".html"):
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
 
 

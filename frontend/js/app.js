@@ -5,7 +5,7 @@
 
 import { api } from './api.js?v=20260713-01';
 import { AiViewer } from './ai-viewer.js?v=20260810-05';
-import { showVisualization } from './visualization.js';
+import { showVisualization } from './visualization.js?v=20260810-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
