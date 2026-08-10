@@ -795,7 +795,7 @@ export class TileViewer {
             }
 
             if (e.ctrlKey && e.button === 0 && this._isMergeHoverHit(cx, cy)) {
-                this._mergeHoveredPolygons();
+                this._mergeHoveredAnnotations();
                 e.preventDefault();
                 return;
             }
@@ -4776,11 +4776,20 @@ export class TileViewer {
         return String(ann?.class_id || ann?.properties?.class_id || '');
     }
 
+    _isMergeableAnnotation(ann) {
+        return Boolean(
+            ann &&
+            (ann.type === 'polygon' || ann.type === 'rectangle') &&
+            Array.isArray(ann.coordinates) &&
+            ann.coordinates.length >= 3
+        );
+    }
+
     _findMergeHoverTarget(sx, sy) {
         const hits = [];
         for (let i = this.annotations.length - 1; i >= 0; i--) {
             const ann = this.annotations[i];
-            if (!ann || !ann.visible || this._isAnnotationClassHidden(ann) || ann.type !== 'polygon' || !Array.isArray(ann.coordinates) || ann.coordinates.length < 3) {
+            if (!ann || !ann.visible || this._isAnnotationClassHidden(ann) || !this._isMergeableAnnotation(ann)) {
                 continue;
             }
             if (this._pointInPolygon(sx, sy, ann.coordinates) || this._pointNearPolyline(sx, sy, ann.coordinates, true, Math.max(4, 8 / Math.max(this.zoom, 0.0001)))) {
@@ -4817,18 +4826,21 @@ export class TileViewer {
         return dx * dx + dy * dy <= 15 * 15;
     }
 
-    _mergeHoveredPolygons() {
+    _mergeHoveredAnnotations() {
         const hover = this._mergeHover;
         if (!hover || !hover.annIds) return false;
         const a = this.annotations.find(ann => ann.id === hover.annIds[0]);
         const b = this.annotations.find(ann => ann.id === hover.annIds[1]);
-        if (!a || !b || a.type !== 'polygon' || b.type !== 'polygon') return false;
+        if (!this._isMergeableAnnotation(a) || !this._isMergeableAnnotation(b)) return false;
         if (this._annotationClassKey(a) !== this._annotationClassKey(b)) return false;
 
         const merged = this._unionPolygonOutlines(a.coordinates, b.coordinates);
         if (!merged || merged.length < 3 || this._isSelfIntersecting(merged)) return false;
 
         this.pushAnnotationUndo();
+        // The union of two rectangles can be L-shaped or otherwise
+        // non-rectangular, so store the merged outline as a polygon.
+        a.type = 'polygon';
         a.coordinates = merged;
         if (!a.name || /^ROI_\d+$/.test(a.name)) a.name = `${a.class_name || 'Merged'} ROI`;
         this.annotations = this.annotations.filter(ann => ann.id !== b.id);
