@@ -2,20 +2,7 @@ import math
 
 import torch
 
-
-def make_anchors(x, strides, offset=0.5):
-    """Anchor generation function"""
-    assert x is not None
-    anchor_tensor, stride_tensor = [], []
-    dtype, device = x[0].dtype, x[0].device
-    for i, stride in enumerate(strides):
-        _, _, h, w = x[i].shape
-        sx = torch.arange(end=w, device=device, dtype=dtype) + offset
-        sy = torch.arange(end=h, device=device, dtype=dtype) + offset
-        sy, sx = torch.meshgrid(sy, sx)
-        anchor_tensor.append(torch.stack((sx, sy), -1).view(-1, 2))
-        stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
-    return torch.cat(anchor_tensor), torch.cat(stride_tensor)
+from utils.util import make_anchors
 
 
 def fuse_conv(conv, norm):
@@ -292,6 +279,131 @@ class Head(torch.nn.Module):
             cls[-1].bias.data[:self.nc] = math.log(5 / self.nc / (640 / s) ** 2)
 
 
+class HierarchicalHead(torch.nn.Module):
+    """Detection head for mutually exclusive tumor/grade predictions.
+
+    The flat five-class model mixes cell presence and cell class in one set of
+    sigmoid logits.  That makes ``other`` compete with four tumor grades while
+    also acting as an objectness score.  This head separates those decisions:
+
+    * objectness: whether an anchor contains a cell
+    * tumor: whether the detected cell is tumor
+    * grade: 0+/1+/2+/3+, conditioned on the cell being tumor
+
+    In evaluation mode the components are combined into the same ``[box, 5
+    class probabilities]`` tensor returned by :class:`Head`, so the existing
+    metric and visualization code remains usable.
+    """
+
+    anchors = torch.empty(0)
+    strides = torch.empty(0)
+
+    def __init__(self, num_grades=4, filters=()):
+        super().__init__()
+        self.ch = 16
+        self.num_grades = num_grades
+        self.nc = num_grades + 1  # four tumor grades + other
+        self.nl = len(filters)
+        self.num_semantic_outputs = 2 + num_grades  # objectness + tumor + grades
+        self.no = self.ch * 4 + self.num_semantic_outputs
+        self.stride = torch.zeros(self.nl)
+
+        box_channels = max(64, filters[0] // 4)
+        semantic_channels = max(80, filters[0], self.nc)
+
+        self.dfl = DFL(self.ch)
+        self.box = torch.nn.ModuleList(
+            torch.nn.Sequential(
+                Conv(x, box_channels, torch.nn.SiLU(), k=3, p=1),
+                Conv(box_channels, box_channels, torch.nn.SiLU(), k=3, p=1),
+                torch.nn.Conv2d(box_channels, out_channels=4 * self.ch, kernel_size=1),
+            )
+            for x in filters
+        )
+        # The semantic tower mirrors the existing classification tower.  This
+        # allows its feature weights to be copied from a flat-class checkpoint.
+        self.semantic = torch.nn.ModuleList(
+            torch.nn.Sequential(
+                Conv(x, x, torch.nn.SiLU(), k=3, p=1, g=x),
+                Conv(x, semantic_channels, torch.nn.SiLU()),
+                Conv(semantic_channels, semantic_channels, torch.nn.SiLU(), k=3, p=1,
+                     g=semantic_channels),
+                Conv(semantic_channels, semantic_channels, torch.nn.SiLU()),
+            )
+            for x in filters
+        )
+        self.objectness = torch.nn.ModuleList(
+            torch.nn.Conv2d(semantic_channels, 1, kernel_size=1) for _ in filters
+        )
+        self.tumor = torch.nn.ModuleList(
+            torch.nn.Conv2d(semantic_channels, 1, kernel_size=1) for _ in filters
+        )
+        self.grade = torch.nn.ModuleList(
+            torch.nn.Conv2d(semantic_channels, num_grades, kernel_size=1) for _ in filters
+        )
+
+    @staticmethod
+    def probabilities(objectness_logits, tumor_logits, grade_logits):
+        """Convert hierarchical logits to mutually exclusive flat probabilities."""
+        cell_probability = objectness_logits.sigmoid()
+        tumor_probability = tumor_logits.sigmoid()
+        grade_probability = grade_logits.softmax(dim=1)
+        tumor_grade_probability = cell_probability * tumor_probability * grade_probability
+        other_probability = cell_probability * (1.0 - tumor_probability)
+        return torch.cat((tumor_grade_probability, other_probability), dim=1)
+
+    def forward(self, x, return_components=False):
+        raw = []
+        for feature, box, semantic, objectness, tumor, grade in zip(
+                x, self.box, self.semantic, self.objectness, self.tumor, self.grade):
+            semantic_feature = semantic(feature)
+            raw.append(torch.cat((
+                box(feature),
+                objectness(semantic_feature),
+                tumor(semantic_feature),
+                grade(semantic_feature),
+            ), dim=1))
+
+        if self.training:
+            return raw
+
+        self.anchors, self.strides = (
+            tensor.transpose(0, 1) for tensor in make_anchors(raw, self.stride)
+        )
+        flattened = torch.cat(
+            [tensor.view(raw[0].shape[0], self.no, -1) for tensor in raw], dim=2
+        )
+        box, objectness, tumor, grade = flattened.split(
+            (4 * self.ch, 1, 1, self.num_grades), dim=1
+        )
+
+        left_top, right_bottom = self.dfl(box).chunk(2, 1)
+        left_top = self.anchors.unsqueeze(0) - left_top
+        right_bottom = self.anchors.unsqueeze(0) + right_bottom
+        box = torch.cat(((left_top + right_bottom) / 2, right_bottom - left_top), dim=1)
+
+        probabilities = self.probabilities(objectness, tumor, grade)
+        predictions = torch.cat((box * self.strides, probabilities), dim=1)
+        if not return_components:
+            return predictions
+        return {
+            'predictions': predictions,
+            'objectness': objectness.sigmoid(),
+            'tumor_probability': tumor.sigmoid(),
+            'grade_probability': grade.softmax(dim=1),
+        }
+
+    def initialize_biases(self):
+        # Start with sparse cell detections and a neutral tumor gate.  The
+        # grade head starts uniform so it does not bias one intensity class.
+        for box, objectness, tumor, grade, stride in zip(
+                self.box, self.objectness, self.tumor, self.grade, self.stride):
+            box[-1].bias.data[:] = 1.0
+            objectness.bias.data[:] = math.log(5 / (640 / stride) ** 2)
+            tumor.bias.data.zero_()
+            grade.bias.data.zero_()
+
+
 class YOLO(torch.nn.Module):
     def __init__(self, width, depth, csp, num_classes):
         super().__init__()
@@ -315,6 +427,34 @@ class YOLO(torch.nn.Module):
                 m.conv = fuse_conv(m.conv, m.norm)
                 m.forward = m.fuse_forward
                 delattr(m, 'norm')
+        return self
+
+
+class HierarchicalYOLO(torch.nn.Module):
+    """YOLOv11 with a hierarchical cell/tumor/grade detection head."""
+
+    def __init__(self, width, depth, csp, num_grades=4):
+        super().__init__()
+        self.net = DarkNet(width, depth, csp)
+        self.fpn = DarkFPN(width, depth, csp)
+
+        img_dummy = torch.zeros(1, width[0], 256, 256)
+        self.head = HierarchicalHead(num_grades, (width[3], width[4], width[5]))
+        self.head.stride = torch.tensor([256 / output.shape[-2] for output in self.forward(img_dummy)])
+        self.stride = self.head.stride
+        self.head.initialize_biases()
+
+    def forward(self, x, return_components=False):
+        x = self.net(x)
+        x = self.fpn(x)
+        return self.head(list(x), return_components=return_components)
+
+    def fuse(self):
+        for module in self.modules():
+            if type(module) is Conv and hasattr(module, 'norm'):
+                module.conv = fuse_conv(module.conv, module.norm)
+                module.forward = module.fuse_forward
+                delattr(module, 'norm')
         return self
 
 
@@ -358,3 +498,45 @@ def yolo_v11_x(num_classes: int = 80):
     depth = [2, 2, 2, 2, 2, 2]
     width = [3, 96, 192, 384, 768, 768]
     return YOLO(width, depth, csp, num_classes)
+
+
+def yolo_v11_n_hierarchical(num_grades: int = 4):
+    csp = [False, True]
+    depth = [1, 1, 1, 1, 1, 1]
+    width = [3, 16, 32, 64, 128, 256]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
+
+
+def yolo_v11_t_hierarchical(num_grades: int = 4):
+    csp = [False, True]
+    depth = [1, 1, 1, 1, 1, 1]
+    width = [3, 24, 48, 96, 192, 384]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
+
+
+def yolo_v11_s_hierarchical(num_grades: int = 4):
+    csp = [False, True]
+    depth = [1, 1, 1, 1, 1, 1]
+    width = [3, 32, 64, 128, 256, 512]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
+
+
+def yolo_v11_m_hierarchical(num_grades: int = 4):
+    csp = [True, True]
+    depth = [1, 1, 1, 1, 1, 1]
+    width = [3, 64, 128, 256, 512, 512]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
+
+
+def yolo_v11_l_hierarchical(num_grades: int = 4):
+    csp = [True, True]
+    depth = [2, 2, 2, 2, 2, 2]
+    width = [3, 64, 128, 256, 512, 512]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
+
+
+def yolo_v11_x_hierarchical(num_grades: int = 4):
+    csp = [True, True]
+    depth = [2, 2, 2, 2, 2, 2]
+    width = [3, 96, 192, 384, 768, 768]
+    return HierarchicalYOLO(width, depth, csp, num_grades)
