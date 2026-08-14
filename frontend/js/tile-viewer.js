@@ -796,7 +796,7 @@ export class TileViewer {
 
             // Cell Annotation Patch View intentionally does not support
             // annotation merging; patch cells must remain independent.
-            if (!this.cellAnnotationPatchViewActive && e.ctrlKey && e.button === 0 && this._isMergeHoverHit(cx, cy)) {
+            if (!this._isCellAnnotationPatchContext() && e.ctrlKey && e.button === 0 && this._isMergeHoverHit(cx, cy)) {
                 this._mergeHoveredAnnotations();
                 e.preventDefault();
                 return;
@@ -958,7 +958,7 @@ export class TileViewer {
             }
             if (!this._isPanning && !this._dragControlPoint && !this._dragAnnotation) {
                 this._setMergeHover(
-                    !this.cellAnnotationPatchViewActive && e.ctrlKey
+                    !this._isCellAnnotationPatchContext() && e.ctrlKey
                         ? this._findMergeHoverTarget(sx, sy)
                         : null
                 );
@@ -4201,7 +4201,7 @@ export class TileViewer {
 
         // text text text text
         this._renderInsertVertexPreview(octx);
-        if (!this.cellAnnotationPatchViewActive) this._renderMergeHover(octx);
+        if (!this._isCellAnnotationPatchContext()) this._renderMergeHover(octx);
         this._renderDrawingPreview(octx);
     }
 
@@ -4235,7 +4235,7 @@ export class TileViewer {
     }
 
     _renderMergeHover(octx) {
-        if (this.cellAnnotationPatchViewActive) {
+        if (this._isCellAnnotationPatchContext()) {
             // Clear a hover affordance that may have been created immediately
             // before entering Patch View, so it cannot reappear on exit.
             this._mergeHover = null;
@@ -4788,6 +4788,13 @@ export class TileViewer {
         return String(ann?.class_id || ann?.properties?.class_id || '');
     }
 
+    _isCellAnnotationPatchContext() {
+        return Boolean(
+            this.cellAnnotationPatchViewActive ||
+            (typeof document !== 'undefined' && document.body?.classList?.contains('cell-patch-view-active'))
+        );
+    }
+
     _isMergeableAnnotation(ann) {
         return Boolean(
             ann &&
@@ -4798,7 +4805,7 @@ export class TileViewer {
     }
 
     _findMergeHoverTarget(sx, sy) {
-        if (this.cellAnnotationPatchViewActive) return null;
+        if (this._isCellAnnotationPatchContext()) return null;
         const hits = [];
         for (let i = this.annotations.length - 1; i >= 0; i--) {
             const ann = this.annotations[i];
@@ -4840,7 +4847,7 @@ export class TileViewer {
     }
 
     _mergeHoveredAnnotations() {
-        if (this.cellAnnotationPatchViewActive) return false;
+        if (this._isCellAnnotationPatchContext()) return false;
         const hover = this._mergeHover;
         if (!hover || !hover.annIds) return false;
         const a = this.annotations.find(ann => ann.id === hover.annIds[0]);

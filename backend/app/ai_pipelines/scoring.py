@@ -110,6 +110,8 @@ def compute_pd_score(all_cls, tissue_type: str) -> dict:
 PRECISE_IHC_CONFIG = {
     "HER2": {
         "model_file": "Precise_IHC_HER2_detection.pt",
+        "model_arch": "yolo_v11_m_hierarchical",
+        "num_grades": 4,
         "num_classes": 5,
         "class_names": {
             0: "HER2 0+",
@@ -133,6 +135,8 @@ PRECISE_IHC_CONFIG = {
     # ER text PR text text .pt text text text text text text marker("ER_PR") text text.
     "ER_PR": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
+        "model_arch": "yolo_v11_m_hierarchical",
+        "num_grades": 4,
         "num_classes": 5,
         "class_names": {
             0: "ER/PR 0+",
@@ -155,6 +159,8 @@ PRECISE_IHC_CONFIG = {
     # KI-67 Index = Positive / Total × 100 (%).
     "KI_67": {
         "model_file": "Precise_IHC_ER_PR_detection.pt",
+        "model_arch": "yolo_v11_m_hierarchical",
+        "num_grades": 4,
         "num_classes": 5,
         "class_names": {
             0: "Negative",

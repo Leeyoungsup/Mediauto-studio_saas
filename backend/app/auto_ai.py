@@ -300,6 +300,40 @@ def _marker_cache_requires_excluded_cells(str_model: str, str_variant: str) -> b
     return False
 
 
+def _expected_marker_model_runtime(str_model: str, str_variant: str) -> Optional[dict]:
+    """Return model identity for markers whose architecture must invalidate cache."""
+    if str_model not in ("Quanti IHC", "Precise-IHC"):
+        return None
+    try:
+        from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
+        from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG
+
+        dict_config = PRECISE_IHC_CONFIG.get(str_variant) or {}
+        if not dict_config.get("model_arch"):
+            return None
+        return marker_model_runtime_metadata(dict_config)
+    except Exception as exc:
+        _log_throttled(
+            "scan_summary",
+            f"[auto_ai] cannot resolve {str_model}/{str_variant} model runtime: {exc}",
+            SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
+        )
+        return None
+
+
+def _cached_model_runtime_from_tail(cache_path: Path) -> Optional[dict]:
+    """Read model_runtime without loading multi-million-cell JSON arrays."""
+    try:
+        with open(cache_path, "rb") as f:
+            int_size = f.seek(0, os.SEEK_END)
+            f.seek(max(0, int_size - 65536), os.SEEK_SET)
+            str_tail = f.read().decode("utf-8", errors="ignore")
+        match = re.search(r'"model_runtime"\s*:\s*(\{[^{}]*\})', str_tail)
+        return json.loads(match.group(1)) if match else None
+    except Exception:
+        return None
+
+
 def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant: str) -> bool:
     cache_path = _marker_cache_path(str_full_path, str_model, str_variant)
     if not cache_path:
@@ -308,18 +342,29 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
         print(f"[auto_ai] missing cache queued for inference: {cache_path.name}")
         return True
 
+    dict_expected_runtime = _expected_marker_model_runtime(str_model, str_variant)
     try:
         stat = cache_path.stat()
-        tuple_cache_state = (stat.st_mtime_ns, stat.st_size)
+        tuple_runtime_state = tuple(sorted((dict_expected_runtime or {}).items()))
+        tuple_cache_state = (stat.st_mtime_ns, stat.st_size, tuple_runtime_state)
         tuple_cache_key = (str(cache_path), str_model, str_variant)
         tuple_cached_quality = _marker_cache_quality_cache.get(tuple_cache_key)
-        if tuple_cached_quality and tuple_cached_quality[:2] == tuple_cache_state:
-            return bool(tuple_cached_quality[2])
+        if tuple_cached_quality and tuple_cached_quality[:-1] == tuple_cache_state:
+            return bool(tuple_cached_quality[-1])
     except Exception:
         tuple_cache_state = None
         tuple_cache_key = None
 
     bool_needs_refresh = False
+    if dict_expected_runtime is not None:
+        dict_cached_runtime = _cached_model_runtime_from_tail(cache_path)
+        if dict_cached_runtime != dict_expected_runtime:
+            print(f"[auto_ai] stale cache model architecture or weights queued for refresh: {cache_path.name}")
+            bool_needs_refresh = True
+            if tuple_cache_state and tuple_cache_key:
+                _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+            return bool_needs_refresh
+
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
             cached = json.load(f)
@@ -531,7 +576,11 @@ async def _scan_and_infer_once() -> None:
                     str_rel_path, str_model, str_variant
                 )
                 list_stale_candidates = []
-                if SCAN_STALE_CACHES:
+                # Architecture-tracked IHC tasks must always inspect cache
+                # identity, even when the optional broad stale-cache scan is
+                # disabled. This lets the worker migrate flat caches to the
+                # configured hierarchical checkpoint automatically.
+                if SCAN_STALE_CACHES or _expected_marker_model_runtime(str_model, str_variant) is not None:
                     list_stale_candidates = await _stale_marker_cache_candidates(
                         str_rel_path, str_model, str_variant
                     )

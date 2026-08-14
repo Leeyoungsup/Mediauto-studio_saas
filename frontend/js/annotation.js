@@ -4,7 +4,7 @@
 
 import { api } from './api.js?v=20260807-02';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260730-01';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260814-01';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260807-03';
 import { showVisualization } from './visualization.js';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';

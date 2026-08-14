@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from utils.util import make_anchors
+from ai.utils.util import make_anchors
 
 
 def fuse_conv(conv, norm):

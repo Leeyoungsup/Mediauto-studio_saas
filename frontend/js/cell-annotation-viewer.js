@@ -1,4 +1,4 @@
-import { TileViewer } from './tile-viewer.js?v=20260805-02';
+import { TileViewer } from './tile-viewer.js?v=20260814-01';
 import { VIEWER_CAPABILITIES, applyViewerCapabilities } from './viewer-capabilities.js?v=20260526-01';
 
 export class CellAnnotationViewer extends TileViewer {

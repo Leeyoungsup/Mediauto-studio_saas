@@ -50,6 +50,22 @@ from app.slide_manager import slide_manager
 from app.tile_generator import slide_source_signature, source_signature_matches
 
 
+def marker_model_runtime_metadata(dict_config: dict) -> dict:
+    """Return the cache identity for a marker model architecture and weights."""
+    str_model_arch = str(dict_config.get("model_arch") or "yolo_v11_m")
+    int_num_classes = int(dict_config["num_classes"])
+    int_num_grades = int(dict_config.get("num_grades") or max(1, int_num_classes - 1))
+    model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
+    model_stat = model_path.stat()
+    return {
+        "architecture": str_model_arch,
+        "num_grades": int_num_grades if str_model_arch == "yolo_v11_m_hierarchical" else None,
+        "filename": model_path.name,
+        "size": model_stat.st_size,
+        "mtime_ns": model_stat.st_mtime_ns,
+    }
+
+
 def _compact_cell(cell: dict) -> dict:
     if isinstance(cell, (list, tuple)):
         return list(cell)
@@ -139,6 +155,13 @@ def run_marker_detection_pipeline(
         int_num_classes = dict_config["num_classes"]
         list_exclude = dict_config.get("exclude_classes") or []
         list_nms_priority = [i for i in range(int_num_classes) if i not in list_exclude]
+        str_model_arch = str(dict_config.get("model_arch") or "yolo_v11_m")
+        int_num_grades = int(dict_config.get("num_grades") or max(1, int_num_classes - 1))
+        model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
+        if not model_path.exists():
+            update_task(task_id, status="error", error=f"Model file not found: {model_path}")
+            return
+        dict_model_runtime = marker_model_runtime_metadata(dict_config)
 
         # ── text text ──
         if cache_path.exists():
@@ -154,6 +177,11 @@ def run_marker_detection_pipeline(
                     raise ValueError("stale cache missing excluded_cells")
                 if not cache_has_current_detection_postprocess(cached):
                     raise ValueError("stale cache missing 10um overlap/global dedup")
+                # HER2 currently opts into a different head. Match the model
+                # architecture and weights so an old flat-model cache cannot
+                # mask a hierarchical-model test.
+                if dict_config.get("model_arch") and cached.get("model_runtime") != dict_model_runtime:
+                    raise ValueError("stale cache model architecture or weights mismatch")
 
                 list_cached_before_compact = cached.get("cells") or []
                 bool_object_cell_cache = bool(
@@ -216,13 +244,18 @@ def run_marker_detection_pipeline(
         from ai.yolo_postprocess import non_max_suppression
         from ai.nets import nn as yolo_nn
 
-        model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
-        if not model_path.exists():
-            update_task(task_id, status="error", error=f"Model file not found: {model_path}")
-            return
-
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = yolo_nn.yolo_v11_m(int_num_classes).to(device)
+        if str_model_arch == "yolo_v11_m_hierarchical":
+            if int_num_classes != int_num_grades + 1:
+                raise ValueError(
+                    "Hierarchical model expects num_classes=num_grades+1; "
+                    f"got num_classes={int_num_classes}, num_grades={int_num_grades}"
+                )
+            model = yolo_nn.yolo_v11_m_hierarchical(num_grades=int_num_grades).to(device)
+        elif str_model_arch == "yolo_v11_m":
+            model = yolo_nn.yolo_v11_m(int_num_classes).to(device)
+        else:
+            raise ValueError(f"Unsupported marker model architecture: {str_model_arch}")
         checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
 
         # PDL1 text DFL text 4 (text 16 text). head text text shape text.
@@ -233,7 +266,7 @@ def run_marker_detection_pipeline(
             update_task(task_id, status_msg=f"Rebuilding head with DFL ch={int_ch_ckpt}")
             head = model.head
             head.ch = int_ch_ckpt
-            head.no = head.nc + head.ch * 4
+            head.no = head.ch * 4 + int(getattr(head, "num_semantic_outputs", head.nc))
             head.dfl = yolo_nn.DFL(head.ch).to(device)
             # box text text Conv2d text out_channels text
             for seq in head.box:
@@ -295,6 +328,7 @@ def run_marker_detection_pipeline(
                 "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
                 "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
                 "score_conf_threshold": float_score_conf_threshold,
+                "model_runtime": dict_model_runtime,
                 score_key: empty_score,
                 **(extra_fields or {}),
             }
@@ -558,6 +592,7 @@ def run_marker_detection_pipeline(
             "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
             "class_colors": {str(k): v for k, v in dict_class_colors.items() if k not in list_exclude},
             "score_conf_threshold": float_score_conf_threshold,
+            "model_runtime": dict_model_runtime,
             score_key: score_dict,
             "source": slide_source_signature(info.slide, info.file_path),
             **processing_metadata(),
