@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260820-02">
+    <link rel="stylesheet" href="css/style.css?v=20260820-04">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -323,7 +323,8 @@
             </div>
             <div id="slide-list" class="slide-list"></div>
         </aside>
-        <div id="left-panel-resizer" class="panel-resizer"></div>
+        <div id="left-panel-resizer" class="panel-resizer" role="button" tabindex="0"
+             aria-label="Resize slide panel" title="Drag to resize slide panel"></div>
 
         <!-- text: WSI text -->
         <main id="viewer-container">
@@ -390,7 +391,8 @@
         </main>
 
         <!-- text: AI text -->
-        <div id="right-panel-resizer" class="panel-resizer"></div>
+        <div id="right-panel-resizer" class="panel-resizer" role="button" tabindex="0"
+             aria-label="Resize AI panel" title="Drag to resize AI panel"></div>
         <aside id="right-panel">
             <!-- AI Analysis text -->
             <div class="panel-group ai-analysis-group">
@@ -729,6 +731,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260820-02"></script>
+    <script type="module" src="js/app.js?v=20260820-04"></script>
 </body>
 </html>

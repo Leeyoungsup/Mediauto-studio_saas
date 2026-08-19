@@ -4012,6 +4012,14 @@ const $leftPanel = $('#left-panel');
 const $resizer = $('#left-panel-resizer');
 const $rightPanel = $('#right-panel');
 const $rightResizer = $('#right-panel-resizer');
+const LEFT_PANEL_MIN_W = 260;
+const LEFT_PANEL_MAX_W = 500;
+const LEFT_PANEL_COLLAPSE_W = 130;
+const LEFT_PANEL_DEFAULT_W = 260;
+const RIGHT_PANEL_MIN_W = 360;
+const RIGHT_PANEL_MAX_W = 600;
+const RIGHT_PANEL_COLLAPSE_W = 180;
+const RIGHT_PANEL_DEFAULT_W = 380;
 
 function _resizeViewerCanvasSoon() {
     if (viewer && typeof viewer._resizeCanvas === 'function') {
@@ -4019,15 +4027,59 @@ function _resizeViewerCanvasSoon() {
     }
 }
 
+function _setLeftPanelCollapsed(collapsed) {
+    const shouldCollapse = Boolean(collapsed);
+    const changed = document.body.classList.contains('left-panel-collapsed') !== shouldCollapse;
+    document.body.classList.toggle('left-panel-collapsed', shouldCollapse);
+    localStorage.setItem('leftPanelCollapsed', shouldCollapse ? '1' : '0');
+    $resizer?.setAttribute('aria-label', shouldCollapse ? 'Open slide panel' : 'Resize slide panel');
+    $resizer?.setAttribute('title', shouldCollapse ? 'Open slide panel' : 'Drag to resize slide panel');
+    if (changed) _resizeViewerCanvasSoon();
+}
+
+function _openLeftPanel() {
+    const storedWidth = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
+    const width = Number.isFinite(storedWidth) && storedWidth >= LEFT_PANEL_MIN_W && storedWidth <= LEFT_PANEL_MAX_W
+        ? storedWidth
+        : LEFT_PANEL_DEFAULT_W;
+    document.documentElement.style.setProperty('--left-panel-w', `${width}px`);
+    _setLeftPanelCollapsed(false);
+}
+
+function _setRightPanelCollapsed(collapsed) {
+    const shouldCollapse = Boolean(collapsed);
+    const changed = document.body.classList.contains('right-panel-collapsed') !== shouldCollapse;
+    document.body.classList.toggle('right-panel-collapsed', shouldCollapse);
+    localStorage.setItem('rightPanelCollapsed', shouldCollapse ? '1' : '0');
+    $rightResizer?.setAttribute('aria-label', shouldCollapse ? 'Open AI panel' : 'Resize AI panel');
+    $rightResizer?.setAttribute('title', shouldCollapse ? 'Open AI panel' : 'Drag to resize AI panel');
+    if (changed) _resizeViewerCanvasSoon();
+}
+
+function _openRightPanel() {
+    const storedWidth = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
+    const width = Number.isFinite(storedWidth) && storedWidth >= RIGHT_PANEL_MIN_W && storedWidth <= RIGHT_PANEL_MAX_W
+        ? storedWidth
+        : RIGHT_PANEL_DEFAULT_W;
+    document.documentElement.style.setProperty('--right-panel-w', `${width}px`);
+    _setRightPanelCollapsed(false);
+}
+
 function _restorePanelSizes() {
     const int_left_w = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
-    if (!Number.isNaN(int_left_w) && int_left_w >= 260 && int_left_w <= 500) {
+    if (!Number.isNaN(int_left_w) && int_left_w >= LEFT_PANEL_MIN_W && int_left_w <= LEFT_PANEL_MAX_W) {
         document.documentElement.style.setProperty('--left-panel-w', `${int_left_w}px`);
+    } else {
+        document.documentElement.style.setProperty('--left-panel-w', `${LEFT_PANEL_DEFAULT_W}px`);
     }
+    _setLeftPanelCollapsed(localStorage.getItem('leftPanelCollapsed') === '1');
     const int_right_w = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
-    if (!Number.isNaN(int_right_w) && int_right_w >= 280 && int_right_w <= 560) {
+    if (!Number.isNaN(int_right_w) && int_right_w >= RIGHT_PANEL_MIN_W && int_right_w <= RIGHT_PANEL_MAX_W) {
         document.documentElement.style.setProperty('--right-panel-w', `${int_right_w}px`);
+    } else {
+        document.documentElement.style.setProperty('--right-panel-w', `${RIGHT_PANEL_DEFAULT_W}px`);
     }
+    _setRightPanelCollapsed(localStorage.getItem('rightPanelCollapsed') === '1');
 }
 _restorePanelSizes();
 
@@ -4052,21 +4104,34 @@ $slideList.addEventListener('wheel', (e) => {
     localStorage.setItem(r.storage, String(next));
 }, { passive: false });
 
+let _suppressLeftPanelOpenClick = false;
 $resizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
     $resizer.classList.add('dragging');
     const startX = e.clientX;
-    const startW = $leftPanel.offsetWidth;
+    const storedWidth = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
+    const startW = document.body.classList.contains('left-panel-collapsed')
+        ? 0
+        : ($leftPanel.offsetWidth || (Number.isFinite(storedWidth) ? storedWidth : LEFT_PANEL_DEFAULT_W));
+    let dragged = false;
 
     function onMove(ev) {
-        const w = Math.max(260, Math.min(500, startW + ev.clientX - startX));
+        const rawWidth = startW + ev.clientX - startX;
+        if (Math.abs(ev.clientX - startX) > 2) dragged = true;
+        if (rawWidth <= LEFT_PANEL_COLLAPSE_W) {
+            _setLeftPanelCollapsed(true);
+            return;
+        }
+        _setLeftPanelCollapsed(false);
+        const w = Math.max(LEFT_PANEL_MIN_W, Math.min(LEFT_PANEL_MAX_W, rawWidth));
         document.documentElement.style.setProperty('--left-panel-w', `${w}px`);
+        localStorage.setItem('leftPanelWidth', String(Math.round(w)));
         _resizeViewerCanvasSoon();
     }
     function onUp() {
-        const int_width = Math.round($leftPanel.getBoundingClientRect().width);
-        if (int_width >= 260 && int_width <= 500) {
-            localStorage.setItem('leftPanelWidth', String(int_width));
+        if (dragged) {
+            _suppressLeftPanelOpenClick = true;
+            setTimeout(() => { _suppressLeftPanelOpenClick = false; }, 0);
         }
         $resizer.classList.remove('dragging');
         window.removeEventListener('mousemove', onMove);
@@ -4076,24 +4141,51 @@ $resizer.addEventListener('mousedown', (e) => {
     window.addEventListener('mouseup', onUp);
 });
 
+$resizer.addEventListener('click', () => {
+    if (_suppressLeftPanelOpenClick) return;
+    if (document.body.classList.contains('left-panel-collapsed')) _openLeftPanel();
+});
+$resizer.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!document.body.classList.contains('left-panel-collapsed')) return;
+    event.preventDefault();
+    _openLeftPanel();
+});
+
 if ($rightResizer && $rightPanel) {
+    let suppressRightPanelOpenClick = false;
     $rightResizer.addEventListener('mousedown', (e) => {
         e.preventDefault();
         $rightResizer.classList.add('dragging');
         const startX = e.clientX;
-        const startW = $rightPanel.offsetWidth;
+        const storedWidth = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
+        const startW = document.body.classList.contains('right-panel-collapsed')
+            ? 0
+            : ($rightPanel.offsetWidth || (Number.isFinite(storedWidth) ? storedWidth : RIGHT_PANEL_DEFAULT_W));
+        let dragged = false;
 
         function onMove(ev) {
             const int_left_w = $leftPanel ? $leftPanel.offsetWidth : 0;
-            const int_max_by_viewport = Math.max(280, window.innerWidth - int_left_w - 360);
-            const int_max = Math.min(560, int_max_by_viewport);
-            const w = Math.max(280, Math.min(int_max, startW - (ev.clientX - startX)));
+            const int_max_by_viewport = Math.max(RIGHT_PANEL_MIN_W, window.innerWidth - int_left_w - 360);
+            const int_max = Math.min(RIGHT_PANEL_MAX_W, int_max_by_viewport);
+            const rawWidth = startW - (ev.clientX - startX);
+            if (Math.abs(ev.clientX - startX) > 2) dragged = true;
+            if (rawWidth <= RIGHT_PANEL_COLLAPSE_W) {
+                _setRightPanelCollapsed(true);
+                return;
+            }
+            _setRightPanelCollapsed(false);
+            const w = Math.max(RIGHT_PANEL_MIN_W, Math.min(int_max, rawWidth));
             document.documentElement.style.setProperty('--right-panel-w', `${w}px`);
-            localStorage.setItem('rightPanelWidth', String(w));
+            localStorage.setItem('rightPanelWidth', String(Math.round(w)));
             _resizeViewerCanvasSoon();
         }
 
         function onUp() {
+            if (dragged) {
+                suppressRightPanelOpenClick = true;
+                setTimeout(() => { suppressRightPanelOpenClick = false; }, 0);
+            }
             $rightResizer.classList.remove('dragging');
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
@@ -4101,6 +4193,16 @@ if ($rightResizer && $rightPanel) {
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
+    });
+    $rightResizer.addEventListener('click', () => {
+        if (suppressRightPanelOpenClick) return;
+        if (document.body.classList.contains('right-panel-collapsed')) _openRightPanel();
+    });
+    $rightResizer.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (!document.body.classList.contains('right-panel-collapsed')) return;
+        event.preventDefault();
+        _openRightPanel();
     });
 }
 

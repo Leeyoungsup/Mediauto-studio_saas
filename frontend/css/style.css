@@ -950,11 +950,39 @@ html.project-gate-boot #app-body {
         pointer-events: none;
     }
     body.left-panel-collapsed #left-panel-resizer {
-        width: 8px;
-        background: rgba(108, 92, 231, 0.16);
+        position: relative;
+        z-index: 30;
+        width: 20px;
+        background: transparent;
+        cursor: e-resize;
+        overflow: visible;
+    }
+    body.left-panel-collapsed #left-panel-resizer::after {
+        content: '\203A';
+        position: absolute;
+        left: 1px;
+        top: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 52px;
+        border-radius: 0 8px 8px 0;
+        background: var(--sidebar-dark-2);
+        color: #fff;
+        font-size: 24px;
+        font-weight: 700;
+        line-height: 1;
+        transform: translateY(-50%);
+        box-shadow: 2px 0 8px rgba(25,25,55,.22);
+        pointer-events: none;
     }
     body.left-panel-collapsed #left-panel-resizer:hover,
     body.left-panel-collapsed #left-panel-resizer.dragging {
+        background: transparent;
+    }
+    body.left-panel-collapsed #left-panel-resizer:hover::after,
+    body.left-panel-collapsed #left-panel-resizer.dragging::after {
         background: var(--accent);
     }
 }
@@ -1828,11 +1856,39 @@ body.right-panel-collapsed #right-panel {
     pointer-events: none;
 }
 body.right-panel-collapsed #right-panel-resizer {
-    width: 8px;
-    background: rgba(108, 92, 231, 0.16);
+    position: relative;
+    z-index: 30;
+    width: 20px;
+    background: transparent;
+    cursor: w-resize;
+    overflow: visible;
+}
+body.right-panel-collapsed #right-panel-resizer::after {
+    content: '\2039';
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 52px;
+    border-radius: 8px 0 0 8px;
+    background: var(--sidebar-dark-2);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    transform: translateY(-50%);
+    box-shadow: -2px 0 8px rgba(25,25,55,.22);
+    pointer-events: none;
 }
 body.right-panel-collapsed #right-panel-resizer:hover,
 body.right-panel-collapsed #right-panel-resizer.dragging {
+    background: transparent;
+}
+body.right-panel-collapsed #right-panel-resizer:hover::after,
+body.right-panel-collapsed #right-panel-resizer.dragging::after {
     background: var(--accent);
 }
 
