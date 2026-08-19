@@ -625,16 +625,19 @@ def _write_patch_image(info, patch: dict, out_path: Path) -> None:
             h = max(1, int(patch.get("int_h", 0)))
             image = slide.read_region((x, y), 0, (w, h))
             image_rgb = tile_generator.image_to_white_rgb(image)
-            apply_color, _ = build_color_corrector(slide)
-            image_color = apply_color(image_rgb)
-
-            # Viewer paths auto-use the NDP-matched variant for Hamamatsu/NDPI.
-            # Exported patch JPEGs should match that visual pipeline, too.
             suffix = Path(info.file_path).suffix.lower()
-            if suffix == ".ndpi" or is_hamamatsu_slide(slide.properties):
-                image_out = apply_ndp_fit(image_color)
+            if suffix == ".ndpi":
+                # Cell Annotation NDPI patches are training/export assets, so
+                # preserve the OpenSlide source pixels instead of matching the
+                # viewer's ICC/gamma/NDP color-correction pipeline.
+                image_out = image_rgb
             else:
-                image_out = image_color
+                apply_color, _ = build_color_corrector(slide)
+                image_color = apply_color(image_rgb)
+                if is_hamamatsu_slide(slide.properties):
+                    image_out = apply_ndp_fit(image_color)
+                else:
+                    image_out = image_color
 
             image_out.save(out_path, "JPEG", quality=90, optimize=True)
         finally:

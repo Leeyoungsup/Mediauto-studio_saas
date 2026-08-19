@@ -20,7 +20,10 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from app.ai_pipelines.dedup import cache_has_current_detection_postprocess
+from app.ai_pipelines.dedup import (
+    cache_has_current_detection_postprocess,
+    processing_metadata,
+)
 from app.slide_identity import slide_cache_key
 
 
@@ -42,6 +45,16 @@ _worker_task: Optional[asyncio.Task] = None
 _marker_cache_quality_cache: dict = {}
 _last_idle_block_log_ts: float = 0.0
 _last_scan_summary_log_ts: float = 0.0
+
+_MARKER_CACHE_METADATA_WINDOW_BYTES = 64 * 1024
+_CACHE_METADATA_KEYS = (
+    "model_runtime",
+    "patch_overlap_um",
+    "global_dedup_version",
+    "excluded_class_suppression_iou_threshold",
+    "excluded_class_suppression_rule",
+)
+_CACHE_METADATA_MISSING = object()
 
 
 def _log_throttled(str_key: str, str_message: str, float_interval: float) -> None:
@@ -321,17 +334,82 @@ def _expected_marker_model_runtime(str_model: str, str_variant: str) -> Optional
         return None
 
 
-def _cached_model_runtime_from_tail(cache_path: Path) -> Optional[dict]:
-    """Read model_runtime without loading multi-million-cell JSON arrays."""
+def _json_value_after_key(str_chunk: str, str_key: str):
+    """Decode one small JSON value from a cache head/tail chunk."""
+    list_matches = list(re.finditer(rf'"{re.escape(str_key)}"\s*:\s*', str_chunk))
+    if not list_matches:
+        return _CACHE_METADATA_MISSING
+    int_start = list_matches[-1].end()
+    while int_start < len(str_chunk) and str_chunk[int_start].isspace():
+        int_start += 1
     try:
-        with open(cache_path, "rb") as f:
-            int_size = f.seek(0, os.SEEK_END)
-            f.seek(max(0, int_size - 65536), os.SEEK_SET)
-            str_tail = f.read().decode("utf-8", errors="ignore")
-        match = re.search(r'"model_runtime"\s*:\s*(\{[^{}]*\})', str_tail)
-        return json.loads(match.group(1)) if match else None
-    except Exception:
+        value, _ = json.JSONDecoder().raw_decode(str_chunk, int_start)
+        return value
+    except (ValueError, json.JSONDecodeError):
+        return _CACHE_METADATA_MISSING
+
+
+def _first_cached_cell_from_head(str_head: str):
+    """Return (has_cells, first_cell) without decoding the full cells array."""
+    match = re.search(r'"cells"\s*:\s*\[', str_head)
+    if not match:
         return None
+    int_start = match.end()
+    while int_start < len(str_head) and str_head[int_start].isspace():
+        int_start += 1
+    if int_start >= len(str_head):
+        return None
+    if str_head[int_start] == "]":
+        return False, None
+    try:
+        first_cell, _ = json.JSONDecoder().raw_decode(str_head, int_start)
+        return True, first_cell
+    except (ValueError, json.JSONDecodeError):
+        return None
+
+
+def _read_marker_cache_metadata(cache_path: Path) -> Optional[dict]:
+    """Read only cache metadata plus the first compact cell.
+
+    Marker caches can contain multi-million-cell arrays and reach hundreds of
+    megabytes.  Auto-worker validation only needs a few top-level metadata
+    fields and the first cell's bbox shape, so cap I/O at 64 KiB from each end.
+    Full JSON validity is checked when a result is actually loaded by its
+    pipeline; this startup scan must never deserialize the cell arrays.
+    """
+    try:
+        with open(cache_path, "rb") as file_cache:
+            int_size = file_cache.seek(0, os.SEEK_END)
+            file_cache.seek(0)
+            bytes_head = file_cache.read(_MARKER_CACHE_METADATA_WINDOW_BYTES)
+            if int_size <= _MARKER_CACHE_METADATA_WINDOW_BYTES:
+                bytes_tail = bytes_head
+            else:
+                file_cache.seek(max(0, int_size - _MARKER_CACHE_METADATA_WINDOW_BYTES))
+                bytes_tail = file_cache.read(_MARKER_CACHE_METADATA_WINDOW_BYTES)
+    except OSError:
+        return None
+
+    str_head = bytes_head.decode("utf-8", errors="ignore")
+    str_tail = bytes_tail.decode("utf-8", errors="ignore")
+    if not str_head.lstrip().startswith("{") or not str_tail.rstrip().endswith("}"):
+        return None
+
+    tuple_first_cell = _first_cached_cell_from_head(str_head)
+    if tuple_first_cell is None:
+        return None
+
+    dict_metadata = {
+        "has_cells": tuple_first_cell[0],
+        "first_cell": tuple_first_cell[1],
+    }
+    for str_key in _CACHE_METADATA_KEYS:
+        value = _json_value_after_key(str_tail, str_key)
+        if value is _CACHE_METADATA_MISSING and str_tail != str_head:
+            value = _json_value_after_key(str_head, str_key)
+        if value is not _CACHE_METADATA_MISSING:
+            dict_metadata[str_key] = value
+    return dict_metadata
 
 
 def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant: str) -> bool:
@@ -355,49 +433,44 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
         tuple_cache_state = None
         tuple_cache_key = None
 
+    dict_cached_metadata = _read_marker_cache_metadata(cache_path)
+    if dict_cached_metadata is None:
+        print(f"[auto_ai] unreadable cache metadata queued for refresh: {cache_path.name}")
+        bool_needs_refresh = True
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+        return bool_needs_refresh
+
     bool_needs_refresh = False
     if dict_expected_runtime is not None:
-        dict_cached_runtime = _cached_model_runtime_from_tail(cache_path)
-        if dict_cached_runtime != dict_expected_runtime:
+        if dict_cached_metadata.get("model_runtime") != dict_expected_runtime:
             print(f"[auto_ai] stale cache model architecture or weights queued for refresh: {cache_path.name}")
             bool_needs_refresh = True
             if tuple_cache_state and tuple_cache_key:
                 _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
             return bool_needs_refresh
 
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-    except Exception as exc:
-        print(f"[auto_ai] unreadable cache queued for refresh: {cache_path.name} ({exc})")
-        bool_needs_refresh = True
-        if tuple_cache_state and tuple_cache_key:
-            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
-        return bool_needs_refresh
-
-    if not isinstance(cached, dict):
-        print(f"[auto_ai] invalid cache queued for refresh: {cache_path.name}")
-        bool_needs_refresh = True
-        if tuple_cache_state and tuple_cache_key:
-            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
-        return bool_needs_refresh
-
-    if not cache_has_current_detection_postprocess(cached):
+    if not cache_has_current_detection_postprocess(dict_cached_metadata):
         print(f"[auto_ai] stale cache missing 10um overlap/global dedup queued for refresh: {cache_path.name}")
         bool_needs_refresh = True
         if tuple_cache_state and tuple_cache_key:
             _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
         return bool_needs_refresh
 
-    if _marker_cache_requires_excluded_cells(str_model, str_variant) and "excluded_cells" not in cached:
-        print(f"[auto_ai] stale cache missing excluded cells queued for refresh: {cache_path.name}")
-        bool_needs_refresh = True
-        if tuple_cache_state and tuple_cache_key:
-            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
-        return bool_needs_refresh
+    if _marker_cache_requires_excluded_cells(str_model, str_variant):
+        dict_expected_processing = processing_metadata()
+        for str_key in (
+            "excluded_class_suppression_iou_threshold",
+            "excluded_class_suppression_rule",
+        ):
+            if dict_cached_metadata.get(str_key) != dict_expected_processing.get(str_key):
+                print(f"[auto_ai] stale cache missing excluded-cell metadata queued for refresh: {cache_path.name}")
+                bool_needs_refresh = True
+                if tuple_cache_state and tuple_cache_key:
+                    _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
+                return bool_needs_refresh
 
-    cells = cached.get("cells")
-    if isinstance(cells, list) and cells and not _cell_has_bbox(cells[0]):
+    if dict_cached_metadata.get("has_cells") and not _cell_has_bbox(dict_cached_metadata.get("first_cell")):
         print(f"[auto_ai] stale cache missing bbox queued for refresh: {cache_path.name}")
         bool_needs_refresh = True
 

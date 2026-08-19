@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260810-04">
+    <link rel="stylesheet" href="css/style.css?v=20260820-02">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -77,6 +77,15 @@
         <div class="toolbar-group">
             <button id="btn-info" class="toolbar-btn" title="Slide Info" disabled>
                 <img src="assets/Info.png" alt="Info">
+            </button>
+            <button id="btn-same-case" class="toolbar-btn" title="Same Case Slides" aria-label="Same Case Slides" disabled>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="2.5" y="3" width="6.5" height="6" rx="1"/>
+                    <rect x="11" y="3" width="6.5" height="6" rx="1"/>
+                    <rect x="2.5" y="11" width="6.5" height="6" rx="1"/>
+                    <rect x="11" y="11" width="6.5" height="6" rx="1"/>
+                    <path d="M4.2 7.2 5.7 5.7l1.6 1.5M12.7 7.2l1.5-1.5 1.6 1.5M4.2 15.2l1.5-1.5 1.6 1.5M12.7 15.2l1.5-1.5 1.6 1.5"/>
+                </svg>
             </button>
         </div>
         <div class="toolbar-separator"></div>
@@ -328,6 +337,17 @@
 
             <canvas id="wsi-canvas"></canvas>
             <canvas id="overlay-canvas"></canvas>
+
+            <section id="multi-view-container" class="multi-view-container" hidden aria-label="Same case multi view">
+                <header class="multi-view-header">
+                    <div>
+                        <strong id="multi-view-title">Multi View</strong>
+                        <span>Click a pane to activate it · Annotation, AI and Info apply to the active slide</span>
+                    </div>
+                    <button id="exit-multi-view" class="small-btn" type="button">Exit Multi View</button>
+                </header>
+                <div id="multi-view-grid" class="multi-view-grid"></div>
+            </section>
             <!-- Hamamatsu NDP color matching toggle. -->
             <button id="btn-ndp-color" class="ndp-color-toggle active" type="button" hidden
                     title="NDP color matching (Hamamatsu)">
@@ -533,6 +553,47 @@
         <div id="slide-info-content" class="dialog-body"></div>
     </dialog>
 
+    <dialog id="same-case-dialog" class="same-case-dialog">
+        <div class="dialog-header">
+            <div>
+                <span>Same Case Slides</span>
+                <small id="same-case-dialog-case"></small>
+            </div>
+            <button class="dialog-close" id="close-same-case" aria-label="Close">&times;</button>
+        </div>
+        <div class="same-case-dialog-body">
+            <div id="same-case-status" class="same-case-status">Loading slides...</div>
+            <div id="same-case-grid" class="same-case-grid" role="listbox" aria-label="Slides from the same case"></div>
+        </div>
+        <div class="same-case-dialog-footer">
+            <span id="same-case-selection">Select a slide to view.</span>
+            <div class="same-case-dialog-actions">
+                <button id="cancel-same-case" class="small-btn" type="button">Cancel</button>
+                <button id="multi-view-same-case" class="small-btn" type="button" disabled>Multi View</button>
+                <button id="view-same-case" class="small-btn primary" type="button" disabled>View</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="same-case-open-choice" class="same-case-open-choice">
+        <div class="dialog-header">
+            <span>Open Same-Case Slide</span>
+            <button class="dialog-close" id="close-same-case-choice" aria-label="Close">&times;</button>
+        </div>
+        <div class="same-case-open-choice-body">
+            <strong id="same-case-choice-slide"></strong>
+            <p>Open this slide in the main viewer, or compare the selected slides together.</p>
+        </div>
+        <div class="same-case-dialog-footer">
+            <span id="same-case-choice-summary"></span>
+            <div class="same-case-dialog-actions">
+                <button id="cancel-same-case-choice" class="small-btn" type="button">Cancel</button>
+                <button id="choice-view-slide" class="small-btn" type="button">Open Slide</button>
+                <button id="choice-multi-view" class="small-btn primary" type="button">Multi View</button>
+            </div>
+        </div>
+    </dialog>
+
     <!-- text AI text text text -->
     <dialog id="load-user-edit-dialog">
         <div class="dialog-header">
@@ -668,6 +729,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260810-09"></script>
+    <script type="module" src="js/app.js?v=20260820-02"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260713-01';
+import { api } from './api.js?v=20260819-01';
 import { AiViewer } from './ai-viewer.js?v=20260810-05';
 import { showVisualization } from './visualization.js?v=20260810-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -28,6 +28,22 @@ const $progressBar = $('#progress-bar');
 const $resultList = $('#result-list');
 const $slideInfoDialog = $('#slide-info-dialog');
 const $slideInfoContent = $('#slide-info-content');
+const $btnSameCase = $('#btn-same-case');
+const $sameCaseDialog = $('#same-case-dialog');
+const $sameCaseDialogCase = $('#same-case-dialog-case');
+const $sameCaseStatus = $('#same-case-status');
+const $sameCaseGrid = $('#same-case-grid');
+const $sameCaseSelection = $('#same-case-selection');
+const $btnViewSameCase = $('#view-same-case');
+const $btnMultiViewSameCase = $('#multi-view-same-case');
+const $sameCaseOpenChoice = $('#same-case-open-choice');
+const $sameCaseChoiceSlide = $('#same-case-choice-slide');
+const $sameCaseChoiceSummary = $('#same-case-choice-summary');
+const $btnChoiceViewSlide = $('#choice-view-slide');
+const $btnChoiceMultiView = $('#choice-multi-view');
+const $multiViewContainer = $('#multi-view-container');
+const $multiViewGrid = $('#multi-view-grid');
+const $multiViewTitle = $('#multi-view-title');
 const $slideNameSearch = $('#slide-name-search');
 const LIST_SLIDE_CLINICAL_FIELDS = [
     { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
@@ -42,6 +58,14 @@ const LIST_SLIDE_CLINICAL_FIELDS = [
 let _slideClinicalInitialJson = '{}';
 let _slideClinicalDirty = false;
 let _slideInfoClosing = false;
+let _sameCaseSlides = [];
+let _selectedSameCaseSlideIds = [];
+let _sameCaseRequestSeq = 0;
+let _sameCaseChoiceSlideId = '';
+let _multiViewPanes = [];
+let _multiViewOpenSeq = 0;
+let _activeMultiViewPane = null;
+let _multiViewOriginalContext = null;
 
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
@@ -159,7 +183,8 @@ function _setMinimapDisplaySize(img) {
 }
 let lastSegData = null;  // segmentation overlay data from epithelial classification
 
-const viewer = new AiViewer($canvas, $overlay);
+let viewer = new AiViewer($canvas, $overlay);
+const _primaryViewer = viewer;
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
@@ -512,6 +537,7 @@ if ($btnNdpColor) {
 }
 
 function onSlideLoaded(slideId, slideInfo, filename) {
+    _exitMultiView(false);
     currentSlideId = slideId;
     currentSlideInfo = { ...(slideInfo || {}), filename: filename || slideInfo?.filename || '' };
 
@@ -531,6 +557,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     if ($btnIhcErPr) $btnIhcErPr.disabled = false;
     if ($btnIhcKi67) $btnIhcKi67.disabled = false;
     $btnInfo.disabled = false;
+    if ($btnSameCase) $btnSameCase.disabled = false;
     document.querySelectorAll('.toggle-btn').forEach(b => b.disabled = false);
     document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach(el => {
         el.disabled = false;
@@ -2424,6 +2451,727 @@ async function _closeSlideInfoDialog() {
     }
 }
 
+function _currentBrowseSlide() {
+    return (_lastBrowseData.slides || []).find((slide) => (
+        slide.slide_id === currentSlideId ||
+        String(slide.filename || '') === String(currentSlideInfo?.filename || '')
+    ));
+}
+
+function _caseNameFromFilename(filename = '') {
+    const leaf = String(filename || '').split(/[\\/]/).pop() || '';
+    const stem = leaf.replace(/\.[^.]+$/, '');
+    const parts = stem.split('-').filter(Boolean);
+    if (parts.length >= 4 && parts[0].toUpperCase() === 'CODIPAI') return parts.slice(1, 4).join('-');
+    if (parts.length >= 3) return parts.slice(0, 3).join('-');
+    return stem;
+}
+
+async function _resolveCurrentCaseName() {
+    const browseSlide = _currentBrowseSlide();
+    const knownCaseName = String(currentSlideInfo?.case_name || browseSlide?.case_name || '').trim();
+    if (knownCaseName) return knownCaseName;
+    const filenameCaseName = _caseNameFromFilename(currentSlideInfo?.filename || browseSlide?.filename);
+    if (filenameCaseName) return filenameCaseName;
+    if (!currentSlideId) return '';
+    const result = await api.getSlideClinicalInfo(currentSlideId);
+    const caseName = String(result?.case_name || '').trim();
+    if (caseName) currentSlideInfo = { ...(currentSlideInfo || {}), case_name: caseName };
+    return caseName;
+}
+
+function _setSameCaseStatus(message = '') {
+    if (!$sameCaseStatus) return;
+    $sameCaseStatus.textContent = message;
+    $sameCaseStatus.hidden = !message;
+}
+
+function _selectedSameCaseSlides() {
+    return _selectedSameCaseSlideIds
+        .map((slideId) => _sameCaseSlides.find((slide) => slide.slide_id === slideId))
+        .filter(Boolean);
+}
+
+function _refreshSameCaseSelection(message = '') {
+    $sameCaseGrid?.querySelectorAll('.same-case-card').forEach((card) => {
+        const selectionIndex = _selectedSameCaseSlideIds.indexOf(card.dataset.slideId);
+        const selected = selectionIndex >= 0;
+        card.classList.toggle('selected', selected);
+        card.setAttribute('aria-selected', selected ? 'true' : 'false');
+        const orderBadge = card.querySelector('.same-case-select-order');
+        if (orderBadge) {
+            orderBadge.hidden = !selected;
+            orderBadge.textContent = selected ? String(selectionIndex + 1) : '';
+        }
+    });
+    const selectedSlides = _selectedSameCaseSlides();
+    if ($sameCaseSelection) {
+        $sameCaseSelection.textContent = message || (
+            selectedSlides.length === 1
+                ? selectedSlides[0].filename
+                : selectedSlides.length > 1
+                    ? `${selectedSlides.length} slides selected for Multi View`
+                    : `${_sameCaseSlides.length.toLocaleString()} slide${_sameCaseSlides.length === 1 ? '' : 's'} in this case`
+        );
+    }
+    if ($btnViewSameCase) $btnViewSameCase.disabled = selectedSlides.length !== 1;
+    if ($btnMultiViewSameCase) {
+        $btnMultiViewSameCase.disabled = selectedSlides.length < 2 || selectedSlides.length > 4;
+    }
+}
+
+function _clearSameCaseSelection() {
+    _selectedSameCaseSlideIds = [];
+    _refreshSameCaseSelection();
+}
+
+function _selectCurrentSameCaseSlide() {
+    const currentSlide = _sameCaseSlides.find((slide) => slide.slide_id === currentSlideId);
+    _selectedSameCaseSlideIds = currentSlide ? [currentSlide.slide_id] : [];
+    _refreshSameCaseSelection();
+}
+
+function _toggleSameCaseSlide(slideId = '') {
+    const normalizedId = String(slideId || '');
+    if (!normalizedId) return;
+    const selectionIndex = _selectedSameCaseSlideIds.indexOf(normalizedId);
+    if (selectionIndex >= 0) {
+        _selectedSameCaseSlideIds.splice(selectionIndex, 1);
+    } else if (_selectedSameCaseSlideIds.length >= 4) {
+        _refreshSameCaseSelection('Multi View supports up to 4 slides.');
+        return;
+    } else {
+        _selectedSameCaseSlideIds.push(normalizedId);
+    }
+    _refreshSameCaseSelection();
+}
+
+function _ensureSameCaseSlideSelected(slideId = '') {
+    const normalizedId = String(slideId || '');
+    if (!normalizedId || _selectedSameCaseSlideIds.includes(normalizedId)) return;
+    if (_selectedSameCaseSlideIds.length >= 4) _selectedSameCaseSlideIds.pop();
+    _selectedSameCaseSlideIds.push(normalizedId);
+    _refreshSameCaseSelection();
+}
+
+function _sameCaseMultiViewSlides(focusSlideId = '') {
+    const selectedSlides = _selectedSameCaseSlides();
+    if (selectedSlides.length >= 2) return selectedSlides.slice(0, 4);
+    const focusSlide = _sameCaseSlides.find((slide) => slide.slide_id === focusSlideId) || selectedSlides[0];
+    const currentSlide = _sameCaseSlides.find((slide) => slide.slide_id === currentSlideId);
+    const pair = [];
+    for (const slide of [currentSlide, focusSlide]) {
+        if (slide && !pair.some((item) => item.slide_id === slide.slide_id)) pair.push(slide);
+    }
+    return pair;
+}
+
+function _sameCaseProjectLabel(path = '') {
+    const parts = String(path || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    if (!parts.length) return '';
+    const projectPath = parts[0];
+    const project = _projectListCache.find((item) => (item.path || item.name) === projectPath);
+    const projectLabel = project ? _projectLabel(project) : projectPath;
+    return [projectLabel, ...parts.slice(1)].join(' / ');
+}
+
+function _renderSameCaseSlides(caseName, slides = []) {
+    if (!$sameCaseGrid) return;
+    $sameCaseGrid.replaceChildren();
+    _sameCaseSlides = [...slides].sort((a, b) => {
+        const aCurrent = a.slide_id === currentSlideId ? 0 : 1;
+        const bCurrent = b.slide_id === currentSlideId ? 0 : 1;
+        return aCurrent - bCurrent || String(a.filename || '').localeCompare(String(b.filename || ''));
+    });
+    _selectedSameCaseSlideIds = [];
+    if ($sameCaseDialogCase) $sameCaseDialogCase.textContent = caseName ? `Case: ${caseName}` : '';
+
+    for (const slide of _sameCaseSlides) {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'same-case-card';
+        card.dataset.slideId = slide.slide_id || '';
+        card.setAttribute('role', 'option');
+        card.setAttribute('aria-selected', 'false');
+        card.title = `${slide.filename}\nDouble-click to open`;
+
+        const thumbWrap = document.createElement('div');
+        thumbWrap.className = 'same-case-thumb-wrap';
+        const placeholder = document.createElement('span');
+        placeholder.className = 'same-case-thumb-placeholder';
+        placeholder.textContent = 'Loading preview...';
+        const thumb = document.createElement('img');
+        thumb.className = 'same-case-thumb';
+        thumb.alt = `${slide.filename} thumbnail`;
+        thumb.loading = 'lazy';
+        const thumbnailUrl = () => api.thumbnailUrlByName(slide.filename, slide.path || '', 420);
+        thumb.addEventListener('load', () => placeholder.remove(), { once: true });
+        api.attachMediaImageRetry(thumb, thumbnailUrl, () => {
+            thumb.style.display = 'none';
+            placeholder.textContent = 'Preview unavailable';
+        });
+        thumb.src = thumbnailUrl();
+        thumbWrap.append(placeholder, thumb);
+
+        if (slide.slide_id === currentSlideId) {
+            const currentBadge = document.createElement('span');
+            currentBadge.className = 'same-case-current-badge';
+            currentBadge.textContent = 'CURRENT';
+            thumbWrap.appendChild(currentBadge);
+        }
+        if (slide.has_ai_result) {
+            const aiBadge = document.createElement('span');
+            aiBadge.className = 'same-case-ai-badge';
+            aiBadge.textContent = 'AI RESULT';
+            thumbWrap.appendChild(aiBadge);
+        }
+        const selectionOrder = document.createElement('span');
+        selectionOrder.className = 'same-case-select-order';
+        selectionOrder.hidden = true;
+        thumbWrap.appendChild(selectionOrder);
+
+        const info = document.createElement('span');
+        info.className = 'same-case-card-info';
+        const name = document.createElement('span');
+        name.className = 'same-case-card-name';
+        name.textContent = slide.filename || '-';
+        const meta = document.createElement('span');
+        meta.className = 'same-case-card-meta';
+        const size = Number(slide.size_mb);
+        meta.textContent = [
+            _sameCaseProjectLabel(slide.path || _getCurrentProjectName()),
+            Number.isFinite(size) ? `${size.toLocaleString()} MB` : '',
+        ].filter(Boolean).join(' · ');
+        info.append(name, meta);
+        card.append(thumbWrap, info);
+        card.addEventListener('click', () => _toggleSameCaseSlide(slide.slide_id));
+        card.addEventListener('dblclick', (event) => {
+            event.preventDefault();
+            _ensureSameCaseSlideSelected(slide.slide_id);
+            _showSameCaseOpenChoice(slide.slide_id);
+        });
+        $sameCaseGrid.appendChild(card);
+    }
+    // The slide already open in the viewer is the first comparison selection.
+    // One click on another card therefore creates a two-slide Multi View.
+    _selectCurrentSameCaseSlide();
+}
+
+async function _loadSameCaseSlides() {
+    if (!currentSlideId || !$sameCaseDialog) return;
+    const requestSeq = ++_sameCaseRequestSeq;
+    _sameCaseSlides = [];
+    _selectedSameCaseSlideIds = [];
+    $sameCaseGrid?.replaceChildren();
+    if ($sameCaseDialogCase) $sameCaseDialogCase.textContent = '';
+    if ($sameCaseSelection) $sameCaseSelection.textContent = 'Select a slide to view.';
+    if ($btnViewSameCase) $btnViewSameCase.disabled = true;
+    if ($btnMultiViewSameCase) $btnMultiViewSameCase.disabled = true;
+    _setSameCaseStatus('Loading slides from the same case...');
+    if (!$sameCaseDialog.open) $sameCaseDialog.showModal();
+
+    try {
+        const caseName = await _resolveCurrentCaseName();
+        if (!caseName) throw new Error('Case ID is unavailable for the current slide.');
+        if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
+        if ($sameCaseDialogCase) $sameCaseDialogCase.textContent = `Case: ${caseName}`;
+        // A case can span marker/project folders (for example HER2, KI-67, and H&E),
+        // so search the upload tree instead of limiting the request to the current folder.
+        const result = await api.listCases({ sampleNo: caseName, page: 1, pageSize: 100 });
+        if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
+        const normalizedCaseName = caseName.toLocaleLowerCase();
+        const matchedCase = (result.cases || []).find((item) => (
+            String(item.case_name || '').toLocaleLowerCase() === normalizedCaseName
+        ));
+        const slides = Array.isArray(matchedCase?.slides) ? matchedCase.slides : [];
+        if (!slides.length) throw new Error(`No slides were found for case ${caseName}.`);
+        _setSameCaseStatus('');
+        _renderSameCaseSlides(caseName, slides);
+    } catch (err) {
+        if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
+        _sameCaseSlides = [];
+        _setSameCaseStatus(err?.message || 'Failed to load same-case slides.');
+        if ($sameCaseSelection) $sameCaseSelection.textContent = 'No slide selected.';
+        if ($btnViewSameCase) $btnViewSameCase.disabled = true;
+        if ($btnMultiViewSameCase) $btnMultiViewSameCase.disabled = true;
+    }
+}
+
+function _closeSameCaseDialog() {
+    _sameCaseRequestSeq += 1;
+    if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
+    if ($sameCaseDialog?.open) $sameCaseDialog.close();
+}
+
+function _captureAnalysisContext() {
+    return {
+        lastDetectionResult: _lastDetectionResult,
+        lastDetectionTissue: _lastDetectionTissue,
+        lastDetectionModel: _lastDetectionModel,
+        lastDetectionRoi: _lastDetectionRoi,
+        segData: lastSegData,
+    };
+}
+
+function _emptyAnalysisContext() {
+    return {
+        lastDetectionResult: null,
+        lastDetectionTissue: null,
+        lastDetectionModel: null,
+        lastDetectionRoi: null,
+        segData: null,
+    };
+}
+
+function _restoreAnalysisContext(context = null) {
+    const state = context || _emptyAnalysisContext();
+    _lastDetectionResult = state.lastDetectionResult || null;
+    _lastDetectionTissue = state.lastDetectionTissue || null;
+    _lastDetectionModel = state.lastDetectionModel || null;
+    _lastDetectionRoi = state.lastDetectionRoi || null;
+    lastSegData = state.segData || null;
+}
+
+function _captureActiveMultiViewContext() {
+    if (!_activeMultiViewPane || viewer !== _activeMultiViewPane.viewer) return;
+    _activeMultiViewPane.analysis = _captureAnalysisContext();
+}
+
+function _renderActiveViewerPanels() {
+    const hasResult = Boolean(_lastDetectionResult);
+    $resultList.innerHTML = '';
+    if ($pdScoreResult) $pdScoreResult.hidden = !_lastDetectionResult?.pd_score;
+    if ($ihcScoreResult) {
+        $ihcScoreResult.hidden = !(
+            _lastDetectionResult?.her2_score ||
+            _lastDetectionResult?.allred_score ||
+            _lastDetectionResult?.ki67_score
+        );
+    }
+
+    if (hasResult) {
+        buildResultList(_lastDetectionResult);
+        _updateResultCounts();
+    }
+    $btnVisualize.disabled = !hasResult || !viewer.detectionCells?.length;
+    $btnClearResults.disabled = !hasResult;
+    $btnSaveResults.disabled = !hasResult;
+    if ($btnLoadResults) $btnLoadResults.disabled = !hasResult;
+    _syncHeatmapToggle();
+    renderAnnotationPanel();
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+}
+
+function _enableActiveSlideControls() {
+    $btnDetect.disabled = false;
+    $btnVsMembrane.disabled = false;
+    if ($btnPdScore) $btnPdScore.disabled = false;
+    if ($btnIhcHer2) $btnIhcHer2.disabled = false;
+    if ($btnIhcErPr) $btnIhcErPr.disabled = false;
+    if ($btnIhcKi67) $btnIhcKi67.disabled = false;
+    $btnInfo.disabled = false;
+    if ($btnSameCase) $btnSameCase.disabled = false;
+    document.querySelectorAll('.toggle-btn').forEach((button) => { button.disabled = false; });
+    document.querySelectorAll('input[name="tissue-type"], input[name="pd-tissue-type"]').forEach((input) => {
+        input.disabled = false;
+    });
+    if (!_isViewerRole()) _applyFolderAiRestrictions(currentBrowsePath);
+    viewer.canEditDetectionResults = _canEditAiDetections();
+    if (_isViewerRole()) _applyViewerRoleRestrictions();
+    if (_isLabelerRole()) _applyLabelerRoleRestrictions();
+}
+
+function _bindMultiViewViewerCallbacks(paneViewer) {
+    const callbackNames = [
+        'onZoomChange', 'onDrawModeChange',
+        'onAnnotationCreated', 'onAnnotationSelected', 'onAnnotationDeleted', 'onAnnotationChanged',
+        'onCellEditRequested', 'onCellAddRequested', 'onCellsMultiEditRequested',
+        'onHiddenCellsMultiEditRequested', 'onCellEdited',
+    ];
+    for (const name of callbackNames) {
+        const primaryCallback = _primaryViewer[name];
+        if (typeof primaryCallback !== 'function') continue;
+        paneViewer[name] = (...args) => {
+            if (viewer !== paneViewer) return undefined;
+            return primaryCallback(...args);
+        };
+    }
+
+    // TileViewer.deleteAnnotation does not emit onAnnotationDeleted itself;
+    // mirror the main viewer's application-level wrapper for each pane.
+    const deleteAnnotation = paneViewer.deleteAnnotation.bind(paneViewer);
+    paneViewer.deleteAnnotation = (id) => {
+        const annotation = paneViewer.annotations.find((item) => item.id === id);
+        deleteAnnotation(id);
+        if (annotation && paneViewer.onAnnotationDeleted) paneViewer.onAnnotationDeleted(annotation);
+    };
+}
+
+function _activateMultiViewPane(pane, announce = true) {
+    if (!pane || pane.element.hidden || !pane.slideInfo || pane.error.hidden === false) return;
+    if (_activeMultiViewPane === pane && viewer === pane.viewer) return;
+
+    _closeCellEditPopup();
+    _captureActiveMultiViewContext();
+    if (viewer?.drawMode) viewer.setDrawMode(null);
+
+    _activeMultiViewPane = pane;
+    viewer = pane.viewer;
+    currentSlideId = pane.slideInfo.slide_id;
+    currentSlideInfo = pane.slideInfo;
+    currentBrowsePath = String(pane.slide?.path || '').replace(/^\/+|\/+$/g, '');
+    _restoreAnalysisContext(pane.analysis);
+
+    for (const item of _multiViewPanes) {
+        const active = item === pane;
+        item.element.classList.toggle('active', active);
+        item.element.setAttribute('aria-selected', active ? 'true' : 'false');
+    }
+
+    $slideName.textContent = pane.slideInfo.filename || pane.slide?.filename || '';
+    _updateScannerBadge(pane.slideInfo);
+    _updateNdpColorToggleVisibility(pane.slideInfo);
+    _enableActiveSlideControls();
+    _renderActiveViewerPanels();
+    if (typeof viewer.onZoomChange === 'function') {
+        viewer.onZoomChange(viewer.zoom, viewer.getMagnification(), viewer.getEffectiveMpp());
+    }
+    if (announce) setStatus(`Active slide: ${currentSlideInfo.filename}`);
+}
+
+function _currentAiTarget() {
+    return { viewer, slideId: currentSlideId };
+}
+
+function _applyAiResultToTarget(target, applyResult) {
+    if (!target?.viewer || !target.slideId || typeof applyResult !== 'function') return false;
+    if (target.viewer === viewer && target.slideId === currentSlideId) {
+        applyResult();
+        return true;
+    }
+
+    const targetPane = _multiViewPanes.find((pane) => (
+        pane.viewer === target.viewer && pane.slideInfo?.slide_id === target.slideId
+    ));
+    const targetsOriginalViewer = (
+        target.viewer === _primaryViewer &&
+        _multiViewOriginalContext?.slideId === target.slideId
+    );
+    if (!targetPane && !targetsOriginalViewer) return false;
+
+    const activeViewer = viewer;
+    const activeSlideId = currentSlideId;
+    const activeSlideInfo = currentSlideInfo;
+    const activeBrowsePath = currentBrowsePath;
+    const activeAnalysis = _captureAnalysisContext();
+    _captureActiveMultiViewContext();
+
+    const targetHolder = targetPane || _multiViewOriginalContext;
+    viewer = target.viewer;
+    currentSlideId = targetPane ? targetPane.slideInfo.slide_id : targetHolder.slideId;
+    currentSlideInfo = targetPane ? targetPane.slideInfo : targetHolder.slideInfo;
+    currentBrowsePath = targetPane
+        ? String(targetPane.slide?.path || '').replace(/^\/+|\/+$/g, '')
+        : targetHolder.browsePath;
+    _restoreAnalysisContext(targetHolder.analysis);
+
+    try {
+        applyResult();
+        targetHolder.analysis = _captureAnalysisContext();
+    } finally {
+        viewer = activeViewer;
+        currentSlideId = activeSlideId;
+        currentSlideInfo = activeSlideInfo;
+        currentBrowsePath = activeBrowsePath;
+        _restoreAnalysisContext(activeAnalysis);
+        _renderActiveViewerPanels();
+    }
+    return true;
+}
+
+function _ensureMultiViewPanes() {
+    if (_multiViewPanes.length || !$multiViewGrid) return;
+    for (let index = 0; index < 4; index += 1) {
+        const element = document.createElement('section');
+        element.className = 'multi-view-pane';
+        element.hidden = true;
+        element.tabIndex = 0;
+        element.setAttribute('role', 'option');
+        element.setAttribute('aria-selected', 'false');
+
+        const canvas = document.createElement('canvas');
+        canvas.className = 'multi-view-canvas';
+        const overlay = document.createElement('canvas');
+        overlay.className = 'multi-view-overlay';
+
+        const header = document.createElement('div');
+        header.className = 'multi-view-pane-header';
+        const label = document.createElement('span');
+        label.className = 'multi-view-pane-label';
+        const fitButton = document.createElement('button');
+        fitButton.type = 'button';
+        fitButton.className = 'multi-view-pane-fit';
+        fitButton.textContent = 'Fit';
+        header.append(label, fitButton);
+
+        const error = document.createElement('div');
+        error.className = 'multi-view-pane-error';
+        error.hidden = true;
+        element.append(canvas, overlay, header, error);
+        $multiViewGrid.appendChild(element);
+
+        const paneViewer = new AiViewer(canvas, overlay);
+        paneViewer.canEditDetectionResults = _canEditAiDetections();
+        // Split panes have a much smaller viewport than the primary viewer.
+        // Keep total decoded-tile memory bounded when four WSIs are open.
+        paneViewer._maxCacheTiles = 160;
+        const pane = {
+            element, canvas, overlay, label, error, viewer: paneViewer,
+            slide: null, slideInfo: null, analysis: _emptyAnalysisContext(),
+        };
+        _bindMultiViewViewerCallbacks(paneViewer);
+        element.addEventListener('pointerdown', () => _activateMultiViewPane(pane), true);
+        element.addEventListener('focus', () => _activateMultiViewPane(pane));
+        fitButton.addEventListener('click', () => {
+            _activateMultiViewPane(pane);
+            paneViewer.fitToWindow();
+        });
+        _multiViewPanes.push(pane);
+    }
+}
+
+function _resetMultiViewPane(pane) {
+    if (!pane) return;
+    pane.viewer._loadGeneration += 1;
+    pane.viewer._abortInflightImages();
+    pane.viewer._resetVsTileLoads(true);
+    pane.viewer._tileCache.clear();
+    pane.viewer._tileLoading.clear();
+    pane.viewer._tileFadeStart.clear();
+    pane.viewer._loadQueue.length = 0;
+    pane.viewer._loadQueuedKeys.clear();
+    pane.viewer._activeLoads = 0;
+    pane.viewer._thumbnailBitmap = null;
+    pane.viewer.annotations = [];
+    pane.viewer.selectedAnnotationId = null;
+    pane.viewer.setDetectionResults([]);
+    pane.viewer.setHiddenDetectionResults?.([]);
+    pane.viewer.slideId = null;
+    pane.viewer.slideInfo = null;
+    pane.slide = null;
+    pane.slideInfo = null;
+    pane.analysis = _emptyAnalysisContext();
+    pane.element.classList.remove('active');
+    pane.element.setAttribute('aria-selected', 'false');
+    pane.error.hidden = true;
+}
+
+function _exitMultiView(updateStatus = true) {
+    _multiViewOpenSeq += 1;
+    document.body.classList.remove('ai-multi-view-active');
+    if (!$multiViewContainer || $multiViewContainer.hidden) {
+        $viewerContainer?.classList.remove('multi-view-active');
+        return;
+    }
+
+    _closeCellEditPopup();
+    _captureActiveMultiViewContext();
+    const original = _multiViewOriginalContext;
+    viewer = _primaryViewer;
+    _activeMultiViewPane = null;
+    if (original) {
+        currentSlideId = original.slideId;
+        currentSlideInfo = original.slideInfo;
+        currentBrowsePath = original.browsePath;
+        _restoreAnalysisContext(original.analysis);
+    }
+
+    for (const pane of _multiViewPanes) {
+        _resetMultiViewPane(pane);
+        pane.element.hidden = true;
+    }
+    $multiViewContainer.hidden = true;
+    $viewerContainer?.classList.remove('multi-view-active');
+    if (currentSlideInfo) {
+        $slideName.textContent = currentSlideInfo.filename || '';
+        _updateScannerBadge(currentSlideInfo);
+        _updateNdpColorToggleVisibility(currentSlideInfo);
+        _enableActiveSlideControls();
+        _renderActiveViewerPanels();
+    }
+    _multiViewOriginalContext = null;
+    if (updateStatus) setStatus(currentSlideInfo?.filename ? `Loaded: ${currentSlideInfo.filename}` : 'Ready');
+    requestAnimationFrame(() => {
+        _primaryViewer._resizeCanvas();
+        _primaryViewer.requestRender();
+    });
+}
+
+async function _openMultiView(slides = []) {
+    const uniqueSlides = [];
+    for (const slide of slides) {
+        if (slide?.slide_id && !uniqueSlides.some((item) => item.slide_id === slide.slide_id)) {
+            uniqueSlides.push(slide);
+        }
+    }
+    if (uniqueSlides.length < 2 || uniqueSlides.length > 4) {
+        _refreshSameCaseSelection('Select 2 to 4 slides for Multi View.');
+        return;
+    }
+
+    if ($multiViewContainer && !$multiViewContainer.hidden) _exitMultiView(false);
+    _multiViewOriginalContext = {
+        slideId: currentSlideId,
+        slideInfo: currentSlideInfo,
+        browsePath: currentBrowsePath,
+        analysis: _captureAnalysisContext(),
+    };
+    const openSeq = ++_multiViewOpenSeq;
+    _ensureMultiViewPanes();
+    if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
+    _closeSameCaseDialog();
+    $viewerContainer?.classList.add('multi-view-active');
+    document.body.classList.add('ai-multi-view-active');
+    $multiViewContainer.hidden = false;
+    $multiViewGrid.className = `multi-view-grid count-${uniqueSlides.length}`;
+    if ($multiViewTitle) $multiViewTitle.textContent = `Multi View · ${uniqueSlides.length} slides`;
+
+    _multiViewPanes.forEach((pane, index) => {
+        const slide = uniqueSlides[index];
+        pane.element.hidden = !slide;
+        if (!slide) {
+            _resetMultiViewPane(pane);
+            return;
+        }
+        pane.error.hidden = true;
+        pane.slide = slide;
+        pane.slideInfo = null;
+        pane.analysis = _emptyAnalysisContext();
+        pane.label.textContent = `Loading · ${slide.filename}`;
+    });
+
+    requestAnimationFrame(() => {
+        for (const pane of _multiViewPanes.slice(0, uniqueSlides.length)) pane.viewer._resizeCanvas();
+    });
+
+    await Promise.all(uniqueSlides.map(async (slide, index) => {
+        const pane = _multiViewPanes[index];
+        try {
+            const info = await api.openSlide(slide.filename, slide.path || '', 'ai');
+            if (openSeq !== _multiViewOpenSeq) return;
+            if (!info?.exists) throw new Error('Slide is unavailable.');
+            const slideInfo = { ...info, filename: slide.filename };
+            pane.slideInfo = slideInfo;
+            pane.viewer.setColorCorrectionEnabled(!!api.shouldUseNdpMatch?.(slideInfo));
+            pane.viewer.loadSlide(info.slide_id, slideInfo);
+            pane.label.textContent = `${_sameCaseProjectLabel(slide.path)} · ${slide.filename}`;
+            pane.label.title = pane.label.textContent;
+            requestAnimationFrame(() => {
+                pane.viewer._resizeCanvas();
+                pane.viewer.fitToWindow();
+            });
+        } catch (err) {
+            if (openSeq !== _multiViewOpenSeq) return;
+            pane.error.hidden = false;
+            pane.error.textContent = `Open failed\n${err?.message || err}`;
+            pane.label.textContent = slide.filename;
+        }
+    }));
+    if (openSeq === _multiViewOpenSeq) {
+        const firstAvailablePane = _multiViewPanes
+            .slice(0, uniqueSlides.length)
+            .find((pane) => pane.slideInfo && pane.error.hidden);
+        if (firstAvailablePane) _activateMultiViewPane(firstAvailablePane, false);
+        setStatus(`Multi View: ${uniqueSlides.length} slides · click a pane to activate tools`);
+    }
+}
+
+function _showSameCaseOpenChoice(slideId = '') {
+    const slide = _sameCaseSlides.find((item) => item.slide_id === slideId);
+    if (!slide || !$sameCaseOpenChoice) return;
+    _sameCaseChoiceSlideId = slide.slide_id;
+    const multiSlides = _sameCaseMultiViewSlides(slide.slide_id);
+    if ($sameCaseChoiceSlide) $sameCaseChoiceSlide.textContent = slide.filename;
+    if ($sameCaseChoiceSummary) {
+        $sameCaseChoiceSummary.textContent = multiSlides.length >= 2
+            ? `${multiSlides.length} slides selected for comparison`
+            : 'Select one more slide to use Multi View';
+    }
+    if ($btnChoiceMultiView) $btnChoiceMultiView.disabled = multiSlides.length < 2;
+    if (!$sameCaseOpenChoice.open) $sameCaseOpenChoice.showModal();
+}
+
+function _closeSameCaseOpenChoice() {
+    if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
+}
+
+async function _viewSelectedSameCaseSlide() {
+    const selectedSlides = _selectedSameCaseSlides();
+    const slide = selectedSlides.length === 1 ? selectedSlides[0] : null;
+    if (!slide) return;
+    _exitMultiView(false);
+    if (slide.slide_id === currentSlideId) {
+        _closeSameCaseDialog();
+        setStatus(`Already open: ${slide.filename}`);
+        return;
+    }
+    if ($btnViewSameCase) $btnViewSameCase.disabled = true;
+    if ($sameCaseSelection) $sameCaseSelection.textContent = `Opening ${slide.filename}...`;
+    const targetPath = String(slide.path || _getCurrentProjectName() || '').replace(/^\/+|\/+$/g, '');
+    try {
+        if (targetPath !== currentBrowsePath) {
+            currentBrowsePath = targetPath;
+            history.replaceState(null, '', `/ai?path=${encodeURIComponent(targetPath)}`);
+            await loadSlideList();
+        }
+        const item = [...($slideList?.querySelectorAll('.slide-list-item[data-slide-id]') || [])]
+            .find((element) => element.dataset.slideId === slide.slide_id) || null;
+        _closeSameCaseDialog();
+        await openSavedSlide(slide.filename, item, targetPath);
+    } catch (err) {
+        setStatus(`Open failed: ${err?.message || err}`);
+        if ($sameCaseDialog?.open) _refreshSameCaseSelection();
+    }
+}
+
+$btnSameCase?.addEventListener('click', _loadSameCaseSlides);
+$('#close-same-case')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    _closeSameCaseDialog();
+});
+$('#cancel-same-case')?.addEventListener('click', _closeSameCaseDialog);
+$btnViewSameCase?.addEventListener('click', _viewSelectedSameCaseSlide);
+$btnMultiViewSameCase?.addEventListener('click', () => _openMultiView(_selectedSameCaseSlides()));
+$sameCaseDialog?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    _closeSameCaseDialog();
+});
+$sameCaseDialog?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !event.target?.classList?.contains('same-case-card')) return;
+    event.preventDefault();
+    _ensureSameCaseSlideSelected(event.target.dataset.slideId);
+    _showSameCaseOpenChoice(event.target.dataset.slideId);
+});
+$('#close-same-case-choice')?.addEventListener('click', _closeSameCaseOpenChoice);
+$('#cancel-same-case-choice')?.addEventListener('click', _closeSameCaseOpenChoice);
+$sameCaseOpenChoice?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    _closeSameCaseOpenChoice();
+});
+$btnChoiceViewSlide?.addEventListener('click', () => {
+    const slideId = _sameCaseChoiceSlideId;
+    _selectedSameCaseSlideIds = slideId ? [slideId] : [];
+    _refreshSameCaseSelection();
+    _closeSameCaseOpenChoice();
+    _viewSelectedSameCaseSlide();
+});
+$btnChoiceMultiView?.addEventListener('click', () => {
+    const slides = _sameCaseMultiViewSlides(_sameCaseChoiceSlideId);
+    _openMultiView(slides);
+});
+$('#exit-multi-view')?.addEventListener('click', () => _exitMultiView());
+
 // Slide information dialog.
 $btnInfo.addEventListener('click', async () => {
     if (!currentSlideInfo) return;
@@ -2514,7 +3262,8 @@ async function startDetection() {
     if (!currentSlideId) return;
     if (await _maybeCancelRunning('detect')) return;
 
-    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect };
+    const aiTarget = _currentAiTarget();
+    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect, target: aiTarget };
     _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
@@ -2528,7 +3277,7 @@ async function startDetection() {
         const roiAnnotations = viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
-        const { task_id } = await api.startDetection(currentSlideId, roiPolygons, tissueType);
+        const { task_id } = await api.startDetection(aiTarget.slideId, roiPolygons, tissueType);
         if (_runningAiTasks['detect']) {
             _runningAiTasks['detect'].task_id = task_id;
             if (_runningAiTasks['detect'].pending_cancel) {
@@ -2554,7 +3303,9 @@ async function startDetection() {
 
             if (st.status === 'completed') {
                 const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
-                onDetectionComplete(result, roiPolygons, tissueType);
+                if (!_applyAiResultToTarget(aiTarget, () => onDetectionComplete(result, roiPolygons, tissueType))) {
+                    setStatus('Detection completed, but its slide is no longer open.');
+                }
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
@@ -3142,10 +3893,14 @@ async function _openLoadUserEditDialog() {
             </div>`;
         info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
+            const aiTarget = _currentAiTarget();
             try {
                 setStatus(`Loading ${displayName}'s analysis...`);
-                const r = await api.loadUserAiEdit(currentSlideId, aiMode, u.str_user_id, variant);
-                _applyLoadedResult(aiMode, variant, r.result);
+                const r = await api.loadUserAiEdit(aiTarget.slideId, aiMode, u.str_user_id, variant);
+                if (!_applyAiResultToTarget(aiTarget, () => _applyLoadedResult(aiMode, variant, r.result))) {
+                    setStatus('Result loaded, but its slide is no longer open.');
+                    return;
+                }
                 setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
             } catch (err) {
                 setStatus(`Load failed: ${err.message}`);
@@ -3265,6 +4020,10 @@ function _resizeViewerCanvasSoon() {
 }
 
 function _restorePanelSizes() {
+    const int_left_w = parseInt(localStorage.getItem('leftPanelWidth') || '', 10);
+    if (!Number.isNaN(int_left_w) && int_left_w >= 260 && int_left_w <= 500) {
+        document.documentElement.style.setProperty('--left-panel-w', `${int_left_w}px`);
+    }
     const int_right_w = parseInt(localStorage.getItem('rightPanelWidth') || '', 10);
     if (!Number.isNaN(int_right_w) && int_right_w >= 280 && int_right_w <= 560) {
         document.documentElement.style.setProperty('--right-panel-w', `${int_right_w}px`);
@@ -3300,11 +4059,15 @@ $resizer.addEventListener('mousedown', (e) => {
     const startW = $leftPanel.offsetWidth;
 
     function onMove(ev) {
-        const w = Math.max(160, Math.min(500, startW + ev.clientX - startX));
+        const w = Math.max(260, Math.min(500, startW + ev.clientX - startX));
         document.documentElement.style.setProperty('--left-panel-w', `${w}px`);
         _resizeViewerCanvasSoon();
     }
     function onUp() {
+        const int_width = Math.round($leftPanel.getBoundingClientRect().width);
+        if (int_width >= 260 && int_width <= 500) {
+            localStorage.setItem('leftPanelWidth', String(int_width));
+        }
         $resizer.classList.remove('dragging');
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
@@ -4124,14 +4887,14 @@ function updateBreadcrumb() {
 let _openSlideAbortController = null;
 let _openSlideSeq = 0;
 
-async function openSavedSlide(filename, itemEl) {
+async function openSavedSlide(filename, itemEl, slidePath = currentBrowsePath) {
     _openSlideAbortController?.abort();
     const controller = new AbortController();
     _openSlideAbortController = controller;
     const seq = ++_openSlideSeq;
     setStatus('Opening...');
     try {
-        const info = await api.openSlide(filename, currentBrowsePath, '', { signal: controller.signal });
+        const info = await api.openSlide(filename, slidePath, '', { signal: controller.signal });
         if (seq !== _openSlideSeq || controller.signal.aborted) return;
         if (info.exists) {
             $slideList.querySelectorAll('.slide-list-item').forEach(el => el.classList.remove('active'));
@@ -4140,7 +4903,7 @@ async function openSavedSlide(filename, itemEl) {
         }
     } catch (err) {
         if (err?.name === 'AbortError') return;
-        setStatus(`Move failed: ${err.message}`);
+        setStatus(`Open failed: ${err.message}`);
     } finally {
         if (_openSlideAbortController === controller) _openSlideAbortController = null;
     }
@@ -4643,7 +5406,8 @@ async function startPdScore() {
     if (!currentSlideId) return;
     if (await _maybeCancelRunning('pd-score')) return;
 
-    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore };
+    const aiTarget = _currentAiTarget();
+    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore, target: aiTarget };
     _setButtonRunning($btnPdScore, true);
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
@@ -4657,7 +5421,7 @@ async function startPdScore() {
         const roiAnnotations = viewer.annotations.filter(a => a.visible && a.type !== 'point' && a.coordinates.length >= 3);
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
-        const { task_id } = await api.startPdScore(currentSlideId, roiPolygons, tissueType);
+        const { task_id } = await api.startPdScore(aiTarget.slideId, roiPolygons, tissueType);
         if (_runningAiTasks['pd-score']) {
             _runningAiTasks['pd-score'].task_id = task_id;
             if (_runningAiTasks['pd-score'].pending_cancel) {
@@ -4676,7 +5440,9 @@ async function startPdScore() {
 
             if (st.status === 'completed') {
                 const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
-                onPdScoreComplete(result, roiPolygons, tissueType);
+                if (!_applyAiResultToTarget(aiTarget, () => onPdScoreComplete(result, roiPolygons, tissueType))) {
+                    setStatus('Quanti PD-L1 completed, but its slide is no longer open.');
+                }
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);
@@ -4775,7 +5541,8 @@ async function startPreciseIhc(marker) {
 
     const btnEl = marker === 'ER_PR' ? $btnIhcErPr : (marker === 'KI_67' ? $btnIhcKi67 : $btnIhcHer2);
     const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
-    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
+    const aiTarget = _currentAiTarget();
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl, target: aiTarget };
     _setButtonRunning(btnEl, true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
     $progressLabel.textContent = `${markerLabel} Detection...`;
@@ -4790,7 +5557,7 @@ async function startPreciseIhc(marker) {
         );
         const roiPolygons = roiAnnotations.length > 0 ? roiAnnotations.map(a => a.coordinates) : null;
 
-        const { task_id } = await api.startPreciseIhc(currentSlideId, roiPolygons, marker);
+        const { task_id } = await api.startPreciseIhc(aiTarget.slideId, roiPolygons, marker);
         if (_runningAiTasks[str_key]) {
             _runningAiTasks[str_key].task_id = task_id;
             if (_runningAiTasks[str_key].pending_cancel) {
@@ -4809,7 +5576,9 @@ async function startPreciseIhc(marker) {
 
             if (st.status === 'completed') {
                 const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
-                onPreciseIhcComplete(result, roiPolygons, marker);
+                if (!_applyAiResultToTarget(aiTarget, () => onPreciseIhcComplete(result, roiPolygons, marker))) {
+                    setStatus(`${markerLabel} completed, but its slide is no longer open.`);
+                }
                 return;
             } else if (st.status === 'error') {
                 throw new Error(st.error);

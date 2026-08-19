@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">U.S. Data Residency and Restricted Access Architecture</title>
+  <desc id="desc">Logical data architecture showing Kaiser Permanente and MAPMG data accessed only by authorized U.S.-based Medicus personnel and processed, stored, and maintained only within the United States, with offshore access and transmission blocked.</desc>
+  <defs>
+    <linearGradient id="pageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7faff"/>
+      <stop offset="1" stop-color="#eef3fb"/>
+    </linearGradient>
+    <linearGradient id="usBoundary" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f4f8ff"/>
+    </linearGradient>
+    <linearGradient id="medicusBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef4ff"/>
+      <stop offset="1" stop-color="#f8f5ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#21345b" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#315dcc"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#11875d"/>
+    </marker>
+    <style>
+      text { font-family: Arial, "Noto Sans", sans-serif; fill: #14213d; }
+      .title { font-size: 40px; font-weight: 700; letter-spacing: .2px; }
+      .subtitle { font-size: 18px; fill: #51627f; }
+      .section { font-size: 21px; font-weight: 700; }
+      .cardTitle { font-size: 19px; font-weight: 700; }
+      .body { font-size: 16px; fill: #3e4f6b; }
+      .small { font-size: 14px; fill: #53637d; }
+      .micro { font-size: 12px; fill: #60708a; }
+      .white { fill: #ffffff; }
+      .center { text-anchor: middle; }
+      .label { font-size: 14px; font-weight: 700; letter-spacing: .7px; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#pageBg)"/>
+
+  <g id="header">
+    <text x="70" y="58" class="title">U.S. Data Residency and Restricted Access Architecture</text>
+    <text x="72" y="91" class="subtitle">Kaiser Permanente / MAPMG — Medicus Research Collaboration</text>
+    <text x="1528" y="54" class="small" text-anchor="end">Logical Data Architecture</text>
+    <text x="1528" y="80" class="micro" text-anchor="end">Accompanying diagram to memorandum dated August 18, 2026</text>
+    <line x1="70" y1="110" x2="1530" y2="110" stroke="#cbd6ea" stroke-width="2"/>
+  </g>
+
+  <g id="united-states-boundary">
+    <rect x="45" y="145" width="1510" height="635" rx="26" fill="url(#usBoundary)" stroke="#2556bd" stroke-width="3" filter="url(#shadow)"/>
+    <rect x="78" y="127" width="390" height="38" rx="19" fill="#2556bd"/>
+    <text x="273" y="152" class="label white center">UNITED STATES DATA RESIDENCY BOUNDARY</text>
+    <g transform="translate(1490,134)">
+      <path d="M0,8 L17,1 L34,8 V22 C34,35 25,44 17,48 C9,44 0,35 0,22 Z" fill="#e8f1ff" stroke="#2556bd" stroke-width="2"/>
+      <path d="M10,23 L15,28 L25,17" fill="none" stroke="#11875d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+
+  <g id="authorized-personnel" filter="url(#shadow)">
+    <rect x="85" y="200" width="365" height="170" rx="18" fill="#ffffff" stroke="#7f96c4" stroke-width="2"/>
+    <circle cx="142" cy="256" r="30" fill="#e9f0ff"/>
+    <circle cx="142" cy="246" r="10" fill="#315dcc"/>
+    <path d="M119,278 C122,261 132,256 142,256 C152,256 162,261 165,278" fill="#315dcc"/>
+    <text x="185" y="236" class="label" fill="#315dcc">AUTHORIZED PERSONNEL</text>
+    <text x="185" y="267" class="cardTitle">U.S.-Based Personnel Only</text>
+    <text x="112" y="314" class="body">Physically located within the United States</text>
+    <text x="112" y="342" class="small">Access limited to approved Study personnel</text>
+  </g>
+
+  <path d="M450,285 C570,285 665,230 790,230" fill="none" stroke="#11875d" stroke-width="4" stroke-dasharray="10 8" marker-end="url(#arrowGreen)"/>
+  <rect x="498" y="245" width="205" height="34" rx="17" fill="#e9f8f2" stroke="#8ed0b8"/>
+  <text x="601" y="267" class="small center" fill="#08734d">Authorized access only</text>
+
+  <g id="kp-mapmg-source" filter="url(#shadow)">
+    <rect x="85" y="410" width="365" height="300" rx="20" fill="#ffffff" stroke="#315dcc" stroke-width="2"/>
+    <rect x="85" y="410" width="365" height="58" rx="20" fill="#1d428a"/>
+    <path d="M85,448 H450 V468 H85 Z" fill="#1d428a"/>
+    <text x="267" y="447" class="cardTitle white center">KP / MAPMG AUTHORIZED SYSTEMS</text>
+    <g transform="translate(118,500)">
+      <rect x="0" y="0" width="88" height="70" rx="8" fill="#e9f0ff" stroke="#6584ca" stroke-width="2"/>
+      <path d="M13,55 L29,36 L43,45 L58,23 L76,55 Z" fill="#6e91db" opacity=".75"/>
+      <circle cx="25" cy="20" r="7" fill="#315dcc"/>
+      <rect x="9" y="8" width="70" height="53" rx="4" fill="none" stroke="#315dcc" stroke-width="2"/>
+    </g>
+    <text x="230" y="516" class="cardTitle">MAPMG-Provided Data</text>
+    <text x="230" y="549" class="body">De-identified WSI images</text>
+    <text x="230" y="577" class="body">Associated PD-L1 results</text>
+    <line x1="112" y1="605" x2="423" y2="605" stroke="#d8e0ef"/>
+    <text x="112" y="636" class="small">Study materials and data provided under</text>
+    <text x="112" y="658" class="small">the applicable agreements and documentation</text>
+    <rect x="112" y="676" width="216" height="24" rx="12" fill="#edf3ff"/>
+    <text x="220" y="693" class="micro center" fill="#315dcc">Approved Study use only</text>
+  </g>
+
+  <g id="authorized-connection">
+    <path d="M450,560 H515" fill="none" stroke="#315dcc" stroke-width="5" marker-end="url(#arrowBlue)"/>
+    <rect x="515" y="445" width="235" height="230" rx="24" fill="#f6f8fd" stroke="#7e92bb" stroke-width="2" filter="url(#shadow)"/>
+    <circle cx="632" cy="510" r="37" fill="#e8effd"/>
+    <rect x="614" y="504" width="36" height="29" rx="5" fill="#315dcc"/>
+    <path d="M620,504 V494 C620,478 644,478 644,494 V504" fill="none" stroke="#315dcc" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="632" cy="518" r="4" fill="#ffffff"/>
+    <text x="632" y="570" class="label center" fill="#315dcc">AUTHORIZED PROJECT</text>
+    <text x="632" y="591" class="label center" fill="#315dcc">CONNECTION</text>
+    <text x="632" y="622" class="small center">Purpose-limited data access</text>
+    <text x="632" y="646" class="small center">U.S.-to-U.S. path only</text>
+    <path d="M750,560 H795" fill="none" stroke="#315dcc" stroke-width="5" marker-end="url(#arrowBlue)"/>
+  </g>
+
+  <g id="medicus-environment" filter="url(#shadow)">
+    <rect x="795" y="190" width="700" height="520" rx="24" fill="url(#medicusBg)" stroke="#5946b8" stroke-width="3"/>
+    <rect x="795" y="190" width="700" height="68" rx="24" fill="#392f84"/>
+    <path d="M795,230 H1495 V258 H795 Z" fill="#392f84"/>
+    <text x="835" y="231" class="cardTitle white">MEDICUS U.S.-BASED ENVIRONMENT</text>
+    <rect x="1085" y="265" width="378" height="22" rx="11" fill="#e9e5ff" stroke="#9b8ed8"/>
+    <text x="1274" y="280" class="micro center" fill="#4a399b">U.S. ONLY: HOSTED • STORED • PROCESSED • ACCESSED</text>
+
+    <g id="server-workstation">
+      <rect x="830" y="292" width="285" height="160" rx="16" fill="#ffffff" stroke="#8da5d4" stroke-width="2"/>
+      <rect x="860" y="326" width="74" height="75" rx="6" fill="#dfe9fb" stroke="#315dcc" stroke-width="2"/>
+      <rect x="875" y="340" width="44" height="7" rx="3" fill="#315dcc"/>
+      <rect x="875" y="355" width="44" height="7" rx="3" fill="#315dcc"/>
+      <circle cx="910" cy="383" r="5" fill="#14a06f"/>
+      <text x="960" y="326" class="cardTitle">Secure Server /</text>
+      <text x="960" y="350" class="cardTitle">Desktop Workstation</text>
+      <text x="960" y="384" class="small">Provided and managed</text>
+      <text x="960" y="407" class="small">by Medicus</text>
+      <rect x="852" y="420" width="234" height="20" rx="10" fill="#edf3ff"/>
+      <text x="969" y="434" class="micro center">U.S.-based project infrastructure</text>
+    </g>
+
+    <path d="M1115,372 H1160" fill="none" stroke="#315dcc" stroke-width="4" marker-end="url(#arrowBlue)"/>
+
+    <g id="processing">
+      <rect x="1160" y="292" width="300" height="160" rx="16" fill="#ffffff" stroke="#9b8ed8" stroke-width="2"/>
+      <circle cx="1205" cy="350" r="30" fill="#eeeafd"/>
+      <path d="M1188,350 H1222 M1205,333 V367 M1193,338 L1217,362 M1217,338 L1193,362" stroke="#5946b8" stroke-width="4" stroke-linecap="round"/>
+      <text x="1248" y="329" class="cardTitle">PD-L1 Analysis &amp;</text>
+      <text x="1248" y="353" class="cardTitle">Research Processing</text>
+      <text x="1190" y="397" class="small">Analytical processing</text>
+      <text x="1190" y="421" class="small">Derived results and Study outputs</text>
+    </g>
+
+    <path d="M1308,452 V480" fill="none" stroke="#315dcc" stroke-width="4" marker-end="url(#arrowBlue)"/>
+    <path d="M969,452 V480" fill="none" stroke="#315dcc" stroke-width="4" marker-end="url(#arrowBlue)"/>
+
+    <g id="project-storage">
+      <rect x="830" y="480" width="285" height="185" rx="16" fill="#ffffff" stroke="#8da5d4" stroke-width="2"/>
+      <g transform="translate(858,520)">
+        <ellipse cx="38" cy="12" rx="36" ry="12" fill="#315dcc"/>
+        <path d="M2,12 V62 C2,69 18,75 38,75 C58,75 74,69 74,62 V12" fill="#5477ca"/>
+        <ellipse cx="38" cy="37" rx="36" ry="12" fill="none" stroke="#dce6fb" stroke-width="3"/>
+        <ellipse cx="38" cy="61" rx="36" ry="12" fill="none" stroke="#dce6fb" stroke-width="3"/>
+      </g>
+      <text x="952" y="522" class="cardTitle">Project Data Storage</text>
+      <text x="952" y="553" class="small">WSI images and PD-L1 results</text>
+      <text x="952" y="577" class="small">Research records</text>
+      <text x="952" y="601" class="small">Associated project data</text>
+      <rect x="853" y="630" width="235" height="22" rx="11" fill="#e7f7f1"/>
+      <text x="970" y="645" class="micro center" fill="#08734d">Maintained exclusively in the U.S.</text>
+    </g>
+
+    <g id="research-outputs">
+      <rect x="1160" y="480" width="300" height="185" rx="16" fill="#ffffff" stroke="#9b8ed8" stroke-width="2"/>
+      <path d="M1193,520 H1242 L1260,538 V606 H1193 Z" fill="#eeeafd" stroke="#5946b8" stroke-width="2"/>
+      <path d="M1242,520 V538 H1260" fill="none" stroke="#5946b8" stroke-width="2"/>
+      <line x1="1207" y1="557" x2="1247" y2="557" stroke="#806fc9" stroke-width="3"/>
+      <line x1="1207" y1="573" x2="1247" y2="573" stroke="#806fc9" stroke-width="3"/>
+      <line x1="1207" y1="589" x2="1234" y2="589" stroke="#806fc9" stroke-width="3"/>
+      <text x="1283" y="522" class="cardTitle">Research Outputs &amp;</text>
+      <text x="1283" y="546" class="cardTitle">Project Deliverables</text>
+      <text x="1283" y="578" class="small">Analytical outputs</text>
+      <text x="1283" y="602" class="small">Derived results and insights</text>
+      <rect x="1185" y="630" width="250" height="22" rx="11" fill="#e7f7f1"/>
+      <text x="1310" y="645" class="micro center" fill="#08734d">Accessed and maintained in the U.S.</text>
+    </g>
+  </g>
+
+  <g id="commitment-summary">
+    <rect x="50" y="818" width="805" height="126" rx="20" fill="#ffffff" stroke="#c4d0e4" stroke-width="2"/>
+    <text x="82" y="853" class="label" fill="#315dcc">DATA RESIDENCY &amp; ACCESS COMMITMENTS</text>
+    <g transform="translate(82,875)">
+      <circle cx="15" cy="15" r="15" fill="#e7f7f1"/><path d="M8,15 L13,20 L22,10" fill="none" stroke="#11875d" stroke-width="3" stroke-linecap="round"/><text x="40" y="21" class="small">U.S.-only personnel</text>
+      <circle cx="215" cy="15" r="15" fill="#e7f7f1"/><path d="M208,15 L213,20 L222,10" fill="none" stroke="#11875d" stroke-width="3" stroke-linecap="round"/><text x="240" y="21" class="small">Domestic hosting &amp; processing</text>
+      <circle cx="490" cy="15" r="15" fill="#e7f7f1"/><path d="M483,15 L488,20 L497,10" fill="none" stroke="#11875d" stroke-width="3" stroke-linecap="round"/><text x="515" y="21" class="small">Original and derived data remain in U.S.</text>
+    </g>
+    <text x="82" y="928" class="micro">All activities involving MAPMG-provided data and project deliverables are performed exclusively within the United States.</text>
+  </g>
+
+  <g id="offshore-blocked" filter="url(#shadow)">
+    <rect x="895" y="818" width="655" height="126" rx="20" fill="#fff5f5" stroke="#c93434" stroke-width="3"/>
+    <circle cx="943" cy="861" r="25" fill="#c93434"/>
+    <line x1="929" y1="847" x2="957" y2="875" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+    <line x1="957" y1="847" x2="929" y2="875" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+    <text x="985" y="852" class="cardTitle" fill="#a62424">OUTSIDE UNITED STATES — BLOCKED</text>
+    <text x="985" y="879" class="small" fill="#8d3030">No transfer, transmission, access, hosting, processing, storage, or maintenance</text>
+    <text x="925" y="913" class="small" fill="#8d3030">No direct or indirect access by offshore personnel, subcontractors, agents, or affiliates</text>
+  </g>
+
+  <path d="M1430,710 C1430,757 1290,770 1225,806" fill="none" stroke="#c93434" stroke-width="3" stroke-dasharray="8 7"/>
+  <circle cx="1225" cy="806" r="15" fill="#ffffff" stroke="#c93434" stroke-width="3"/>
+  <line x1="1216" y1="797" x2="1234" y2="815" stroke="#c93434" stroke-width="3"/>
+  <line x1="1234" y1="797" x2="1216" y2="815" stroke="#c93434" stroke-width="3"/>
+
+  <text x="800" y="982" class="small center">Study: “Combined Positive Score (CPS) in Gastric and Breast Cancer PD-L1”</text>
+</svg>
