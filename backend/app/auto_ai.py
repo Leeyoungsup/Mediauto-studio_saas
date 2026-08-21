@@ -711,7 +711,7 @@ async def _scan_and_infer_once() -> None:
             f"vs_cache_hit={int_vs_cache_hits}, missing_file={int_missing_file})",
             SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
         )
-    else:
+    elif int_missing_file > 0:
         _log_throttled(
             "scan_summary",
             f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s) "
