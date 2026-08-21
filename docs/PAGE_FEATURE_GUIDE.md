@@ -1,315 +1,1104 @@
-# MeDIAuto Studio SaaS 페이지별 기능 정리
+# MeDIAuto Studio SaaS 페이지별 사용자 가이드
 
-> 기준일: 2026-08-21  
-> 기준: 현재 프론트엔드 화면과 실제 이벤트·API 코드  
-> 전체 기술·보안·데이터 구조는 [PROJECT_FEATURE_ANALYSIS.md](PROJECT_FEATURE_ANALYSIS.md) 참고
+> 사용자 매뉴얼 작성용 초안<br>
+> 화면 기준일: 2026-08-21<br>
+> 화면에 표시되는 영문 버튼명은 실제 UI와 쉽게 대조할 수 있도록 그대로 표기했습니다.
 
-## 페이지 목록
+## 이 문서의 목적
 
-| 페이지 | URL | 주요 목적 |
-| --- | --- | --- |
-| 시작 | `/` | 로그인 상태에 따른 자동 이동 |
-| 로그인·가입 | `/login` | 인증, 회원가입, MFA |
-| Home | `/home` | 대시보드, 최근 슬라이드, 빠른 작업 |
-| Project | `/project` | 프로젝트 조회·생성·수정·삭제 |
-| Data Linkage | `/data-linkage` | 케이스별 슬라이드·임상정보 연결 |
-| AI | `/ai` | WSI 확인과 AI 분석·결과 편집 |
-| Tissue Annotation | `/annotation`, `/tissue-annotation` | WSI 영역 주석과 검토 워크플로 |
-| Cell Annotation | `/cell-annotation` | 패치 기반 세포 라벨링 워크플로 |
-| Upload | `/upload` | 대용량 WSI 청크 업로드 |
-| Profile | `/profile` | 내 정보와 비밀번호 변경 |
-| Admin | `/admin` | 사용자·활동·백그라운드 워커 관리 |
+이 문서는 시스템 내부 구조가 아니라 사용자가 화면에서 할 수 있는 일을 페이지별로 설명합니다. 처음 접하는 사용자도 아래 순서대로 읽으면 로그인부터 슬라이드 업로드, AI 분석, 주석, 검토까지 전체 업무 흐름을 이해할 수 있습니다.
 
-## 1. 시작 페이지
+## 전체 작업 흐름
 
-### URL
+1. 계정을 만들고 관리자의 승인을 받습니다.
+2. Home 또는 Project에서 작업할 프로젝트를 만듭니다.
+3. 프로젝트에 슬라이드를 업로드합니다.
+4. AI, Tissue Annotation, Cell Annotation 중 필요한 작업공간을 엽니다.
+5. 슬라이드를 선택하고 분석 또는 주석 작업을 수행합니다.
+6. 결과를 저장하고 Review와 Termination 단계를 진행합니다.
 
-`/`
+## 역할별 이용 범위
 
-### 역할
+| 역할 | 주요 이용 범위 |
+| --- | --- |
+| Admin | 모든 기능, 프로젝트 삭제, 사용자 승인·관리, 시스템 작업 설정 |
+| Doctor | 프로젝트 생성·수정, AI 분석, 주석 클래스 설정, 주석·검토·종결 |
+| Labeler | AI 실행, 지정된 Tissue/Cell Annotation 작업. 프로젝트와 검토·종결 관리는 제한됨 |
+| Viewer | 프로젝트와 슬라이드 및 기존 결과 열람 중심 |
 
-애플리케이션에 처음 접근했을 때 로그인 상태를 확인하는 진입점이다.
+화면에 보이는 버튼은 역할과 현재 작업 상태에 따라 숨겨지거나 비활성화될 수 있습니다.
 
-### 동작
+---
 
-- Access Token이 있으면 `/home`으로 이동
-- Access Token이 없으면 `/login`으로 이동
-- 별도의 사용자 입력이나 화면 기능은 없음
+## 1. 로그인 및 회원가입
 
-## 2. 로그인·회원가입 페이지
-
-### URL
+### 페이지 주소
 
 `/login`
 
-### 목적
+### 로그인하기
 
-로그인, 신규 계정 신청, MFA 인증을 한 화면에서 처리한다.
+1. `Login ID`를 입력합니다.
+2. `Password`를 입력합니다.
+3. `Sign in`을 누릅니다.
+4. MFA가 설정된 계정은 표시되는 입력란에 6자리 인증 코드를 입력하고 다시 로그인합니다.
+5. 로그인이 완료되면 Home 화면으로 이동합니다.
 
-### 로그인 기능
+### 계정 만들기
 
-- Login ID와 Password 입력
-- MFA가 활성화된 계정은 첫 로그인 응답 후 6자리 TOTP 입력란 표시
-- 로그인 성공 시 Access Token, Refresh Token, 사용자 정보를 localStorage에 저장
-- 로그인 완료 후 Home으로 이동
-- 이미 Access Token이 있으면 자동으로 Home으로 이동
+1. 화면 아래의 `Sign up`을 선택합니다.
+2. 다음 항목을 입력합니다.
+   - `Name`: 이름, 필수
+   - `Department`: 부서, 선택
+   - `Login ID`: 로그인할 때 사용할 ID
+   - `Password`: 비밀번호
+3. `Sign up`을 누릅니다.
+4. 가입 신청이 완료되면 관리자의 승인을 기다립니다.
+5. 관리자가 계정을 승인하고 역할을 지정한 뒤 로그인할 수 있습니다.
 
-### 회원가입 기능
+### 입력 규칙
 
-- Sign in / Sign up 모드 전환
-- Name 필수
-- Department 선택 입력
-- Login ID 규칙:
-  - 4~30자
-  - 영문, 숫자, 밑줄만 허용
-- Password 규칙:
-  - 8자 이상
-  - 영문 대문자 포함
-  - 영문 소문자 포함
-  - 숫자 포함
-  - 특수문자 포함
-- 첫 가입자는 자동 승인된 Admin으로 생성
-- 이후 가입자는 Viewer·Pending·Inactive 상태로 생성되어 관리자 승인이 필요
+- Login ID는 4~30자의 영문, 숫자, 밑줄만 사용할 수 있습니다.
+- 비밀번호는 8자 이상이어야 합니다.
+- 비밀번호에는 대문자, 소문자, 숫자, 특수문자가 각각 하나 이상 포함되어야 합니다.
 
-### 오류·보안 처리
+### 로그인이 되지 않을 때
 
-- FastAPI validation 오류를 사용자 메시지로 변환
-- 승인 대기, 거절, 비활성, 잠금 상태 메시지 표시
-- 로그인 5회 실패 시 계정이 30분 잠김
-- 로그인·가입 요청은 IP당 5분 10회 제한
+- `Pending` 또는 승인 대기 메시지: 관리자의 승인이 필요합니다.
+- 거절 메시지: 관리자에게 가입 상태를 문의합니다.
+- 비활성 계정 메시지: 관리자에게 계정 활성화를 요청합니다.
+- 잠금 메시지: 로그인 실패가 누적된 상태입니다. 잠금 시간이 지나기를 기다리거나 관리자에게 해제를 요청합니다.
+- 인증 코드 오류: 인증 앱의 시간과 기기의 시간이 맞는지 확인한 뒤 새 코드를 입력합니다.
 
-### 관련 API
+---
 
-- `POST /api/auth/login`
-- `POST /api/auth/register`
-- `POST /api/auth/refresh`
+## 2. 공통 상단 메뉴
 
-### 현재 제한
+로그인 후 대부분의 페이지 상단에서 다음 메뉴를 사용할 수 있습니다.
 
-- MFA 활성화·비활성화 화면은 없으며 로그인 시 코드 입력만 제공
+| 메뉴 | 설명 |
+| --- | --- |
+| Home | 저장공간, 최근 슬라이드, 프로젝트 현황을 확인합니다. |
+| Project | 프로젝트를 생성하고 설정합니다. |
+| Data Linkage | 같은 케이스의 슬라이드와 임상정보를 연결해 확인합니다. |
+| AI | AI 분석 작업공간을 엽니다. |
+| Annotation → Tissue Annotation | 조직 영역 단위 주석 작업공간을 엽니다. |
+| Annotation → Cell Annotation | 패치 기반 세포 주석 작업공간을 엽니다. |
+| Admin | 사용자와 시스템 작업을 관리합니다. Admin에게만 표시됩니다. |
+
+### 사용자 메뉴
+
+- 상단 사용자 이름을 누르면 Profile로 이동합니다.
+- `Logout`을 누르면 현재 계정에서 로그아웃하고 로그인 화면으로 돌아갑니다.
+
+---
 
 ## 3. Home 페이지
 
-### URL
+### 페이지 주소
 
 `/home`
 
-### 목적
+### 화면의 역할
 
-로그인 후 전체 현황을 확인하고 최근 작업이나 주요 메뉴로 빠르게 진입한다.
+로그인 후 처음 보는 대시보드입니다. 저장공간, 최근 작업, 프로젝트 현황을 한 화면에서 확인하고 자주 쓰는 기능으로 이동할 수 있습니다.
 
-### 상단 헤더
+### 저장공간 확인
 
-- Home 활성 표시
-- Project, Data Linkage, AI 메뉴
-- Annotation 하위 Tissue/Cell 메뉴
-- Admin 사용자에게 Admin 메뉴 표시
-- 사용자 이름에서 Profile 이동
-- 로그아웃
-- 현재 버전 표시
+화면 상단의 저장공간 영역에서 다음 정보를 확인합니다.
 
-### 저장공간 현황
+- 현재 사용 중인 용량
+- 전체 사용 가능한 용량
+- 전체 대비 사용률
 
-- 사용 중인 저장공간
-- 전체 저장공간
-- 사용률 progress bar
+용량이 거의 찼다면 새 슬라이드를 업로드하기 전에 관리자에게 문의합니다.
 
-### 최근 슬라이드
+### 최근 슬라이드 다시 열기
 
-- 최근 열어본 슬라이드 카드
-- 슬라이드 썸네일
-- 파일명, 크기, 마지막 접근 시각
-- AI 또는 Annotation 상태 badge
-- 마지막으로 열었던 AI/Tissue/Cell 작업공간으로 다시 열기
-- 미디어 티켓을 이용한 인증 썸네일
+`Recent Slides` 영역에는 최근 열었던 슬라이드가 표시됩니다.
 
-### 빠른 작업
+1. 원하는 슬라이드의 썸네일이나 카드를 찾습니다.
+2. 카드를 누릅니다.
+3. 해당 슬라이드에서 마지막으로 사용한 AI, Tissue Annotation 또는 Cell Annotation 화면이 열립니다.
 
-- AI Viewer 열기
-- Upload 팝업 열기
-- Profile 열기
-- Admin 열기
-- Viewer에게는 Upload 빠른 작업이 숨겨짐
-- Admin 빠른 작업은 Admin에게만 표시
+카드에서는 파일명, 크기, 최근 작업 시각과 작업 상태를 확인할 수 있습니다.
 
-### 프로젝트 현황
+### Quick Actions
 
-- 프로젝트 목록
-- 프로젝트별 슬라이드 수
-- 상태 badge
-- Slides by Project 차트
-- Slides by Hospital 차트
-- 차트 hover 상세 정보
-- 프로젝트 목록 10개 단위 페이지 이동
+- `AI Viewer`: AI 프로젝트 선택 화면으로 이동합니다.
+- `Upload`: 슬라이드 업로드 창을 엽니다.
+- `Profile`: 내 정보를 수정합니다.
+- `Admin`: 관리자 화면으로 이동합니다.
 
-### 프로젝트 동작
+역할에 따라 Upload 또는 Admin 항목이 표시되지 않을 수 있습니다.
 
-- 프로젝트 Open
-- 프로젝트 Info/Edit
-- 빈 프로젝트 Delete
-- Open 시 진입 위치 선택:
-  - AI
-  - Tissue Annotation
-  - Cell Annotation
+### 프로젝트 현황 확인
 
-### 권한
+- 프로젝트 이름과 상태
+- 병원 또는 기관
+- 담당자
+- 슬라이드 수
+- 프로젝트별·병원별 슬라이드 차트
+- 목록 페이지 이동
 
-| 동작 | Admin | Doctor | Labeler | Viewer |
-| --- | :---: | :---: | :---: | :---: |
-| 현황·최근 슬라이드 보기 | O | O | O | O |
-| 프로젝트 생성·수정 | O | O | - | - |
-| 프로젝트 삭제 | O | - | - | - |
-| 빠른 Upload | O | O | O | 숨김 |
-| Admin 진입 | O | - | - | - |
+차트의 항목 위에 마우스를 올리면 해당 항목의 상세 수가 표시됩니다.
 
-### 관련 API
+### 프로젝트 열기
 
-- `GET /api/slides/dashboard`
-- `GET /api/slides/projects`
-- `GET /api/slides/folder-tree`
-- 프로젝트 생성·수정·삭제 API
-- 썸네일·미디어 티켓 API
+1. 프로젝트 목록에서 작업할 프로젝트의 `Open`을 누릅니다.
+2. 열기 창에서 작업 유형을 선택합니다.
+   - `AI`
+   - `Tissue Annotation`
+   - `Cell Annotation`
+3. 선택한 작업공간의 슬라이드 목록이 열립니다.
+
+### 프로젝트 정보 확인·수정
+
+- `Info` 또는 Edit 동작을 선택합니다.
+- 프로젝트의 제목, 병원, 부서, 담당자, 상태, 마감일, 설명을 확인합니다.
+- Admin 또는 Doctor는 내용을 변경할 수 있습니다.
+
+---
 
 ## 4. Project 페이지
 
-### URL
+### 페이지 주소
 
 `/project`
 
-### 목적
+### 화면의 역할
 
-프로젝트 메타데이터와 자동화 설정을 관리한다.
+프로젝트를 만들고 프로젝트별 작업 정보와 자동 AI 설정을 관리합니다. Home과 비슷한 대시보드가 표시되지만 프로젝트 관리에 초점을 둔 메뉴입니다.
 
-### Home과의 관계
+### 새 프로젝트 만들기
 
-- Home과 같은 HTML 구조 및 `home.js` 사용
-- Project 메뉴가 활성화된다는 점이 주요 차이
-- 최근 슬라이드, 저장공간, 차트, 빠른 작업도 함께 표시됨
+Admin 또는 Doctor가 사용할 수 있습니다.
 
-### 프로젝트 생성·수정 필드
+1. `New Project`를 누릅니다.
+2. 프로젝트 정보를 입력합니다.
+   - `Title`: 프로젝트 제목
+   - `Hospital`: 병원 또는 기관
+   - `Department`: 부서
+   - `Owner`: 담당자
+   - `Status`: 프로젝트 상태
+   - `Due Date`: 마감일
+   - `Description`: 설명
+3. 필요한 경우 자동 AI 설정을 선택합니다.
+4. `Save` 또는 생성 버튼을 누릅니다.
 
-- Title
-- Hospital/Institution
-- Department
+### 프로젝트 상태
+
+| 상태 | 권장 사용 예시 |
+| --- | --- |
+| Active | 새로 생성되어 작업 가능한 프로젝트 |
+| In Progress | 현재 작업 중인 프로젝트 |
+| Review | 결과 검토 중인 프로젝트 |
+| Done | 작업이 완료된 프로젝트 |
+| Archived | 보관된 프로젝트 |
+
+상태의 업무적 의미는 기관 운영 규칙에 맞게 통일해서 사용합니다.
+
+### 프로젝트 수정
+
+1. 프로젝트 목록에서 `Info` 또는 Edit를 누릅니다.
+2. 필요한 항목을 변경합니다.
+3. 저장합니다.
+
+Labeler와 Viewer는 프로젝트 정보를 볼 수 있지만 프로젝트 생성·수정은 할 수 없습니다.
+
+### 프로젝트 자동 AI 설정
+
+프로젝트에 슬라이드가 추가된 뒤 시스템이 유휴 상태일 때 지정한 분석을 자동으로 실행하도록 설정할 수 있습니다.
+
+선택 가능한 작업:
+
+- Quanti HE: Stomach, Breast, Other
+- Quanti PD-L1: Stomach CPS, Lung TPS
+- Quanti IHC: HER2, ER/PR Allred, KI-67
+- VS IHC: IHC → Virtual H&E
+
+VS IHC는 Target Resolution을 함께 선택합니다.
+
+| 설정 | 표시 배율 | 특징 |
+| --- | --- | --- |
+| 4.0 µm/px | 약 ×2.5 | 빠르고 거친 결과 |
+| 2.0 µm/px | 약 ×5 | 기본적인 검토용 |
+| 1.0 µm/px | 약 ×10 | 더 세밀한 결과 |
+| 0.5 µm/px | 약 ×20 | 가장 세밀하지만 처리 시간이 길어질 수 있음 |
+
+### Cell Annotation AI assistance 설정
+
+Cell Annotation에서 패치 라벨링을 보조할 모델 하나를 선택할 수 있습니다.
+
+1. Cell Annotation assistance를 켭니다.
+2. 슬라이드 염색과 작업 목적에 맞는 모델을 선택합니다.
+3. 프로젝트를 저장합니다.
+
+설정을 변경하면 이후 생성되는 보조 결과와 클래스 구성이 달라질 수 있으므로 작업 시작 전에 모델을 확정하는 것이 좋습니다.
+
+### 프로젝트 삭제
+
+- Admin만 삭제할 수 있습니다.
+- 슬라이드나 하위 폴더가 없는 빈 프로젝트만 삭제할 수 있습니다.
+- 삭제 확인 창에서 프로젝트 이름을 다시 확인합니다.
+
+---
+
+## 5. AI·Annotation 공통 프로젝트 선택 화면
+
+AI, Tissue Annotation, Cell Annotation 메뉴를 바로 열면 먼저 프로젝트 선택 화면이 표시됩니다.
+
+### 프로젝트 검색
+
+검색창은 다음 내용을 함께 검색합니다.
+
+- 프로젝트 이름과 제목
+- 담당자
+- 병원
+- 부서
+- 상태
+- 설명
+
+### 필터
+
+- `Hospital`
+- `Owner`
+- `Status`
+- `Rows`: 페이지당 10, 30 또는 50개
+
+### Additional conditions
+
+`Additional conditions`를 켜면 다음 조건을 추가할 수 있습니다.
+
+- `Has slides`: 슬라이드가 있는 프로젝트만 표시
+- `Has folders`: 하위 폴더가 있는 프로젝트만 표시
+- `Min slides`: 지정한 수 이상의 슬라이드가 있는 프로젝트만 표시
+
+### 정렬
+
+표의 제목을 누르면 다음 항목을 오름차순 또는 내림차순으로 정렬합니다.
+
+- Project
+- Hospital
 - Owner
-- Status:
-  - Active
-  - In Progress
-  - Review
-  - Done
-  - Archived
-- Due Date
-- Description
+- Slides
+- AI Analyzed
+- Folders
+- Status
 
-### 프로젝트 자동 AI
+### 프로젝트 열기
 
-- 자동 AI 활성화 여부
-- 여러 AI 작업 동시 선택 가능
-- Quanti HE:
-  - Stomach
-  - Breast
-  - Other
-- Quanti PD-L1:
-  - Stomach CPS
-  - Lung TPS
-- Quanti IHC:
-  - HER2
-  - ER/PR Allred
-  - KI-67
-- VS IHC:
-  - IHC → Virtual H&E
-  - Target MPP 4.0 / 2.0 / 1.0 / 0.5 µm/px
+원하는 프로젝트 행 또는 `Open`을 누르면 해당 작업공간으로 들어갑니다.
 
-### Cell Annotation AI assistance
+---
 
-- Assistance 활성화 여부
-- 한 프로젝트에 한 모델 선택
-- Inherited AI:
-  - Quanti HE Breast/Stomach/Other
-  - PD-L1 Stomach/Lung
-  - IHC HER2/ER_PR/KI_67
-- Non-inherited AI:
-  - HnE
-  - IHC Membrane
-  - IHC Nucleus
-  - IHC Membrane (Breast)
-  - IHC Nucleus (Breast)
+## 6. Upload 페이지
 
-### 프로젝트 삭제 조건
+### 페이지 주소
 
-- Admin만 가능
-- 프로젝트가 비어 있어야 함
-- 삭제 전 confirm 표시
+`/upload`
 
-### 부분 구현 기능
+### 화면의 역할
 
-- 프로젝트 이름변경 API와 함수가 있음
-- 프로젝트를 다른 폴더로 이동하는 API·dialog 코드가 있음
-- 현재 기본 프로젝트 행에는 이름변경·이동 버튼이 직접 노출되지 않음
+프로젝트와 폴더를 선택해 WSI 파일을 업로드합니다. Home이나 각 작업공간에서 별도 팝업 창으로 열립니다.
 
-### 관련 API
+### 업로드 위치 선택
 
-- `POST /api/slides/project/create`
-- `POST /api/slides/project/update`
-- `POST /api/slides/project/rename`
-- `POST /api/slides/project/move-folder`
-- `POST /api/slides/project/delete`
+1. `Project`에서 대상 프로젝트를 선택합니다.
+2. 필요한 경우 하위 `Folder`를 선택합니다.
+3. 현재 작업공간에서 Upload를 연 경우 현재 프로젝트와 폴더가 미리 선택될 수 있습니다.
 
-## 5. Data Linkage 페이지
+프로젝트 선택은 필수입니다.
 
-### URL
+### 파일 추가
+
+다음 방법 중 하나를 사용합니다.
+
+- 파일 선택 영역을 눌러 파일 탐색기에서 선택
+- 파일을 업로드 영역으로 drag & drop
+- 여러 파일을 한 번에 선택
+
+### 지원 파일
+
+- SVS
+- NDPI
+- VMS, VMU
+- SCN
+- MRXS
+- TIFF, TIF
+- PNG
+- JPG, JPEG
+- Philips iSyntax, i2syntax
+
+한 파일의 최대 크기는 기본 20 GB입니다.
+
+### 업로드 진행
+
+- 파일은 목록 순서대로 하나씩 처리됩니다.
+- 각 파일의 진행률이 표시됩니다.
+- 전송이 끝난 뒤 파일 등록·검사 단계가 이어질 수 있습니다.
+- 업로드 중에는 창을 닫지 않습니다.
+- 창을 닫으려고 하면 작업 중이라는 경고가 표시됩니다.
+- 한 파일이 실패해도 나머지 파일은 계속 처리됩니다.
+
+### 동일 파일이 이미 있을 때
+
+충돌 화면에서 각 파일을 개별 선택합니다.
+
+- `Overwrite`: 기존 파일과 관련 작업 데이터를 제거하고 새 파일로 교체
+- `Skip`: 기존 파일을 유지하고 이번 파일은 건너뜀
+
+Overwrite는 기존 AI 결과와 주석 작업에도 영향을 줄 수 있으므로 신중하게 선택합니다.
+
+### 업로드 완료
+
+마지막에 다음 수를 확인합니다.
+
+- `Uploaded`: 성공
+- `Failed`: 실패
+- `Skipped`: 건너뜀
+
+업로드 창을 닫으면 원래 작업공간의 슬라이드 목록이 갱신됩니다.
+
+### 업로드가 실패할 때
+
+- 지원하는 확장자인지 확인합니다.
+- 프로젝트가 선택되어 있는지 확인합니다.
+- 파일이 손상되지 않았는지 확인합니다.
+- 저장공간이 충분한지 확인합니다.
+- 네트워크가 끊기지 않았는지 확인합니다.
+- Philips 파일은 해당 서버에 Philips 지원 환경이 준비되어 있어야 합니다.
+
+---
+
+## 7. AI·Tissue·Cell 공통 슬라이드 목록
+
+### 폴더 이동
+
+- Breadcrumb의 프로젝트 또는 폴더 이름을 눌러 상위 위치로 이동합니다.
+- 폴더를 더블클릭하거나 눌러 하위 폴더로 들어갑니다.
+- 권한이 있으면 새 폴더를 만들고 이름을 바꾸거나 삭제할 수 있습니다.
+
+### 슬라이드 검색
+
+검색창에 파일명의 일부를 입력하면 현재 폴더의 슬라이드가 필터링됩니다.
+
+### 목록·그리드 보기
+
+- List View: 파일명과 상태를 표 형태로 확인
+- Grid View: 큰 썸네일 중심으로 확인
+
+### 여러 슬라이드 선택
+
+| 조작 | 결과 |
+| --- | --- |
+| Ctrl/Cmd+클릭 | 선택 항목을 추가하거나 해제 |
+| Shift+클릭 | 마지막 선택부터 현재 항목까지 범위 선택 |
+| 빈 영역 드래그 | 사각 선택 영역 안의 여러 항목 선택 |
+
+### 파일 이동
+
+1. 하나 이상의 슬라이드를 선택합니다.
+2. 선택 항목을 대상 폴더 또는 Breadcrumb 위치로 끌어 놓습니다.
+3. 이동 후 목록을 확인합니다.
+
+파일 이동은 기존 결과나 주석의 경로와 연결될 수 있으므로 작업 중인 슬라이드는 이동하지 않는 것이 안전합니다.
+
+### 썸네일 크기
+
+왼쪽 슬라이드 목록 위에서 `Ctrl+마우스 휠`을 사용하면 썸네일 크기를 변경할 수 있습니다.
+
+### 우클릭 메뉴
+
+슬라이드나 폴더를 우클릭하면 현재 역할과 항목에 맞는 메뉴가 표시됩니다. 삭제 전에는 대상 파일명과 선택 개수를 반드시 확인합니다.
+
+---
+
+## 8. 공통 WSI Viewer 사용법
+
+AI, Tissue Annotation, Cell Annotation은 같은 기본 WSI 조작 방식을 사용합니다.
+
+### 화면 이동과 확대
+
+| 조작 | 동작 |
+| --- | --- |
+| 좌클릭 드래그 | 슬라이드 이동 |
+| 가운데 버튼 드래그 | 슬라이드 이동 |
+| 마우스 휠 | 화면 중앙을 기준으로 확대·축소 |
+| 한 손가락 드래그 | 터치 화면 이동 |
+| 두 손가락 pinch | 터치 확대·축소 |
+| `Fit` | 슬라이드 전체가 화면에 맞도록 표시 |
+| `Zoom In`, `Zoom Out` | 단계별 확대·축소 |
+
+### 미니맵
+
+- 미니맵에서 현재 보고 있는 영역을 사각형으로 확인합니다.
+- 미니맵을 클릭하면 해당 위치로 이동합니다.
+- 현재 영역 사각형을 드래그해 빠르게 이동합니다.
+- 미니맵 크기를 조절하거나 접을 수 있습니다.
+
+### 좌우 패널
+
+- 패널 경계를 드래그해 폭을 조절합니다.
+- 패널을 접어 Viewer를 넓게 사용할 수 있습니다.
+- 접힌 패널의 경계에서 Enter 또는 Space를 누르면 다시 열립니다.
+- 작은 화면에서는 패널이 drawer로 표시됩니다.
+
+### 슬라이드 정보
+
+`Slide Info`에서 다음 정보를 확인합니다.
+
+- 파일명
+- Scanner/Vendor
+- 배율
+- 픽셀 크기
+- MPP
+- 실제 물리 크기
+- 임상정보
+
+임상정보를 수정한 뒤 창을 닫으면 변경 내용이 자동 저장될 수 있습니다.
+
+### Hamamatsu 색상
+
+Hamamatsu 슬라이드에서는 NDP 색보정 옵션이 표시될 수 있습니다. 원본 보기와 보정 보기를 전환해 기관에서 사용하는 기준 화면과 비교합니다.
+
+### Same Case
+
+같은 환자·샘플의 다른 marker 슬라이드를 찾을 때 사용합니다.
+
+1. `Same Case`를 누릅니다.
+2. 검색된 슬라이드의 썸네일과 AI 결과 표시를 확인합니다.
+3. 최대 4개까지 선택합니다.
+4. 한 장만 보려면 단일 View를 선택합니다.
+5. 여러 장을 비교하려면 Multi View를 선택합니다.
+
+### Multi View
+
+- 2~4개 슬라이드를 동시에 표시합니다.
+- 각 화면의 `Fit`을 개별 사용할 수 있습니다.
+- 작업할 화면을 클릭하면 활성 슬라이드가 바뀝니다.
+- AI, Annotation, Info 동작은 활성 슬라이드에 적용됩니다.
+- Multi View를 닫으면 원래 슬라이드 화면으로 돌아갑니다.
+
+---
+
+## 9. AI 페이지
+
+### 페이지 주소
+
+`/ai`
+
+### 화면의 역할
+
+전체 슬라이드 또는 지정한 ROI에 AI 분석을 실행하고 결과 셀, 점수, 시각화 자료를 검토합니다.
+
+### 작업 시작
+
+1. AI 메뉴를 엽니다.
+2. 프로젝트를 선택합니다.
+3. 왼쪽 목록에서 슬라이드를 엽니다.
+4. 필요하면 ROI를 그립니다.
+5. 오른쪽 AI 영역에서 분석 종류를 선택합니다.
+6. 분석 버튼을 누릅니다.
+7. 진행률이 완료될 때까지 기다립니다.
+
+### ROI 도구
+
+| 도구 | 사용 방법 |
+| --- | --- |
+| Polygon | 원하는 영역의 경계를 드래그하여 둘러쌉니다. |
+| Polygon Brush | 붓처럼 드래그하여 자유 영역을 만듭니다. |
+| Rectangle | 시작점에서 끝점까지 드래그합니다. |
+| 1 mm² Rectangle | 원하는 위치에 고정 면적 사각형을 만듭니다. |
+| 1 mm² Circle | 원하는 위치에 고정 면적 원을 만듭니다. |
+| Ruler | 두 지점을 연결해 실제 거리를 측정합니다. |
+
+보이는 Polygon 또는 Rectangle ROI가 있으면 해당 영역만 분석합니다. ROI가 없으면 전체 슬라이드를 분석합니다.
+
+### ROI 수정
+
+- ROI를 클릭해 선택합니다.
+- 꼭짓점 또는 사각형 모서리를 드래그해 형태를 수정합니다.
+- `Shift+드래그`로 ROI 전체를 이동합니다.
+- `Alt+polygon 경계 클릭`으로 꼭짓점을 추가합니다.
+- 같은 클래스의 겹친 polygon에서 `Ctrl+클릭`하면 병합합니다.
+- `Delete`로 선택 ROI를 삭제합니다.
+- `Esc` 또는 우클릭으로 그리기 모드를 종료합니다.
+
+### VirtualStain
+
+IHC 원본에서 Virtual H&E 영상을 생성합니다.
+
+1. `VirtualStain`을 선택합니다.
+2. Target Resolution을 선택합니다.
+3. 실행 버튼을 누릅니다.
+4. 완료 후 `Overlay`를 켜서 원본 위에 결과를 겹쳐 봅니다.
+5. `Split View`를 켜서 왼쪽 IHC와 오른쪽 Virtual H&E를 비교합니다.
+6. 가운데 경계를 드래그해 비교 비율을 조절합니다.
+
+낮은 MPP 값은 더 세밀하지만 처리 시간이 길고 더 많은 자원을 사용할 수 있습니다.
+
+### Quanti HE
+
+H&E 슬라이드의 세포를 검출하고 분류합니다.
+
+1. `Quanti`에서 `HE`를 선택합니다.
+2. `Breast`, `Stomach`, `Other` 중 조직에 맞는 항목을 선택합니다.
+3. 분석을 실행합니다.
+4. 결과 목록에서 각 세포 클래스의 개수를 확인합니다.
+
+표시되는 주요 클래스:
+
+- Neutrophil
+- Epithelial
+- Lymphocyte
+- Plasma
+- Eosinophil
+- Stromal cell
+- Tumor Epithelial
+- Benign Epithelial
+
+Breast와 Stomach는 epithelial cell을 Tumor와 Benign으로 추가 구분합니다.
+
+### Quanti PD-L1
+
+1. `Quanti`에서 `PD-L1`을 선택합니다.
+2. 위 조직을 선택합니다.
+   - `Stomach`: CPS
+   - `Lung`: TPS
+3. 분석을 실행합니다.
+4. 결과 셀 수와 계산된 점수를 확인합니다.
+
+Stomach CPS는 양성 종양세포와 양성 면역세포를 viable tumor cell 수와 비교합니다. Lung TPS는 양성 종양세포를 전체 종양세포 수와 비교합니다.
+
+Other 또는 Non-Tumor로 분류된 셀은 기본적으로 숨겨지며 점수에서 제외됩니다.
+
+### Quanti IHC
+
+#### HER2
+
+- 0+, 1+, 2+, 3+ 세포 수
+- 가장 많은 등급
+- 전체 세포의 가중 평균 점수
+
+#### ER/PR
+
+- Proportion Score
+- Intensity Score
+- 두 값을 합한 Allred Total Score
+- Positive 또는 Negative 표시
+
+#### KI-67
+
+- 양성 세포 수
+- 음성 세포 수
+- Positive / Total 비율
+- 14% 기준 High 또는 Low 표시
+
+### 분석 진행·취소
+
+- 분석 중에는 진행률과 현재 상태가 표시됩니다.
+- 같은 실행 버튼을 다시 누르면 취소 여부를 묻거나 취소 요청을 보낼 수 있습니다.
+- 큰 슬라이드는 결과가 표시되기까지 시간이 걸릴 수 있습니다.
+- 왼쪽 목록의 상태 badge에서도 실행 중·완료 상태를 확인할 수 있습니다.
+
+### 결과 표시 관리
+
+- 클래스 이름 옆 표시 아이콘으로 해당 클래스의 셀을 숨기거나 다시 표시합니다.
+- 전체 표시/숨김을 사용할 수 있습니다.
+- 숨김은 화면과 점수 검토에 영향을 줄 수 있으므로 어떤 클래스가 숨겨졌는지 확인합니다.
+- Heatmap 버튼으로 밀도 분포를 켜거나 끕니다.
+
+### 결과 셀 수정
+
+Admin과 Doctor가 사용할 수 있습니다.
+
+| 조작 | 동작 |
+| --- | --- |
+| Alt+좌클릭 | 가까운 결과 셀을 선택해 클래스 변경 |
+| Alt+좌드래그 | 여러 가시 셀을 자유 영역으로 선택 |
+| Alt+우클릭 | 클릭한 위치에 새 결과 셀 추가 |
+| Alt+우드래그 | 숨겨진 Other 셀을 여러 개 선택해 가시 클래스로 변경 |
+| Alt+A | 반복 적용할 Sticky Class 선택 |
+| 1~9, 0 | 열린 편집창에서 클래스 1~10 선택 |
+| Delete 또는 D | 선택 셀 삭제 |
+| Ctrl+Z | 이전 편집 취소 |
+| Ctrl+Y 또는 Ctrl+Shift+Z | 취소한 편집 다시 적용 |
+
+셀을 수정하면 CPS, TPS, HER2, Allred, KI-67 값이 바로 다시 계산됩니다.
+
+### 결과 저장
+
+- `Save Results`: 현재 편집 결과를 내 저장본으로 저장합니다.
+- `Load Results`: 원본 AI 결과 또는 저장된 사용자 결과를 선택해 불러옵니다.
+- 내 저장본은 삭제할 수 있습니다.
+- `Clear Results`: 현재 화면의 결과 표시를 비웁니다.
+
+Clear와 사용자 저장본 삭제가 원본 AI 분석 결과까지 삭제하는 것은 아닙니다.
+
+Labeler는 AI를 실행할 수 있지만 결과 셀 편집과 Save/Load가 제한됩니다. Viewer는 AI 실행이 제한됩니다.
+
+### Visualize
+
+`Visualize`에서 다음 자료를 확인합니다.
+
+- 클래스 분포 bar chart
+- 클래스 분포 pie chart
+- 모델별 분석 결과
+- Spatial Heatmap
+- Segmentation Map
+- Confidence 분포
+
+### PDF 저장
+
+1. Visualize 창에서 PDF Export를 선택합니다.
+2. 브라우저가 저장 위치 선택을 지원하면 파일 위치와 이름을 지정합니다.
+3. 지원하지 않으면 기본 다운로드 폴더에 저장됩니다.
+
+폐쇄망에서 PDF 기능이 동작하지 않는 경우 관리자에게 문의합니다.
+
+---
+
+## 10. Tissue Annotation 페이지
+
+### 페이지 주소
+
+`/annotation` 또는 `/tissue-annotation`
+
+### 화면의 역할
+
+슬라이드의 조직 영역을 클래스별로 표시하고 작업·검토·종결 상태를 관리합니다.
+
+### 작업 시작
+
+1. Tissue Annotation 메뉴를 엽니다.
+2. 프로젝트를 선택합니다.
+3. 왼쪽 목록에서 슬라이드를 엽니다.
+4. 오른쪽에서 사용할 클래스를 선택합니다.
+5. 상단에서 그리기 도구를 선택합니다.
+6. Viewer에서 영역을 그립니다.
+7. Memo와 클래스를 확인합니다.
+8. `Save` 또는 `Ctrl+S`로 저장합니다.
+
+슬라이드를 열면 기존에 저장한 주석이 자동으로 불러와집니다.
+
+### 그리기 도구
+
+| 도구 | 설명 |
+| --- | --- |
+| Polygon | 드래그한 경로를 닫힌 영역으로 만듭니다. |
+| Polygon Brush | 붓처럼 자유롭게 영역을 칠합니다. |
+| Rectangle | 사각형 영역을 만듭니다. |
+| Point | 클릭한 위치에 점 주석을 만듭니다. |
+| Cut | 선택한 polygon 경계를 새 경로로 수정합니다. |
+| 1 mm² Rectangle | 실제 면적 1 mm²의 사각형을 만듭니다. |
+| 1 mm² Circle | 실제 면적 1 mm²의 원을 만듭니다. |
+| Ruler | 두 지점 사이의 실제 거리를 측정합니다. |
+
+Ruler는 거의 수평 또는 수직인 선을 자동으로 바로 맞춥니다.
+
+### 클래스 관리
+
+Admin과 Doctor는 프로젝트별 클래스를 관리합니다.
+
+- 클래스 추가
+- 이름 변경
+- 색상 변경
+- 순서 변경
+- 삭제
+- 표시/숨김
+
+클래스는 최소 한 개가 남아 있어야 합니다. 사용 중인 클래스를 삭제하면 기존 주석이 다른 기본 클래스로 이동할 수 있으므로 작업 중에는 클래스 구조를 변경하지 않는 것이 좋습니다.
+
+### 주석에 클래스 지정
+
+방법 1:
+
+1. 오른쪽에서 클래스를 선택합니다.
+2. 새 주석을 그립니다.
+
+방법 2:
+
+1. 기존 주석을 선택합니다.
+2. 원하는 클래스를 선택합니다.
+3. Apply 동작을 사용하거나 숫자 키를 누릅니다.
+
+숫자 `1~9`와 `0`은 클래스 목록의 1~10번째 항목에 해당합니다.
+
+### 주석 목록
+
+- ID를 누르면 주석을 선택합니다.
+- ID를 더블클릭하면 해당 주석이 화면 중앙에 오도록 이동합니다.
+- 표시 아이콘으로 주석을 숨기거나 다시 표시합니다.
+- Memo 영역 또는 행 우클릭으로 메모 창을 엽니다.
+- Delete로 해당 주석을 삭제합니다.
+
+### 주석 모양 수정
+
+- 선택 주석의 꼭짓점을 드래그합니다.
+- Rectangle은 모서리를 드래그해 크기를 바꿉니다.
+- `Shift+드래그`로 선택 주석 전체를 옮깁니다.
+- `Alt`를 누르고 polygon 경계에 마우스를 올리면 새 꼭짓점 위치가 표시됩니다.
+- 해당 위치를 `Alt+클릭`하면 꼭짓점이 추가됩니다.
+- 겹친 같은 클래스 polygon에서 `Ctrl`을 누르면 병합 표시가 나타납니다.
+- `Ctrl+클릭`으로 병합합니다.
+
+### 표시 스타일
+
+- `Line`: 선 두께 1~12px
+- `Fill`: 내부 채움 0~80%
+
+스타일은 현재 계정의 다른 주석 화면에도 적용될 수 있습니다.
+
+### Slide Memo
+
+- 툴바의 Memo 버튼 또는 `Ctrl+M`으로 엽니다.
+- 현재 메모를 작성·수정·삭제합니다.
+- 이전 메모 history를 확인합니다.
+- 이전 메모에 답변을 작성하고 accept할 수 있습니다.
+- 메모가 있는 슬라이드는 목록에 `M` 표시가 나타납니다.
+
+### Annotation Memo
+
+- 주석 목록의 Memo 영역을 누르거나 행을 우클릭합니다.
+- 메모와 history를 관리합니다.
+- 메모는 선택한 주석에만 연결됩니다.
+
+### 저장
+
+- `Save` 버튼 또는 `Ctrl+S`
+- 현재 주석, 클래스 연결, 메모가 저장됩니다.
+- 슬라이드를 바꾸기 전에 반드시 저장 상태를 확인합니다.
+- `Clear All`은 현재 화면의 모든 주석을 제거하므로 주의합니다.
+
+### Workflow
+
+| 단계 | 의미 |
+| --- | --- |
+| Annotation | 주석 작성 단계 |
+| Review | 작성 결과 검토 단계 |
+| Termination | 최종 종결 단계 |
+
+각 단계의 상태는 색과 아이콘으로 구분됩니다.
+
+- 현재 시작 가능한 단계
+- Running
+- Done
+- Pending
+- Rejected
+
+기관의 검토 규칙에 따라 Annotation을 완료한 뒤 Review, Termination 순으로 진행합니다. Labeler는 주로 Annotation 단계만 처리하며 Review와 Termination은 Doctor 또는 Admin이 진행합니다.
+
+### Virtual H&E 참고 보기
+
+Tissue Annotation의 오른쪽 AI 영역에서는 VS IHC 기능을 사용할 수 있습니다.
+
+- Virtual H&E 생성
+- Overlay
+- IHC | Virtual H&E Split View
+
+주석 작업 중 원본과 변환 영상을 비교할 때 사용합니다.
+
+### 주요 단축키
+
+| 입력 | 동작 |
+| --- | --- |
+| Ctrl/Cmd+S | 현재 주석 저장 |
+| Ctrl/Cmd+M | Slide Memo 열기 |
+| Ctrl/Cmd+Z | 실행 취소 |
+| Ctrl/Cmd+Y | 다시 실행 |
+| Ctrl/Cmd+Shift+Z | 다시 실행 |
+| 1~9, 0 | 선택 주석 클래스 변경 |
+| Delete | 선택 주석 삭제 |
+| Esc | 그리기 모드 또는 열린 도움말 닫기 |
+| Alt+휠 | Brush 크기 변경 |
+| Shift+드래그 | 선택 주석 이동 |
+| Ctrl+드래그 | 주석 위에서 화면 이동 |
+
+---
+
+## 11. Cell Annotation 페이지
+
+### 페이지 주소
+
+`/cell-annotation`
+
+### 화면의 역할
+
+WSI에서 라벨링할 영역을 지정하고, 고정 크기 패치 안의 세포를 bounding box와 클래스로 주석합니다. 각 패치는 Annotation, Review, Termination 단계를 따릅니다.
+
+### 전체 작업 순서
+
+1. 프로젝트와 슬라이드를 선택합니다.
+2. WSI View에서 Required 영역과 필요한 Exclude 영역을 그립니다.
+3. 영역을 Apply하여 작업 패치를 만듭니다.
+4. 패치를 선택하고 Patch View로 들어갑니다.
+5. Annotation 상태를 Running으로 바꿉니다.
+6. AI assistance 결과를 확인하거나 직접 세포를 표시합니다.
+7. 셀 클래스와 위치를 수정합니다.
+8. 저장 후 Annotation을 Done으로 변경합니다.
+9. Doctor/Admin이 Review를 진행합니다.
+10. 반려된 패치는 다시 수정하고, 승인된 패치는 Termination을 완료합니다.
+
+### 프로젝트 클래스 설정
+
+프로젝트 선택 화면에서 클래스 설정을 열 수 있습니다.
+
+- 프로젝트에서 사용할 세포 클래스 확인
+- Admin/Doctor의 클래스 추가·수정·정렬
+- AI가 제공하는 필수 클래스와 Other는 이름·색상 변경 또는 삭제가 제한될 수 있음
+- 사용자 정의 클래스는 별도로 유지
+
+작업이 시작된 뒤 클래스 구조를 크게 바꾸면 기존 패치와의 일관성이 깨질 수 있으므로 시작 전에 확정합니다.
+
+### WSI View: Required 영역 만들기
+
+Required는 라벨링이 필요한 영역입니다.
+
+1. Required 모드를 선택합니다.
+2. WSI 위에서 대상 조직 영역을 polygon으로 그립니다.
+3. 초록색 영역과 생성 예정 patch를 확인합니다.
+4. 필요한 영역을 모두 지정한 뒤 `Apply`합니다.
+
+Apply 전에는 `Ctrl+Z`로 마지막 영역 지정을 취소할 수 있습니다.
+
+### Exclude 영역 만들기
+
+Exclude는 작업 대상에서 제외할 영역입니다.
+
+1. Exclude 모드를 선택합니다.
+2. 제외할 영역을 polygon으로 그립니다.
+3. 빨간색 영역과 제외될 patch를 확인합니다.
+4. `Apply`합니다.
+
+Apply하면 Required와 교차하는 패치는 추가되고 Exclude와 교차하는 패치는 제외됩니다. 기존 패치 전체를 다시 만드는 것이 아니라 현재 지정 내용을 추가로 반영합니다.
+
+### 전체 패치 지우기
+
+Admin 또는 Doctor만 사용할 수 있습니다.
+
+- 전체 patch 상태와 cell label을 제거합니다.
+- 관련 patch 이미지와 작업 정보도 영향을 받습니다.
+- 버튼을 누른 뒤 5초 countdown이 표시됩니다.
+- 잘못 누른 경우 countdown이 끝나기 전에 취소합니다.
+
+### 패치 목록
+
+| 열 | 내용 |
+| --- | --- |
+| Patch | `patch_N` 형식의 패치 번호 |
+| Annotation | 작성 상태 |
+| Review | 검토 상태 |
+| Termination | 종결 상태 |
+| Memo | 메모 존재 여부 |
+
+- 열 제목을 눌러 정렬합니다.
+- 행을 누르면 패치를 선택합니다.
+- 행에서 Enter 또는 Space를 눌러도 선택할 수 있습니다.
+- 행을 더블클릭하면 Patch View로 들어갑니다.
+- 행을 우클릭하면 Memo 또는 패치 제거 메뉴가 표시됩니다.
+
+### Patch View 열기·닫기
+
+- 선택한 패치를 더블클릭합니다.
+- 또는 `P`를 눌러 Patch View로 전환합니다.
+- 다시 `P`를 누르면 WSI View로 돌아갑니다.
+- WSI View로 돌아갈 때 이전에 보던 위치와 배율이 복원됩니다.
+- `Fit Patch`를 누르면 패치가 화면에 맞게 표시됩니다.
+
+### 패치 작업 상태 시작
+
+새 Required 패치는 먼저 Annotation을 Running으로 변경해야 편집할 수 있습니다.
+
+1. Patch View에서 `Annotation` 상태를 확인합니다.
+2. 상태 버튼을 눌러 `Running`으로 바꿉니다.
+3. 셀을 추가하거나 수정합니다.
+4. 작업을 저장합니다.
+5. Annotation을 `Done`으로 바꿉니다.
+
+Done으로 바꿀 때 현재 셀 라벨이 먼저 저장됩니다.
+
+### 셀 직접 그리기
+
+- Rectangle 도구를 사용합니다.
+- 세포를 둘러싸도록 드래그합니다.
+- 현재 선택한 클래스가 새 셀에 적용됩니다.
+- 실제 저장 정보는 bounding box입니다.
+
+### BBox와 Point 보기
+
+- `BBox`: 셀의 전체 사각형을 표시합니다.
+- `Point`: 셀의 중심점 형태로 간단하게 표시합니다.
+
+표시 방식을 바꾸어도 저장된 bounding box 정보는 유지됩니다.
+
+### 셀 선택
+
+- 셀을 클릭해 단일 선택합니다.
+- 목록의 checkbox로 여러 셀을 선택합니다.
+- `Alt+클릭`으로 선택을 추가하거나 해제합니다.
+- `Alt+드래그`로 여러 셀을 자유 영역 선택합니다.
+- 전체 checkbox로 현재 목록의 셀을 한 번에 선택합니다.
+- `Esc`로 다중 선택을 해제합니다.
+
+### 셀 클래스 변경
+
+1. 하나 이상의 셀을 선택합니다.
+2. 클래스 목록에서 원하는 클래스를 누릅니다.
+
+또는 숫자 `1~9`, `0`으로 클래스 목록의 1~10번째 항목을 적용합니다.
+
+### 셀 삭제
+
+- 셀을 선택합니다.
+- `Delete`, `Backspace` 또는 `D`를 누릅니다.
+- 여러 셀을 선택한 경우 모두 삭제됩니다.
+
+### 클래스 표시·숨김
+
+| 입력 | 동작 |
+| --- | --- |
+| Ctrl/Cmd+1~9, 0 | 해당 순번 클래스 표시·숨김 |
+| Ctrl/Cmd+` | 모든 클래스 표시·숨김 |
+
+표시를 숨겨도 셀 라벨이 삭제되는 것은 아닙니다.
+
+### AI assistance 사용
+
+프로젝트에 assistance가 설정되어 있으면 다음과 같이 사용합니다.
+
+1. 필요한 WSI 영역과 patch를 먼저 만듭니다.
+2. assistance 실행 버튼을 누릅니다.
+3. 진행률이 완료될 때까지 기다립니다.
+4. 비어 있는 Required patch를 엽니다.
+5. 자동으로 불러온 셀 라벨을 검토합니다.
+6. 잘못된 클래스, 위치, 누락 셀을 수정합니다.
+7. 저장하고 Annotation을 Done으로 변경합니다.
+
+이미 수동 라벨이 있는 패치에는 assistance가 자동으로 덮어쓰지 않습니다. AI 결과는 최종 정답이 아니라 라벨링 보조 결과이므로 반드시 사람이 검토합니다.
+
+### Patch Workflow
+
+#### Annotation
+
+- `Required`: 작업 필요
+- `Running`: 작성 중
+- `Done`: 작성 완료
+
+#### Review
+
+- `Pending`: 검토 전
+- `Done`: 검토 완료
+- `Rejected`: 수정 필요
+
+#### Termination
+
+- `Pending`: 종결 전
+- `Current`: 종결 진행 단계
+- `Done`: 종결 완료
+
+Review가 Rejected이면 해당 패치는 다시 Annotation 편집이 가능합니다.
+
+### Labeler 작업 범위
+
+Labeler는 다음 조건에서 패치 셀을 편집할 수 있습니다.
+
+- Annotation이 Running
+- 또는 Review가 Rejected
+
+Labeler는 다음 작업을 할 수 없습니다.
+
+- WSI Required/Exclude 영역 설정
+- 패치 제거
+- Review 상태 변경
+- Termination 상태 변경
+- 패치 Memo 변경
+
+### Patch Memo
+
+- 패치 행을 우클릭하거나 Memo 항목을 선택합니다.
+- 현재 메모와 history를 확인합니다.
+- 답변과 accept 상태를 관리합니다.
+- Labeler는 Memo 변경이 제한됩니다.
+
+### 프로젝트 진행률 확인
+
+- 슬라이드 목록에서 Annotation, Review, Termination 완료율을 확인합니다.
+- 반려 패치는 별도 색상으로 표시됩니다.
+- 프로젝트 상단에서 Termination 완료 패치 수와 전체 패치 수를 비교합니다.
+
+### 주요 단축키
+
+| 입력 | 동작 |
+| --- | --- |
+| P | WSI View와 Patch View 전환 |
+| Ctrl/Cmd+S | 현재 패치 저장 |
+| Ctrl/Cmd+Z | 적용 전 영역 또는 셀 편집 실행 취소 |
+| Ctrl/Cmd+Y | 다시 실행 |
+| Ctrl/Cmd+Shift+Z | 다시 실행 |
+| 1~9, 0 | 선택 셀 클래스 지정 |
+| Ctrl/Cmd+1~9, 0 | 클래스 표시·숨김 |
+| Ctrl/Cmd+` | 전체 클래스 표시·숨김 |
+| Delete/Backspace/D | 선택 셀 삭제 |
+| Alt+클릭 | 셀 선택 추가·해제 |
+| Alt+드래그 | 여러 셀 자유 영역 선택 |
+| Esc | 선택 또는 그리기 취소 |
+| Patch 행 Enter/Space | 패치 선택 |
+| Patch 행 더블클릭 | Patch View 열기 |
+| Patch 행 우클릭 | Patch 메뉴 열기 |
+
+---
+
+## 12. Data Linkage 페이지
+
+### 페이지 주소
 
 `/data-linkage`
 
-### 목적
+### 화면의 역할
 
-파일명에서 추출한 케이스를 기준으로 관련 슬라이드를 묶고 공통 임상정보를 입력한다.
+같은 케이스에 속한 슬라이드를 모아 보고 케이스 공통 임상정보를 입력합니다.
 
-### 검색·필터
+### 케이스 검색
 
-- Project 필터
-- Hospital 필터
-- Sample No 검색
-- Sample No에서 Enter로 검색 실행
-- 15/30/50행 페이지 크기
+1. 필요한 경우 Project를 선택합니다.
+2. 필요한 경우 Hospital을 선택합니다.
+3. `Sample No`에 검색어를 입력합니다.
+4. `Search`를 누르거나 Enter를 누릅니다.
+5. 페이지당 15, 30, 50개 중 원하는 개수를 선택합니다.
 
-### 케이스 목록
+### 목록 정렬
 
-- 순번
+다음 열 제목을 눌러 정렬합니다.
+
 - Case ID
 - Clinical Information 보유 여부
 - Last Activity
-- Case ID, 임상정보 여부, 최근 활동 정렬
-- 이전/다음과 숫자 페이지 이동
-- 페이지가 많으면 ellipsis 표시
 
-### 케이스 ID 처리
+같은 제목을 다시 누르면 정렬 방향이 바뀝니다.
 
-- `CODIPAI-` 형식은 이후 3개 구간으로 케이스 ID 구성
-- 일반 파일명은 첫 3개 하이픈 구간을 케이스 ID로 사용
-- 같은 케이스의 임상정보는 연결된 모든 슬라이드가 공유
+### 케이스 선택
 
-### 선택 케이스 상세
+케이스를 선택하면 오른쪽에서 다음 내용을 확인합니다.
 
 - Year
 - Sample ID
-- 연결된 슬라이드 thumbnail 목록
-- 현재 선택 슬라이드 이름
-- 선택 슬라이드 큰 preview
+- 연결된 슬라이드 thumbnail
+- 현재 선택한 슬라이드
+- 임상정보 입력란
 
-### Preview 조작
+### 연결 슬라이드 확인
 
-- `+` Zoom In
-- `-` Zoom Out
-- `H` 모양 버튼으로 Reset
-- `[]` 모양 버튼으로 Fit; 현재 구현은 Reset과 같은 동작
-- 마우스 휠 cursor 중심 zoom
-- 좌클릭·pointer drag로 preview 이동
-- 현재 zoom percentage 표시
+- 썸네일을 눌러 preview 슬라이드를 바꿉니다.
+- 마우스 휠로 cursor 위치를 중심으로 확대·축소합니다.
+- preview를 드래그해 이동합니다.
+- `+`와 `-` 버튼으로 확대·축소합니다.
+- `H` 버튼으로 원래 보기로 되돌립니다.
+- `[]` 버튼으로 화면에 맞춥니다.
 
-`H`와 `[]`는 버튼에 쓰인 표기이며 키보드 단축키는 아니다.
+`H`와 `[]`는 버튼 모양이며 키보드 단축키가 아닙니다.
 
-### 임상정보
+### 임상정보 입력
 
 - ER proportion score
 - ER intensity score
@@ -317,862 +1106,279 @@
 - PR intensity score
 - Ki67 index
 - PD-L1 CPS score
-- ISH for HER2:
-  - ISH negative
-  - ISH positive
-  - not tested
-  - na
+- ISH for HER2
 - IHC for C-erbB2
-- 변경 전 Not saved 상태 표시
-- Save 버튼으로 케이스 공통 정보 저장
-- 미저장 변경이 있으면 페이지 이탈 경고
 
-### 관련 API
+입력값이 없거나 해당하지 않는 경우 기관 규칙에 따라 `na`를 사용합니다.
 
-- `GET /api/slides/cases`
-- `PATCH /api/slides/cases/{case_name}/clinical-info`
-- thumbnail·preview API
+### 저장
 
-### 주의사항
+1. 값을 입력하거나 수정합니다.
+2. `Not saved` 표시를 확인합니다.
+3. `Save`를 누릅니다.
+4. 저장 완료 상태를 확인한 뒤 다른 케이스로 이동합니다.
 
-- 케이스 임상정보 변경 API에는 현재 역할 제한이 없어 Viewer의 직접 호출 가능성을 점검해야 함
-
-## 6. AI 페이지
-
-### URL
-
-`/ai`
-
-### 목적
-
-WSI를 탐색하고 ROI 또는 전체 슬라이드에 AI를 실행한 뒤 결과를 확인·편집·저장·시각화한다.
-
-### 6.1 프로젝트 선택 화면
-
-URL에 slide/path 정보가 없으면 Project Gate가 먼저 표시된다.
-
-- 프로젝트·담당자·병원·부서 통합 검색
-- Hospital, Owner, Status 필터
-- 10/30/50행 설정
-- 추가 조건:
-  - Has slides
-  - Has folders
-  - Min slides
-- Project, Hospital, Owner, Slides, AI Analyzed, Folders, Status 정렬
-- 첫/이전/다음/마지막 페이지
-- Open으로 프로젝트 진입
-
-### 6.2 왼쪽 슬라이드 패널
-
-- Breadcrumb 폴더 이동
-- New Folder
-- 프로젝트 이름변경·삭제 버튼; 역할에 따라 비활성
-- 슬라이드 이름 검색
-- 목록/그리드 보기 전환
-- 폴더와 슬라이드 thumbnail
-- 임상정보 badge
-- AI 상태 badge
-- AI 실행 상태 polling
-- 우클릭 파일·폴더 메뉴
-- 파일·폴더 drag & drop 이동
-- 운영체제 파일 drop upload
-- Ctrl+휠로 thumbnail 크기 변경
-- Ctrl/Cmd 클릭 다중 선택
-- Shift 클릭 범위 선택
-- 빈 영역 marquee 선택
-
-### 6.3 상단 툴바
-
-- Slide Info
-- Same Case
-- Fit
-- Zoom In / Out
-- Polygon ROI
-- Polygon Brush ROI
-- Rectangle ROI
-- 고정 1 mm² Rectangle
-- 고정 1 mm² Circle
-- Ruler
-- Shortcuts 도움말
-- Scanner/vendor, 배율, MPP 표시
-
-AI 페이지에는 Point와 Cut 도구가 없다.
-
-### 6.4 Viewer
-
-- 3-stage WSI tile rendering
-- thumbnail 및 인접 stage fallback
-- tile fade-in
-- 미니맵 이동·크기 변경·접기
-- 좌우 panel 크기 변경·접기
-- 모바일 drawer
-- Hamamatsu NDP 색보정
-- VS overlay/split rendering
-- AI 결과 cell overlay
-- ROI annotation overlay
-
-### 6.5 Slide Info
-
-- 파일명
-- Vendor
-- Magnification
-- Pixel dimensions
-- MPP
-- Physical dimensions
-- 임상정보 8개 필드 편집
-- 변경된 상태로 닫기 또는 Esc 시 자동 저장
-
-### 6.6 Same Case / Multi View
-
-- 현재 슬라이드와 같은 케이스를 모든 프로젝트에서 검색
-- AI 결과 보유 badge
-- 최대 4개 선택
-- 단일 View 또는 Multi View 선택
-- 각 pane별 Fit
-- pane 클릭으로 활성 슬라이드 선택
-- 활성 pane에서 AI/Annotation/Info 기능 수행
-- 종료 시 원래 화면 복원
-
-### 6.7 AI 주제
-
-| 주제 | 기능 |
-| --- | --- |
-| VirtualStain | IHC를 Virtual H&E로 변환 |
-| Quanti | HE, PD-L1, IHC 정량 분석 |
-| Dx | 현재 placeholder |
-| Px | 현재 placeholder |
-
-### 6.8 Quanti HE
-
-- Breast, Stomach, Other 선택
-- ROI가 있으면 ROI만, 없으면 전체 슬라이드 분석
-- 세포 분류:
-  - Neutrophil
-  - Epithelial
-  - Lymphocyte
-  - Plasma
-  - Eosinophil
-  - Stromal cell
-  - Tumor Epithelial
-  - Benign Epithelial
-- Breast/Stomach은 epithelial segmentation 재분류
-- Stromal cell 기본 숨김
-- 50,000개 초과 가시 셀은 raster rendering
-
-### 6.9 Quanti PD-L1
-
-- Stomach CPS
-- Lung TPS
-- Stomach:
-  - 음성/양성 Epithelial
-  - 음성/양성 Lymphocyte
-  - 음성/양성 Macrophage
-  - Other
-- Lung:
-  - Negative Tumor
-  - Positive Tumor
-  - Non-Tumor
-- Other/Non-Tumor는 기본 숨김 및 score 제외
-- confidence score 기준 0.1 고정
-
-### 6.10 Quanti IHC
-
-- HER2:
-  - 0+, 1+, 2+, 3+, Other
-  - weighted score와 dominant class
-- ER/PR:
-  - Allred PS + IS = TS
-  - TS 3 이상 Positive
-- KI-67:
-  - Positive / Total labeling index
-  - 14% 이상 High
-
-### 6.11 VS IHC
-
-- 실제 변환 방향: IHC → Virtual H&E
-- `ihc_membrane` 모델
-- 4.0 / 2.0 / 1.0 / 0.5 µm/px
-- Overlay on/off
-- Split View: IHC | Virtual H&E
-- divider 5~95% drag
-- ROI가 있으면 ROI 안에만 표시
-- 실행 중 같은 버튼을 누르면 cancel 요청
-
-### 6.12 AI 결과 패널
-
-- 클래스별 count
-- 개별 클래스 표시/숨김
-- 전체 클래스 표시/숨김
-- 결과 cell 추가·삭제·재분류
-- 다중 cell lasso 편집
-- 숨겨진 Other cell 승격
-- 점수 즉시 재계산
-- Clear Results
-- Save Results
-- Load Results
-- 사용자별 저장본 목록
-- 본인 저장본 삭제
-- 원본 AI cache는 사용자 편집본과 분리
-
-### 6.13 시각화
-
-- Class Distribution bar/pie
-- 모델별 분석 카드
-- Spatial Heatmap
-- Segmentation overlays
-- Confidence histogram
-- A4 landscape PDF export
-- File System Access API 또는 browser download
-
-### 6.14 주요 단축키
-
-| 입력 | 동작 |
-| --- | --- |
-| 휠 | viewport 중앙 기준 zoom |
-| 좌클릭/가운데 버튼 drag | pan |
-| Ctrl+Z | ROI 또는 AI cell 편집 undo |
-| Ctrl+Y, Ctrl+Shift+Z | redo |
-| Esc | draw mode·popup·Alt lasso 취소 |
-| Delete | 선택 ROI 삭제 |
-| Alt+좌클릭 | 가까운 AI cell 편집 |
-| Alt+좌drag | 가시 AI cell lasso |
-| Alt+우클릭 | AI cell 추가 |
-| Alt+우drag | 숨겨진 Other cell lasso |
-| Alt+A | sticky class picker |
-| 1~9/0 | 열린 cell popup 클래스 선택 |
-| Delete/D | 선택 AI cell 삭제 |
-| Shift+ROI drag | ROI 전체 이동 |
-| Alt+polygon edge click | vertex 삽입 |
-| Ctrl+같은 클래스 polygon click | 병합 |
-| Alt+휠 | Brush 크기 변경 |
-
-### 권한
-
-- Admin/Doctor: AI 실행, 결과 편집, Save/Load 가능
-- Labeler: AI 실행 가능, 결과 직접 편집과 Save/Load 불가
-- Viewer: AI 실행과 ROI 편집 불가
-
-### 관련 API
-
-- `POST /api/ai/detect`
-- `POST /api/ai/pd-score`
-- `POST /api/ai/precise-ihc`
-- `POST /api/ai/virtual-stain`
-- AI task 상태·취소·결과 API
-- AI user edit save/list/load/delete API
+저장하지 않은 변경이 있으면 페이지를 나갈 때 경고가 표시됩니다.
 
 ### 주의사항
 
-- PDF용 jsPDF를 외부 CDN에서 불러오므로 폐쇄망에서 실패할 수 있음
+- 임상정보는 개별 슬라이드가 아니라 같은 케이스에 공유될 수 있습니다.
+- 값을 변경하면 연결된 다른 marker 슬라이드에도 같은 정보가 표시될 수 있습니다.
+- 점수 입력 형식은 프로젝트 또는 기관의 데이터 입력 규칙을 따릅니다.
 
-## 7. Tissue Annotation 페이지
+---
 
-### URL
+## 13. Profile 페이지
 
-`/annotation`, `/tissue-annotation`
-
-두 URL은 같은 화면을 연다.
-
-### 목적
-
-WSI 조직 영역을 클래스별로 주석하고 Annotation→Review→Termination 상태를 관리한다.
-
-### 7.1 프로젝트·슬라이드 선택
-
-- AI 페이지와 같은 Project Gate
-- 프로젝트 검색·필터·정렬·페이지네이션
-- 폴더 breadcrumb
-- 슬라이드 검색 및 목록/그리드
-- 임상정보, 메모, Annotation 상태 표시
-- 파일·폴더 drag & drop
-- 다중 선택과 context menu
-
-### 7.2 툴바
-
-- Slide Info
-- Fit, Zoom In/Out
-- Polygon
-- Polygon Brush
-- Rectangle
-- Point
-- Cut
-- 고정 1 mm² Rectangle
-- 고정 1 mm² Circle
-- Ruler
-- Slide Memo
-- Shortcuts
-
-### 7.3 주석 클래스
-
-- 프로젝트별 클래스 목록
-- 새 클래스 추가
-- 이름 변경
-- 색상 변경
-- 삭제
-- drag로 순서 변경
-- 표시/숨김
-- 현재 active class 선택
-- 선택 주석에 active class 적용
-- 최소 한 클래스 유지
-- Admin/Doctor만 클래스 구조 관리
-
-### 7.4 주석 목록
-
-- 순번형 Annotation ID
-- 클래스
-- Memo
-- 표시/숨김
-- 삭제
-- 행 선택 시 WSI 주석 선택
-- ID 더블클릭 시 주석 중앙 이동
-- 우클릭 시 Memo 열기
-- 숫자 1~9/0으로 선택 주석 클래스 적용
-
-### 7.5 주석 편집
-
-- vertex/corner drag
-- Shift+drag 전체 이동
-- Alt+edge hover로 vertex 삽입 preview
-- Alt+edge click으로 vertex 삽입
-- Ctrl+overlap hover로 merge preview
-- Ctrl+click으로 같은 클래스 polygon 병합
-- Cut 도구로 선택 polygon 경계 재작성
-- Brush 크기 Alt+휠 조절
-- Ruler 수평·수직 ±2° snap
-
-### 7.6 표시 스타일
-
-- Line 1~12px
-- Fill 0~80%, 5% 단위
-- 계정 preference로 저장
-- 같은 계정의 모든 Tissue Annotation에 적용
-
-### 7.7 저장·불러오기
-
-- 슬라이드 열 때 서버 저장 주석 자동 load
-- Save 버튼으로 서버 내부 JSON 저장
-- Ctrl/Cmd+S 저장
-- Clear All은 현재 화면 주석 전체 제거
-- JSON 파일 download/upload 함수는 코드에 있으나 현재 UI에는 연결되지 않음
-
-### 7.8 Memo
-
-- Slide Memo
-- Annotation별 Memo
-- 기존 Memo history
-- 답변 작성
-- 답변 accept
-- 현재 Memo 삭제
-- 과거 history 항목 삭제
-- Memo가 있는 슬라이드에 M badge
-- Ctrl/Cmd+M으로 Slide Memo 열기
-
-### 7.9 Workflow
-
-- Annotation
-- Review
-- Termination
-- 현재 단계 클릭으로 Running/Done 상태 진행
-- 완료 후 다음 단계 활성화
-- 완료·Running·현재·Pending·Rejected 시각 상태
-- 슬라이드 목록에도 단계별 상태 표시
-- Labeler는 Annotation 중심으로 제한
-
-### 7.10 AI assistance
-
-- 오른쪽 AI 영역은 현재 CSS상 VS IHC만 노출
-- IHC → Virtual H&E 생성
-- Overlay 및 Split View
-- 다른 Quanti markup과 로직은 HTML/JS에 남아 있지만 Tissue 화면에서는 숨겨짐
-
-### 7.11 주요 단축키
-
-| 입력 | 동작 |
-| --- | --- |
-| Ctrl+S | 저장 |
-| Ctrl+M | Slide Memo |
-| Ctrl+Z | undo |
-| Ctrl+Y / Ctrl+Shift+Z | redo |
-| 1~9/0 | 선택 주석 클래스 1~10 지정 |
-| Delete | 선택 주석 삭제 |
-| Esc | draw mode·popup 닫기 |
-| Shift+drag | 주석 이동 |
-| Ctrl+drag | 주석 위에서 pan |
-| Alt+휠 | Brush 크기 |
-| Alt+edge click | polygon vertex 삽입 |
-| Ctrl+overlap click | 같은 클래스 polygon 병합 |
-
-### 관련 API
-
-- `GET/POST /api/slides/annotation-classes`
-- `GET/POST /api/slides/{slide_id}/annotations/...`
-- 슬라이드 상태·임상정보 API
-- VS IHC API
-
-## 8. Cell Annotation 페이지
-
-### URL
-
-`/cell-annotation`
-
-### 목적
-
-WSI에서 필요한 영역을 지정하고 고정 크기 패치 단위로 세포 bounding box와 클래스를 라벨링·검토·종결한다.
-
-### 8.1 프로젝트 선택
-
-- 공통 Project Gate
-- 프로젝트 검색·필터·정렬
-- 프로젝트별 Cell Annotation 클래스 설정
-- Termination 완료 개수 표시
-- 특정 계정 `YoungSeopLee`에게 완료 패치 ZIP export 표시
-
-### 8.2 패치 규격
-
-- Target MPP: 0.5 µm/px
-- 물리 크기: 512 µm × 512 µm
-- 표준 이미지: 1024 × 1024px
-- 사용자 표시 ID: `patch_N`
-- 내부 좌표 식별자: `patch_key`
-
-### 8.3 WSI View
-
-- Required 영역 polygon 그리기
-- Exclude 영역 polygon 그리기
-- Required 초록, Exclude 빨강
-- 적용 전 pending patch preview
-- Apply로 required patch 증분 추가 및 exclude patch 제거
-- 적용 후 pending 영역 초기화
-- Ctrl/Cmd+Z로 적용 전 영역 undo
-- WSI 위 패치 상태 overlay
-- 선택 패치 강조
-- 전체 패치 삭제:
-  - Admin/Doctor만 가능
-  - 5초 countdown
-  - 패치 상태, 라벨, 이미지, sidecar 제거
-
-### 8.4 Patch 목록
-
-- Patch
-- Annotation
-- Review
-- Termination
-- Memo
-- 열별 정렬
-- 대량 목록 render 제한
-- click 선택
-- Enter/Space 선택
-- 더블클릭 Patch View 진입
-- 우클릭 Memo/Remove Required 메뉴
-- Required, Running, Done, Rejected 상태 표시
-
-### 8.5 WSI/Patch 전환
-
-- `P`로 WSI View와 Patch View 전환
-- Patch View 종료 시 이전 WSI viewport 복원
-- Patch View는 선택 patch 범위 밖으로 이동 제한
-- Fit Patch
-- patch 범위에서 pan과 zoom
-- VS overlay/split을 patch 안으로 clip
-
-### 8.6 Cell 그리기·선택
-
-- Rectangle로 cell bbox 생성
-- 화면 표시를 BBox 또는 Point로 변경
-- 실제 저장 데이터는 bbox 유지
-- 단일 셀 click 선택
-- checkbox 다중 선택
-- Alt+click 선택 toggle
-- Alt+drag lasso 다중 선택
-- 전체 선택 checkbox
-- 선택 셀 클래스 일괄 적용
-- 선택 셀 일괄 삭제
-- 1~9/0으로 클래스 1~10 지정
-- Delete/Backspace/D로 삭제
-- Esc로 다중 선택 해제
-
-### 8.7 클래스 패널
-
-- 클래스 목록과 색상
-- active class
-- 클래스별 표시/숨김
-- 전체 표시/숨김
-- 클래스 행 클릭 시 선택 cell에 즉시 적용
-- Ctrl/Cmd+1~9/0으로 클래스 visibility toggle
-- Ctrl/Cmd+`로 전체 visibility toggle
-- AI/필수 클래스와 Other:
-  - 이름 변경 잠금
-  - 색상 변경 잠금
-  - 삭제 잠금
-  - 순서 변경 가능
-- Custom class 유지
-
-### 8.8 저장 조건
-
-- Annotation이 Running인 패치만 편집·draft Save 가능
-- Annotation Done 변경 시 현재 라벨 자동 저장
-- 빈 Required 패치만 AI assistance 자동 load
-- 기존 수동 라벨이 있으면 assistance가 덮어쓰지 않음
-
-### 8.9 패치 Workflow
-
-Annotation:
-
-- Required
-- Running
-- Done
-
-Review:
-
-- Pending
-- Done
-- Rejected
-
-Termination:
-
-- Pending
-- Current
-- Done
-
-세부 동작:
-
-- Review Rejected 시 Annotation 편집 재개 가능
-- WSI 상단 상태는 전체 패치 완료율로 자동 계산
-- 슬라이드 목록에 Annotation/Review/Termination 단계 요약
-- 프로젝트 breadcrumb에 Termination 완료/전체 개수 표시
-
-### 8.10 역할
-
-Admin/Doctor:
-
-- Required/Exclude 영역 관리
-- 패치 추가·삭제
-- Cell 라벨 편집
-- Review/Termination
-- Memo
-- 전체 삭제
-
-Labeler:
-
-- WSI 영역 설정 불가
-- Review/Termination 불가
-- Memo 변경 불가
-- Annotation Running 또는 Review Rejected 패치만 편집
-- Annotation 단계만 변경
-
-Viewer:
-
-- 읽기 전용
-
-### 8.11 AI assistance
-
-- 프로젝트에서 설정된 한 모델 사용
-- 전체 required patch 대상 AI 실행
-- 진행률과 작업 상태 표시
-- inherited/non-inherited class mapping
-- hidden Other도 assistance 파일에 보존
-- 오래된 후처리 cache 자동 무효화
-
-### 8.12 Sidecar·내보내기
-
-- `patches/*.jpeg`
-- `labels/*.json`
-- `info.json`
-- `WSI_Labeling_assistance.json`
-- 변경 사항 background coalesced export
-- 조건 충족 시 Termination 완료 patch ZIP
-
-### 8.13 주요 단축키
-
-| 입력 | 동작 |
-| --- | --- |
-| P | WSI ↔ Patch View |
-| Ctrl+S | 선택 patch 저장 |
-| Ctrl+Z | pending region 또는 cell edit undo |
-| Ctrl+Y / Ctrl+Shift+Z | redo |
-| 1~9/0 | 선택 cell 클래스 지정 |
-| Ctrl+1~9/0 | 클래스 표시/숨김 |
-| Ctrl+` | 모든 클래스 표시/숨김 |
-| Delete/Backspace/D | 선택 cell 삭제 |
-| Alt+click | cell 선택 toggle |
-| Alt+drag | cell lasso 선택 |
-| Esc | 선택·draw mode 취소 |
-| Patch 행 Enter/Space | patch 선택 |
-| Patch 행 더블클릭 | Patch View |
-| Patch 행 우클릭 | patch context menu |
-
-### 관련 API
-
-- 프로젝트 클래스 API
-- grid config
-- required regions
-- patch list/delete/recompute
-- patch cell load/save
-- patch workflow update
-- WSI labeling assistance options/run/task/result
-- termination export
-
-## 9. Upload 페이지
-
-### URL
-
-`/upload`
-
-### 목적
-
-프로젝트와 폴더를 선택해 대용량 WSI를 안정적으로 업로드한다. 일반적으로 팝업 창으로 열린다.
-
-### 대상 위치
-
-- Project 필수
-- Project의 하위 Folder 선택
-- 호출한 작업공간의 현재 경로를 기본 위치로 전달 가능
-
-### 파일 선택
-
-- Browse
-- Drag & Drop
-- 여러 파일 선택
-- 지원 확장자만 queue에 추가
-- 같은 이름·크기의 중복 queue 제거
-
-### 지원 확장자
-
-`.svs`, `.ndpi`, `.vms`, `.vmu`, `.scn`, `.mrxs`, `.tiff`, `.tif`, `.png`, `.jpg`, `.jpeg`, `.isyntax`, `.i2syntax`
-
-### 업로드 과정
-
-1. Upload session 시작
-2. 5 MB 단위 chunk 전송
-3. 진행률 90%까지 upload 구간 표시
-4. Complete 요청과 서버 등록
-5. OpenSlide 또는 Philips validation
-6. 성공 후 다음 파일 처리
-
-### 인증·안정성
-
-- 약 5분 간격 token keepalive
-- 401 시 refresh 후 한 번 재시도
-- 파일은 순차 처리
-- 진행 중 창 닫기 경고
-- 한 파일 실패 시 다음 파일 계속
-- 최대 파일 크기 기본 20 GB
-
-### 중복 파일
-
-- 기존 파일과 충돌하면 conflict panel 표시
-- 파일별 Overwrite 또는 Skip
-- Overwrite 시 기존 파일 관련 데이터를 정리한 후 다시 업로드:
-  - 원본
-  - 타일
-  - AI 결과
-  - 사용자 AI 편집본
-  - Tissue Annotation
-  - Cell Annotation
-  - DB metadata
-
-### 완료
-
-- Uploaded 수
-- Failed 수
-- Skipped 수
-- opener에 `upload-complete` 메시지 전송
-- 원래 페이지의 슬라이드 목록 자동 갱신
-
-### 관련 API
-
-- `POST /api/slides/upload/start`
-- `POST /api/slides/upload/chunk`
-- `POST /api/slides/upload/complete`
-- 폴더·프로젝트 목록 API
-
-### 주의사항
-
-- 현재 일부 업로드 endpoint의 서버 측 역할 검사가 충분하지 않으므로 Viewer 직접 API 호출을 점검해야 함
-
-## 10. Profile 페이지
-
-### URL
+### 페이지 주소
 
 `/profile`
 
-### 목적
+### 내 정보 수정
 
-현재 사용자의 기본 정보와 비밀번호를 관리한다.
+1. 상단의 사용자 이름을 누릅니다.
+2. `My Profile`에서 현재 정보를 확인합니다.
+3. `Name`과 `Department`를 수정합니다.
+4. `Save Profile`을 누릅니다.
 
-### Account Information
+`Login ID`와 `Role`은 직접 변경할 수 없습니다. 변경이 필요하면 관리자에게 요청합니다.
 
-- Login ID: 읽기 전용
-- Name: 수정 가능
-- Department: 수정 가능
-- Role: 읽기 전용
-- Save Profile
+### 비밀번호 변경
 
-### Change Password
+1. `Current Password`에 현재 비밀번호를 입력합니다.
+2. `New Password`에 새 비밀번호를 입력합니다.
+3. `Confirm New Password`에 같은 비밀번호를 다시 입력합니다.
+4. `Change Password`를 누릅니다.
+5. 변경이 완료되면 다시 로그인합니다.
 
-- Current Password
-- New Password
-- Confirm New Password
-- 비밀번호 정책 안내
-- 현재 비밀번호 검증
-- 새 비밀번호 일치 확인
-- 변경 성공 시 모든 token·session을 폐기하고 로그인 화면으로 이동
+새 비밀번호도 대문자, 소문자, 숫자, 특수문자를 포함한 8자 이상이어야 합니다.
 
-### 관련 API
+비밀번호를 변경하면 현재 로그인 중인 다른 기기나 브라우저에서도 다시 로그인해야 할 수 있습니다.
 
-- `GET /api/auth/me`
-- `POST /api/users/me`
-- `POST /api/auth/change-password`
+---
 
-### 현재 빠진 기능
+## 14. Admin 페이지
 
-- MFA 설정 시작
-- QR/otpauth 정보 표시
-- MFA 최초 코드 검증
-- MFA 비활성화
-
-해당 기능은 API에는 있으나 Profile UI에는 없다.
-
-## 11. Admin 페이지
-
-### URL
+### 페이지 주소
 
 `/admin`
 
-### 접근 권한
+Admin 역할만 사용할 수 있습니다.
 
-Admin 전용이다. 비관리자는 화면과 API 모두 접근이 차단되어야 한다.
+### Pending: 가입 승인
 
-### 11.1 Pending 탭
+1. `Pending` 탭을 엽니다.
+2. 신청자의 이름, Login ID, 부서를 확인합니다.
+3. 승인할 역할을 선택합니다.
+   - Viewer
+   - Labeler
+   - Doctor
+   - Admin
+4. `Approve`를 누릅니다.
 
-- 승인 대기 사용자 목록
-- 사용자 이름, ID, 부서, 가입 시각
-- Approve
-- 승인 시 역할 선택:
-  - Viewer
-  - Labeler
-  - Doctor
-  - Admin
-- Reject
-- 선택적 거절 사유
+가입을 허용하지 않으려면 `Reject`를 누르고 필요한 경우 사유를 입력합니다.
 
-### 11.2 Users 탭
+역할은 실제 업무 범위에 맞게 최소 권한으로 지정하는 것이 좋습니다.
 
-- 사용자 목록
-- 20명 단위 페이지네이션
-- 승인 상태 필터:
-  - Approved
-  - Pending
-  - Rejected
-- 이름·Login ID 검색과 debounce
-- 사용자 Edit:
-  - Name
-  - Department
-  - 선택적 New Password
+### Users: 사용자 관리
+
+- 상태별 필터
+- 이름 또는 Login ID 검색
+- 사용자 이름과 부서 수정
+- 필요한 경우 새 비밀번호 지정
 - 역할 변경
-- 활성/비활성 전환
-- 계정 잠금 해제
+- 계정 활성·비활성 전환
+- 잠긴 계정 Unlock
 - 사용자 삭제
-- 본인 삭제·비활성 방지
-- 마지막 Admin 제거 방지
+- 목록 페이지 이동
 
-### 11.3 Create 탭
+본인 계정이나 마지막 Admin 계정에는 일부 위험한 동작이 제한됩니다.
 
-- 관리자가 사용자 직접 생성
-- 생성 즉시 승인·활성
-- Login ID
-- Name
-- Department
-- Password
-- Role
+### Create: 사용자 직접 생성
 
-### 11.4 Activity 탭
+1. `Create` 탭을 엽니다.
+2. Login ID, Name, Department를 입력합니다.
+3. 초기 Password를 설정합니다.
+4. Role을 선택합니다.
+5. 생성합니다.
 
-- 로그인 활동 50건 단위
-- 사용자 필터
-- 날짜·시간
-- Login ID와 이름·역할
-- IP
-- 국가·지역·도시
-- 브라우저·운영체제 형태의 device 정보
-- Details로 사용자별 활동 dialog
+관리자가 직접 만든 계정은 바로 사용할 수 있습니다. 초기 비밀번호는 안전한 방법으로 사용자에게 전달하고 첫 로그인 후 변경하도록 안내합니다.
 
-사용자 상세 활동:
+### Activity: 로그인·작업 기록 확인
 
-- 100건 단위
-- 날짜 범위
-- 페이지 이동
-- 카테고리와 count badge:
-  - All
-  - Login
-  - Slides
-  - AI
-  - Projects
-  - Files
-- action, 상세 정보, IP·위치 표시
+- 사용자별 로그인 활동
+- 날짜와 시각
+- IP 주소와 위치
+- 사용 장치 정보
+- 사용자별 상세 기록
 
-### 11.5 Settings 탭
+사용자 상세 화면에서는 다음 범주를 선택할 수 있습니다.
 
-- AI Worker:
-  - Enabled 상태
-  - Running 상태
-  - 즉시 on/off
-- Tile Worker:
-  - Enabled 상태
-  - Running 상태
-  - 즉시 on/off
-- Refresh
-- 설정은 MongoDB `app_settings`에 저장
+- All
+- Login
+- Slides
+- AI
+- Projects
+- Files
 
-### 관련 API
+날짜 범위와 페이지를 변경해 필요한 기록을 찾습니다.
 
-- 사용자 list/pending/create/approve/reject/update/delete
-- role/toggle-active/unlock
-- audit logs
-- login activity
-- user activity
-- worker settings
+### Settings: 백그라운드 작업 관리
 
-### UI가 없는 관리자 API
+#### AI Worker
 
-- Audit Log HMAC chain 검증
-- 파일 SHA-256 무결성 재검증
-- 다른 사용자의 MFA 강제 해제 전용 UI
+프로젝트 또는 폴더에 설정한 자동 AI 작업을 켜거나 끕니다.
 
-## 12. 전 페이지 공통 기능
+#### Tile Worker
 
-### 인증
+업로드된 슬라이드의 Viewer용 타일 준비 작업을 켜거나 끕니다.
 
-- 인증이 필요한 페이지는 Access Token이 없으면 Login으로 이동
-- API 401 시 Refresh Token으로 자동 갱신
-- 갱신 실패 시 localStorage를 정리하고 Login으로 이동
-- Logout은 Refresh session 폐기 후 localStorage 정리
+각 카드에서 다음 두 상태를 구분합니다.
 
-### 반응형 화면
+- `Enabled`: 사용하도록 설정되었는지
+- `Running`: 현재 작업 프로세스가 동작 중인지
 
-- 작은 화면에서 좌·우 panel drawer
-- overlay 클릭 또는 Esc로 drawer 닫기
-- 터치 WSI pan/pinch
-- panel width와 일부 UI 상태를 localStorage에 보존
+설정을 변경한 뒤 상태가 갱신되는지 확인합니다. 일반 운영 중에는 특별한 점검 사유가 없다면 두 작업을 켜 두는 것이 좋습니다.
 
-### 공통 권한 주의
+---
 
-프론트엔드에서 버튼을 숨기거나 비활성화하는 기능과 서버 API의 권한 검사는 별개다. 현재 폴더·파일·일부 업로드·임상정보 endpoint에는 역할 검사가 누락된 부분이 있어 서버 측 보완이 필요하다.
+## 15. 단축키 빠른 참조
 
-### 공통 사용자 문구 주의
+macOS에서는 대부분의 `Ctrl` 조합을 `Cmd`로 사용할 수 있습니다.
 
-AI/Tissue 화면의 일부 loading, drop 안내, aria-label, UX 도움말에 `text text` 형태의 손상된 문자열이 남아 있다. 페이지별 기능 정리와 별도로 UI 문구 정비가 필요하다.
+### Viewer와 주석
 
-## 13. 페이지별 우선 개선 목록
-
-| 페이지 | 우선 개선 |
+| 입력 | 동작 |
 | --- | --- |
-| Login/Profile | MFA 설정·해제 UI 추가 |
-| Home/Project | 중복 화면 구조 통합, rename/move 동작 노출 여부 결정 |
-| Data Linkage | 임상정보 변경 서버 권한 보강 |
-| AI | jsPDF 로컬화, 깨진 안내 문구 수정 |
-| Tissue Annotation | 도움말의 줌 기준 수정, 숨겨진 레거시 AI/JSON 코드 정리 |
-| Cell Annotation | 역할별 편집 조건을 UI에 더 명확하게 표시 |
-| Upload | Viewer 업로드 정책 확정 후 서버 RBAC 적용 |
-| Admin | Audit chain·파일 무결성·MFA 관리 UI 추가 |
-| 전체 | MongoDB 장애 시 anonymous admin fallback 제거 |
+| 마우스 휠 | WSI 확대·축소 |
+| 좌클릭/가운데 버튼 드래그 | 화면 이동 |
+| Ctrl+드래그 | 주석 위 또는 그리기 중 화면 이동 |
+| Ctrl+클릭 | 그리기 모드에서도 주석 선택 |
+| Shift+드래그 | 선택 주석 전체 이동 |
+| Delete | 선택 주석 삭제 |
+| Esc | 그리기·선택·팝업 취소 |
+| Ctrl+Z | 실행 취소 |
+| Ctrl+Y | 다시 실행 |
+| Ctrl+Shift+Z | 다시 실행 |
+| Alt+휠 | Polygon Brush 크기 변경 |
+| Alt+polygon 경계 클릭 | 꼭짓점 추가 |
+| Ctrl+겹친 같은 클래스 polygon 클릭 | polygon 병합 |
+
+### Tissue Annotation
+
+| 입력 | 동작 |
+| --- | --- |
+| Ctrl+S | 주석 저장 |
+| Ctrl+M | Slide Memo |
+| 1~9, 0 | 선택 주석 클래스 지정 |
+
+### AI 결과 편집
+
+| 입력 | 동작 |
+| --- | --- |
+| Alt+좌클릭 | 결과 셀 편집 |
+| Alt+좌드래그 | 가시 셀 다중 선택 |
+| Alt+우클릭 | 새 셀 추가 |
+| Alt+우드래그 | 숨겨진 Other 셀 다중 선택 |
+| Alt+A | Sticky Class 선택 |
+| 1~9, 0 | 편집창에서 클래스 지정 |
+| Delete/D | 결과 셀 삭제 |
+
+### Cell Annotation
+
+| 입력 | 동작 |
+| --- | --- |
+| P | WSI/Patch View 전환 |
+| Ctrl+S | 패치 저장 |
+| 1~9, 0 | 선택 셀 클래스 지정 |
+| Ctrl+1~9, 0 | 클래스 표시·숨김 |
+| Ctrl+` | 전체 클래스 표시·숨김 |
+| Delete/Backspace/D | 선택 셀 삭제 |
+| Alt+클릭 | 셀 선택 추가·해제 |
+| Alt+드래그 | 셀 다중 선택 |
+
+### 슬라이드·패치 목록
+
+| 입력 | 동작 |
+| --- | --- |
+| Ctrl/Cmd+클릭 | 슬라이드 다중 선택 |
+| Shift+클릭 | 슬라이드 범위 선택 |
+| 빈 영역 드래그 | 사각 영역 다중 선택 |
+| Ctrl+휠 | 슬라이드 썸네일 크기 변경 |
+| Patch 행 Enter/Space | 패치 선택 |
+| Patch 행 더블클릭 | Patch View 열기 |
+
+---
+
+## 16. 작업 전 확인사항
+
+### AI 분석 전
+
+- 올바른 프로젝트와 슬라이드를 열었는지 확인합니다.
+- 조직에 맞는 모델과 variant를 선택합니다.
+- ROI 분석이면 필요한 ROI만 보이는 상태인지 확인합니다.
+- 이전 결과를 유지해야 하면 새 분석 전에 저장 상태를 확인합니다.
+
+### Tissue Annotation 저장 전
+
+- 올바른 클래스가 지정되었는지 확인합니다.
+- 숨겨진 클래스나 주석이 없는지 확인합니다.
+- Slide Memo와 Annotation Memo를 구분합니다.
+- Workflow 상태를 바꾸기 전에 저장합니다.
+
+### Cell Annotation 완료 전
+
+- AI assistance 결과를 사람이 검토했는지 확인합니다.
+- 누락 셀과 잘못된 클래스가 없는지 확인합니다.
+- 숨긴 클래스가 있는지 확인합니다.
+- Annotation Done 전에 현재 패치가 저장되는지 확인합니다.
+- Review Rejected 사유 또는 Memo를 확인하고 수정합니다.
+
+### 파일 삭제·덮어쓰기 전
+
+- 선택한 프로젝트, 폴더, 파일명을 다시 확인합니다.
+- Overwrite나 Delete는 기존 AI 결과와 주석에도 영향을 줄 수 있습니다.
+- 필요한 결과를 먼저 내보내거나 별도로 보관합니다.
+
+---
+
+## 17. 자주 발생하는 상황
+
+### AI 버튼이 비활성화되어 있습니다
+
+- Viewer 역할인지 확인합니다.
+- 슬라이드가 정상적으로 열렸는지 확인합니다.
+- 다른 AI 작업이 실행 중인지 확인합니다.
+- 프로젝트 설정 또는 관리자 상태를 확인합니다.
+
+### 주석을 수정할 수 없습니다
+
+- Viewer 역할은 수정할 수 없습니다.
+- Cell Annotation의 Labeler는 Annotation Running 또는 Review Rejected 상태에서만 수정할 수 있습니다.
+- 올바른 Patch View를 열었는지 확인합니다.
+
+### 슬라이드가 선명하게 표시되지 않습니다
+
+- 타일이 준비되는 동안 잠시 낮은 해상도 화면이 표시될 수 있습니다.
+- 로딩이 끝날 때까지 기다립니다.
+- Fit 후 다시 확대합니다.
+- 계속 문제가 있으면 페이지를 새로고침하거나 관리자에게 문의합니다.
+
+### 같은 케이스 슬라이드가 검색되지 않습니다
+
+- 파일명이 기관의 케이스 명명 규칙에 맞는지 확인합니다.
+- 다른 프로젝트에 파일이 정상 등록되어 있는지 확인합니다.
+- 파일명의 케이스 구간이 서로 같은지 확인합니다.
+
+### 업로드 후 슬라이드가 보이지 않습니다
+
+- 업로드 결과가 `Uploaded`인지 확인합니다.
+- 올바른 프로젝트와 폴더를 보고 있는지 확인합니다.
+- 목록을 새로고침합니다.
+- 파일 검사 실패 메시지가 있었는지 확인합니다.
+
+### PDF가 저장되지 않습니다
+
+- 브라우저의 다운로드 차단 여부를 확인합니다.
+- 저장 위치 선택 창이 다른 창 뒤에 열리지 않았는지 확인합니다.
+- 폐쇄망 환경이면 관리자에게 PDF 기능 설정을 문의합니다.
