@@ -9,7 +9,7 @@
 - 일반 화면: 2560 × 1272 px
 - 슬라이드 업로드 팝업: 560 × 640 px
 - 파일 형식: PNG
-- 이미지 수: 47장
+- 이미지 수: 48장
 
 ## 원본명과 정리된 파일명
 
@@ -33,6 +33,7 @@
 | `AI_7.png` | `05-ai-viewer/07-same-case-slides.png` |
 | `AI_8.png` | `05-ai-viewer/08-multi-view.png` |
 | `AI_9.png` | `05-ai-viewer/09-shortcuts.png` |
+| `Same Case_Multi View_AI.png` | `05-ai-viewer/10-analysis-result-multi-view.png` |
 | `AI_10.png` | `06-ai-analysis/01-analysis-region.png` |
 | `AI_11.png` | `06-ai-analysis/02-result-heatmap.png` |
 | `AI_12.png` | `06-ai-analysis/03-result-class-distribution.png` |

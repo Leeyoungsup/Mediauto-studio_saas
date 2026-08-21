@@ -8,6 +8,10 @@
 
 이 문서는 시스템 내부 구조가 아니라 사용자가 화면에서 할 수 있는 일을 페이지별로 설명합니다. 처음 접하는 사용자도 아래 순서대로 읽으면 로그인부터 슬라이드 업로드, AI 분석, 주석, 검토까지 전체 업무 흐름을 이해할 수 있습니다.
 
+## 화면 이미지 안내
+
+이 문서의 화면 예시는 사용자명, 로그인 ID, 이름, 부서, 접속 IP·위치 및 샘플 식별자를 모자이크 처리한 공개용 이미지입니다. 실제 화면의 데이터와 버튼 활성 상태는 로그인한 계정의 역할과 작업 상태에 따라 다를 수 있습니다.
+
 ## 전체 작업 흐름
 
 1. 계정을 만들고 관리자의 승인을 받습니다.
@@ -38,6 +42,10 @@
 
 ### 로그인하기
 
+![로그인 ID와 비밀번호를 입력하는 로그인 화면](../figure/manual-redacted/01-login/01-sign-in.png)
+
+*그림 1. 로그인 화면*
+
 1. `Login ID`를 입력합니다.
 2. `Password`를 입력합니다.
 3. `Sign in`을 누릅니다.
@@ -45,6 +53,10 @@
 5. 로그인이 완료되면 Home 화면으로 이동합니다.
 
 ### 계정 만들기
+
+![이름, 부서, 로그인 ID와 비밀번호를 입력하는 회원가입 화면](../figure/manual-redacted/01-login/02-sign-up.png)
+
+*그림 2. 회원가입 화면*
 
 1. 화면 아래의 `Sign up`을 선택합니다.
 2. 다음 항목을 입력합니다.
@@ -63,6 +75,10 @@
 - 비밀번호에는 대문자, 소문자, 숫자, 특수문자가 각각 하나 이상 포함되어야 합니다.
 
 ### 로그인이 되지 않을 때
+
+![비활성화된 계정의 로그인 오류 메시지](../figure/manual-redacted/01-login/03-account-deactivated-error.png)
+
+*그림 3. 비활성 계정 로그인 오류 예시*
 
 - `Pending` 또는 승인 대기 메시지: 관리자의 승인이 필요합니다.
 - 거절 메시지: 관리자에게 가입 상태를 문의합니다.
@@ -102,6 +118,10 @@
 ### 화면의 역할
 
 로그인 후 처음 보는 대시보드입니다. 저장공간, 최근 작업, 프로젝트 현황을 한 화면에서 확인하고 자주 쓰는 기능으로 이동할 수 있습니다.
+
+![저장공간, 최근 슬라이드, 빠른 실행과 프로젝트 현황이 표시된 Home 대시보드](../figure/manual-redacted/02-home/01-dashboard.png)
+
+*그림 4. Home 대시보드*
 
 ### 저장공간 확인
 
@@ -170,9 +190,17 @@
 
 프로젝트를 만들고 프로젝트별 작업 정보와 자동 AI 설정을 관리합니다. Home과 비슷한 대시보드가 표시되지만 프로젝트 관리에 초점을 둔 메뉴입니다.
 
+![프로젝트 목록과 프로젝트 현황이 표시된 Project 페이지](../figure/manual-redacted/03-project/01-project-list.png)
+
+*그림 5. Project 목록 화면*
+
 ### 새 프로젝트 만들기
 
 Admin 또는 Doctor가 사용할 수 있습니다.
+
+![프로젝트 기본 정보와 자동 AI 설정을 입력하는 새 프로젝트 화면](../figure/manual-redacted/03-project/04-create-project.png)
+
+*그림 6. 새 프로젝트 만들기 화면*
 
 1. `New Project`를 누릅니다.
 2. 프로젝트 정보를 입력합니다.
@@ -200,11 +228,19 @@ Admin 또는 Doctor가 사용할 수 있습니다.
 
 ### 프로젝트 수정
 
+![프로젝트 정보와 자동 AI 설정을 변경하는 프로젝트 설정 화면](../figure/manual-redacted/03-project/02-edit-project-settings.png)
+
+*그림 7. 프로젝트 정보 및 자동 AI 설정 편집 화면*
+
 1. 프로젝트 목록에서 `Info` 또는 Edit를 누릅니다.
 2. 필요한 항목을 변경합니다.
 3. 저장합니다.
 
 Labeler와 Viewer는 프로젝트 정보를 볼 수 있지만 프로젝트 생성·수정은 할 수 없습니다.
+
+![프로젝트에서 AI, Tissue Annotation 또는 Cell Annotation 작업공간을 선택하는 화면](../figure/manual-redacted/03-project/03-open-project-workspace.png)
+
+*그림 8. 프로젝트 작업공간 선택 화면*
 
 ### 프로젝트 자동 AI 설정
 
@@ -247,6 +283,10 @@ Cell Annotation에서 패치 라벨링을 보조할 모델 하나를 선택할 �
 ## 5. AI·Annotation 공통 프로젝트 선택 화면
 
 AI, Tissue Annotation, Cell Annotation 메뉴를 바로 열면 먼저 프로젝트 선택 화면이 표시됩니다.
+
+![검색과 필터를 사용해 작업할 프로젝트를 선택하는 AI 프로젝트 목록](../figure/manual-redacted/05-ai-viewer/01-project-list.png)
+
+*그림 9. 작업공간의 프로젝트 선택 화면*
 
 ### 프로젝트 검색
 
@@ -301,6 +341,10 @@ AI, Tissue Annotation, Cell Annotation 메뉴를 바로 열면 먼저 프로젝�
 ### 화면의 역할
 
 프로젝트와 폴더를 선택해 WSI 파일을 업로드합니다. Home이나 각 작업공간에서 별도 팝업 창으로 열립니다.
+
+![프로젝트와 폴더를 선택하고 WSI 파일을 추가하는 슬라이드 업로드 화면](../figure/manual-redacted/04-upload/01-slide-upload.png)
+
+*그림 10. Slide Upload 화면*
 
 ### 업로드 위치 선택
 
@@ -373,6 +417,10 @@ Overwrite는 기존 AI 결과와 주석 작업에도 영향을 줄 수 있으므
 
 ## 7. AI·Tissue·Cell 공통 슬라이드 목록
 
+![폴더와 슬라이드를 표 형태로 확인하는 슬라이드 목록 화면](../figure/manual-redacted/05-ai-viewer/02-slide-list-view.png)
+
+*그림 11. 슬라이드 List View*
+
 ### 폴더 이동
 
 - Breadcrumb의 프로젝트 또는 폴더 이름을 눌러 상위 위치로 이동합니다.
@@ -383,10 +431,22 @@ Overwrite는 기존 AI 결과와 주석 작업에도 영향을 줄 수 있으므
 
 검색창에 파일명의 일부를 입력하면 현재 폴더의 슬라이드가 필터링됩니다.
 
+![파일명 검색어로 현재 폴더의 슬라이드를 필터링한 화면](../figure/manual-redacted/05-ai-viewer/04-search-slides.png)
+
+*그림 12. 슬라이드 이름 검색 결과*
+
 ### 목록·그리드 보기
 
 - List View: 파일명과 상태를 표 형태로 확인
 - Grid View: 큰 썸네일 중심으로 확인
+
+![슬라이드를 큰 썸네일 카드로 확인하는 Grid View](../figure/manual-redacted/05-ai-viewer/03-slide-thumbnail-view.png)
+
+*그림 13. 슬라이드 Grid View*
+
+![왼쪽 슬라이드 패널을 접어 Viewer 영역을 넓힌 화면](../figure/manual-redacted/05-ai-viewer/05-collapsed-slide-panel.png)
+
+*그림 14. 슬라이드 패널 접기 상태*
 
 ### 여러 슬라이드 선택
 
@@ -430,6 +490,10 @@ AI, Tissue Annotation, Cell Annotation은 같은 기본 WSI 조작 방식을 사
 | `Fit` | 슬라이드 전체가 화면에 맞도록 표시 |
 | `Zoom In`, `Zoom Out` | 단계별 확대·축소 |
 
+![WSI Viewer의 화면 조작 도구와 단축키 도움말](../figure/manual-redacted/05-ai-viewer/09-shortcuts.png)
+
+*그림 15. Viewer 도구 및 단축키 도움말*
+
 ### 미니맵
 
 - 미니맵에서 현재 보고 있는 영역을 사각형으로 확인합니다.
@@ -447,6 +511,10 @@ AI, Tissue Annotation, Cell Annotation은 같은 기본 WSI 조작 방식을 사
 ### 슬라이드 정보
 
 `Slide Info`에서 다음 정보를 확인합니다.
+
+![파일명, 스캐너, 배율, MPP와 임상정보를 확인하는 Slide Info 창](../figure/manual-redacted/05-ai-viewer/06-slide-information.png)
+
+*그림 16. Slide Info 화면*
 
 - 파일명
 - Scanner/Vendor
@@ -466,6 +534,10 @@ Hamamatsu 슬라이드에서는 NDP 색보정 옵션이 표시될 수 있습니�
 
 같은 환자·샘플의 다른 marker 슬라이드를 찾을 때 사용합니다.
 
+![동일 케이스의 다른 marker 슬라이드를 검색하고 선택하는 Same Case 화면](../figure/manual-redacted/05-ai-viewer/07-same-case-slides.png)
+
+*그림 17. Same Case 슬라이드 선택 화면*
+
 1. `Same Case`를 누릅니다.
 2. 검색된 슬라이드의 썸네일과 AI 결과 표시를 확인합니다.
 3. 최대 4개까지 선택합니다.
@@ -474,11 +546,19 @@ Hamamatsu 슬라이드에서는 NDP 색보정 옵션이 표시될 수 있습니�
 
 ### Multi View
 
+![여러 marker 슬라이드를 한 화면에서 비교하는 Multi View](../figure/manual-redacted/05-ai-viewer/08-multi-view.png)
+
+*그림 18. 기본 Multi View 화면*
+
 - 2~4개 슬라이드를 동시에 표시합니다.
 - 각 화면의 `Fit`을 개별 사용할 수 있습니다.
 - 작업할 화면을 클릭하면 활성 슬라이드가 바뀝니다.
 - AI, Annotation, Info 동작은 활성 슬라이드에 적용됩니다.
 - Multi View를 닫으면 원래 슬라이드 화면으로 돌아갑니다.
+
+![Virtual Stain과 여러 marker의 AI 분석 결과를 동시에 비교하는 Multi View](../figure/manual-redacted/05-ai-viewer/10-analysis-result-multi-view.png)
+
+*그림 19. Same Case AI 분석 결과 Multi View 화면*
 
 ---
 
@@ -503,6 +583,10 @@ Hamamatsu 슬라이드에서는 NDP 색보정 옵션이 표시될 수 있습니�
 7. 진행률이 완료될 때까지 기다립니다.
 
 ### ROI 도구
+
+![Polygon과 Rectangle ROI를 지정해 AI 분석 범위를 설정한 화면](../figure/manual-redacted/06-ai-analysis/01-analysis-region.png)
+
+*그림 20. AI 분석 영역 ROI 설정 화면*
 
 | 도구 | 사용 방법 |
 | --- | --- |
@@ -529,6 +613,10 @@ Hamamatsu 슬라이드에서는 NDP 색보정 옵션이 표시될 수 있습니�
 
 IHC 원본에서 Virtual H&E 영상을 생성합니다.
 
+![IHC 원본과 생성된 Virtual H&E를 분할 화면으로 비교하는 Virtual Stain 결과](../figure/manual-redacted/06-ai-analysis/07-virtual-stain-split-view.png)
+
+*그림 21. Virtual Stain Split View*
+
 1. `VirtualStain`을 선택합니다.
 2. Target Resolution을 선택합니다.
 3. 실행 버튼을 누릅니다.
@@ -541,6 +629,14 @@ IHC 원본에서 Virtual H&E 영상을 생성합니다.
 ### Quanti HE
 
 H&E 슬라이드의 세포를 검출하고 분류합니다.
+
+![H&E 슬라이드의 세포 검출 결과와 클래스별 개수를 표시한 화면](../figure/manual-redacted/06-ai-analysis/08-quanti-he-results.png)
+
+*그림 22. Quanti HE 분석 결과*
+
+![Quanti HE 세포 분포를 공간 히트맵으로 표시한 화면](../figure/manual-redacted/06-ai-analysis/09-quanti-he-spatial-heatmap.png)
+
+*그림 23. Quanti HE Spatial Heatmap*
 
 1. `Quanti`에서 `HE`를 선택합니다.
 2. `Breast`, `Stomach`, `Other` 중 조직에 맞는 항목을 선택합니다.
@@ -562,6 +658,14 @@ Breast와 Stomach는 epithelial cell을 Tumor와 Benign으로 추가 구분합�
 
 ### Quanti PD-L1
 
+![PD-L1 분석 결과 셀과 점수를 표시한 화면](../figure/manual-redacted/06-ai-analysis/15-quanti-pdl1-results.png)
+
+*그림 24. Quanti PD-L1 분석 결과*
+
+![PD-L1 분석에서 CPS와 TPS 계산 결과를 확인하는 화면](../figure/manual-redacted/06-ai-analysis/16-quanti-pdl1-cps-tps-analysis.png)
+
+*그림 25. PD-L1 CPS·TPS 결과 확인*
+
 1. `Quanti`에서 `PD-L1`을 선택합니다.
 2. 위 조직을 선택합니다.
    - `Stomach`: CPS
@@ -577,11 +681,31 @@ Other 또는 Non-Tumor로 분류된 셀은 기본적으로 숨겨지며 점수�
 
 #### HER2
 
+![HER2 0+, 1+, 2+, 3+ 세포와 분석 점수를 표시한 화면](../figure/manual-redacted/06-ai-analysis/11-quanti-ihc-her2-results.png)
+
+*그림 26. Quanti IHC HER2 분석 결과*
+
+![HER2 결과 셀 하나를 선택해 클래스를 수정하는 화면](../figure/manual-redacted/06-ai-analysis/12-quanti-ihc-her2-single-cell-edit.png)
+
+*그림 27. HER2 단일 결과 셀 편집*
+
+![HER2 결과 셀 여러 개를 선택해 클래스를 일괄 수정하는 화면](../figure/manual-redacted/06-ai-analysis/13-quanti-ihc-her2-batch-cell-edit.png)
+
+*그림 28. HER2 결과 셀 다중 편집*
+
 - 0+, 1+, 2+, 3+ 세포 수
 - 가장 많은 등급
 - 전체 세포의 가중 평균 점수
 
 #### ER/PR
+
+![ER 또는 PR 분석 결과와 Allred 점수를 표시한 화면](../figure/manual-redacted/06-ai-analysis/10-quanti-ihc-erpr-results.png)
+
+*그림 29. Quanti IHC ER·PR 분석 결과*
+
+![ER 또는 PR의 비율·강도 분포와 Allred 결과를 시각화한 화면](../figure/manual-redacted/06-ai-analysis/04-result-allred-analysis.png)
+
+*그림 30. Allred 분석 시각화*
 
 - Proportion Score
 - Intensity Score
@@ -589,6 +713,10 @@ Other 또는 Non-Tumor로 분류된 셀은 기본적으로 숨겨지며 점수�
 - Positive 또는 Negative 표시
 
 #### KI-67
+
+![KI-67 양성 및 음성 세포와 labeling index를 표시한 화면](../figure/manual-redacted/06-ai-analysis/14-quanti-ihc-ki67-results.png)
+
+*그림 31. Quanti IHC KI-67 분석 결과*
 
 - 양성 세포 수
 - 음성 세포 수
@@ -603,6 +731,10 @@ Other 또는 Non-Tumor로 분류된 셀은 기본적으로 숨겨지며 점수�
 - 왼쪽 목록의 상태 badge에서도 실행 중·완료 상태를 확인할 수 있습니다.
 
 ### 결과 표시 관리
+
+![AI 결과의 세포 밀도를 Heatmap으로 표시한 화면](../figure/manual-redacted/06-ai-analysis/02-result-heatmap.png)
+
+*그림 32. AI 결과 Heatmap 표시*
 
 - 클래스 이름 옆 표시 아이콘으로 해당 클래스의 셀을 숨기거나 다시 표시합니다.
 - 전체 표시/숨김을 사용할 수 있습니다.
@@ -642,6 +774,14 @@ Labeler는 AI를 실행할 수 있지만 결과 셀 편집과 Save/Load가 제�
 
 `Visualize`에서 다음 자료를 확인합니다.
 
+![AI 결과의 클래스별 분포를 차트로 확인하는 Visualize 화면](../figure/manual-redacted/06-ai-analysis/03-result-class-distribution.png)
+
+*그림 33. 클래스 분포 시각화*
+
+![AI 결과 셀의 confidence 분포를 확인하는 화면](../figure/manual-redacted/06-ai-analysis/05-result-confidence-distribution.png)
+
+*그림 34. Confidence 분포 시각화*
+
 - 클래스 분포 bar chart
 - 클래스 분포 pie chart
 - 모델별 분석 결과
@@ -650,6 +790,10 @@ Labeler는 AI를 실행할 수 있지만 결과 셀 편집과 Save/Load가 제�
 - Confidence 분포
 
 ### PDF 저장
+
+![AI 분석 결과를 보고서 형식으로 구성한 PDF 미리보기 화면](../figure/manual-redacted/06-ai-analysis/06-pdf-analysis-report.png)
+
+*그림 35. AI 분석 PDF 보고서*
 
 1. Visualize 창에서 PDF Export를 선택합니다.
 2. 브라우저가 저장 위치 선택을 지원하면 파일 위치와 이름을 지정합니다.
@@ -668,6 +812,10 @@ Labeler는 AI를 실행할 수 있지만 결과 셀 편집과 Save/Load가 제�
 ### 화면의 역할
 
 슬라이드의 조직 영역을 클래스별로 표시하고 작업·검토·종결 상태를 관리합니다.
+
+![조직 영역을 클래스별로 그리고 작업 상태를 관리하는 Tissue Annotation Viewer](../figure/manual-redacted/07-tissue-annotation/01-annotation-viewer.png)
+
+*그림 36. Tissue Annotation 작업 화면*
 
 ### 작업 시작
 
@@ -700,6 +848,10 @@ Ruler는 거의 수평 또는 수직인 선을 자동으로 바로 맞춥니다.
 ### 클래스 관리
 
 Admin과 Doctor는 프로젝트별 클래스를 관리합니다.
+
+![Tissue Annotation에서 클래스 이름, 색상과 순서를 설정하는 화면](../figure/manual-redacted/07-tissue-annotation/02-class-management.png)
+
+*그림 37. Tissue Annotation 클래스 관리*
 
 - 클래스 추가
 - 이름 변경
@@ -844,6 +996,10 @@ WSI에서 라벨링할 영역을 지정하고, 고정 크기 패치 안의 세�
 
 프로젝트 선택 화면에서 클래스 설정을 열 수 있습니다.
 
+![Cell Annotation에서 프로젝트별 세포 클래스를 설정하는 화면](../figure/manual-redacted/08-cell-annotation/01-annotation-settings.png)
+
+*그림 38. Cell Annotation 프로젝트 클래스 설정*
+
 - 프로젝트에서 사용할 세포 클래스 확인
 - Admin/Doctor의 클래스 추가·수정·정렬
 - AI가 제공하는 필수 클래스와 Other는 이름·색상 변경 또는 삭제가 제한될 수 있음
@@ -883,6 +1039,10 @@ Admin 또는 Doctor만 사용할 수 있습니다.
 - 잘못 누른 경우 countdown이 끝나기 전에 취소합니다.
 
 ### 패치 목록
+
+![패치별 Annotation, Review, Termination 상태를 확인하는 목록](../figure/manual-redacted/08-cell-annotation/02-patch-list.png)
+
+*그림 39. Cell Annotation 패치 목록*
 
 | 열 | 내용 |
 | --- | --- |
@@ -929,6 +1089,14 @@ Done으로 바꿀 때 현재 셀 라벨이 먼저 저장됩니다.
 
 - `BBox`: 셀의 전체 사각형을 표시합니다.
 - `Point`: 셀의 중심점 형태로 간단하게 표시합니다.
+
+![패치의 세포 라벨을 Bounding Box로 표시한 화면](../figure/manual-redacted/08-cell-annotation/03-bounding-box-display.png)
+
+*그림 40. 세포 BBox 표시 방식*
+
+![패치의 세포 라벨을 중심점으로 표시한 화면](../figure/manual-redacted/08-cell-annotation/04-point-display.png)
+
+*그림 41. 세포 Point 표시 방식*
 
 표시 방식을 바꾸어도 저장된 bounding box 정보는 유지됩니다.
 
@@ -1059,6 +1227,10 @@ Labeler는 다음 작업을 할 수 없습니다.
 
 같은 케이스에 속한 슬라이드를 모아 보고 케이스 공통 임상정보를 입력합니다.
 
+![같은 케이스의 연결 슬라이드와 임상정보를 함께 확인하는 Data Linkage 화면](../figure/manual-redacted/09-data-linkage/01-case-clinical-information.png)
+
+*그림 42. Data Linkage 케이스 및 임상정보 화면*
+
 ### 케이스 검색
 
 1. 필요한 경우 Project를 선택합니다.
@@ -1134,6 +1306,10 @@ Labeler는 다음 작업을 할 수 없습니다.
 
 `/profile`
 
+![내 이름과 부서를 수정하고 비밀번호를 변경하는 Profile 화면](../figure/manual-redacted/10-profile/01-account-and-password.png)
+
+*그림 43. Profile 계정 정보 및 비밀번호 관리*
+
 ### 내 정보 수정
 
 1. 상단의 사용자 이름을 누릅니다.
@@ -1167,6 +1343,10 @@ Admin 역할만 사용할 수 있습니다.
 
 ### Pending: 가입 승인
 
+![가입 승인 대기 사용자의 역할을 선택하고 승인 또는 거절하는 화면](../figure/manual-redacted/11-admin/01-pending-approvals.png)
+
+*그림 44. Admin Pending 가입 승인*
+
 1. `Pending` 탭을 엽니다.
 2. 신청자의 이름, Login ID, 부서를 확인합니다.
 3. 승인할 역할을 선택합니다.
@@ -1182,6 +1362,10 @@ Admin 역할만 사용할 수 있습니다.
 
 ### Users: 사용자 관리
 
+![사용자 검색, 역할, 상태와 계정 관리 기능을 제공하는 Users 화면](../figure/manual-redacted/11-admin/02-user-management.png)
+
+*그림 45. Admin 사용자 관리*
+
 - 상태별 필터
 - 이름 또는 Login ID 검색
 - 사용자 이름과 부서 수정
@@ -1196,6 +1380,10 @@ Admin 역할만 사용할 수 있습니다.
 
 ### Create: 사용자 직접 생성
 
+![관리자가 로그인 ID, 초기 비밀번호와 역할을 지정해 사용자를 만드는 화면](../figure/manual-redacted/11-admin/03-create-user.png)
+
+*그림 46. Admin 사용자 직접 생성*
+
 1. `Create` 탭을 엽니다.
 2. Login ID, Name, Department를 입력합니다.
 3. 초기 Password를 설정합니다.
@@ -1205,6 +1393,10 @@ Admin 역할만 사용할 수 있습니다.
 관리자가 직접 만든 계정은 바로 사용할 수 있습니다. 초기 비밀번호는 안전한 방법으로 사용자에게 전달하고 첫 로그인 후 변경하도록 안내합니다.
 
 ### Activity: 로그인·작업 기록 확인
+
+![사용자별 로그인 시간, IP와 위치를 확인하는 Activity 화면](../figure/manual-redacted/11-admin/04-login-activity.png)
+
+*그림 47. Admin 로그인 활동 기록*
 
 - 사용자별 로그인 활동
 - 날짜와 시각
@@ -1224,6 +1416,10 @@ Admin 역할만 사용할 수 있습니다.
 날짜 범위와 페이지를 변경해 필요한 기록을 찾습니다.
 
 ### Settings: 백그라운드 작업 관리
+
+![AI Worker와 Tile Worker의 Enabled 및 Running 상태를 관리하는 화면](../figure/manual-redacted/11-admin/05-system-settings.png)
+
+*그림 48. Admin 백그라운드 작업 설정*
 
 #### AI Worker
 
