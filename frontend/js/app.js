@@ -4,8 +4,8 @@
  */
 
 import { api } from './api.js?v=20260819-01';
-import { AiViewer } from './ai-viewer.js?v=20260824-02';
-import { showVisualization } from './visualization.js?v=20260810-01';
+import { AiViewer } from './ai-viewer.js?v=20260824-03';
+import { showVisualization } from './visualization.js?v=20260824-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -80,6 +80,9 @@ const $btnFit = $('#btn-fit');
 const $btnZoomIn = $('#btn-zoom-in');
 const $btnZoomOut = $('#btn-zoom-out');
 const $btnDetect = $('#btn-detect');
+const $hneStilResult = $('#hne-stil-result');
+const $hneStilValue = $('#hne-stil-value');
+const $hneStilMetrics = $('#hne-stil-metrics');
 const $btnVisualize = $('#btn-visualize');
 const $btnHeatmapToggle = $('#btn-heatmap-toggle');
 const $btnClearResults = $('#btn-clear-results');
@@ -279,7 +282,7 @@ document.querySelectorAll('.quanti-model-bar .tab-btn').forEach(btn => {
 const AI_MODEL_HELP = {
     'hne-tab': {
         title: 'Quanti HE - H&E Cell Detection',
-        body: 'Detects individual cells on H&E slides and classifies them into supported cell categories. Breast, Stomach, and Other presets tune the downstream scoring context. Other/background classes are kept out of scoring unless they are explicitly promoted into a visible result class.',
+        body: 'Detects and classifies cells on H&E slides. Breast analysis also reports a calibration-required AI-estimated stromal TIL score using lymphocyte/plasma-cell area over tumor-associated stroma, with a 500 µm local sTIL heatmap. It is a research metric, not a clinical ground-truth score.',
     },
     'vs-tab': {
         title: 'VirtualStain - VS IHC',
@@ -2740,6 +2743,7 @@ function _captureActiveMultiViewContext() {
 function _renderActiveViewerPanels() {
     const hasResult = Boolean(_lastDetectionResult);
     $resultList.innerHTML = '';
+    _updateStilScoreDisplay(_lastDetectionResult?.stil_score || null);
     if ($pdScoreResult) $pdScoreResult.hidden = !_lastDetectionResult?.pd_score;
     if ($ihcScoreResult) {
         $ihcScoreResult.hidden = !(
@@ -3345,11 +3349,16 @@ function onDetectionComplete(result, roiPolygons = null, tissueType = null) {
 
     viewer.setDetectionResults(result.cells, roiPolygons);
     viewer.setHiddenDetectionResults?.(result.excluded_cells || [], roiPolygons);
+    viewer.setStilHeatmap?.(result.stil_score?.available ? result.stil_score.spatial_heatmap : null);
     _applyInitialQuantiHeVisibility();
+    _updateStilScoreDisplay(result.stil_score || null);
 
     const displayCount = viewer.detectionCells.length;
     setProgress(100);
-    setStatus(`Detection complete: ${displayCount.toLocaleString()} cells`);
+    const stilStatus = result.stil_score?.available
+        ? ` · AI-estimated sTIL ${Number(result.stil_score.score_percent || 0).toFixed(1)}%`
+        : '';
+    setStatus(`Detection complete: ${displayCount.toLocaleString()} cells${stilStatus}`);
     buildResultList(result);
 
     $btnVisualize.disabled = false;
@@ -3367,6 +3376,33 @@ const CLASS_COLORS = {
     4: '#8A2BE2', 5: '#808080', 6: '#FF0000', 7: '#00FF00',
 };
 const QUANTI_HE_STROMAL_CLASS_ID = 5;
+
+function _updateStilScoreDisplay(score) {
+    if (!$hneStilResult) return;
+    $hneStilResult.hidden = !score;
+    if (!score) {
+        if ($hneStilValue) $hneStilValue.textContent = '--';
+        if ($hneStilMetrics) $hneStilMetrics.innerHTML = '';
+        return;
+    }
+    if (!score.available) {
+        if ($hneStilValue) $hneStilValue.textContent = 'N/A';
+        if ($hneStilMetrics) {
+            $hneStilMetrics.innerHTML = `<span>Reason</span><strong>${escapeHtml(score.reason || 'Score unavailable')}</strong>`;
+        }
+        return;
+    }
+
+    if ($hneStilValue) $hneStilValue.textContent = `${Number(score.score_percent || 0).toFixed(1)}%`;
+    if ($hneStilMetrics) {
+        $hneStilMetrics.innerHTML = `
+            <span>Lymphocyte density</span><strong>${Number(score.lymphocyte_density_cells_mm2 || 0).toLocaleString()} cells/mm²</strong>
+            <span>Plasma-cell density</span><strong>${Number(score.plasma_density_cells_mm2 || 0).toLocaleString()} cells/mm²</strong>
+            <span>Tumor-associated stroma</span><strong>${Number(score.tumor_associated_stroma_area_mm2 || 0).toFixed(2)} mm²</strong>
+            <span>Immune cells in stroma</span><strong>${Number((score.lymphocyte_count || 0) + (score.plasma_count || 0)).toLocaleString()}</strong>
+        `;
+    }
+}
 
 function _applyInitialQuantiHeVisibility() {
     if (!viewer?.classVisibility) return;
@@ -3706,6 +3742,7 @@ function clearResults() {
     $btnSaveResults.disabled = true;
     if ($btnLoadResults) $btnLoadResults.disabled = true;
     viewer.setHeatmapVisible?.(false);
+    viewer.setStilHeatmap?.(null);
     viewer.setDetectionResults([]);
     viewer.setHiddenDetectionResults?.([]);
     lastSegData = null;
@@ -3715,6 +3752,7 @@ function clearResults() {
     _hideStickyHud();
     _lastDetectionModel = null;
     _lastDetectionRoi = null;
+    _updateStilScoreDisplay(null);
     renderAnnotationPanel();
 }
 
@@ -3722,8 +3760,11 @@ function _syncHeatmapToggle() {
     if (!$btnHeatmapToggle) return;
     const enabled = Boolean(viewer.heatmapVisible);
     const hasResults = Array.isArray(viewer.detectionCells) && viewer.detectionCells.length > 0;
+    const hasStilHeatmap = Boolean(viewer.stilHeatmap?.cells?.length);
     $btnHeatmapToggle.disabled = !hasResults;
-    $btnHeatmapToggle.textContent = enabled ? 'Heatmap: On' : 'Heatmap: Off';
+    $btnHeatmapToggle.textContent = hasStilHeatmap
+        ? `sTIL Heatmap: ${enabled ? 'On' : 'Off'}`
+        : `Heatmap: ${enabled ? 'On' : 'Off'}`;
     $btnHeatmapToggle.classList.toggle('active', enabled);
     $btnHeatmapToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
 }
@@ -3732,7 +3773,8 @@ $btnHeatmapToggle?.addEventListener('click', () => {
     if (_blockViewerAction() || !viewer.detectionCells?.length) return;
     viewer.setHeatmapVisible?.(!viewer.heatmapVisible);
     _syncHeatmapToggle();
-    setStatus(viewer.heatmapVisible ? 'Heatmap display enabled' : 'Individual cell display enabled');
+    const heatmapName = viewer.stilHeatmap?.cells?.length ? 'Local sTIL heatmap' : 'Cell-density heatmap';
+    setStatus(viewer.heatmapVisible ? `${heatmapName} enabled` : 'Individual cell display enabled');
 });
 
 $btnClearResults.addEventListener('click', () => {
@@ -3761,18 +3803,20 @@ $btnVisualize.addEventListener('click', () => {
     const isHer2 = !!(_lastDetectionResult && _lastDetectionResult.her2_score);
     const isAllred = !!(_lastDetectionResult && _lastDetectionResult.allred_score);
     const isKi67 = !!(_lastDetectionResult && _lastDetectionResult.ki67_score);
+    const stilScore = _lastDetectionResult?.stil_score || null;
     const isIhc = isHer2 || isAllred || isKi67;
     const modelType = isIhc ? 'Quanti IHC' : (isPdScore ? 'Quanti PD-L1' : 'Quanti HE');
     const scoreType = isHer2 ? 'HER2'
         : isAllred ? 'Allred'
         : isKi67 ? 'KI67'
-        : (isPdScore ? _lastDetectionResult.pd_score.score_type : null);
+        : isPdScore ? _lastDetectionResult.pd_score.score_type
+        : stilScore?.available ? 'sTIL' : null;
     const classNames = _lastDetectionResult?.class_names || null;
     const classColors = _lastDetectionResult?.class_colors || null;
 
     showVisualization(filtered, lastSegData, thumbUrl, {
         slideName, tissue, slideDims,
-        modelType, scoreType, classNames, classColors,
+        modelType, scoreType, classNames, classColors, stilScore,
     });
 });
 

@@ -178,6 +178,7 @@ export class TileViewer {
         // Heatmap is an explicit display mode, controlled by the Detection
         // Results panel. It is never selected automatically from zoom/MPP.
         this.heatmapVisible = false;
+        this.stilHeatmap = null;
         this.detailedCellMppThreshold = 5.0;
         this.maxIndividualDetectionCells = 50000;
         this.denseCellPointSize = 2.0;
@@ -615,6 +616,11 @@ export class TileViewer {
 
     setHeatmapVisible(visible) {
         this.heatmapVisible = Boolean(visible);
+        this.requestRender();
+    }
+
+    setStilHeatmap(heatmap) {
+        this.stilHeatmap = heatmap && Array.isArray(heatmap.cells) ? heatmap : null;
         this.requestRender();
     }
 
@@ -2172,6 +2178,7 @@ export class TileViewer {
         }
 
         this._highlightedCellIdx = -1;
+        this.stilHeatmap = null;
         this._highlightedCellIdxSet = null;
         this._undoStack = [];
         this._redoStack = [];
@@ -3234,6 +3241,10 @@ export class TileViewer {
      * 4. jet text + text ImageDatatext text
      */
     _renderHeatmap(octx) {
+        if (this.stilHeatmap?.cells?.length) {
+            this._renderStilHeatmap(octx);
+            return;
+        }
         const cache = this._heatmapCache;
         if (!cache) return;
 
@@ -3256,6 +3267,68 @@ export class TileViewer {
 
         octx.imageSmoothingEnabled = true;
         octx.drawImage(img.canvas, canvasX, canvasY, canvasW, canvasH);
+    }
+
+    _renderStilHeatmap(octx) {
+        const heatmap = this.stilHeatmap;
+        if (!heatmap?.cells?.length) return;
+
+        const colorForScore = (score) => {
+            if (score < 10) return '#2c7bb6';
+            if (score < 30) return '#74add1';
+            if (score < 50) return '#fdae61';
+            return '#d7191c';
+        };
+        const gridSizeMm = Number(heatmap.grid_size_um || 500) / 1000;
+        const fullGridAreaMm2 = Math.max(1e-9, gridSizeMm * gridSizeMm);
+        const viewRect = this._activeViewCanvasRect();
+
+        octx.save();
+        for (const raw of heatmap.cells) {
+            if (!Array.isArray(raw) || raw.length < 6) continue;
+            const [sceneX, sceneY, sceneW, sceneH] = raw;
+            const score = Number(raw[4] || 0);
+            const stromaAreaMm2 = Number(raw[5] || 0);
+            const [canvasX, canvasY] = this.sceneToCanvas(sceneX, sceneY);
+            const canvasW = sceneW * this.zoom;
+            const canvasH = sceneH * this.zoom;
+            if (
+                canvasX + canvasW < viewRect.x || canvasX > viewRect.x + viewRect.w ||
+                canvasY + canvasH < viewRect.y || canvasY > viewRect.y + viewRect.h
+            ) continue;
+            const coverage = Math.min(1, stromaAreaMm2 / fullGridAreaMm2);
+            octx.globalAlpha = 0.28 + 0.42 * Math.sqrt(coverage);
+            octx.fillStyle = colorForScore(score);
+            octx.fillRect(canvasX, canvasY, canvasW + 0.5, canvasH + 0.5);
+        }
+
+        // Fixed on-canvas legend. Global sTIL is still calculated from the
+        // complete area; these bins describe local 500 um grid values only.
+        const legend = [
+            ['0–10%', '#2c7bb6'],
+            ['10–30%', '#74add1'],
+            ['30–50%', '#fdae61'],
+            ['≥50%', '#d7191c'],
+        ];
+        const lx = viewRect.x + 12;
+        const ly = viewRect.y + 12;
+        octx.globalAlpha = 1;
+        octx.fillStyle = 'rgba(255,255,255,0.92)';
+        octx.fillRect(lx, ly, 132, 92);
+        octx.strokeStyle = 'rgba(25,30,45,0.25)';
+        octx.strokeRect(lx, ly, 132, 92);
+        octx.fillStyle = '#202536';
+        octx.font = '700 11px sans-serif';
+        octx.fillText(`Local sTIL · ${Number(heatmap.grid_size_um || 500)} µm`, lx + 8, ly + 15);
+        octx.font = '10px sans-serif';
+        legend.forEach(([label, color], index) => {
+            const rowY = ly + 29 + index * 14;
+            octx.fillStyle = color;
+            octx.fillRect(lx + 8, rowY - 8, 12, 9);
+            octx.fillStyle = '#202536';
+            octx.fillText(label, lx + 27, rowY);
+        });
+        octx.restore();
     }
 
     /**

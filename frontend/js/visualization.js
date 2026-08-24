@@ -59,6 +59,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     _activeModelType = meta.modelType || 'Quanti HE';
     _activeScoreType = meta.scoreType || null;
     _activeTissue = meta.tissue || 'Stomach';
+    const stilScore = meta.stilScore || null;
 
     // text text text
     const countsByClass = {};
@@ -79,6 +80,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         modelType: _activeModelType,
         classNames: _activeNames,
         classColors: _activeColors,
+        stilScore,
     };
 
     // text text text (PDFtext) — same-origintext crossOrigin text
@@ -103,11 +105,13 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         } else {
             _renderHer2Analysis(countsByClass);
         }
+    } else if (stilScore?.available) {
+        _renderStilAnalysis(stilScore);
     } else {
         _renderTumorAnalysis(countsByClass);
     }
     if (_activeModelType !== 'Quanti PD-L1' && _activeModelType !== 'Quanti IHC') {
-        _renderSpatialHeatmap(cells, countsByClass, segData);
+        _renderSpatialHeatmap(cells, countsByClass, segData, stilScore);
     }
     _renderConfidenceDistribution(confsByClass);
 
@@ -137,6 +141,7 @@ function _configureTabs(modelType) {
     let tumorLabel = 'Tumor Analysis';
     if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
     else if (isIhc) tumorLabel = (_activeScoreType === 'Allred') ? 'Allred Analysis' : (_activeScoreType === 'KI67') ? 'KI-67 Analysis' : 'HER2 Analysis';
+    else if (_activeScoreType === 'sTIL') tumorLabel = 'sTIL Analysis';
 
     const tabButtons = $vizDialog.querySelectorAll('.viz-tab');
     tabButtons.forEach(tab => {
@@ -553,6 +558,49 @@ function _renderTumorAnalysis(countsByClass) {
             `<strong>Tumor Ratio:</strong> <span style="color:${barColor};font-weight:700">${tumorRatio.toFixed(1)}%</span>`;
         summary.style.animation = 'fadeIn 0.3s ease';
     });
+}
+
+function _renderStilAnalysis(score) {
+    const panel = document.getElementById('viz-tumor');
+    panel.innerHTML = '';
+
+    const scoreValue = Number(score.score_percent || 0);
+    const metrics = [
+        ['Lymphocyte density', `${Number(score.lymphocyte_density_cells_mm2 || 0).toLocaleString()} cells/mm²`],
+        ['Plasma-cell density', `${Number(score.plasma_density_cells_mm2 || 0).toLocaleString()} cells/mm²`],
+        ['Tumor-associated stroma', `${Number(score.tumor_associated_stroma_area_mm2 || 0).toFixed(2)} mm²`],
+        ['Lymphocytes in stroma', Number(score.lymphocyte_count || 0).toLocaleString()],
+        ['Plasma cells in stroma', Number(score.plasma_count || 0).toLocaleString()],
+        ['Immune area coefficient', `${Number(score.immune_cell_area_um2 || 0).toFixed(2)} µm²/cell`],
+    ];
+
+    const header = document.createElement('div');
+    header.className = 'stil-viz-header';
+    header.innerHTML = `
+        <div>
+            <span>AI-estimated stromal TIL</span>
+            <strong>${scoreValue.toFixed(1)}%</strong>
+        </div>
+        <p>Global area-weighted score across the analyzed tumor-associated stroma.</p>
+    `;
+    panel.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'stil-viz-metrics';
+    metrics.forEach(([label, value]) => {
+        const item = document.createElement('div');
+        item.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+        grid.appendChild(item);
+    });
+    panel.appendChild(grid);
+
+    const warning = document.createElement('div');
+    warning.className = 'stil-viz-warning';
+    warning.innerHTML = `
+        <strong>Calibration required</strong>
+        This is an AI-estimated research metric, not a clinical ground-truth score. The current tissue model does not separately exclude in-situ tumor, necrosis, or healthy glands.
+    `;
+    panel.appendChild(warning);
 }
 
 // ── CPS / TPS Analysis text (PD-L1 text) ──
@@ -1117,9 +1165,14 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
 
 
 // ── Spatial Heatmap text ──
-function _renderSpatialHeatmap(cells, countsByClass, segData) {
+function _renderSpatialHeatmap(cells, countsByClass, segData, stilScore = null) {
     const panel = document.getElementById('viz-heatmap');
     panel.innerHTML = '';
+
+    if (stilScore?.available && stilScore.spatial_heatmap?.cells?.length) {
+        _renderStilSpatialHeatmap(panel, stilScore);
+        return;
+    }
 
     // segmentation text text text + seg overlay text (text text)
     if (segData && segData.overlays && segData.thumbnail) {
@@ -1165,6 +1218,75 @@ function _renderSpatialHeatmap(cells, countsByClass, segData) {
             classId === null ? null : CLASS_COLORS[classId]);
     }
 
+    panel.appendChild(scroll);
+}
+
+function _renderStilSpatialHeatmap(panel, score) {
+    const heatmap = score.spatial_heatmap;
+    const cells = heatmap.cells || [];
+    const scroll = document.createElement('div');
+    scroll.className = 'viz-heatmap-scroll';
+
+    const summary = document.createElement('div');
+    summary.className = 'viz-summary';
+    summary.innerHTML = `
+        <strong>Local sTIL · ${Number(heatmap.grid_size_um || 500)} µm grid</strong><br>
+        Global area-weighted sTIL: <strong>${Number(score.score_percent || 0).toFixed(1)}%</strong> ·
+        Local maximum: ${Number(heatmap.local_max_percent || 0).toFixed(1)}%<br>
+        The global score is calculated from the complete stromal area, not from the hotspot maximum.
+    `;
+    scroll.appendChild(summary);
+
+    let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+    cells.forEach((cell) => {
+        xMin = Math.min(xMin, Number(cell[0]));
+        yMin = Math.min(yMin, Number(cell[1]));
+        xMax = Math.max(xMax, Number(cell[0]) + Number(cell[2]));
+        yMax = Math.max(yMax, Number(cell[1]) + Number(cell[3]));
+    });
+    const rangeW = Math.max(1, xMax - xMin);
+    const rangeH = Math.max(1, yMax - yMin);
+    const maxW = 760;
+    const maxH = 420;
+    const scale = Math.min(maxW / rangeW, maxH / rangeH);
+    const canvasW = Math.max(180, Math.round(rangeW * scale));
+    const canvasH = Math.max(120, Math.round(rangeH * scale));
+    const canvas = _createHiDPICanvas(canvasW, canvasH);
+    canvas.style.cssText += '; display:block; margin:12px auto; border:1px solid #d8dce6; border-radius:6px; background:#f7f8fb;';
+    scroll.appendChild(canvas);
+
+    const colorForScore = (value) => {
+        if (value < 10) return '#2c7bb6';
+        if (value < 30) return '#74add1';
+        if (value < 50) return '#fdae61';
+        return '#d7191c';
+    };
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvasW, canvasH);
+    const fullGridArea = Math.pow(Number(heatmap.grid_size_um || 500) / 1000, 2);
+    cells.forEach((cell) => {
+        const x = (Number(cell[0]) - xMin) / rangeW * canvasW;
+        const y = (Number(cell[1]) - yMin) / rangeH * canvasH;
+        const w = Math.max(1, Number(cell[2]) / rangeW * canvasW);
+        const h = Math.max(1, Number(cell[3]) / rangeH * canvasH);
+        const coverage = Math.min(1, Number(cell[5] || 0) / Math.max(fullGridArea, 1e-9));
+        ctx.globalAlpha = 0.32 + 0.58 * Math.sqrt(coverage);
+        ctx.fillStyle = colorForScore(Number(cell[4] || 0));
+        ctx.fillRect(x, y, w + 0.5, h + 0.5);
+    });
+    ctx.globalAlpha = 1;
+
+    const legend = document.createElement('div');
+    legend.className = 'stil-heatmap-legend';
+    [
+        ['0–10%', '#2c7bb6'], ['10–30%', '#74add1'],
+        ['30–50%', '#fdae61'], ['≥50%', '#d7191c'],
+    ].forEach(([label, color]) => {
+        const item = document.createElement('span');
+        item.innerHTML = `<i style="background:${color}"></i>${label}`;
+        legend.appendChild(item);
+    });
+    scroll.appendChild(legend);
     panel.appendChild(scroll);
 }
 

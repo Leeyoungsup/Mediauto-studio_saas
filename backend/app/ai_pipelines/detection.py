@@ -175,6 +175,10 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
                 if not cache_has_current_detection_postprocess(cached):
                     raise ValueError("stale cache missing 10um overlap/global dedup")
+                if tissue_type == "Breast":
+                    from app.ai_pipelines.stil_scoring import STIL_SCORE_VERSION
+                    if (cached.get("stil_score") or {}).get("version") != STIL_SCORE_VERSION:
+                        raise ValueError("stale cache missing current sTIL score")
                 cached_cells = cached.get("cells") or []
                 if cached_cells and not _cell_has_bbox(cached_cells[0]):
                     raise ValueError("stale cache missing bbox")
@@ -480,19 +484,22 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         # ── Epithelial text (Breast/Stomachtext) ──
         seg_data = None
+        stil_score = None
+        if tissue_type == "Breast":
+            from app.ai_pipelines.stil_scoring import unavailable_stil_score
+            stil_score = unavailable_stil_score("Tissue segmentation was not completed")
         auto_classify = tissue_type in ("Breast", "Stomach")
         if auto_classify and len(all_cls) > 0:
             epithelial_count = int(np.sum(all_cls == 1))
-            if epithelial_count > 0:
-                update_task(task_id, progress=52,
-                            status_msg=f"Epithelial reclassification starting... ({epithelial_count} cells)")
-                seg_data = run_epithelial_classification(
-                    task_id, slide, slide_path, info, all_x, all_y, all_cls,
-                    tissue_type, roi_polygons, device,
-                )
-            else:
-                update_task(task_id, progress=98,
-                            status_msg="No Epithelial cells found, skipping reclassification")
+            update_task(task_id, progress=52,
+                        status_msg=f"Tissue segmentation starting... ({epithelial_count} epithelial cells)")
+            classification_result = run_epithelial_classification(
+                task_id, slide, slide_path, info, all_x, all_y, all_cls, all_conf,
+                tissue_type, roi_polygons, device,
+            )
+            if classification_result:
+                seg_data = classification_result.get("seg_data")
+                stil_score = classification_result.get("stil_score")
         elif not auto_classify:
             update_task(task_id, progress=98,
                         status_msg="Tissue type 'Other' — skipping reclassification")
@@ -518,6 +525,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
             "class_colors": {str(k): v for k, v in CLASS_COLORS.items()},
             "seg_data": seg_data,
+            "stil_score": stil_score,
             "source": slide_source_signature(info.slide, info.file_path),
             **processing_metadata(),
         }
@@ -547,13 +555,13 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         update_task(task_id, status="error", error=f"{e}\n{traceback.format_exc()}")
 
 
-def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y, all_cls,
+def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y, all_cls, all_conf,
                                   tissue_type, roi_polygons, device):
     """
     Epithelial text: WSI Segmentation → Epithelial(1) → Tumor(6) / Benign(7)
     text DetectionWorker._run_epithelial_classificationtext text text
     all_clstext in-placetext text.
-    Returns: seg_data dict (seg_class_names, overlays as base64, thumbnail) or None
+    Returns: {seg_data, stil_score} or None
     """
     import numpy as np
     import torch
@@ -622,9 +630,6 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         region_offset_y = metadata.get('region_offset', (0, 0))[1]
 
         epi_indices = np.where(all_cls == 1)[0]
-        if len(epi_indices) == 0:
-            return
-
         epi_xs = all_x[epi_indices]
         epi_ys = all_y[epi_indices]
         mxs = ((epi_xs - region_offset_x) * scale_factor).astype(np.int32)
@@ -672,12 +677,25 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
         seg_data = build_seg_overlays(slide, prediction_mask, metadata,
                                       seg_model.class_names, roi_bounds,
                                       icc_transform=info.icc_transform)
+        stil_score = None
+        if tissue_type == "Breast":
+            from app.ai_pipelines.stil_scoring import compute_stil_score
+            update_task(task_id, progress=99, status_msg="Computing AI-estimated stromal TIL score...")
+            stil_score = compute_stil_score(
+                prediction_mask,
+                metadata,
+                all_x,
+                all_y,
+                all_cls,
+                all_conf,
+                roi_polygons=roi_polygons,
+            )
 
         del seg_model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        return seg_data
+        return {"seg_data": seg_data, "stil_score": stil_score}
 
     except Exception as e:
         import traceback

@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260820-04">
+    <link rel="stylesheet" href="css/style.css?v=20260824-03">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -451,6 +451,14 @@
                         <label class="radio-item"><input type="radio" name="tissue-type" value="Other"> Other</label>
                     </div>
                     <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
+                    <div id="hne-stil-result" class="score-card stil-score-card" hidden>
+                        <div class="score-card-header">
+                            <span class="score-card-type">AI-estimated sTIL</span>
+                            <span class="score-card-value" id="hne-stil-value">--</span>
+                        </div>
+                        <div class="stil-score-metrics" id="hne-stil-metrics"></div>
+                        <div class="stil-score-warning">Calibration required · not a clinical ground-truth score</div>
+                    </div>
                 </div>
 
                 <!-- Quanti PD-L1 text -->
@@ -731,6 +739,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260824-03"></script>
+    <script type="module" src="js/app.js?v=20260824-04"></script>
 </body>
 </html>

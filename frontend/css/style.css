@@ -2638,6 +2638,30 @@ body.annotation-page .project-gate-row {
 .score-card-legend-dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
+.stil-score-card {
+    background: linear-gradient(135deg, #25346f, #6c5ce7);
+}
+.stil-score-metrics {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    margin-top: 11px;
+    font-size: 10px;
+    line-height: 1.45;
+}
+.stil-score-metrics strong {
+    text-align: right;
+    font-weight: 800;
+}
+.stil-score-warning {
+    margin-top: 9px;
+    padding-top: 7px;
+    border-top: 1px solid rgba(255, 255, 255, 0.24);
+    color: #fff3b0;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.35;
+}
 
 /* ═══ Quanti IHC marker text text ═══ */
 .ihc-marker-row {
@@ -4946,6 +4970,94 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     font-size: 12px; color: var(--text); line-height: 1.6;
 }
 .viz-summary strong { font-weight: 600; }
+.stil-viz-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 24px 28px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #25346f, #6c5ce7);
+    color: #fff;
+}
+.stil-viz-header div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.stil-viz-header span {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.stil-viz-header strong {
+    font-size: 54px;
+    line-height: 1;
+}
+.stil-viz-header p {
+    max-width: 340px;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.stil-viz-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+}
+.stil-viz-metrics > div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 13px;
+    border: 1px solid var(--border-light);
+    border-radius: 7px;
+    background: #f8f9fc;
+}
+.stil-viz-metrics span {
+    color: #70788b;
+    font-size: 11px;
+}
+.stil-viz-metrics strong {
+    color: #202536;
+    font-size: 15px;
+}
+.stil-viz-warning {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid #efd889;
+    border-radius: 7px;
+    background: #fff9df;
+    color: #685711;
+    font-size: 11px;
+    line-height: 1.55;
+}
+.stil-viz-warning strong {
+    display: block;
+    margin-bottom: 2px;
+}
+.stil-heatmap-legend {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    padding: 6px 0;
+    color: #30374a;
+    font-size: 11px;
+    font-weight: 700;
+}
+.stil-heatmap-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.stil-heatmap-legend i {
+    width: 13px;
+    height: 10px;
+    border-radius: 2px;
+}
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .viz-heatmap-scroll {
     max-height: 400px; overflow-y: auto;
