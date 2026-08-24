@@ -6,7 +6,7 @@
     <title>MeDIAuto Studio - Data Linkage</title>
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-04">
-    <link rel="stylesheet" href="css/style.css?v=20260520-21">
+    <link rel="stylesheet" href="css/style.css?v=20260824-02">
 </head>
 <body class="data-linkage-page">
     <div id="shared-header-root">
@@ -89,6 +89,11 @@
                 </div>
                 <div id="dl-thumbnail-row" class="data-linkage-thumbnails"></div>
                 <div id="dl-selected-slide" class="data-linkage-selected-slide">Selected image: -</div>
+                <div class="data-linkage-ai-actions" aria-label="Open in AI viewer">
+                    <button id="dl-ai-view-btn" type="button" disabled>View</button>
+                    <button id="dl-ai-multi-view-btn" type="button" disabled>Multi View</button>
+                    <span id="dl-ai-selection-status">Select 2–4 images for Multi View</span>
+                </div>
                 <form id="dl-clinical-form" class="data-linkage-form">
                     <div class="data-linkage-form-empty">Clinical fields appear after selecting a sample.</div>
                 </form>
@@ -112,6 +117,6 @@
             });
         })();
     </script>
-    <script type="module" src="js/data-linkage.js?v=20260720-03"></script>
+    <script type="module" src="js/data-linkage.js?v=20260824-02"></script>
 </body>
 </html>

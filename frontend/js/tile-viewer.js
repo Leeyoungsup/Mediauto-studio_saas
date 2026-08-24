@@ -1785,9 +1785,10 @@ export class TileViewer {
         };
 
         // Match the base slide loader's priority:
-        //   1) request the target level first, from the viewport centre out;
-        //   2) use only the immediately coarser level as a temporary fallback;
-        //   3) draw already cached finer tiles last.
+        //   1) keep any cached coarse VS tiles visible as the background;
+        //   2) request the target level first, from the viewport centre out;
+        //   3) request only the immediately coarser level as extra fallback;
+        //   4) draw target/finer cached tiles over the coarse background.
         // The former implementation requested the coarsest pyramid level first,
         // which caused visibly blocky tiles to occupy all VS loading slots.
         const drawTiles = () => {
@@ -1795,8 +1796,11 @@ export class TileViewer {
             const fallbackTasks = [];
             const fallbackL = chosenL + 1 < ov.levels.length ? chosenL + 1 : -1;
 
-            if (fallbackL >= 0) {
-                drawLevel(fallbackL, fallbackTasks);
+            // Draw every already-cached coarser level, from coarsest to nearest.
+            // This preserves the previous Virtual Stain image during zoom instead
+            // of exposing the original slide while target tiles are loading.
+            for (let L = ov.levels.length - 1; L > chosenL; L--) {
+                drawLevel(L, L === fallbackL ? fallbackTasks : null);
             }
             drawLevel(chosenL, targetTasks);
             for (let L = chosenL - 1; L >= 0; L--) {

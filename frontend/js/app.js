@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js?v=20260819-01';
-import { AiViewer } from './ai-viewer.js?v=20260824-01';
+import { AiViewer } from './ai-viewer.js?v=20260824-02';
 import { showVisualization } from './visualization.js?v=20260810-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -5833,8 +5833,17 @@ $btnVsSplit?.addEventListener('click', () => {
 // On page load, verify auth and load projects/slides.
 (async () => {
     const _urlParams = new URLSearchParams(location.search);
-    const _paramSlide = _urlParams.get('slide');
-    const _paramPath = _urlParams.get('path');
+    const _paramSlides = _urlParams.getAll('slide').filter(Boolean);
+    const _paramPaths = _urlParams.getAll('path');
+    const _paramSlideIds = _urlParams.getAll('slideId');
+    const _paramSlide = _paramSlides[0] || null;
+    const _paramPath = _paramPaths.length ? _paramPaths[0] : _urlParams.get('path');
+    const _paramMultiView = _urlParams.get('multiView') === '1';
+    const _paramMultiSlides = _paramSlides.map((filename, index) => ({
+        filename,
+        path: _paramPaths[index] || '',
+        slide_id: _paramSlideIds[index] || '',
+    })).filter((slide) => slide.filename && slide.slide_id).slice(0, 4);
     if (_paramPath !== null) currentBrowsePath = _paramPath;
     const bool_show_project_gate = !_paramSlide && _paramPath === null;
 
@@ -5894,8 +5903,13 @@ $btnVsSplit?.addEventListener('click', () => {
 
     await loadSlideList();
 
-    if (_paramSlide) {
-        openSavedSlide(_paramSlide, null);
+    if (_paramMultiView && _paramMultiSlides.length >= 2) {
+        const firstSlide = _paramMultiSlides[0];
+        await openSavedSlide(firstSlide.filename, null, firstSlide.path);
+        await _openMultiView(_paramMultiSlides);
+        history.replaceState(null, '', '/ai');
+    } else if (_paramSlide) {
+        await openSavedSlide(_paramSlide, null, _paramPath || currentBrowsePath);
         history.replaceState(null, '', '/ai');
     }
 })();

@@ -51,6 +51,9 @@ import { api } from './api.js?v=20260526-01';
     const $sampleId = document.getElementById('dl-sample-id');
     const $thumbnailRow = document.getElementById('dl-thumbnail-row');
     const $selectedSlide = document.getElementById('dl-selected-slide');
+    const $aiView = document.getElementById('dl-ai-view-btn');
+    const $aiMultiView = document.getElementById('dl-ai-multi-view-btn');
+    const $aiSelectionStatus = document.getElementById('dl-ai-selection-status');
     const $form = document.getElementById('dl-clinical-form');
     const $save = document.getElementById('dl-save-btn');
     const $saveStatus = document.getElementById('dl-save-status');
@@ -64,6 +67,7 @@ import { api } from './api.js?v=20260526-01';
         pageSize: Number($pageSize?.value || 15),
         selectedCase: null,
         selectedSlide: null,
+        multiSelectedSlideKeys: [],
         dirty: false,
         previewScale: 1,
         previewX: 0,
@@ -101,6 +105,93 @@ import { api } from './api.js?v=20260526-01';
         state.previewX = 0;
         state.previewY = 0;
         applyPreviewTransform();
+    }
+
+    function slideKey(slide) {
+        return String(slide?.slide_id || `${slide?.path || ''}/${slide?.filename || ''}`);
+    }
+
+    function selectedMultiViewSlides() {
+        const slides = state.selectedCase?.slides || [];
+        return state.multiSelectedSlideKeys
+            .map((key) => slides.find((slide) => slideKey(slide) === key))
+            .filter(Boolean);
+    }
+
+    function updateMultiSelectionUi() {
+        $thumbnailRow?.querySelectorAll('.data-linkage-multi-select').forEach((button) => {
+            const order = state.multiSelectedSlideKeys.indexOf(button.dataset.slideKey);
+            const selected = order >= 0;
+            button.classList.toggle('selected', selected);
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            button.textContent = selected ? String(order + 1) : '+';
+            button.setAttribute(
+                'aria-label',
+                `${selected ? 'Remove' : 'Add'} ${button.dataset.slideName || 'image'} ${selected ? 'from' : 'to'} Multi View`
+            );
+        });
+    }
+
+    function syncAiActions(message = '', isLimit = false) {
+        const selectedSlides = selectedMultiViewSlides();
+        if ($aiView) {
+            $aiView.disabled = !state.selectedSlide?.filename;
+            $aiView.title = state.selectedSlide?.filename
+                ? `Open ${state.selectedSlide.filename} in AI View`
+                : 'Select an image first';
+        }
+        if ($aiMultiView) {
+            $aiMultiView.disabled = selectedSlides.length < 2 || selectedSlides.length > 4;
+            $aiMultiView.title = $aiMultiView.disabled
+                ? 'Select 2 to 4 images using the + buttons on the thumbnails'
+                : `Open ${selectedSlides.length} selected images in AI Multi View`;
+        }
+        if ($aiSelectionStatus) {
+            $aiSelectionStatus.textContent = message || (
+                selectedSlides.length >= 2
+                    ? `${selectedSlides.length}/4 selected · numbered order is used`
+                    : `${selectedSlides.length}/4 selected · select at least 2 images`
+            );
+            $aiSelectionStatus.classList.toggle('limit', isLimit);
+        }
+        updateMultiSelectionUi();
+    }
+
+    function toggleMultiSelection(slide) {
+        const key = slideKey(slide);
+        if (!key) return;
+        const index = state.multiSelectedSlideKeys.indexOf(key);
+        if (index >= 0) {
+            state.multiSelectedSlideKeys.splice(index, 1);
+            syncAiActions();
+            return;
+        }
+        if (state.multiSelectedSlideKeys.length >= 4) {
+            syncAiActions('Up to 4 images can be selected. Deselect one first.', true);
+            return;
+        }
+        state.multiSelectedSlideKeys.push(key);
+        syncAiActions();
+    }
+
+    function openInAi(multiView = false) {
+        const selected = state.selectedSlide;
+        if (!selected?.filename) return;
+
+        let slides = [selected];
+        if (multiView) {
+            slides = selectedMultiViewSlides();
+            if (slides.length < 2 || slides.length > 4) return;
+        }
+
+        const params = new URLSearchParams();
+        if (multiView) params.set('multiView', '1');
+        slides.forEach((slide) => {
+            params.append('slide', slide.filename || '');
+            params.append('path', slide.path || '');
+            params.append('slideId', slide.slide_id || '');
+        });
+        location.href = `/ai?${params.toString()}`;
     }
 
     function zoomPreview(delta, originX = 0, originY = 0) {
@@ -203,6 +294,7 @@ import { api } from './api.js?v=20260526-01';
         $previewImg.removeAttribute('src');
         $previewImg.hidden = true;
         $previewEmpty.hidden = false;
+        syncAiActions();
         if (!slide) return;
         await api.ensureMediaReady();
         const url = api.thumbnailUrlByName(slide.filename, slide.path || '', 2048);
@@ -256,6 +348,7 @@ import { api } from './api.js?v=20260526-01';
         const item = state.cases.find((row) => row.case_name === caseName);
         if (!item) return;
         state.selectedCase = item;
+        state.multiSelectedSlideKeys = item.slides?.[0] ? [slideKey(item.slides[0])] : [];
         state.dirty = false;
         $year.textContent = item.year || '-';
         $sampleId.textContent = item.case_name || '-';
@@ -275,6 +368,8 @@ import { api } from './api.js?v=20260526-01';
         }
         await api.ensureMediaReady();
         slides.forEach((slide, index) => {
+            const itemWrap = document.createElement('div');
+            itemWrap.className = 'data-linkage-thumb-item';
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = `data-linkage-thumb${index === 0 ? ' active' : ''}`;
@@ -295,8 +390,20 @@ import { api } from './api.js?v=20260526-01';
                 btn.setAttribute('aria-pressed', 'true');
                 await setPreview(slide);
             });
-            $thumbnailRow.appendChild(btn);
+
+            const multiSelect = document.createElement('button');
+            multiSelect.type = 'button';
+            multiSelect.className = 'data-linkage-multi-select';
+            multiSelect.dataset.slideKey = slideKey(slide);
+            multiSelect.dataset.slideName = slide.filename || `image ${index + 1}`;
+            multiSelect.setAttribute('aria-label', `Add ${slide.filename || `image ${index + 1}`} to Multi View`);
+            multiSelect.setAttribute('aria-pressed', 'false');
+            multiSelect.addEventListener('click', () => toggleMultiSelection(slide));
+
+            itemWrap.append(btn, multiSelect);
+            $thumbnailRow.appendChild(itemWrap);
         });
+        syncAiActions();
     }
 
     function renderClinicalForm(info) {
@@ -436,6 +543,8 @@ import { api } from './api.js?v=20260526-01';
         loadCases();
     });
     $save?.addEventListener('click', saveClinicalInfo);
+    $aiView?.addEventListener('click', () => openInAi(false));
+    $aiMultiView?.addEventListener('click', () => openInAi(true));
     document.querySelectorAll('[data-sort]').forEach((button) => {
         button.addEventListener('click', () => {
             const nextSort = button.dataset.sort;

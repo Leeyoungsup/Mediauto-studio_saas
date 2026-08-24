@@ -5495,7 +5495,7 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
 }
 .data-linkage-detail-panel {
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
     padding: 16px 18px;
     background: #fff;
 }
@@ -5524,7 +5524,6 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
 }
 .data-linkage-thumb {
     position: relative;
-    flex: 0 0 78px;
     width: 78px;
     height: 78px;
     border: 1px solid #d8deeb;
@@ -5533,6 +5532,43 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     padding: 0;
     cursor: pointer;
     overflow: hidden;
+}
+.data-linkage-thumb-item {
+    position: relative;
+    flex: 0 0 78px;
+    width: 78px;
+    height: 78px;
+}
+.data-linkage-thumb-item .data-linkage-thumb {
+    width: 100%;
+    height: 100%;
+}
+.data-linkage-multi-select {
+    position: absolute;
+    z-index: 3;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    background: rgba(38, 44, 61, 0.78);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+}
+.data-linkage-multi-select.selected {
+    background: #43218f;
+}
+.data-linkage-multi-select:focus-visible {
+    outline: 3px solid rgba(67, 33, 143, 0.35);
+    outline-offset: 2px;
 }
 .data-linkage-thumb.active {
     border-color: #e53935;
@@ -5565,6 +5601,42 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.data-linkage-ai-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+}
+.data-linkage-ai-actions button {
+    min-width: 104px;
+    min-height: 38px;
+    border: 1px solid #43218f;
+    border-radius: 7px;
+    background: #fff;
+    color: #43218f;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+#dl-ai-multi-view-btn {
+    background: #43218f;
+    color: #fff;
+}
+.data-linkage-ai-actions button:disabled {
+    border-color: #d5dae6;
+    background: #eef1f6;
+    color: #9aa2b1;
+    cursor: not-allowed;
+}
+.data-linkage-ai-actions span {
+    color: #6f7789;
+    font-size: 12px;
+    font-weight: 700;
+}
+.data-linkage-ai-actions span.limit {
+    color: #c23934;
 }
 .data-linkage-form {
     min-height: 0;
