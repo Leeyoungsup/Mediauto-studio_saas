@@ -226,6 +226,7 @@ export class TileViewer {
         this._vsTileLoading = new Set();  // in-flight keys
         this._vsTileMissing = new Set();  // 404 text (text text text text)
         this._vsLoadQueue = [];           // VS text text text
+        this._vsLoadQueuedKeys = new Set();
         this._vsActiveLoads = 0;          // text text text VS text text text
         this._vsInflightImages = new Set();
         this._vsMaxTiles = 512;
@@ -299,14 +300,25 @@ export class TileViewer {
         if (!this.slideId) return;
         const now = performance.now();
         if (!force && now - this._lastViewportTileAbortAt < 150) return;
-        if (!this._inflightImages.size && !this._tileLoading.size && !this._loadQueue.length) return;
+        const hasSlideLoads = this._inflightImages.size || this._tileLoading.size || this._loadQueue.length;
+        const hasVsLoads = this._vsInflightImages.size || this._vsTileLoading.size || this._vsLoadQueue.length;
+        if (!hasSlideLoads && !hasVsLoads) return;
         this._lastViewportTileAbortAt = now;
         this._loadGeneration++;
-        this._abortInflightImages();
-        this._tileLoading.clear();
-        this._loadQueue.length = 0;
-        this._loadQueuedKeys.clear();
-        this._activeLoads = 0;
+        if (hasSlideLoads) {
+            this._abortInflightImages();
+            this._tileLoading.clear();
+            this._loadQueue.length = 0;
+            this._loadQueuedKeys.clear();
+            this._activeLoads = 0;
+        }
+        if (hasVsLoads) {
+            this._abortVsInflightImages();
+            this._vsTileLoading.clear();
+            this._vsLoadQueue.length = 0;
+            this._vsLoadQueuedKeys.clear();
+            this._vsActiveLoads = 0;
+        }
     }
 
     _abortVsInflightImages() {
@@ -319,6 +331,7 @@ export class TileViewer {
         this._vsTileLoading.clear();
         this._vsTileMissing.clear();
         this._vsLoadQueue.length = 0;
+        this._vsLoadQueuedKeys.clear();
         this._vsActiveLoads = 0;
     }
 
@@ -1693,10 +1706,11 @@ export class TileViewer {
 
         const TS = ov.tileSize || 512;
 
-        // text text text text draw (text/text text text text)
-        // requestMissing: true text text miss text _getVsTile text text text text
-        //                 false text text text text text (fallback text)
-        const drawLevel = (L, requestMissing) => {
+        // Draw cached tiles and optionally collect missing tiles for a later,
+        // priority-ordered request. Requests are intentionally deferred until
+        // every visible tile has been inspected so a coarse fallback cannot
+        // occupy the load slots before the target-resolution tiles.
+        const drawLevel = (L, missingTasks = null) => {
             const lv = ov.levels[L];
             const sX = ov.sceneW / lv.width;
             const sY = ov.sceneH / lv.height;
@@ -1706,11 +1720,22 @@ export class TileViewer {
             const b = Math.max(0, Math.floor((ylo - ov.originY) / tH));
             const c = Math.min(lv.nx - 1, Math.floor((xhi - ov.originX - 1e-6) / tW));
             const d = Math.min(lv.ny - 1, Math.floor((yhi - ov.originY - 1e-6) / tH));
+            const centerTx = (a + c) / 2;
+            const centerTy = (b + d) / 2;
             for (let ty = b; ty <= d; ty++) {
                 for (let tx = a; tx <= c; tx++) {
-                    const img = requestMissing
-                        ? this._getVsTile(L, tx, ty)
-                        : this._peekVsTile(L, tx, ty);
+                    const key = `${L}/${tx}/${ty}`;
+                    const img = this._peekVsTile(L, tx, ty);
+                    if (
+                        !img && missingTasks &&
+                        !this._vsTileMissing.has(key) &&
+                        !this._vsTileLoading.has(key)
+                    ) {
+                        missingTasks.push({
+                            key, level: L, tx, ty,
+                            distance: (tx - centerTx) ** 2 + (ty - centerTy) ** 2,
+                        });
+                    }
                     if (!img) continue;
                     const tileLvlW = Math.min(TS, lv.width - tx * TS);
                     const tileLvlH = Math.min(TS, lv.height - ty * TS);
@@ -1759,20 +1784,31 @@ export class TileViewer {
             ctx.restore();
         };
 
-        // drawTiles: text text → text text → text text (text text) text text
-        //   1) text text text(text)text text text text text text (blur pad)
-        //   2) text text text (text text)
-        //   3) text text text text (L-1, L-2...) text text text text text text
-        //      (text text text text text text text text)
+        // Match the base slide loader's priority:
+        //   1) request the target level first, from the viewport centre out;
+        //   2) use only the immediately coarser level as a temporary fallback;
+        //   3) draw already cached finer tiles last.
+        // The former implementation requested the coarsest pyramid level first,
+        // which caused visibly blocky tiles to occupy all VS loading slots.
         const drawTiles = () => {
-            const bgL = ov.levels.length - 1;
-            if (bgL !== chosenL) {
-                drawLevel(bgL, true);  // text text text → text text text
+            const targetTasks = [];
+            const fallbackTasks = [];
+            const fallbackL = chosenL + 1 < ov.levels.length ? chosenL + 1 : -1;
+
+            if (fallbackL >= 0) {
+                drawLevel(fallbackL, fallbackTasks);
             }
-            drawLevel(chosenL, true);
+            drawLevel(chosenL, targetTasks);
             for (let L = chosenL - 1; L >= 0; L--) {
-                drawLevel(L, false);  // text text text text text text
+                drawLevel(L);
             }
+
+            targetTasks.sort((a, b) => a.distance - b.distance);
+            fallbackTasks.sort((a, b) => a.distance - b.distance);
+            // A fallback request is useful only while target tiles are missing.
+            const queuedFallbacks = targetTasks.length > 0 ? fallbackTasks : [];
+            this._queueVsTileTasksFront([...targetTasks, ...queuedFallbacks]);
+            this._processVsLoadQueue();
         };
 
         if (this._vsSplitMode) {
@@ -1884,24 +1920,60 @@ export class TileViewer {
         }
         if (this._vsTileMissing.has(key)) return null;
         if (this._vsTileLoading.has(key)) return null;
+        if (this._vsLoadQueuedKeys.has(key)) return null;
 
         const ov = this._vsOverlay;
         if (!ov) return null;
 
-        // text text text text text
-        this._vsTileLoading.add(key);
-        this._vsLoadQueue.push({ key, level, tx, ty, ov, generation: this._loadGeneration });
+        this._queueVsTileTask({ key, level, tx, ty });
         this._processVsLoadQueue();
         return null;
+    }
+
+    _queueVsTileTask(task, front = false) {
+        if (!task || !this._vsOverlay) return;
+        const key = task.key || `${task.level}/${task.tx}/${task.ty}`;
+        if (
+            this._vsTileCache.has(key) ||
+            this._vsTileMissing.has(key) ||
+            this._vsTileLoading.has(key)
+        ) return;
+
+        task.key = key;
+        task.ov = this._vsOverlay;
+        task.generation = this._loadGeneration;
+
+        if (this._vsLoadQueuedKeys.has(key)) {
+            if (!front) return;
+            this._vsLoadQueue = this._vsLoadQueue.filter(item => item.key !== key);
+            this._vsLoadQueuedKeys.delete(key);
+        }
+
+        if (front) this._vsLoadQueue.unshift(task);
+        else this._vsLoadQueue.push(task);
+        this._vsLoadQueuedKeys.add(key);
+    }
+
+    _queueVsTileTasksFront(tasks) {
+        for (let i = tasks.length - 1; i >= 0; i--) {
+            this._queueVsTileTask(tasks[i], true);
+        }
     }
 
     _processVsLoadQueue() {
         while (this._vsLoadQueue.length > 0 && this._vsActiveLoads < MAX_CONCURRENT_VS_LOADS) {
             const task = this._vsLoadQueue.shift();
+            this._vsLoadQueuedKeys.delete(task.key);
             if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) {
-                this._vsTileLoading.delete(task.key);
                 continue;
             }
+            if (
+                this._vsTileCache.has(task.key) ||
+                this._vsTileMissing.has(task.key) ||
+                this._vsTileLoading.has(task.key)
+            ) continue;
+
+            this._vsTileLoading.add(task.key);
             this._vsActiveLoads++;
 
             const img = new Image();

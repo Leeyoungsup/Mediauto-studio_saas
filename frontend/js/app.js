@@ -4,7 +4,7 @@
  */
 
 import { api } from './api.js?v=20260819-01';
-import { AiViewer } from './ai-viewer.js?v=20260810-05';
+import { AiViewer } from './ai-viewer.js?v=20260824-01';
 import { showVisualization } from './visualization.js?v=20260810-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
