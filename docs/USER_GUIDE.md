@@ -62,7 +62,7 @@ MeDIAuto Studio는 병리의의 진단을 보조하기 위한 디지털 병리 W
 | 브라우저 | Chrome, Edge, Safari 최신 |
 | 네트워크 | 병원 내부망 또는 승인된 온프레미스 네트워크 |
 
-지원 파일 형식: SVS, NDPI, VMS, VMU, SCN, MRXS, TIFF/TIF, PNG, JPG/JPEG. JPG/JPEG는 배율 정보가 없는 일반 이미지이므로 20×(0.5 µm/px)로 고정하여 등록됩니다.
+지원 파일 형식: SVS, NDPI, VMS, VMU, SCN, MRXS, TIFF/TIF, PNG, JPG/JPEG. JPG/JPEG는 업로드할 때 OpenSlide 호환 pyramidal tiled BigTIFF로 변환되며 20×(0.5 µm/px)로 고정하여 등록됩니다.
 
 ---
 

@@ -1,3 +1,4 @@
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,6 +6,10 @@ from pathlib import Path
 from PIL import Image
 
 from app.openslide_utils import open_slide_silently
+from app.jpeg_to_pyramidal_tiff import (
+    convert_jpeg_to_pyramidal_tiff,
+    converted_tiff_filename,
+)
 from app.raster_slide import (
     FIXED_RASTER_MPP,
     FIXED_RASTER_OBJECTIVE_POWER,
@@ -71,6 +76,24 @@ class RasterSlideProxyTests(unittest.TestCase):
         self.assertTrue(is_fixed_magnification_raster("slide.JPEG"))
         self.assertFalse(is_fixed_magnification_raster("slide.svs"))
         self.assertFalse(is_fixed_magnification_raster("slide.png"))
+
+    @unittest.skipUnless(importlib.util.find_spec("pyvips"), "pyvips is not installed")
+    def test_jpeg_converts_to_openslide_pyramidal_tiff(self):
+        destination = Path(self.temp_dir.name) / converted_tiff_filename(self.image_path.name)
+        converted = convert_jpeg_to_pyramidal_tiff(self.image_path, destination)
+        self.assertEqual(converted, destination)
+        self.assertTrue(destination.is_file())
+
+        slide = open_slide_silently(str(destination))
+        try:
+            self.assertEqual(slide.dimensions, (2400, 1200))
+            self.assertGreaterEqual(slide.level_count, 2)
+            self.assertAlmostEqual(float(slide.properties["openslide.mpp-x"]), 0.5)
+            info = SlideInfo(slide, str(destination))
+            self.assertEqual(info.mpp, 0.5)
+            self.assertEqual(info.objective_power, "20")
+        finally:
+            slide.close()
 
 
 if __name__ == "__main__":

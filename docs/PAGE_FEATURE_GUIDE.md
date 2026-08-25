@@ -376,7 +376,7 @@ AI, Tissue Annotation, Cell Annotation 메뉴를 바로 열면 먼저 프로젝�
 - JPG, JPEG
 - Philips iSyntax, i2syntax
 
-JPG/JPEG는 원본 파일에 배율과 물리적 해상도 정보가 없으므로 시스템에서 `20×` 및 `0.5 µm/px`로 고정하여 등록합니다. 따라서 JPG/JPEG에서 표시되는 배율과 길이 측정값은 이 고정값을 기준으로 계산됩니다.
+JPG/JPEG는 업로드할 때 OpenSlide 호환 pyramidal tiled BigTIFF로 변환됩니다. 원본 파일에 배율과 물리적 해상도 정보가 없으므로 `20×` 및 `0.5 µm/px`로 고정하여 등록하며, 표시 배율과 길이 측정값도 이 고정값을 기준으로 계산됩니다. 변환이 완료되면 슬라이드 목록에는 같은 이름의 `.tiff` 파일로 표시됩니다.
 
 한 파일의 최대 크기는 기본 20 GB입니다.
 

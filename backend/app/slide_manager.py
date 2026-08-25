@@ -156,8 +156,15 @@ class SlideInfo:
             self.mpp_y = 0.25
             self.mpp = 0.25  # text (40x)
 
-        # text text
+        # text text.  Converted JPEG BigTIFFs carry calibrated TIFF resolution
+        # plus a MeDIAuto marker because generic TIFF has no objective tag.
         self.objective_power = slide.properties.get("openslide.objective-power", "Unknown")
+        str_description = str(slide.properties.get("tiff.ImageDescription", ""))
+        if (
+            self.objective_power == "Unknown"
+            and "MeDIAuto JPEG conversion" in str_description
+        ):
+            self.objective_power = "20"
 
         self.vendor = slide.properties.get("openslide.vendor", "Unknown")
 

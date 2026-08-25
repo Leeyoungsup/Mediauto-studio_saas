@@ -242,7 +242,7 @@
         <div class="drop-zone-text">
             Drag & drop slide files here<br>
             or <strong id="browse-btn">browse files</strong><br>
-            <small>JPG/JPEG files are interpreted as 20× (0.5 µm/px).</small>
+            <small>JPG/JPEG files are converted to pyramidal TIFF at 20× (0.5 µm/px).</small>
         </div>
         <input type="file" id="file-input" multiple>
     </div>
@@ -614,9 +614,9 @@
             renderConflictPanel();
             startUploadTokenKeepAlive();
             try {
-                await deleteExistingFile(item.file.name);
-                await uploadOneFile(item, { overwrite: true });
-                setItemStatus(item, 'done', 'Overwritten');
+                await deleteExistingFile(item.conflictDetail?.filename || item.file.name);
+                const result = await uploadOneFile(item, { overwrite: true });
+                setItemStatus(item, 'done', result?.converted_from_jpeg ? `Converted → ${result.filename}` : 'Overwritten');
                 item.fillEl.classList.add('done');
                 item.fillEl.style.width = '100%';
                 completedCount++;
@@ -690,12 +690,12 @@
                     if (item.status === 'done' || item.status === 'conflict' || item.status === 'skipped') continue;
                     try {
                         setItemStatus(item, 'uploading', 'Uploading...');
-                        await uploadOneFile(item);
+                        const result = await uploadOneFile(item);
                         if (item.status === 'conflict') {
                             updateSummary();
                             continue;
                         }
-                        setItemStatus(item, 'done', 'Done');
+                        setItemStatus(item, 'done', result?.converted_from_jpeg ? `Converted → ${result.filename}` : 'Done');
                         item.fillEl.classList.add('done');
                         item.fillEl.style.width = '100%';
                         completedCount++;
@@ -771,7 +771,8 @@
             }
 
             // 4) text
-            setItemStatus(item, 'uploading', 'Registering...');
+            const isJpeg = /\.jpe?g$/i.test(file.name);
+            setItemStatus(item, 'uploading', isJpeg ? 'Converting to pyramidal TIFF...' : 'Registering...');
             item.fillEl.style.width = '95%';
             const completeForm = new FormData();
             completeForm.append('upload_id', upload_id);
@@ -786,6 +787,7 @@
                 }
                 throw new Error(message);
             }
+            return await completeRes.json();
         }
 
         // ── Close ──

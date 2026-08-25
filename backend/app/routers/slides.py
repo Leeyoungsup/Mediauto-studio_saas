@@ -35,6 +35,11 @@ from app.path_utils import (
     safe_subpath as _safe_subpath,
 )
 from app.slide_identity import slide_cache_key
+from app.jpeg_to_pyramidal_tiff import (
+    convert_jpeg_to_pyramidal_tiff,
+    converted_tiff_filename,
+    converted_tiff_path,
+)
 from app.project_utils import (
     clean_ai_tasks as _clean_ai_tasks,
     list_project_dirs as _list_project_dirs,
@@ -682,6 +687,11 @@ async def open_slide_by_name(
     """???????? ???? ????? ??? ????????. ?????? ???/??????/??? ??? ???."""
     filename = _safe_filename(filename)
     final_path = _safe_subpath(path) / filename
+    if not final_path.exists() and Path(filename).suffix.lower() in {".jpg", ".jpeg"}:
+        path_converted = converted_tiff_path(final_path)
+        if path_converted.exists():
+            final_path = path_converted
+            filename = path_converted.name
     if not final_path.exists():
         return {"exists": False}
     return {
@@ -828,6 +838,8 @@ async def upload_complete(
         final_path = save_dir / filename
 
         bool_newly_written = False
+        bool_converted_jpeg = False
+        str_source_filename = filename
         str_sha256 = ""
         if final_path.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
@@ -843,6 +855,47 @@ async def upload_complete(
             shutil.rmtree(chunk_dir, ignore_errors=True)
             bool_newly_written = True
 
+        # Ordinary JPEGs are not random-access WSI files.  Convert them once
+        # to a tiled pyramidal BigTIFF so OpenSlide can serve regions without
+        # decoding the complete source image for every viewer/AI worker.
+        if ext in {".jpg", ".jpeg"}:
+            path_converted = converted_tiff_path(final_path)
+            bool_created_converted_file = False
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    upload_executor,
+                    lambda: convert_jpeg_to_pyramidal_tiff(
+                        final_path,
+                        path_converted,
+                        max_pixels=settings.JPEG_CONVERSION_MAX_PIXELS,
+                        jpeg_quality=settings.JPEG_CONVERSION_QUALITY,
+                    ),
+                )
+                bool_created_converted_file = True
+                final_path.unlink()
+                final_path = path_converted
+                filename = path_converted.name
+                ext = final_path.suffix.lower()
+                bool_converted_jpeg = True
+                str_sha256 = ""
+            except FileExistsError:
+                if bool_newly_written and final_path.exists():
+                    final_path.unlink()
+                raise HTTPException(
+                    409,
+                    f"Converted TIFF already exists: {converted_tiff_filename(str_source_filename)}",
+                )
+            except Exception as exc:
+                if bool_created_converted_file and path_converted.exists():
+                    try:
+                        path_converted.unlink()
+                    except OSError:
+                        pass
+                if bool_newly_written and final_path.exists():
+                    final_path.unlink()
+                raise HTTPException(400, f"JPG to pyramidal TIFF conversion failed: {exc}")
+
         # ??? ??????????? ??? (DB???????? ???)
         if not str_sha256 and final_path.exists():
             loop = asyncio.get_running_loop()
@@ -856,6 +909,9 @@ async def upload_complete(
                 bool_wait_for_tiles=bool_wait,
                 str_sha256=str_sha256,
             )
+            resp["converted_from_jpeg"] = bool_converted_jpeg
+            if bool_converted_jpeg:
+                resp["source_filename"] = str_source_filename
             await _log_management_event(
                 request,
                 dict_user,
@@ -870,12 +926,17 @@ async def upload_complete(
                     "int_size_bytes": int_total_bytes,
                     "str_sha256": str_sha256,
                     "bool_new_file": bool_newly_written,
+                    "bool_converted_from_jpeg": bool_converted_jpeg,
+                    "str_source_filename": str_source_filename,
+                    "int_stored_size_bytes": final_path.stat().st_size,
                 },
                 dict_after={
                     "filename": filename,
                     "path": str_norm_upload_path,
                     "sha256": str_sha256,
                     "new_file": bool_newly_written,
+                    "converted_from_jpeg": bool_converted_jpeg,
+                    "source_filename": str_source_filename,
                 },
             )
             return resp

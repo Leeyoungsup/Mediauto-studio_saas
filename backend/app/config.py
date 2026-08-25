@@ -107,6 +107,16 @@ class Settings:
     # text text text
     CHUNK_SIZE: int = 5 * 1024 * 1024  # 5MB
 
+    # Uploaded JPG/JPEG files are converted to pyramidal BigTIFF.  Keep a
+    # finite source-dimension cap instead of disabling decompression-bomb
+    # protection globally.  The default accepts images up to one gigapixel.
+    JPEG_CONVERSION_MAX_PIXELS: int = int(os.environ.get(
+        "JPEG_CONVERSION_MAX_PIXELS", "1000000000"
+    ))
+    JPEG_CONVERSION_QUALITY: int = int(os.environ.get(
+        "JPEG_CONVERSION_QUALITY", "90"
+    ))
+
     # AI text text (backend/model/)
     MODEL_DIR: str = str(Path(__file__).parent.parent / "model")
 

@@ -25,7 +25,7 @@
 
 ## 1. WSI 뷰어
 
-**포맷**: SVS, NDPI, TIFF, VMS, VMU, SCN, MRXS (+ PNG/JPG). JPG/JPEG는 일반 래스터 이미지 어댑터로 열며 20×(0.5 µm/px)로 고정한다. 나머지 WSI는 OpenSlide 또는 전용 Philips 어댑터를 사용한다.
+**포맷**: SVS, NDPI, TIFF, VMS, VMU, SCN, MRXS (+ PNG/JPG). JPG/JPEG는 업로드 시 pyramidal tiled BigTIFF로 스트리밍 변환하며 20×(0.5 µm/px)로 고정한다. 나머지 WSI는 OpenSlide 또는 전용 Philips 어댑터를 사용한다.
 
 ### 렌더링 파이프라인
 
