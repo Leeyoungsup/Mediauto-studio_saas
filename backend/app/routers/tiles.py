@@ -28,6 +28,7 @@ from app.slide_manager import (
 )
 from app.tile_generator import (
     any_generation_running,
+    blank_tile_marker_exists,
     invalidate_tiles,
     generate_priority_single_tile,
     get_tiles_dir_for_path,
@@ -470,6 +471,10 @@ async def get_tile(
     # finished. A present but invalid marker was already purged above.
     if tile_path.exists() and (bool_cache_valid or not path_complete_marker.exists()):
         return _jpeg_file_response(tile_path)
+    if blank_tile_marker_exists(tile_path) and (
+        bool_cache_valid or not path_complete_marker.exists()
+    ):
+        return _blank_tile_response("public, max-age=604800")
 
     # 2) text text text → text text → text
     if level < 0 or level >= STAGE_COUNT:

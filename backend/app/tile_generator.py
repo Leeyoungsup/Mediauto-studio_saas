@@ -321,12 +321,34 @@ def _save_jpeg(obj_img: Image.Image, path: Path, quality: int) -> None:
     try:
         obj_img.save(str(tmp_path), "JPEG", quality=quality)
         tmp_path.replace(path)
+        blank_tile_marker_path(path).unlink(missing_ok=True)
     finally:
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
         except Exception:
             pass
+
+
+def blank_tile_marker_path(path_tile: Path) -> Path:
+    """Return the zero-byte marker used for an intentionally blank tile."""
+    return path_tile.with_suffix(".blank")
+
+
+def blank_tile_marker_exists(path_tile: Path) -> bool:
+    return blank_tile_marker_path(path_tile).is_file()
+
+
+def _mark_blank_tile(path_tile: Path) -> None:
+    """Remember a decoded blank region without storing a white JPEG."""
+    path_marker = blank_tile_marker_path(path_tile)
+    path_marker.parent.mkdir(parents=True, exist_ok=True)
+    if not path_tile.exists():
+        path_marker.touch(exist_ok=True)
+
+
+def _tile_result_exists(path_tile: Path) -> bool:
+    return path_tile.is_file() or blank_tile_marker_exists(path_tile)
 
 
 def tiles_are_valid(filename: str, file_path: str) -> bool:
@@ -544,7 +566,7 @@ def queue_completed_cache_tile_repair(
 ) -> bool:
     """Queue one missing tile without restarting a completed pyramid."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
-    if path_target.exists() or not tiles_marker_matches_file(filename, file_path):
+    if _tile_result_exists(path_target) or not tiles_marker_matches_file(filename, file_path):
         return False
 
     key = _completed_cache_repair_key(file_path, level, tile_x, tile_y)
@@ -702,7 +724,7 @@ def _generate_stage1_block(
     int_read_size1 = STAGE_READ_SIZE[1]
     int_tile_out = TILE_SIZE_OUT
     path_tile1 = stage1_dir / f"{tx1}_{ty1}.jpeg"
-    bool_stage1_saved = path_tile1.exists()
+    bool_stage1_saved = _tile_result_exists(path_tile1)
     int_stage0_count = 0
 
     obj_region = slide.read_region(
@@ -712,12 +734,14 @@ def _generate_stage1_block(
     )
     obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
     try:
-        if not path_tile1.exists():
+        if not _tile_result_exists(path_tile1):
             obj_tile1 = obj_rgb.resize((int_tile_out, int_tile_out), Image.LANCZOS)
             try:
                 if _image_has_visible_content(obj_tile1):
                     _save_jpeg(obj_tile1, path_tile1, settings.TILE_QUALITY)
-                    bool_stage1_saved = True
+                else:
+                    _mark_blank_tile(path_tile1)
+                bool_stage1_saved = True
             finally:
                 obj_tile1.close()
 
@@ -728,7 +752,7 @@ def _generate_stage1_block(
                 if tx0 >= int_nx0 or ty0 >= int_ny0:
                     continue
                 path_tile0 = stage0_dir / f"{tx0}_{ty0}.jpeg"
-                if path_tile0.exists():
+                if _tile_result_exists(path_tile0):
                     int_stage0_count += 1
                     continue
                 int_bx = sub_tx * int_tile_out
@@ -739,10 +763,12 @@ def _generate_stage1_block(
                 try:
                     if _image_has_visible_content(obj_tile0):
                         _save_jpeg(obj_tile0, path_tile0, settings.TILE_QUALITY)
-                        int_stage0_count += 1
+                    else:
+                        _mark_blank_tile(path_tile0)
+                    int_stage0_count += 1
                 finally:
                     obj_tile0.close()
-        return path_tile1.exists(), int_stage0_count, 1
+        return _tile_result_exists(path_tile1), int_stage0_count, 1
     finally:
         obj_region.close()
         try:
@@ -762,24 +788,32 @@ def _compose_stage2_from_stage1(
     require_all_children: bool,
 ) -> bool:
     path_tile2 = stage2_dir / f"{tx2}_{ty2}.jpeg"
-    if path_tile2.exists():
+    if _tile_result_exists(path_tile2):
         return True
 
     int_tile_out = TILE_SIZE_OUT
     list_children: list[tuple[int, int, Path]] = []
+    bool_all_children_ready = True
+    int_expected_children = 0
     for sub_ty in range(2):
         for sub_tx in range(2):
             tx1 = tx2 * 2 + sub_tx
             ty1 = ty2 * 2 + sub_ty
             if tx1 >= int_nx1 or ty1 >= int_ny1:
                 continue
+            int_expected_children += 1
             path_child = stage1_dir / f"{tx1}_{ty1}.jpeg"
-            if require_all_children and not path_child.exists():
+            bool_child_ready = _tile_result_exists(path_child)
+            bool_all_children_ready = bool_all_children_ready and bool_child_ready
+            if require_all_children and not bool_child_ready:
                 return False
             if path_child.exists():
                 list_children.append((sub_tx, sub_ty, path_child))
 
     if not list_children:
+        if int_expected_children > 0 and bool_all_children_ready:
+            _mark_blank_tile(path_tile2)
+            return True
         return False
 
     obj_canvas = Image.new("RGB", (int_tile_out * 2, int_tile_out * 2), (255, 255, 255))
@@ -795,9 +829,11 @@ def _compose_stage2_from_stage1(
         try:
             if _image_has_visible_content(obj_tile2):
                 _save_jpeg(obj_tile2, path_tile2, settings.TILE_QUALITY)
+            else:
+                _mark_blank_tile(path_tile2)
         finally:
             obj_tile2.close()
-        return path_tile2.exists()
+        return _tile_result_exists(path_tile2)
     finally:
         obj_canvas.close()
 
@@ -814,7 +850,7 @@ def generate_priority_single_tile(
 ) -> bool:
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
-    if path_target.exists():
+    if _tile_result_exists(path_target):
         if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
             return True
         invalidate_tiles(filename, file_path)
@@ -825,7 +861,7 @@ def generate_priority_single_tile(
     progress_key = slide_cache_key(file_path)
     lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
-        if path_target.exists():
+        if _tile_result_exists(path_target):
             if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
                 return True
             invalidate_tiles(filename, file_path)
@@ -862,10 +898,12 @@ def generate_priority_single_tile(
                 try:
                     if store_blank or _image_has_visible_content(obj_tile):
                         _save_jpeg(obj_tile, path_target, settings.TILE_QUALITY)
+                    else:
+                        _mark_blank_tile(path_target)
                 finally:
                     if obj_tile is not obj_rgb:
                         obj_tile.close()
-                return path_target.exists()
+                return _tile_result_exists(path_target)
             finally:
                 obj_region.close()
                 try:
@@ -891,7 +929,7 @@ def generate_priority_tile_block(
 ) -> bool:
     """Generate the stage-1 block(s) needed for a requested tile immediately."""
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
-    if path_target.exists():
+    if _tile_result_exists(path_target):
         if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
             return True
         invalidate_tiles(filename, file_path)
@@ -900,7 +938,7 @@ def generate_priority_tile_block(
     progress_key = slide_cache_key(file_path)
     lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
-        if path_target.exists():
+        if _tile_result_exists(path_target):
             if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
                 return True
             invalidate_tiles(filename, file_path)
@@ -978,7 +1016,7 @@ def generate_priority_tile_block(
                     require_all_children=True,
                 )
 
-            return path_target.exists() or bool_generated_any
+            return _tile_result_exists(path_target) or bool_generated_any
         finally:
             if bool_close_slide:
                 try:

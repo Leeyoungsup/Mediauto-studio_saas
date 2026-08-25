@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -26,6 +28,39 @@ from app.slide_identity import slide_cache_key
 DICOM_WSI_SOP_CLASS_UID = "1.2.840.10008.5.1.4.1.1.77.1.6"
 _extract_locks_guard = threading.Lock()
 _extract_locks: dict[str, threading.Lock] = {}
+_expected_unprofiled_associated_uids: set[str] = set()
+
+
+class _DicomSlideExpectedMessageFilter(logging.Filter):
+    """Hide dicomslide messages that are informational for this adapter."""
+
+    _frame_count_pattern = re.compile(r"^n=\d+ frames will be retrieved$")
+    _missing_icc_pattern = re.compile(
+        r'^color image "([^"]+)" does not contain an ICC profile - '
+        r'pixel values will not be color corrected$'
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        str_message = record.getMessage()
+        if self._frame_count_pattern.fullmatch(str_message):
+            # dicomslide emits this at WARNING even though it only reports the
+            # number of tiled frames covered by a normal region read.
+            return False
+        match = self._missing_icc_pattern.fullmatch(str_message)
+        if match and match.group(1) in _expected_unprofiled_associated_uids:
+            # LABEL/OVERVIEW images commonly omit ICC. Keep the same warning
+            # visible for a VOLUME image, where it may affect pathology color.
+            return False
+        return True
+
+
+_dicomslide_log_filter = _DicomSlideExpectedMessageFilter()
+_dicomslide_matrix_logger = logging.getLogger("dicomslide.matrix")
+if not any(
+    isinstance(obj_filter, _DicomSlideExpectedMessageFilter)
+    for obj_filter in _dicomslide_matrix_logger.filters
+):
+    _dicomslide_matrix_logger.addFilter(_dicomslide_log_filter)
 
 
 def _archive_lock(file_path: str | Path) -> threading.Lock:
@@ -241,6 +276,17 @@ def _load_wsi_metadata(path_root: Path) -> tuple[list, tuple[str, str]]:
     # VOLUME pyramid already includes a low-resolution level, so excluding the
     # THUMBNAIL is safe while LABEL/OVERVIEW remain associated images.
     list_usable = [item for item in list_metadata if _image_flavor(item) != "THUMBNAIL"]
+    for item in list_usable:
+        if _image_flavor(item) not in {"LABEL", "OVERVIEW"}:
+            continue
+        list_optical_paths = list(getattr(item, "OpticalPathSequence", []) or [])
+        bool_has_icc = bool(
+            list_optical_paths and hasattr(list_optical_paths[0], "ICCProfile")
+        )
+        if not bool_has_icc:
+            _expected_unprofiled_associated_uids.add(
+                str(getattr(item, "SOPInstanceUID", "") or "")
+            )
     return list_usable, tuple_key
 
 
