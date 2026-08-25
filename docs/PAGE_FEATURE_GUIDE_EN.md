@@ -384,6 +384,8 @@ Use any of these methods:
 - JPG, JPEG
 - Philips iSyntax, i2syntax
 
+Because ordinary JPG/JPEG files do not contain objective-power or physical-resolution metadata, the system registers them with a fixed calibration of `20×` and `0.5 µm/px`. Magnification and distance measurements shown for JPG/JPEG files are calculated from this fixed value.
+
 The default maximum size per file is 20 GB.
 
 ### Upload Progress

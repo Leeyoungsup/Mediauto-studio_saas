@@ -6,6 +6,8 @@ import threading
 
 import openslide
 
+from app.raster_slide import RasterSlideProxy, is_fixed_magnification_raster
+
 
 _stderr_redirect_lock = threading.Lock()
 
@@ -46,5 +48,7 @@ def suppress_native_stderr():
 
 def open_slide_silently(file_path: str):
     """Open an OpenSlide file while suppressing benign libtiff stderr noise."""
+    if is_fixed_magnification_raster(file_path):
+        return RasterSlideProxy(file_path)
     with suppress_native_stderr():
         return openslide.OpenSlide(str(file_path))
