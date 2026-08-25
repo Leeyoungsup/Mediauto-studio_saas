@@ -2639,28 +2639,150 @@ body.annotation-page .project-gate-row {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
 .stil-score-card {
-    background: linear-gradient(135deg, #25346f, #6c5ce7);
+    padding: 16px;
+    background:
+        radial-gradient(circle at 92% 8%, rgba(255, 255, 255, 0.18), transparent 30%),
+        linear-gradient(145deg, #24346f 0%, #5147bf 58%, #705ce7 100%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 7px 18px rgba(45, 40, 125, 0.32);
+}
+.stil-score-card .score-card-header {
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+.stil-score-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.stil-score-heading .score-card-type {
+    font-size: 11px;
+    line-height: 1.25;
+    letter-spacing: 0.9px;
+    opacity: 1;
+}
+.stil-score-heading small {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 9px;
+    font-weight: 600;
+}
+.stil-score-card .score-card-value {
+    flex-shrink: 0;
+    font-size: 36px;
+    line-height: 0.95;
+    letter-spacing: -1.2px;
+    text-shadow: 0 2px 7px rgba(25, 20, 85, 0.28);
 }
 .stil-score-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 10px;
+}
+.stil-score-metric {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 10px;
-    margin-top: 11px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-height: 27px;
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(19, 24, 78, 0.16);
+}
+.stil-score-metric > span {
+    color: rgba(255, 255, 255, 0.86);
     font-size: 10px;
-    line-height: 1.45;
+    font-weight: 650;
+    line-height: 1.25;
 }
-.stil-score-metrics strong {
+.stil-score-metric > strong {
     text-align: right;
+    color: #fff;
+    font-size: 11px;
     font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
 }
-.stil-score-warning {
+.stil-score-metric > strong small {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 8.5px;
+    font-weight: 650;
+}
+.stil-score-metric-wide {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+.stil-score-metric-wide > strong {
+    text-align: left;
+    white-space: normal;
+}
+.stil-score-disclaimer {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
     margin-top: 9px;
-    padding-top: 7px;
-    border-top: 1px solid rgba(255, 255, 255, 0.24);
-    color: #fff3b0;
-    font-size: 9px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 8.5px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+.stil-score-info {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    border-radius: 50%;
+    color: rgba(255, 255, 255, 0.78);
+    font-family: Georgia, serif;
+    font-size: 10px;
     font-weight: 700;
-    line-height: 1.35;
+    cursor: help;
+    outline: none;
+}
+.stil-score-info:hover,
+.stil-score-info:focus-visible {
+    border-color: rgba(255, 255, 255, 0.76);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+.stil-score-info::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 20;
+    right: -1px;
+    bottom: calc(100% + 7px);
+    width: 218px;
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 7px;
+    background: #20264f;
+    box-shadow: 0 6px 16px rgba(10, 13, 40, 0.35);
+    color: rgba(255, 255, 255, 0.92);
+    font-family: inherit;
+    font-size: 9.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.stil-score-info:hover::after,
+.stil-score-info:focus-visible::after {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 /* ═══ Quanti IHC marker text text ═══ */

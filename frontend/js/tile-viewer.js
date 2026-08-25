@@ -179,6 +179,7 @@ export class TileViewer {
         // Results panel. It is never selected automatically from zoom/MPP.
         this.heatmapVisible = false;
         this.stilHeatmap = null;
+        this.stilHeatmapVisible = false;
         this.detailedCellMppThreshold = 5.0;
         this.maxIndividualDetectionCells = 50000;
         this.denseCellPointSize = 2.0;
@@ -377,6 +378,8 @@ export class TileViewer {
         this._thumbnailBitmap = null;
         this.detectionCells = [];
         this.heatmapVisible = false;
+        this.stilHeatmap = null;
+        this.stilHeatmapVisible = false;
         this._denseCellRaster = null;
         this._denseCellRasterKey = null;
         this.annotations = [];
@@ -616,11 +619,19 @@ export class TileViewer {
 
     setHeatmapVisible(visible) {
         this.heatmapVisible = Boolean(visible);
+        if (this.heatmapVisible) this.stilHeatmapVisible = false;
         this.requestRender();
     }
 
     setStilHeatmap(heatmap) {
         this.stilHeatmap = heatmap && Array.isArray(heatmap.cells) ? heatmap : null;
+        if (!this.stilHeatmap) this.stilHeatmapVisible = false;
+        this.requestRender();
+    }
+
+    setStilHeatmapVisible(visible) {
+        this.stilHeatmapVisible = Boolean(visible) && Boolean(this.stilHeatmap?.cells?.length);
+        if (this.stilHeatmapVisible) this.heatmapVisible = false;
         this.requestRender();
     }
 
@@ -2179,6 +2190,7 @@ export class TileViewer {
 
         this._highlightedCellIdx = -1;
         this.stilHeatmap = null;
+        this.stilHeatmapVisible = false;
         this._highlightedCellIdxSet = null;
         this._undoStack = [];
         this._redoStack = [];
@@ -3049,7 +3061,8 @@ export class TileViewer {
                 !(this._lassoActive && this._cellAnnotationEditModeActive())) return;
 
         if (this.detectionCells.length) {
-            if (this.heatmapVisible) this._renderHeatmap(octx);
+            if (this.stilHeatmapVisible) this._renderStilHeatmap(octx);
+            else if (this.heatmapVisible) this._renderHeatmap(octx);
             else this._renderCells(octx);
         }
 
@@ -3241,10 +3254,6 @@ export class TileViewer {
      * 4. jet text + text ImageDatatext text
      */
     _renderHeatmap(octx) {
-        if (this.stilHeatmap?.cells?.length) {
-            this._renderStilHeatmap(octx);
-            return;
-        }
         const cache = this._heatmapCache;
         if (!cache) return;
 

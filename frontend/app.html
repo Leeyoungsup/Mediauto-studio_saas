@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260520-01">
-    <link rel="stylesheet" href="css/style.css?v=20260824-03">
+    <link rel="stylesheet" href="css/style.css?v=20260824-05">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -453,11 +453,19 @@
                     <button id="btn-detect" class="action-btn primary" disabled>Cell Detection</button>
                     <div id="hne-stil-result" class="score-card stil-score-card" hidden>
                         <div class="score-card-header">
-                            <span class="score-card-type">AI-estimated sTIL</span>
+                            <div class="stil-score-heading">
+                                <span class="score-card-type">AI-estimated sTIL</span>
+                                <small>Stromal TIL score</small>
+                            </div>
                             <span class="score-card-value" id="hne-stil-value">--</span>
                         </div>
                         <div class="stil-score-metrics" id="hne-stil-metrics"></div>
-                        <div class="stil-score-warning">Calibration required · not a clinical ground-truth score</div>
+                        <div class="stil-score-disclaimer">
+                            <span>Research-use estimate · Not clinically validated</span>
+                            <span class="stil-score-info" tabindex="0" role="note"
+                                  aria-label="The immune-cell area coefficient and tumor-associated stroma rule require pathologist calibration. The current tissue model does not separately exclude in-situ tumor, necrosis, or healthy glands."
+                                  data-tooltip="The immune-cell area coefficient and tumor-associated stroma rule require pathologist calibration. The current tissue model does not separately exclude in-situ tumor, necrosis, or healthy glands.">i</span>
+                        </div>
                     </div>
                 </div>
 
@@ -541,6 +549,7 @@
                 <div class="btn-row">
                     <button id="btn-visualize" class="action-btn" disabled>Visualize</button>
                     <button id="btn-heatmap-toggle" class="action-btn" disabled aria-pressed="false">Heatmap: Off</button>
+                    <button id="btn-stil-heatmap-toggle" class="action-btn" disabled hidden aria-pressed="false">sTIL Heatmap: Off</button>
                 </div>
                 <div class="btn-row compact">
                     <button id="btn-clear-results" class="small-btn" disabled>Clear</button>
@@ -629,12 +638,16 @@
             <button class="viz-tab active" data-tab="viz-class-dist">Class Distribution</button>
             <button class="viz-tab" data-tab="viz-tumor">Tumor Analysis</button>
             <button class="viz-tab" data-tab="viz-heatmap">Spatial Heatmap</button>
+            <button class="viz-tab" data-tab="viz-stil" hidden>sTIL Analysis</button>
+            <button class="viz-tab" data-tab="viz-stil-heatmap" hidden>sTIL Heatmap</button>
             <button class="viz-tab" data-tab="viz-confidence">Confidence Distribution</button>
         </div>
         <div class="viz-body">
             <div id="viz-class-dist" class="viz-panel active"></div>
             <div id="viz-tumor" class="viz-panel"></div>
             <div id="viz-heatmap" class="viz-panel"></div>
+            <div id="viz-stil" class="viz-panel"></div>
+            <div id="viz-stil-heatmap" class="viz-panel"></div>
             <div id="viz-confidence" class="viz-panel"></div>
         </div>
     </dialog>
@@ -739,6 +752,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260529-03"></script>
-    <script type="module" src="js/app.js?v=20260824-04"></script>
+    <script type="module" src="js/app.js?v=20260824-11"></script>
 </body>
 </html>

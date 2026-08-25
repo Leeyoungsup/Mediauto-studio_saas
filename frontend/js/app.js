@@ -4,8 +4,8 @@
  */
 
 import { api } from './api.js?v=20260819-01';
-import { AiViewer } from './ai-viewer.js?v=20260824-03';
-import { showVisualization } from './visualization.js?v=20260824-01';
+import { AiViewer } from './ai-viewer.js?v=20260824-04';
+import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -85,6 +85,7 @@ const $hneStilValue = $('#hne-stil-value');
 const $hneStilMetrics = $('#hne-stil-metrics');
 const $btnVisualize = $('#btn-visualize');
 const $btnHeatmapToggle = $('#btn-heatmap-toggle');
+const $btnStilHeatmapToggle = $('#btn-stil-heatmap-toggle');
 const $btnClearResults = $('#btn-clear-results');
 const $btnSaveResults = $('#btn-save-results');
 const $btnLoadResults = $('#btn-load-results');
@@ -648,7 +649,8 @@ function _applyViewerRoleRestrictions() {
     const list_ai_btn_ids = [
         'btn-detect', 'btn-pd-score', 'btn-ihc-her2', 'btn-ihc-erpr',
         'btn-ihc-ki67', 'btn-vs-membrane', 'btn-vs-toggle', 'btn-vs-split',
-        'btn-visualize', 'btn-heatmap-toggle', 'btn-clear-results', 'btn-save-results', 'btn-load-results',
+        'btn-visualize', 'btn-heatmap-toggle', 'btn-stil-heatmap-toggle',
+        'btn-clear-results', 'btn-save-results', 'btn-load-results',
     ];
     list_ai_btn_ids.forEach(id => {
         const el = document.getElementById(id);
@@ -3388,7 +3390,11 @@ function _updateStilScoreDisplay(score) {
     if (!score.available) {
         if ($hneStilValue) $hneStilValue.textContent = 'N/A';
         if ($hneStilMetrics) {
-            $hneStilMetrics.innerHTML = `<span>Reason</span><strong>${escapeHtml(score.reason || 'Score unavailable')}</strong>`;
+            $hneStilMetrics.innerHTML = `
+                <div class="stil-score-metric stil-score-metric-wide">
+                    <span>Score unavailable</span>
+                    <strong>${escapeHtml(score.reason || 'Required tissue was not detected')}</strong>
+                </div>`;
         }
         return;
     }
@@ -3396,10 +3402,22 @@ function _updateStilScoreDisplay(score) {
     if ($hneStilValue) $hneStilValue.textContent = `${Number(score.score_percent || 0).toFixed(1)}%`;
     if ($hneStilMetrics) {
         $hneStilMetrics.innerHTML = `
-            <span>Lymphocyte density</span><strong>${Number(score.lymphocyte_density_cells_mm2 || 0).toLocaleString()} cells/mm²</strong>
-            <span>Plasma-cell density</span><strong>${Number(score.plasma_density_cells_mm2 || 0).toLocaleString()} cells/mm²</strong>
-            <span>Tumor-associated stroma</span><strong>${Number(score.tumor_associated_stroma_area_mm2 || 0).toFixed(2)} mm²</strong>
-            <span>Immune cells in stroma</span><strong>${Number((score.lymphocyte_count || 0) + (score.plasma_count || 0)).toLocaleString()}</strong>
+            <div class="stil-score-metric">
+                <span>Lymphocyte density</span>
+                <strong>${Number(score.lymphocyte_density_cells_mm2 || 0).toLocaleString()} <small>cells/mm²</small></strong>
+            </div>
+            <div class="stil-score-metric">
+                <span>Plasma-cell density</span>
+                <strong>${Number(score.plasma_density_cells_mm2 || 0).toLocaleString()} <small>cells/mm²</small></strong>
+            </div>
+            <div class="stil-score-metric">
+                <span>Tumor-associated stroma</span>
+                <strong>${Number(score.tumor_associated_stroma_area_mm2 || 0).toFixed(2)} <small>mm²</small></strong>
+            </div>
+            <div class="stil-score-metric">
+                <span>Immune cells in stroma</span>
+                <strong>${Number((score.lymphocyte_count || 0) + (score.plasma_count || 0)).toLocaleString()}</strong>
+            </div>
         `;
     }
 }
@@ -3742,6 +3760,7 @@ function clearResults() {
     $btnSaveResults.disabled = true;
     if ($btnLoadResults) $btnLoadResults.disabled = true;
     viewer.setHeatmapVisible?.(false);
+    viewer.setStilHeatmapVisible?.(false);
     viewer.setStilHeatmap?.(null);
     viewer.setDetectionResults([]);
     viewer.setHiddenDetectionResults?.([]);
@@ -3760,21 +3779,34 @@ function _syncHeatmapToggle() {
     if (!$btnHeatmapToggle) return;
     const enabled = Boolean(viewer.heatmapVisible);
     const hasResults = Array.isArray(viewer.detectionCells) && viewer.detectionCells.length > 0;
-    const hasStilHeatmap = Boolean(viewer.stilHeatmap?.cells?.length);
     $btnHeatmapToggle.disabled = !hasResults;
-    $btnHeatmapToggle.textContent = hasStilHeatmap
-        ? `sTIL Heatmap: ${enabled ? 'On' : 'Off'}`
-        : `Heatmap: ${enabled ? 'On' : 'Off'}`;
+    $btnHeatmapToggle.textContent = `Heatmap: ${enabled ? 'On' : 'Off'}`;
     $btnHeatmapToggle.classList.toggle('active', enabled);
     $btnHeatmapToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+
+    if ($btnStilHeatmapToggle) {
+        const hasStilHeatmap = Boolean(viewer.stilHeatmap?.cells?.length);
+        const stilEnabled = Boolean(viewer.stilHeatmapVisible);
+        $btnStilHeatmapToggle.hidden = !hasStilHeatmap;
+        $btnStilHeatmapToggle.disabled = !hasResults || !hasStilHeatmap;
+        $btnStilHeatmapToggle.textContent = `sTIL Heatmap: ${stilEnabled ? 'On' : 'Off'}`;
+        $btnStilHeatmapToggle.classList.toggle('active', stilEnabled);
+        $btnStilHeatmapToggle.setAttribute('aria-pressed', stilEnabled ? 'true' : 'false');
+    }
 }
 
 $btnHeatmapToggle?.addEventListener('click', () => {
     if (_blockViewerAction() || !viewer.detectionCells?.length) return;
     viewer.setHeatmapVisible?.(!viewer.heatmapVisible);
     _syncHeatmapToggle();
-    const heatmapName = viewer.stilHeatmap?.cells?.length ? 'Local sTIL heatmap' : 'Cell-density heatmap';
-    setStatus(viewer.heatmapVisible ? `${heatmapName} enabled` : 'Individual cell display enabled');
+    setStatus(viewer.heatmapVisible ? 'Cell-density heatmap enabled' : 'Individual cell display enabled');
+});
+
+$btnStilHeatmapToggle?.addEventListener('click', () => {
+    if (_blockViewerAction() || !viewer.stilHeatmap?.cells?.length) return;
+    viewer.setStilHeatmapVisible?.(!viewer.stilHeatmapVisible);
+    _syncHeatmapToggle();
+    setStatus(viewer.stilHeatmapVisible ? 'Local sTIL heatmap enabled' : 'Individual cell display enabled');
 });
 
 $btnClearResults.addEventListener('click', () => {

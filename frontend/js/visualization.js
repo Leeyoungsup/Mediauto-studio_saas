@@ -92,7 +92,7 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
     }
 
     // text text text text text text
-    _configureTabs(_activeModelType);
+    _configureTabs(_activeModelType, Boolean(stilScore?.available));
 
     _renderClassDistribution(cells, countsByClass);
     if (_activeModelType === 'Quanti PD-L1') {
@@ -105,13 +105,15 @@ export function showVisualization(cells, segData = null, thumbnailUrl = null, me
         } else {
             _renderHer2Analysis(countsByClass);
         }
-    } else if (stilScore?.available) {
-        _renderStilAnalysis(stilScore);
     } else {
         _renderTumorAnalysis(countsByClass);
     }
     if (_activeModelType !== 'Quanti PD-L1' && _activeModelType !== 'Quanti IHC') {
-        _renderSpatialHeatmap(cells, countsByClass, segData, stilScore);
+        _renderSpatialHeatmap(cells, countsByClass, segData);
+    }
+    if (stilScore?.available) {
+        _renderStilAnalysis(stilScore);
+        _renderStilSpatialHeatmap(document.getElementById('viz-stil-heatmap'), stilScore);
     }
     _renderConfidenceDistribution(confsByClass);
 
@@ -134,14 +136,13 @@ function _normalizeKeys(obj) {
     return out;
 }
 
-function _configureTabs(modelType) {
+function _configureTabs(modelType, hasStilScore = false) {
     const isPdScore = modelType === 'Quanti PD-L1';
     const isIhc = modelType === 'Quanti IHC';
     const hideHeatmap = isPdScore || isIhc;
     let tumorLabel = 'Tumor Analysis';
     if (isPdScore) tumorLabel = 'CPS / TPS Analysis';
     else if (isIhc) tumorLabel = (_activeScoreType === 'Allred') ? 'Allred Analysis' : (_activeScoreType === 'KI67') ? 'KI-67 Analysis' : 'HER2 Analysis';
-    else if (_activeScoreType === 'sTIL') tumorLabel = 'sTIL Analysis';
 
     const tabButtons = $vizDialog.querySelectorAll('.viz-tab');
     tabButtons.forEach(tab => {
@@ -152,6 +153,10 @@ function _configureTabs(modelType) {
         if (name === 'viz-heatmap') {
             tab.hidden = hideHeatmap;
             tab.style.display = hideHeatmap ? 'none' : '';
+        }
+        if (name === 'viz-stil' || name === 'viz-stil-heatmap') {
+            tab.hidden = !hasStilScore;
+            tab.style.display = hasStilScore ? '' : 'none';
         }
     });
     const heatmapPanel = document.getElementById('viz-heatmap');
@@ -561,7 +566,7 @@ function _renderTumorAnalysis(countsByClass) {
 }
 
 function _renderStilAnalysis(score) {
-    const panel = document.getElementById('viz-tumor');
+    const panel = document.getElementById('viz-stil');
     panel.innerHTML = '';
 
     const scoreValue = Number(score.score_percent || 0);
@@ -1165,14 +1170,9 @@ function _drawScoreCard(ctx, w, h, score, ease, elastic) {
 
 
 // ── Spatial Heatmap text ──
-function _renderSpatialHeatmap(cells, countsByClass, segData, stilScore = null) {
+function _renderSpatialHeatmap(cells, countsByClass, segData) {
     const panel = document.getElementById('viz-heatmap');
     panel.innerHTML = '';
-
-    if (stilScore?.available && stilScore.spatial_heatmap?.cells?.length) {
-        _renderStilSpatialHeatmap(panel, stilScore);
-        return;
-    }
 
     // segmentation text text text + seg overlay text (text text)
     if (segData && segData.overlays && segData.thumbnail) {
@@ -1222,6 +1222,8 @@ function _renderSpatialHeatmap(cells, countsByClass, segData, stilScore = null) 
 }
 
 function _renderStilSpatialHeatmap(panel, score) {
+    if (!panel) return;
+    panel.innerHTML = '';
     const heatmap = score.spatial_heatmap;
     const cells = heatmap.cells || [];
     const scroll = document.createElement('div');
@@ -1552,42 +1554,49 @@ async function _exportPDF(state) {
             state.thumbnailImg = img;
         } catch (e) { /* text text text text fallback */ }
     }
-
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = 297, pageH = 210;
 
     const str_model_type = state.modelType || 'Quanti HE';
-    let list_pages;
+    let list_page_drawers;
     if (str_model_type === 'Quanti PD-L1') {
-        list_pages = [
-            _pdfDrawCover(state),
-            _pdfDrawClassDist(state),
-            _pdfDrawPdScoreAnalysis(state),
-            _pdfDrawConfidence(state),
+        list_page_drawers = [
+            () => _pdfDrawCover(state),
+            () => _pdfDrawClassDist(state),
+            () => _pdfDrawPdScoreAnalysis(state),
+            () => _pdfDrawConfidence(state),
         ];
     } else if (str_model_type === 'Quanti IHC') {
-        const analysisPage = (_activeScoreType === 'Allred') ? _pdfDrawAllredAnalysis(state)
-            : (_activeScoreType === 'KI67') ? _pdfDrawKi67Analysis(state)
-            : _pdfDrawHer2Analysis(state);
-        list_pages = [
-            _pdfDrawCover(state),
-            _pdfDrawClassDist(state),
-            analysisPage,
-            _pdfDrawConfidence(state),
+        const analysisDrawer = (_activeScoreType === 'Allred') ? () => _pdfDrawAllredAnalysis(state)
+            : (_activeScoreType === 'KI67') ? () => _pdfDrawKi67Analysis(state)
+            : () => _pdfDrawHer2Analysis(state);
+        list_page_drawers = [
+            () => _pdfDrawCover(state),
+            () => _pdfDrawClassDist(state),
+            analysisDrawer,
+            () => _pdfDrawConfidence(state),
         ];
     } else {
-        list_pages = [
-            _pdfDrawCover(state),
-            _pdfDrawClassDist(state),
-            _pdfDrawTumorAnalysis(state),
-            _pdfDrawSpatialHeatmap(state),
-            _pdfDrawConfidence(state),
+        list_page_drawers = [
+            () => _pdfDrawCover(state),
+            () => _pdfDrawClassDist(state),
+            () => _pdfDrawTumorAnalysis(state),
+            () => _pdfDrawSpatialHeatmap(state),
         ];
+        if (state.stilScore?.available) {
+            list_page_drawers.push(
+                () => _pdfDrawStilAnalysis(state),
+                () => _pdfDrawStilHeatmap(state),
+            );
+        }
+        list_page_drawers.push(() => _pdfDrawConfidence(state));
     }
-    const pages = list_pages;
-    pages.forEach((canvas, i) => {
+    list_page_drawers.forEach((drawPage, i) => {
+        const canvas = drawPage();
         if (i > 0) pdf.addPage();
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageH);
+        canvas.width = 1;
+        canvas.height = 1;
     });
 
     const safeName = (state.slideName || 'slide').replace(/[\\/:*?"<>|]/g, '_');
@@ -1760,13 +1769,19 @@ function _pdfDrawCover(state) {
         }
     } else {
         // Quanti HE
-        const int_tumor = countsByClass[6] || 0;
-        const int_benign = countsByClass[7] || 0;
-        const int_denom = int_tumor + int_benign;
-        str_metric_label = 'Tumor Proportion (Tumor / Tumor+Benign)';
-        if (int_denom > 0) {
-            str_metric_value = (int_tumor / int_denom * 100).toFixed(1) + '%';
-            str_metric_color = PDF_COL.tumor;
+        if (state.stilScore?.available) {
+            str_metric_label = 'AI-estimated stromal TIL';
+            str_metric_value = Number(state.stilScore.score_percent || 0).toFixed(1) + '%';
+            str_metric_color = '#5147BF';
+        } else {
+            const int_tumor = countsByClass[6] || 0;
+            const int_benign = countsByClass[7] || 0;
+            const int_denom = int_tumor + int_benign;
+            str_metric_label = 'Tumor Proportion (Tumor / Tumor+Benign)';
+            if (int_denom > 0) {
+                str_metric_value = (int_tumor / int_denom * 100).toFixed(1) + '%';
+                str_metric_color = PDF_COL.tumor;
+            }
         }
     }
 
@@ -1777,50 +1792,78 @@ function _pdfDrawCover(state) {
     ctx.font = 'bold 130px Segoe UI, Arial, sans-serif';
     ctx.fillText(str_metric_value, px + 1050, py + 105);
 
-    // Class breakdown panel
-    const tx = 100, ty = 560, tw = PDF_W - 200, th = 760;
+    // High-resolution pathology preview
+    const tx = 100, ty = 560, tw = 1300, th = 760;
     _pdfPanel(ctx, tx, ty, tw, th);
     ctx.fillStyle = PDF_COL.text;
-    ctx.font = 'bold 36px Segoe UI, Arial, sans-serif';
+    ctx.font = 'bold 32px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('Class Breakdown', tx + 40, ty + 30);
+    ctx.fillText('Whole-slide Pathology Image', tx + 40, ty + 26);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '22px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(state.slideName || 'slide', tx + tw - 40, ty + 34, 620);
 
+    const coverImg = state.thumbnailImg || null;
+    const imageX = tx + 35, imageY = ty + 84, imageW = tw - 70, imageH = th - 119;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(imageX, imageY, imageW, imageH);
+    if (coverImg && coverImg.naturalWidth > 0 && coverImg.naturalHeight > 0) {
+        const imageScale = Math.min(imageW / coverImg.naturalWidth, imageH / coverImg.naturalHeight);
+        const drawW = coverImg.naturalWidth * imageScale;
+        const drawH = coverImg.naturalHeight * imageScale;
+        const drawX = imageX + (imageW - drawW) / 2;
+        const drawY = imageY + (imageH - drawH) / 2;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(coverImg, drawX, drawY, drawW, drawH);
+    } else {
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.font = '30px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Pathology preview unavailable', imageX + imageW / 2, imageY + imageH / 2);
+    }
+    ctx.strokeStyle = '#D1D5DB';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(imageX, imageY, imageW, imageH);
+
+    // Compact class breakdown on the right; full distribution remains page 2.
+    const bx = 1440, by = 560, bw = 560, bh = 760;
+    _pdfPanel(ctx, bx, by, bw, bh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 32px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Detected Classes', bx + 34, by + 26);
     const classIds = Object.keys(countsByClass).map(Number).sort((a, b) => countsByClass[b] - countsByClass[a]);
     const total = cells.length;
-    const rowH = Math.min(70, (th - 130) / Math.max(classIds.length, 1));
-    let yy = ty + 110;
+    const rowH = Math.min(72, (bh - 105) / Math.max(classIds.length, 1));
+    let yy = by + 92;
     for (const id of classIds) {
         const name = CLASS_NAMES[id] || `Class ${id}`;
         const count = countsByClass[id];
         const pct = total > 0 ? (count / total * 100) : 0;
 
         ctx.fillStyle = CLASS_COLORS[id] || '#888';
-        ctx.fillRect(tx + 50, yy + 10, 32, 32);
+        ctx.fillRect(bx + 34, yy + 8, 26, 26);
 
         ctx.fillStyle = PDF_COL.text;
-        ctx.font = '28px Segoe UI, Arial, sans-serif';
+        ctx.font = '23px Segoe UI, Arial, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(name, tx + 100, yy + 12);
+        ctx.fillText(name, bx + 75, yy + 9, 255);
 
         ctx.textAlign = 'right';
-        ctx.font = 'bold 28px Segoe UI, Arial, sans-serif';
-        ctx.fillText(count.toLocaleString(), tx + tw - 460, yy + 12);
-
-        const barX = tx + tw - 420, barY = yy + 18, barW = 280, barH = 22;
-        ctx.fillStyle = '#E5E7EB';
-        ctx.fillRect(barX, barY, barW, barH);
-        ctx.fillStyle = CLASS_COLORS[id] || '#888';
-        ctx.fillRect(barX, barY, barW * (pct / 100), barH);
-
+        ctx.font = 'bold 22px Segoe UI, Arial, sans-serif';
+        ctx.fillText(count.toLocaleString(), bx + bw - 34, yy + 8);
         ctx.fillStyle = PDF_COL.subtext;
-        ctx.font = '24px Segoe UI, Arial, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(pct.toFixed(1) + '%', barX + barW + 12, yy + 14);
+        ctx.font = '20px Segoe UI, Arial, sans-serif';
+        ctx.fillText(`${pct.toFixed(1)}%`, bx + bw - 34, yy + 36);
 
         yy += rowH;
-        if (yy > ty + th - 50) break;
+        if (yy > by + bh - 46) break;
     }
 
     return c;
@@ -2633,6 +2676,262 @@ function _pdfDrawSpatialHeatmap(state) {
     if (step > 1) {
         ctx.fillText(`(showing 1/${step} for clarity)`, lx + 24, yy + 50);
     }
+
+    return c;
+}
+
+function _pdfDrawStilAnalysis(state) {
+    const score = state.stilScore || {};
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, 'AI-estimated sTIL Analysis');
+
+    const sx = 100, sy = 200, sw = 760, sh = 1170;
+    _pdfPanel(ctx, sx, sy, sw, sh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 40px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Global stromal TIL', sx + 45, sy + 40);
+
+    ctx.fillStyle = '#5147BF';
+    ctx.font = 'bold 210px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${Number(score.score_percent || 0).toFixed(1)}%`, sx + sw / 2, sy + 330);
+
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '27px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Area-weighted across analyzed', sx + sw / 2, sy + 485);
+    ctx.fillText('tumor-associated stroma', sx + sw / 2, sy + 525);
+
+    const formulaY = sy + 620;
+    ctx.fillStyle = '#EEF0FF';
+    _roundRect(ctx, sx + 45, formulaY, sw - 90, 150, 14);
+    ctx.fill();
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 26px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Calibrated immune-cell area', sx + sw / 2, formulaY + 45);
+    ctx.font = '24px Segoe UI, Arial, sans-serif';
+    ctx.fillText('÷ tumor-associated stroma area × 100', sx + sw / 2, formulaY + 92);
+
+    const noticeY = sy + 880;
+    ctx.fillStyle = '#F6F7FA';
+    _roundRect(ctx, sx + 45, noticeY, sw - 90, 190, 14);
+    ctx.fill();
+    ctx.strokeStyle = '#D7DAE3';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 25px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Research-use estimate', sx + 75, noticeY + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '22px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Not clinically validated.', sx + 75, noticeY + 76);
+    ctx.fillText('Pathologist calibration is required.', sx + 75, noticeY + 112);
+
+    const mx = 910, my = 200, mw = 1090, mh = 1170;
+    _pdfPanel(ctx, mx, my, mw, mh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 40px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Quantitative Results', mx + 45, my + 40);
+
+    const metrics = [
+        ['Lymphocyte density', `${Number(score.lymphocyte_density_cells_mm2 || 0).toLocaleString()} cells/mm²`],
+        ['Plasma-cell density', `${Number(score.plasma_density_cells_mm2 || 0).toLocaleString()} cells/mm²`],
+        ['Combined immune density', `${Number(score.immune_density_cells_mm2 || 0).toLocaleString()} cells/mm²`],
+        ['Tumor-associated stroma', `${Number(score.tumor_associated_stroma_area_mm2 || 0).toFixed(2)} mm²`],
+        ['Segmented tumor area', `${Number(score.segmented_tumor_area_mm2 || 0).toFixed(2)} mm²`],
+        ['Lymphocytes in TAS', Number(score.lymphocyte_count || 0).toLocaleString()],
+        ['Plasma cells in TAS', Number(score.plasma_count || 0).toLocaleString()],
+        ['Immune-area coefficient', `${Number(score.immune_cell_area_um2 || 0).toFixed(2)} µm²/cell`],
+    ];
+    let rowY = my + 135;
+    metrics.forEach(([label, value], index) => {
+        if (index % 2 === 0) {
+            ctx.fillStyle = '#F8F9FB';
+            ctx.fillRect(mx + 35, rowY - 17, mw - 70, 82);
+        }
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.font = '25px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, mx + 55, rowY + 22);
+        ctx.fillStyle = PDF_COL.text;
+        ctx.font = 'bold 27px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(value, mx + mw - 55, rowY + 22);
+        rowY += 86;
+    });
+
+    const methodY = my + 885;
+    ctx.strokeStyle = PDF_COL.panelBorder;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mx + 45, methodY);
+    ctx.lineTo(mx + mw - 45, methodY);
+    ctx.stroke();
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 25px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Method settings', mx + 50, methodY + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '22px Segoe UI, Arial, sans-serif';
+    ctx.fillText(`Detection confidence ≥ ${Number(score.minimum_detection_confidence || 0).toFixed(2)}`, mx + 50, methodY + 78);
+    ctx.fillText(`Tumor proximity approximation: ${Number(score.tumor_proximity_um || 0).toFixed(0)} µm`, mx + 50, methodY + 116);
+    ctx.fillText('Current model does not separately exclude in-situ tumor,', mx + 50, methodY + 164);
+    ctx.fillText('necrosis, or healthy glands.', mx + 50, methodY + 198);
+
+    return c;
+}
+
+function _pdfDrawStilHeatmap(state) {
+    const score = state.stilScore || {};
+    const heatmap = score.spatial_heatmap || {};
+    const cells = Array.isArray(heatmap.cells) ? heatmap.cells : [];
+    const thumbnailImg = state.thumbnailImg || null;
+    const slideDims = state.slideDims || null;
+    const c = _pdfNewCanvas();
+    const ctx = c.getContext('2d');
+    _pdfHeader(ctx, 'Local sTIL Heatmap');
+
+    const px = 100, py = 200, pw = 1510, ph = 1170;
+    _pdfPanel(ctx, px, py, pw, ph);
+    if (cells.length === 0) {
+        ctx.fillStyle = PDF_COL.subtext;
+        ctx.font = '40px Segoe UI, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No local sTIL grid data', px + pw / 2, py + ph / 2);
+    } else {
+        const hasSlideDimensions = Number(slideDims?.[0]) > 0 && Number(slideDims?.[1]) > 0;
+        let originX = 0;
+        let originY = 0;
+        let rangeW = hasSlideDimensions ? Number(slideDims[0]) : 0;
+        let rangeH = hasSlideDimensions ? Number(slideDims[1]) : 0;
+
+        // Older cached results may not carry level-0 slide dimensions. Keep a
+        // safe grid-only fallback for those reports instead of misaligning the
+        // whole-slide thumbnail with a heatmap bounding box.
+        if (!hasSlideDimensions) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            cells.forEach((cell) => {
+                minX = Math.min(minX, Number(cell[0]));
+                minY = Math.min(minY, Number(cell[1]));
+                maxX = Math.max(maxX, Number(cell[0]) + Number(cell[2]));
+                maxY = Math.max(maxY, Number(cell[1]) + Number(cell[3]));
+            });
+            originX = minX;
+            originY = minY;
+            rangeW = Math.max(1, maxX - minX);
+            rangeH = Math.max(1, maxY - minY);
+        }
+
+        const pad = 55;
+        const scale = Math.min((pw - pad * 2) / rangeW, (ph - pad * 2) / rangeH);
+        const drawW = rangeW * scale;
+        const drawH = rangeH * scale;
+        const ox = px + (pw - drawW) / 2;
+        const oy = py + (ph - drawH) / 2;
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(ox, oy, drawW, drawH);
+        if (hasSlideDimensions && thumbnailImg) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(thumbnailImg, ox, oy, drawW, drawH);
+            // A very light veil keeps the overlay readable while preserving
+            // the underlying pathology morphology.
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillRect(ox, oy, drawW, drawH);
+        }
+
+        const gridSizeMm = Number(heatmap.grid_size_um || 500) / 1000;
+        const fullGridAreaMm2 = Math.max(1e-9, gridSizeMm * gridSizeMm);
+        const colorForScore = (value) => {
+            if (value < 10) return '#2C7BB6';
+            if (value < 30) return '#74ADD1';
+            if (value < 50) return '#FDAE61';
+            return '#D7191C';
+        };
+        cells.forEach((cell) => {
+            const x = ox + (Number(cell[0]) - originX) * scale;
+            const y = oy + (Number(cell[1]) - originY) * scale;
+            const w = Math.max(1, Number(cell[2]) * scale);
+            const h = Math.max(1, Number(cell[3]) * scale);
+            const coverage = Math.min(1, Number(cell[5] || 0) / fullGridAreaMm2);
+            ctx.globalAlpha = hasSlideDimensions && thumbnailImg
+                ? 0.30 + 0.32 * Math.sqrt(coverage)
+                : 0.38 + 0.55 * Math.sqrt(coverage);
+            ctx.fillStyle = colorForScore(Number(cell[4] || 0));
+            ctx.fillRect(x, y, w + 0.5, h + 0.5);
+        });
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#64748B';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox, oy, drawW, drawH);
+    }
+
+    const lx = 1660, ly = 200, lw = 340, lh = 1170;
+    _pdfPanel(ctx, lx, ly, lw, lh);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 30px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Local sTIL', lx + 28, ly + 30);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '22px Segoe UI, Arial, sans-serif';
+    ctx.fillText(`${Number(heatmap.grid_size_um || 500)} µm grid`, lx + 28, ly + 78);
+
+    ctx.fillStyle = '#5147BF';
+    ctx.font = 'bold 68px Segoe UI, Arial, sans-serif';
+    ctx.fillText(`${Number(score.score_percent || 0).toFixed(1)}%`, lx + 28, ly + 145);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '21px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Global area-weighted', lx + 28, ly + 225);
+    ctx.fillStyle = PDF_COL.text;
+    ctx.font = 'bold 30px Segoe UI, Arial, sans-serif';
+    ctx.fillText(`${Number(heatmap.local_max_percent || 0).toFixed(1)}%`, lx + 28, ly + 285);
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '21px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Local maximum', lx + 28, ly + 326);
+
+    const legend = [
+        ['0–10%', '#2C7BB6'], ['10–30%', '#74ADD1'],
+        ['30–50%', '#FDAE61'], ['≥50%', '#D7191C'],
+    ];
+    let yy = ly + 430;
+    ctx.font = '23px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    legend.forEach(([label, color]) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(lx + 28, yy - 15, 34, 30);
+        ctx.fillStyle = PDF_COL.text;
+        ctx.fillText(label, lx + 80, yy);
+        yy += 58;
+    });
+
+    ctx.strokeStyle = PDF_COL.panelBorder;
+    ctx.beginPath();
+    ctx.moveTo(lx + 28, yy + 15);
+    ctx.lineTo(lx + lw - 28, yy + 15);
+    ctx.stroke();
+    ctx.fillStyle = PDF_COL.subtext;
+    ctx.font = '20px Segoe UI, Arial, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Global score uses the', lx + 28, yy + 50);
+    ctx.fillText('complete analyzed stromal', lx + 28, yy + 82);
+    ctx.fillText('area, not the hotspot.', lx + 28, yy + 114);
+    ctx.fillText(`${cells.length.toLocaleString()} TAS grid cells`, lx + 28, yy + 176);
+    ctx.fillText('Research-use estimate', lx + 28, yy + 238);
+    ctx.fillText('Not clinically validated', lx + 28, yy + 270);
 
     return c;
 }
