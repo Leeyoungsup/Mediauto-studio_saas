@@ -242,7 +242,7 @@
         <div class="drop-zone-text">
             Drag & drop slide files here<br>
             or <strong id="browse-btn">browse files</strong><br>
-            <small>JPG/JPEG files are converted to pyramidal TIFF at 20× (0.5 µm/px).</small>
+            <small>JPG/JPEG: converted to pyramidal TIFF at 20× · DICOM WSI: upload one slide per ZIP.</small>
         </div>
         <input type="file" id="file-input" multiple>
     </div>
@@ -267,7 +267,7 @@
 
         const API_BASE = '/api';
         const CHUNK_SIZE = 5 * 1024 * 1024;
-        const SUPPORTED = /\.(isyntax|i2syntax|svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg)$/i;
+        const SUPPORTED = /\.(isyntax|i2syntax|svs|ndpi|tif|tiff|mrxs|vms|vmu|scn|png|jpg|jpeg|zip)$/i;
 
         if (!localStorage.getItem('access_token')) { window.close(); return; }
 

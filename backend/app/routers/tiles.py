@@ -32,6 +32,7 @@ from app.tile_generator import (
     generate_priority_single_tile,
     get_tiles_dir_for_path,
     image_to_white_rgb,
+    read_region_for_output,
     is_completed_cache_tile_repair_pending,
     queue_completed_cache_tile_repair,
     request_priority_tile,
@@ -59,6 +60,7 @@ _INLINE_TIMEOUT_MS = {
     2: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L2_MS", "700"))),
 }
 _INLINE_PHILIPS_TIMEOUT_MS = max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_PHILIPS_TIMEOUT_MS", "650")))
+_INLINE_DICOM_TIMEOUT_MS = max(1000, int(os.environ.get("MEDIAUTO_TILE_INLINE_DICOM_TIMEOUT_MS", "8000")))
 
 
 def _blank_tile_bytes() -> bytes:
@@ -457,12 +459,16 @@ async def get_tile(
     tiles_root = get_tiles_dir_for_path(info.file_path)
     tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     _touch_slide_access(slide_id, tiles_root)
+    path_complete_marker = tiles_root / ".complete"
     bool_cache_valid = tiles_marker_matches_file(filename, info.file_path)
-    if not bool_cache_valid and (tiles_root / ".complete").exists():
+    if not bool_cache_valid and path_complete_marker.exists():
         invalidate_tiles(filename, info.file_path)
 
-    # 1) text text text text text
-    if bool_cache_valid and tile_path.exists():
+    # A tile generated during the current background run is immediately usable.
+    # Waiting for the whole-slide .complete marker caused the viewer to request
+    # and decode the same DICOM frames repeatedly until the entire pyramid was
+    # finished. A present but invalid marker was already purged above.
+    if tile_path.exists() and (bool_cache_valid or not path_complete_marker.exists()):
         return _jpeg_file_response(tile_path)
 
     # 2) text text text → text text → text
@@ -489,14 +495,17 @@ async def get_tile(
         obj_slide = get_thread_slide(slide_id, info.file_path)
         float_t0 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
-        obj_region = obj_slide.read_region(
-            (int_sx, int_sy), 0, (int_read_size, int_read_size)
+        obj_region = read_region_for_output(
+            obj_slide,
+            (int_sx, int_sy),
+            (int_read_size, int_read_size),
+            (TILE_SIZE, TILE_SIZE),
         )
         float_t1 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
         obj_rgb = image_to_white_rgb(obj_region)
         obj_rgb = info.apply_icc(obj_rgb)
-        if int_read_size != TILE_SIZE:
+        if obj_rgb.size != (TILE_SIZE, TILE_SIZE):
             obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
         float_t2 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
@@ -528,7 +537,11 @@ async def get_tile(
         content = await _run_viewer_job(
             request,
             _render_and_save,
-            timeout_seconds=_tile_inline_timeout_seconds(level, False),
+            timeout_seconds=max(
+                _tile_inline_timeout_seconds(level, False),
+                (_INLINE_DICOM_TIMEOUT_MS / 1000.0)
+                if bool(getattr(info.slide, "is_dicom", False)) else 0.0,
+            ),
         )
         return Response(
             content=content,

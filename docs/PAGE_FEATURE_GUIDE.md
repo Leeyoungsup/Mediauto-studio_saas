@@ -374,9 +374,12 @@ AI, Tissue Annotation, Cell Annotation 메뉴를 바로 열면 먼저 프로젝�
 - TIFF, TIF
 - PNG
 - JPG, JPEG
+- DICOM WSI ZIP
 - Philips iSyntax, i2syntax
 
 JPG/JPEG는 업로드할 때 OpenSlide 호환 pyramidal tiled BigTIFF로 변환됩니다. 원본 파일에 배율과 물리적 해상도 정보가 없으므로 `20×` 및 `0.5 µm/px`로 고정하여 등록하며, 표시 배율과 길이 측정값도 이 고정값을 기준으로 계산됩니다. 변환이 완료되면 슬라이드 목록에는 같은 이름의 `.tiff` 파일로 표시됩니다.
+
+DICOM WSI는 한 장의 물리 슬라이드에 속한 DICOM 인스턴스를 하나의 ZIP 파일로 묶어 업로드합니다. 시스템은 ZIP 안의 해상도 단계와 색상 프로파일을 읽어 일반 WSI와 같은 방식으로 확대·축소하고, 썸네일과 타일을 표시합니다. 서로 다른 슬라이드가 한 ZIP에 섞여 있으면 등록되지 않습니다.
 
 한 파일의 최대 크기는 기본 20 GB입니다.
 

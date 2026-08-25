@@ -1,5 +1,6 @@
 /backend/tiles/*
 /backend/ai_results/*
+/backend/dicom_cache/*
 /.claude/*
 /backend/uploads/*
 *.pyc

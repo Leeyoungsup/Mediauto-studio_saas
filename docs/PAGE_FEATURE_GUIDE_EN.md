@@ -382,9 +382,12 @@ Use any of these methods:
 - TIFF, TIF
 - PNG
 - JPG, JPEG
+- DICOM WSI ZIP
 - Philips iSyntax, i2syntax
 
 JPG/JPEG files are converted during upload to an OpenSlide-compatible pyramidal tiled BigTIFF. Because ordinary JPEG files do not contain objective-power or physical-resolution metadata, the converted slide uses a fixed calibration of `20×` and `0.5 µm/px`. The slide list displays the converted file with the same base name and a `.tiff` extension.
+
+For DICOM WSI, place all DICOM instances belonging to one physical slide in a single ZIP file. The system reads the resolution pyramid and color profile from the archive and displays thumbnails and zoomable tiles like other WSI formats. An archive containing more than one physical slide is rejected.
 
 The default maximum size per file is 20 GB.
 

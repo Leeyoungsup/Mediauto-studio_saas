@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from app import slide_store, tile_generator
 from app.auth import get_current_user
 from app.config import settings
+from app.dicom_slide import cleanup_dicom_archive_cache
 from app.path_utils import safe_filename, safe_subpath
 from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
@@ -89,6 +90,9 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
         target.unlink()
     except Exception as exc:
         raise HTTPException(500, f"File delete failed: {exc}")
+
+    if target.suffix.lower() == ".zip":
+        cleanup_dicom_archive_cache(target)
 
     try:
         tiles_dir = tile_generator.get_tiles_dir_for_path(str(target))
@@ -241,6 +245,8 @@ async def move_file(
         except Exception as exc:
             print(f"[file_operations] close before move failed ({filename}): {exc}")
     shutil.move(str(src), str(dst))
+    if src.suffix.lower() == ".zip":
+        cleanup_dicom_archive_cache(src)
     await slide_store.move_slide(src_path, filename, dst_path, str(dst))
     try:
         old_tiles_dir = tile_generator.get_tiles_dir_for_path(str(src))

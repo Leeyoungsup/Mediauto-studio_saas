@@ -6,6 +6,7 @@ import threading
 
 import openslide
 
+from app.dicom_slide import DicomSlideProxy, is_dicom_slide_archive
 from app.raster_slide import RasterSlideProxy, is_fixed_magnification_raster
 
 
@@ -48,6 +49,8 @@ def suppress_native_stderr():
 
 def open_slide_silently(file_path: str):
     """Open an OpenSlide file while suppressing benign libtiff stderr noise."""
+    if is_dicom_slide_archive(file_path):
+        return DicomSlideProxy(file_path)
     if is_fixed_magnification_raster(file_path):
         return RasterSlideProxy(file_path)
     with suppress_native_stderr():

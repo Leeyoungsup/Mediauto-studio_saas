@@ -9,6 +9,7 @@ openslide-python==1.3.1
 Pillow>=10.0.0
 opencv-python-headless>=4.8.0
 pyvips>=2.2,<3
+dicomslide==0.7.2
 
 # ── text text (VS IHC tissue mask: skimage morphology + scipy fill_holes) ──
 numpy>=1.26.0

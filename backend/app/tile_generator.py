@@ -90,6 +90,39 @@ def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
     return obj_img.convert("RGB")
 
 
+def read_region_for_output(
+    slide,
+    location: tuple[int, int],
+    scene_size: tuple[int, int],
+    output_size: tuple[int, int],
+) -> Image.Image:
+    """Read a region efficiently for a requested output resolution.
+
+    DICOM WSI is already stored as a native multi-resolution frame pyramid.
+    Low-resolution viewer stages should use that pyramid instead of retrieving
+    hundreds of level-0 DICOM frames and immediately downsampling them.
+    Other slide formats keep the established level-0 behavior.
+    """
+
+    int_scene_w = max(1, int(scene_size[0]))
+    int_scene_h = max(1, int(scene_size[1]))
+    int_output_w = max(1, int(output_size[0]))
+    int_output_h = max(1, int(output_size[1]))
+    if not bool(getattr(slide, "is_dicom", False)):
+        return slide.read_region(location, 0, (int_scene_w, int_scene_h))
+
+    float_target_downsample = max(
+        int_scene_w / int_output_w,
+        int_scene_h / int_output_h,
+        1.0,
+    )
+    int_level = int(slide.get_best_level_for_downsample(float_target_downsample))
+    float_level_downsample = max(1.0, float(slide.level_downsamples[int_level]))
+    int_read_w = max(1, int(math.ceil(int_scene_w / float_level_downsample)))
+    int_read_h = max(1, int(math.ceil(int_scene_h / float_level_downsample)))
+    return slide.read_region(location, int_level, (int_read_w, int_read_h))
+
+
 def render_pyramid_thumbnail(slide, int_size: int, apply_color=None) -> Image.Image:
     """Render a thumbnail from OpenSlide pyramid coordinates, not get_thumbnail().
 
@@ -814,14 +847,15 @@ def generate_priority_single_tile(
             if not _tile_intersects_data_envelope(slide, level, tile_x, tile_y):
                 return False
 
-            obj_region = slide.read_region(
+            obj_region = read_region_for_output(
+                slide,
                 (tile_x * int_read_size, tile_y * int_read_size),
-                0,
                 (int_read_size, int_read_size),
+                (TILE_SIZE_OUT, TILE_SIZE_OUT),
             )
             obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
             try:
-                if int_read_size != TILE_SIZE_OUT:
+                if obj_rgb.size != (TILE_SIZE_OUT, TILE_SIZE_OUT):
                     obj_tile = obj_rgb.resize((TILE_SIZE_OUT, TILE_SIZE_OUT), Image.LANCZOS)
                 else:
                     obj_tile = obj_rgb

@@ -40,6 +40,7 @@ from app.jpeg_to_pyramidal_tiff import (
     converted_tiff_filename,
     converted_tiff_path,
 )
+from app.dicom_slide import cleanup_dicom_archive_cache
 from app.project_utils import (
     clean_ai_tasks as _clean_ai_tasks,
     list_project_dirs as _list_project_dirs,
@@ -942,6 +943,8 @@ async def upload_complete(
             return resp
         except HTTPException as exc:
             # OpenSlide/Philips open failures mean the uploaded payload is not usable.
+            if final_path.suffix.lower() == ".zip":
+                cleanup_dicom_archive_cache(final_path)
             if bool_newly_written and final_path.exists():
                 try:
                     final_path.unlink()

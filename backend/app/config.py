@@ -91,6 +91,20 @@ class Settings:
         str(Path(__file__).parent.parent / "annotations")
     )
 
+    # Extracted source instances for DICOM WSI ZIP archives.
+    DICOM_CACHE_DIR: str = os.environ.get(
+        "DICOM_CACHE_DIR",
+        str(Path(__file__).parent.parent / "dicom_cache")
+    )
+    DICOM_ZIP_MAX_FILES: int = int(os.environ.get("DICOM_ZIP_MAX_FILES", "10000"))
+    DICOM_ZIP_MAX_UNCOMPRESSED_BYTES: int = int(os.environ.get(
+        "DICOM_ZIP_MAX_UNCOMPRESSED_BYTES", str(100 * 1024 * 1024 * 1024)
+    ))
+    DICOM_FRAME_CACHE_SIZE: int = int(os.environ.get("DICOM_FRAME_CACHE_SIZE", "32"))
+    DICOM_PYRAMID_TOLERANCE_MM: float = float(os.environ.get(
+        "DICOM_PYRAMID_TOLERANCE_MM", "0.1"
+    ))
+
     TILE_SIZE: int = 1024
     TILE_FORMAT: str = "JPEG"  # JPEGtext PNGtext text text
     TILE_QUALITY: int = 85
@@ -124,7 +138,7 @@ class Settings:
     SUPPORTED_EXTENSIONS: set = {
         ".svs", ".ndpi", ".vms", ".vmu", ".scn",
         ".mrxs", ".tiff", ".tif", ".png", ".jpg", ".jpeg",
-        ".isyntax", ".i2syntax",
+        ".isyntax", ".i2syntax", ".zip",
     }
 
     # ── MongoDB text (On-Premise) ──

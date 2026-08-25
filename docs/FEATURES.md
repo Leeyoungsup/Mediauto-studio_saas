@@ -25,7 +25,7 @@
 
 ## 1. WSI 뷰어
 
-**포맷**: SVS, NDPI, TIFF, VMS, VMU, SCN, MRXS (+ PNG/JPG). JPG/JPEG는 업로드 시 pyramidal tiled BigTIFF로 스트리밍 변환하며 20×(0.5 µm/px)로 고정한다. 나머지 WSI는 OpenSlide 또는 전용 Philips 어댑터를 사용한다.
+**포맷**: SVS, NDPI, TIFF, VMS, VMU, SCN, MRXS (+ PNG/JPG), DICOM WSI ZIP. JPG/JPEG는 업로드 시 pyramidal tiled BigTIFF로 스트리밍 변환하며 20×(0.5 µm/px)로 고정한다. DICOM WSI는 한 물리 슬라이드의 인스턴스를 담은 ZIP을 `DicomSlideProxy`로 열고, 나머지 WSI는 OpenSlide 또는 전용 Philips 어댑터를 사용한다.
 
 ### 렌더링 파이프라인
 
@@ -35,6 +35,7 @@
 - **레벨 fallback** — 새 stage 타일이 도착하기 전엔 인접 stage 캐시를 스케일해서 그려 "검은 화면 없음". 새 타일은 250ms 페이드인.
 - **HTTP/1.1 동시 6 다운로드 캡** — 브라우저 per-origin 제한과 일치시켜 좀비 요청이 큐에 박히지 않도록 한다.
 - **ICC profile 적용** — 스캐너의 ICC profile을 타일 생성과 AI 분석 패치 로딩 양쪽에 일관 적용. 스캐너 색공간이 그대로 유지됨.
+- **DICOM native pyramid** — DICOM WSI의 저배율 타일은 해당 해상도의 네이티브 DICOM 프레임에서 읽어 불필요한 최고해상도 프레임 다운로드를 줄인다. ZIP은 안전한 파생 캐시에 추출하며 원본 ZIP은 그대로 유지한다.
 
 ### Hamamatsu NDP.view2 색 매칭 (선택 토글)
 
