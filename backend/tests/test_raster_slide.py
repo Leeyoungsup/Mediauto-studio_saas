@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,6 +77,12 @@ class RasterSlideProxyTests(unittest.TestCase):
         self.assertTrue(is_fixed_magnification_raster("slide.JPEG"))
         self.assertFalse(is_fixed_magnification_raster("slide.svs"))
         self.assertFalse(is_fixed_magnification_raster("slide.png"))
+
+    def test_pyramidal_tiff_conversion_defaults_to_q100(self):
+        parameter = inspect.signature(
+            convert_jpeg_to_pyramidal_tiff
+        ).parameters["jpeg_quality"]
+        self.assertEqual(parameter.default, 100)
 
     @unittest.skipUnless(importlib.util.find_spec("pyvips"), "pyvips is not installed")
     def test_jpeg_converts_to_openslide_pyramidal_tiff(self):

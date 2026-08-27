@@ -30,7 +30,7 @@ def convert_jpeg_to_pyramidal_tiff(
     destination_path: str | Path | None = None,
     *,
     max_pixels: int = 1_000_000_000,
-    jpeg_quality: int = 90,
+    jpeg_quality: int = 100,
 ) -> Path:
     """Stream a JPEG into a tiled, pyramidal BigTIFF and atomically publish it.
 
@@ -121,4 +121,3 @@ def convert_jpeg_to_pyramidal_tiff(
                 path_temp.unlink()
         except OSError:
             pass
-

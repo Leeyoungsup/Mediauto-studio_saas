@@ -31,6 +31,7 @@ running MeDIAuto Studio SaaS outside a local workstation.
 | `AI_RESULTS_DIR` | Persistent AI result cache storage. |
 | `TILE_CACHE_QUOTA_BYTES` | Disk quota for tile cache eviction. Use `0` only when another cleanup job exists. |
 | `MAX_UPLOAD_BYTES` | Match institutional policy and reverse proxy upload limits. |
+| `JPEG_CONVERSION_QUALITY` | Internal JPEG quality for JPG-to-pyramidal-TIFF conversion. Default: `100`. |
 
 ## MongoDB TLS and Authentication
 

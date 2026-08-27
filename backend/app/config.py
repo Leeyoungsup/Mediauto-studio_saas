@@ -128,7 +128,7 @@ class Settings:
         "JPEG_CONVERSION_MAX_PIXELS", "1000000000"
     ))
     JPEG_CONVERSION_QUALITY: int = int(os.environ.get(
-        "JPEG_CONVERSION_QUALITY", "90"
+        "JPEG_CONVERSION_QUALITY", "100"
     ))
 
     # AI text text (backend/model/)
