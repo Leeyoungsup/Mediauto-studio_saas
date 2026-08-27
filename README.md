@@ -169,6 +169,9 @@ mongod --dbpath /data/db
 | `TILE_CACHE_QUOTA_BYTES` | 1 TB | 타일 디스크 쿼터 (0 이면 janitor 비활성) |
 | `CORS_ORIGINS` | "" (same-origin) | 쉼표 구분 origin 목록 |
 | `TRUSTED_PROXIES` | "" (헤더 무시) | 신뢰 프록시 IP — `X-Forwarded-For` 인정 조건 |
+| `BLOCKED_IPS` | "" | 추가 차단 IP/CIDR 목록. `207.175.151.181`은 기본 차단됨 |
+| `MEDIAUTO_404_RATE_LIMIT_MAX` | 30 | 비-API 경로에서 1분 동안 허용할 404 응답 수 |
+| `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
 | `UPLOAD_DIR` / `TILES_DIR` / `AI_RESULTS_DIR` | `backend/uploads,tiles,ai_results` | 캐시 위치 오버라이드 |
 
 ### 4. 서버 시작

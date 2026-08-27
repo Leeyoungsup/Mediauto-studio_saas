@@ -23,6 +23,9 @@ running MeDIAuto Studio SaaS outside a local workstation.
 | `MEDIA_SIGNING_KEY` | Set explicitly if supported by the running build; otherwise it is derived from the JWT secret. |
 | `CORS_ORIGINS` | Empty for same-origin deployments, or a comma-separated allowlist. |
 | `TRUSTED_PROXIES` | Comma-separated reverse proxy IPs allowed to supply `X-Forwarded-For`. |
+| `BLOCKED_IPS` | Additional comma-separated IP/CIDR denylist. `207.175.151.181` is blocked by default. |
+| `MEDIAUTO_404_RATE_LIMIT_MAX` | Maximum public/static 404 responses per IP and window. Default: `30`. |
+| `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | Repeated-404 window in seconds. Default: `60`. |
 | `UPLOAD_DIR` | Persistent WSI storage. |
 | `TILES_DIR` | Persistent or rebuildable tile cache storage. |
 | `AI_RESULTS_DIR` | Persistent AI result cache storage. |

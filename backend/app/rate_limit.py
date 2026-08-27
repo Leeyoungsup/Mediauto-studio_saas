@@ -8,7 +8,9 @@ text text(slowapi) text in-memory text text text text.
 On-Premise text text text text text text.
 """
 
+import ipaddress
 import json
+import os as _os
 import time
 
 
@@ -39,6 +41,21 @@ class _FixedWindowCounter:
         self._dict_buckets[str_key] = (entry[0], entry[1] + 1)
         return True
 
+    def is_blocked(self, str_key: str) -> bool:
+        """Check the current window without increasing its count."""
+        float_now = time.monotonic()
+        entry = self._dict_buckets.get(str_key)
+        if entry is None:
+            return False
+        if float_now - entry[0] >= self.int_window:
+            self._dict_buckets.pop(str_key, None)
+            return False
+        return entry[1] >= self.int_max
+
+    def record(self, str_key: str) -> bool:
+        """Record an event and return whether the limit is now reached."""
+        return not self.is_allowed(str_key)
+
     def cleanup(self):
         """text text text — text text text."""
         float_now = time.monotonic()
@@ -55,12 +72,39 @@ _LOGIN_LIMITER = _FixedWindowCounter(int_window_seconds=300, int_max_requests=10
 _API_LIMITER = _FixedWindowCounter(int_window_seconds=60, int_max_requests=200)
 _UPLOAD_LIMITER = _FixedWindowCounter(int_window_seconds=60, int_max_requests=2000)
 
+
+def _env_positive_int(str_name: str, int_default: int) -> int:
+    try:
+        return max(1, int(_os.environ.get(str_name, str(int_default))))
+    except (TypeError, ValueError):
+        return max(1, int_default)
+
 # text text text
 _int_request_count = 0
 _CLEANUP_INTERVAL = 5000
 
 
-import os as _os
+_NOT_FOUND_LIMITER = _FixedWindowCounter(
+    int_window_seconds=_env_positive_int("MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS", 60),
+    int_max_requests=_env_positive_int("MEDIAUTO_404_RATE_LIMIT_MAX", 30),
+)
+
+# Immediate application-layer denylist. Entries may be individual IPs or CIDRs.
+# The default blocks the Google Cloud source that performed the credential-file
+# scan observed on 2026-08-27. Override/extend with a comma-separated env value.
+_SET_BLOCKED_IP_ENTRIES = {
+    value.strip()
+    for value in (
+        "207.175.151.181," + _os.environ.get("BLOCKED_IPS", "")
+    ).split(",")
+    if value.strip()
+}
+_LIST_BLOCKED_NETWORKS = []
+for _str_entry in sorted(_SET_BLOCKED_IP_ENTRIES):
+    try:
+        _LIST_BLOCKED_NETWORKS.append(ipaddress.ip_network(_str_entry, strict=False))
+    except ValueError:
+        print(f"[rate_limit] ignoring invalid BLOCKED_IPS entry: {_str_entry}")
 
 # X-Forwarded-For / X-Real-IP text text text text text text.
 # text text text text text text rate_limit text text text text
@@ -84,6 +128,16 @@ def _get_client_ip(headers: list[tuple[bytes, bytes]], scope: dict) -> str:
             if k == b"x-real-ip":
                 return v.decode().strip()
     return str_peer
+
+
+def _is_blocked_ip(str_ip: str) -> bool:
+    try:
+        obj_ip = ipaddress.ip_address(str_ip)
+    except ValueError:
+        return False
+    if isinstance(obj_ip, ipaddress.IPv6Address) and obj_ip.ipv4_mapped:
+        obj_ip = obj_ip.ipv4_mapped
+    return any(obj_ip in obj_network for obj_network in _LIST_BLOCKED_NETWORKS)
 
 
 def _send_429(retry_after: str):
@@ -110,6 +164,24 @@ def _send_429(retry_after: str):
     return _respond
 
 
+def _send_403():
+    body = json.dumps({"detail": "Request blocked."}).encode()
+
+    async def _respond(send):
+        await send({
+            "type": "http.response.start",
+            "status": 403,
+            "headers": [
+                [b"content-type", b"application/json"],
+                [b"content-length", str(len(body)).encode()],
+                [b"cache-control", b"no-store"],
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+    return _respond
+
+
 class RateLimitMiddleware:
     """text ASGI text — IPtext text text.
 
@@ -127,11 +199,41 @@ class RateLimitMiddleware:
             return
 
         str_path = scope.get("path", "")
+        headers = scope.get("headers", [])
+        str_ip = _get_client_ip(headers, scope)
 
-        # ── text text / text / text: rate limit text ──
-        # text text(media ticket)text text. text text 0text.
+        # Apply the explicit denylist before all route/media exemptions.
+        if _is_blocked_ip(str_ip):
+            await _send_403()(send)
+            return
+
+        global _int_request_count
+        _int_request_count += 1
+        if _int_request_count % _CLEANUP_INTERVAL == 0:
+            _LOGIN_LIMITER.cleanup()
+            _API_LIMITER.cleanup()
+            _UPLOAD_LIMITER.cleanup()
+            _NOT_FOUND_LIMITER.cleanup()
+
+        # Public/static paths are not part of the normal API limiter. Count
+        # their actual 404 responses instead, then throttle clients that scan
+        # many nonexistent secret/config paths in a short window.
         if not str_path.startswith("/api/"):
-            await self.app(scope, receive, send)
+            if _NOT_FOUND_LIMITER.is_blocked(str_ip):
+                await _send_429(str(_NOT_FOUND_LIMITER.int_window))(send)
+                return
+
+            int_status = 0
+
+            async def _capture_status(message):
+                nonlocal int_status
+                if message.get("type") == "http.response.start":
+                    int_status = int(message.get("status", 0) or 0)
+                await send(message)
+
+            await self.app(scope, receive, _capture_status)
+            if int_status == 404:
+                _NOT_FOUND_LIMITER.record(str_ip)
             return
 
         if (str_path.startswith("/api/tiles/")
@@ -144,16 +246,6 @@ class RateLimitMiddleware:
                 }):
             await self.app(scope, receive, send)
             return
-
-        # ── text text text ──
-        global _int_request_count
-        _int_request_count += 1
-        if _int_request_count % _CLEANUP_INTERVAL == 0:
-            _LOGIN_LIMITER.cleanup()
-            _API_LIMITER.cleanup()
-
-        headers = scope.get("headers", [])
-        str_ip = _get_client_ip(headers, scope)
 
         # text text — text text
         if str_path.rstrip("/") in ("/api/auth/login", "/api/auth/register"):
