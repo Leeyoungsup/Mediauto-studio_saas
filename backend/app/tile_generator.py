@@ -172,6 +172,54 @@ def render_pyramid_thumbnail(slide, int_size: int, apply_color=None) -> Image.Im
             pass
 
 
+def generate_standard_thumbnail_cache(
+    slide,
+    tiles_dir: Path,
+    apply_color=None,
+    sizes: tuple[int, ...] = (300, 420, 2048),
+) -> None:
+    """Render common UI thumbnail sizes from one pyramid read.
+
+    DICOM slide initialization and frame retrieval are much more expensive than
+    resizing a cached Pillow image. Generate the largest common preview once,
+    then derive the sidebar/list variants without reopening the source archive.
+    """
+
+    tuple_sizes = tuple(sorted({max(64, int(value)) for value in sizes}))
+    list_missing = [
+        int_size for int_size in tuple_sizes
+        if not (tiles_dir / f"thumbnail_{int_size}.jpeg").is_file()
+    ]
+    path_legacy = tiles_dir / "thumbnail.jpeg"
+    if not list_missing and path_legacy.is_file():
+        return
+
+    int_master_size = max(tuple_sizes)
+    obj_master = render_pyramid_thumbnail(
+        slide, int_master_size, apply_color=apply_color
+    )
+    try:
+        tiles_dir.mkdir(parents=True, exist_ok=True)
+        for int_size in tuple_sizes:
+            path_output = tiles_dir / f"thumbnail_{int_size}.jpeg"
+            if path_output.is_file() and not (int_size == 300 and not path_legacy.is_file()):
+                continue
+            if int_size == int_master_size:
+                obj_output = obj_master.copy()
+            else:
+                obj_output = obj_master.copy()
+                obj_output.thumbnail((int_size, int_size), Image.LANCZOS)
+            try:
+                if not path_output.is_file():
+                    obj_output.save(str(path_output), "JPEG", quality=85)
+                if int_size == 300 and not path_legacy.is_file():
+                    obj_output.save(str(path_legacy), "JPEG", quality=85)
+            finally:
+                obj_output.close()
+    finally:
+        obj_master.close()
+
+
 def _image_has_visible_content(obj_img: Image.Image, int_threshold: int = 245) -> bool:
     """Return False for pure/near-white tiles that do not need disk storage."""
     try:
@@ -1069,21 +1117,11 @@ def _generate_tiles(filename: str, file_path: str):
         progress.status = "generating"
 
         # text text text
-        thumb_path = tiles_dir / "thumbnail.jpeg"
-        thumb_300_path = tiles_dir / "thumbnail_300.jpeg"
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        if not thumb_path.exists() or not thumb_300_path.exists():
-            thumb_rgb = render_pyramid_thumbnail(slide, 300, apply_color=_to_srgb)
-            try:
-                if not thumb_path.exists():
-                    thumb_rgb.save(str(thumb_path), "JPEG", quality=85)
-                if not thumb_300_path.exists():
-                    thumb_rgb.save(str(thumb_300_path), "JPEG", quality=85)
-            finally:
-                try:
-                    thumb_rgb.close()
-                except Exception:
-                    pass
+        generate_standard_thumbnail_cache(
+            slide,
+            tiles_dir,
+            apply_color=_to_srgb,
+        )
 
         # stage text text
         for int_stage in range(STAGE_COUNT):

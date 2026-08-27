@@ -5,7 +5,7 @@ from pathlib import Path
 
 import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.auth import get_media_user
 from app.openslide_utils import open_slide_silently
@@ -19,14 +19,23 @@ router = APIRouter(dependencies=[Depends(get_media_user)])
 
 
 def _current_tile_cache(filename: str, file_path: str) -> bool:
-    return tile_generator.tiles_are_valid(filename, file_path)
+    # Thumbnail requests are frequent (slide list, viewer, Data Linkage).
+    # Deep validation opens the source slide, which means reopening and parsing
+    # a DICOM ZIP even when the JPEG thumbnail is already cached. The complete
+    # marker already contains source size/mtime identity, so use the cheap check
+    # here and reserve deep validation for the tile worker.
+    return tile_generator.tiles_marker_matches_file(filename, file_path)
 
 
 def _jpeg_response(image, quality: int = 85) -> StreamingResponse:
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=quality)
     buf.seek(0)
-    return StreamingResponse(buf, media_type="image/jpeg")
+    return StreamingResponse(
+        buf,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 def _legacy_thumbnail_path(tiles_root: Path, int_size: int) -> Path | None:
@@ -37,8 +46,12 @@ def _legacy_thumbnail_path(tiles_root: Path, int_size: int) -> Path | None:
     return path_legacy if path_legacy.exists() else None
 
 
-def _cached_thumbnail_response(path_thumb: Path) -> StreamingResponse:
-    return StreamingResponse(open(path_thumb, "rb"), media_type="image/jpeg")
+def _cached_thumbnail_response(path_thumb: Path) -> FileResponse:
+    return FileResponse(
+        path=str(path_thumb),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 def _can_use_thumbnail_cache(tiles_root: Path, bool_current_cache: bool) -> bool:
