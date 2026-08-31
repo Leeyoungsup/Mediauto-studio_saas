@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260713-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260730-02';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260831-01';
 
 class PatchFocusLayer {
     constructor() {
@@ -62,6 +62,7 @@ export class CellPatchWorkflow {
         this.patchListPanelEl = null;
         this.patchHeaderEl = document.querySelector('.annotation-group > .panel-header');
         this.displayPanel = null;
+        this.cellAnnotationCountEl = null;
         this.lastRegionAction = null;
         this.pendingRegions = [];
         this.regionMode = 'required';
@@ -93,6 +94,7 @@ export class CellPatchWorkflow {
             statusLayer: this.status,
             onStatus: this.setStatus,
             onSaved: (patch) => this.updatePatch(patch),
+            onCountChange: (count, hasPatch) => this._updateCellAnnotationCount(count, hasPatch),
         });
         this._setupRightPanel();
         this._setupExcludeToggle();
@@ -220,7 +222,33 @@ export class CellPatchWorkflow {
         this.classPanel = this._ensureCellPanel('cell-classes-panel', 'Cell Classes', 'cell-classes');
         this.displaySectionPanel = this._ensureCellPanel('cell-display-section', 'Cell Display', 'cell-display');
         this.annotationsPanel = this._ensureCellPanel('cell-annotations-panel', 'Cell Annotations', 'cell-annotations');
+        this._setupCellAnnotationCount();
         this.patchListSectionPanel = this._ensureCellPanel('cell-patch-list-section', 'Patch List', 'cell-patch-list');
+    }
+
+    _setupCellAnnotationCount() {
+        const header = this.annotationsPanel?.querySelector(':scope > .panel-header');
+        if (!header) return;
+        let badge = header.querySelector('.cell-annotation-count-badge');
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'cell-annotation-count-badge';
+            badge.hidden = true;
+            header.querySelector('.panel-minimize-btn')?.insertAdjacentElement('beforebegin', badge);
+        }
+        this.cellAnnotationCountEl = badge;
+        this._updateCellAnnotationCount(this.editor?.cells?.length || 0, Boolean(this.editor?.patch));
+    }
+
+    _updateCellAnnotationCount(count, hasPatch = true) {
+        const badge = this.cellAnnotationCountEl
+            || document.querySelector('#cell-annotations-panel .cell-annotation-count-badge');
+        if (!badge) return;
+        const normalizedCount = Math.max(0, Number(count) || 0);
+        const formattedCount = normalizedCount.toLocaleString();
+        badge.hidden = !hasPatch;
+        badge.textContent = `${formattedCount} ${normalizedCount === 1 ? 'cell' : 'cells'}`;
+        badge.setAttribute('aria-label', `Current patch: ${formattedCount} cells`);
     }
 
     _arrangeCellPanelSections() {

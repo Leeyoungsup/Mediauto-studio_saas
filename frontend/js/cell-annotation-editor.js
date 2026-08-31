@@ -1,10 +1,11 @@
 export class CellAnnotationEditor {
-    constructor({ api, viewer, statusLayer, onStatus, onSaved } = {}) {
+    constructor({ api, viewer, statusLayer, onStatus, onSaved, onCountChange } = {}) {
         this.api = api;
         this.viewer = viewer;
         this.statusLayer = statusLayer;
         this.onStatus = onStatus || (() => {});
         this.onSaved = onSaved || (() => {});
+        this.onCountChange = onCountChange || (() => {});
         this.slideId = '';
         this.patch = null;
         this.cells = [];
@@ -418,6 +419,7 @@ export class CellAnnotationEditor {
 
     render() {
         if (!this.panel) return;
+        this.onCountChange(this.cells.length, Boolean(this.patch));
         if (!this.patch) {
             this.panel.innerHTML = `
                 <div class="panel-header">Patch Cell Annotation</div>
