@@ -348,13 +348,13 @@ function _normalizeAiResultPayload(result) {
 export const api = {
 
     /**   (  +  ) */
-    async browse(path = '') {
-        const res = await _authFetch(`${API_BASE}/slides/browse?path=${encodeURIComponent(path)}`);
+    async browse(path = '', options = {}) {
+        const res = await _authFetch(`${API_BASE}/slides/browse?path=${encodeURIComponent(path)}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
-    async listCases({ project = '', hospital = '', sampleNo = '', page = 1, pageSize = 15, sortBy = 'case_name', sortDir = 'asc' } = {}) {
+    async listCases({ project = '', hospital = '', sampleNo = '', page = 1, pageSize = 15, sortBy = 'case_name', sortDir = 'asc' } = {}, options = {}) {
         const q = new URLSearchParams({
             project: project || '',
             hospital: hospital || '',
@@ -364,21 +364,21 @@ export const api = {
             sort_by: sortBy || 'case_name',
             sort_dir: sortDir || 'asc',
         });
-        const res = await _authFetch(`${API_BASE}/slides/cases?${q}`);
+        const res = await _authFetch(`${API_BASE}/slides/cases?${q}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /**        */
-    async listProjects() {
-        const res = await _authFetch(`${API_BASE}/slides/projects`);
+    async listProjects(options = {}) {
+        const res = await _authFetch(`${API_BASE}/slides/projects`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
-    async dashboard(includeStorage = false) {
+    async dashboard(includeStorage = false, options = {}) {
         const qs = includeStorage ? '?include_storage=true' : '';
-        const res = await _authFetch(`${API_BASE}/slides/dashboard${qs}`);
+        const res = await _authFetch(`${API_BASE}/slides/dashboard${qs}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -504,9 +504,9 @@ export const api = {
     },
 
     /**  AI     */
-    async getFolderAiConfig(path) {
+    async getFolderAiConfig(path, options = {}) {
         const q = new URLSearchParams({ path: path || '' });
-        const res = await _authFetch(`${API_BASE}/slides/folder-config?${q}`);
+        const res = await _authFetch(`${API_BASE}/slides/folder-config?${q}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -605,8 +605,8 @@ export const api = {
     /**  URL (slide_id     ).
       *
     /** Slide-level clinical score metadata shared by AI and annotation viewers. */
-    async getSlideClinicalInfo(slideId) {
-        const res = await _authFetch(`${API_BASE}/slides/${slideId}/clinical-info`);
+    async getSlideClinicalInfo(slideId, options = {}) {
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/clinical-info`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -950,9 +950,9 @@ export const api = {
     },
 
     /**      ++variant     */
-    async listUserAiEdits(slideId, aiMode, variant = '') {
+    async listUserAiEdits(slideId, aiMode, variant = '', options = {}) {
         const qs = new URLSearchParams({ slide_id: slideId, ai_mode: aiMode, variant: variant || '' });
-        const res = await _authFetch(`${API_BASE}/ai/user-edits/list?${qs.toString()}`);
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/list?${qs.toString()}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
@@ -966,34 +966,34 @@ export const api = {
     },
 
     /**       */
-    async loadUserAiEdit(slideId, aiMode, userId, variant = '') {
+    async loadUserAiEdit(slideId, aiMode, userId, variant = '', options = {}) {
         const qs = new URLSearchParams({
             slide_id: slideId, ai_mode: aiMode, user_id: userId, variant: variant || ''
         });
-        const res = await _authFetch(`${API_BASE}/ai/user-edits/load?${qs.toString()}`);
+        const res = await _authFetch(`${API_BASE}/ai/user-edits/load?${qs.toString()}`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /**  / AI  (  ) */
-    async getActiveAiTasks() {
-        const res = await _authFetch(`${API_BASE}/ai/active-tasks`);
+    async getActiveAiTasks(options = {}) {
+        const res = await _authFetch(`${API_BASE}/ai/active-tasks`, { signal: options.signal });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
     },
 
     /**    */
-    async getTaskStatus(taskId) {
+    async getTaskStatus(taskId, options = {}) {
         return _fetchJsonWithRetry(
-            () => _authFetch(`${API_BASE}/ai/task/${taskId}`),
+            () => _authFetch(`${API_BASE}/ai/task/${taskId}`, { signal: options.signal }),
             'AI task status',
             4
         );
     },
 
-    async getTaskResult(taskId, onProgress = null) {
+    async getTaskResult(taskId, onProgress = null, options = {}) {
         const result = await _fetchJsonWithProgressRetry(
-            () => _authFetch(`${API_BASE}/ai/task/${taskId}/result`),
+            () => _authFetch(`${API_BASE}/ai/task/${taskId}/result`, { signal: options.signal }),
             'AI task result',
             onProgress,
             3

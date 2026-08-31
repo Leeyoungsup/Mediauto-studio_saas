@@ -49,6 +49,7 @@ const $showSlideLabels = $('#show-slide-labels');
 const SLIDE_LABEL_VISIBILITY_KEY = 'showSlideLabels';
 let _showSlideLabels = localStorage.getItem(SLIDE_LABEL_VISIBILITY_KEY) !== '0';
 const _slideLabelAvailability = new Map();
+let _slideLabelObserver = null;
 if ($showSlideLabels) $showSlideLabels.checked = _showSlideLabels;
 const LIST_SLIDE_CLINICAL_FIELDS = [
     { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
@@ -178,6 +179,31 @@ const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
 let _lastBrowseData = { path: '', folders: [], slides: [] };
 let _slideListRequestSeq = 0;
+const _latestReadControllers = new Map();
+
+function _beginLatestRead(str_key) {
+    _latestReadControllers.get(str_key)?.abort();
+    const controller = new AbortController();
+    _latestReadControllers.set(str_key, controller);
+    return controller;
+}
+
+function _finishLatestRead(str_key, controller) {
+    if (_latestReadControllers.get(str_key) === controller) {
+        _latestReadControllers.delete(str_key);
+    }
+}
+
+function _abortLatestRead(str_key) {
+    const controller = _latestReadControllers.get(str_key);
+    if (!controller) return;
+    controller.abort();
+    _latestReadControllers.delete(str_key);
+}
+
+function _isAbortError(err) {
+    return err?.name === 'AbortError' || String(err?.message || '').toLowerCase().includes('aborted');
+}
 
 let currentSlideId = null;
 let currentSlideInfo = null;
@@ -547,6 +573,9 @@ if ($btnNdpColor) {
 }
 
 function onSlideLoaded(slideId, slideInfo, filename) {
+    for (const str_key of ['clinical-info', 'same-case', 'user-edit-list', 'user-edit-load', 'folder-config']) {
+        _abortLatestRead(str_key);
+    }
     _exitMultiView(false);
     currentSlideId = slideId;
     currentSlideInfo = { ...(slideInfo || {}), filename: filename || slideInfo?.filename || '' };
@@ -769,6 +798,11 @@ async function loadMinimap(slideId) {
     minimapImage = null;
     if ($minimapContainer) $minimapContainer.hidden = true;
     if (_minimapRequestSlideId !== slideId) {
+        if (_minimapRequestImage) {
+            _minimapRequestImage.onload = null;
+            _minimapRequestImage.onerror = null;
+            try { _minimapRequestImage.src = ''; } catch (_) {}
+        }
         _minimapRequestSlideId = slideId;
         _minimapRequestUrl = '';
         _minimapRequestImage = null;
@@ -2397,14 +2431,22 @@ function _buildSlideClinicalEditor(clinicalInfo) {
 
 async function _loadSlideClinicalInfo() {
     if (!currentSlideId) return currentSlideInfo?.dict_clinical_info || {};
+    const str_slide_id = currentSlideId;
+    const controller = _beginLatestRead('clinical-info');
     try {
-        const res = await api.getSlideClinicalInfo(currentSlideId);
+        const res = await api.getSlideClinicalInfo(str_slide_id, { signal: controller.signal });
+        if (controller.signal.aborted || currentSlideId !== str_slide_id) {
+            return currentSlideInfo?.dict_clinical_info || {};
+        }
         const clinicalInfo = res.dict_clinical_info || {};
         currentSlideInfo = { ...(currentSlideInfo || {}), case_name: res.case_name || currentSlideInfo?.case_name || '', dict_clinical_info: clinicalInfo };
         return clinicalInfo;
     } catch (err) {
+        if (_isAbortError(err)) return currentSlideInfo?.dict_clinical_info || {};
         console.warn('[slide-info] clinical info load failed:', err);
         return currentSlideInfo?.dict_clinical_info || {};
+    } finally {
+        _finishLatestRead('clinical-info', controller);
     }
 }
 
@@ -2478,14 +2520,14 @@ function _caseNameFromFilename(filename = '') {
     return stem;
 }
 
-async function _resolveCurrentCaseName() {
+async function _resolveCurrentCaseName(signal = null) {
     const browseSlide = _currentBrowseSlide();
     const knownCaseName = String(currentSlideInfo?.case_name || browseSlide?.case_name || '').trim();
     if (knownCaseName) return knownCaseName;
     const filenameCaseName = _caseNameFromFilename(currentSlideInfo?.filename || browseSlide?.filename);
     if (filenameCaseName) return filenameCaseName;
     if (!currentSlideId) return '';
-    const result = await api.getSlideClinicalInfo(currentSlideId);
+    const result = await api.getSlideClinicalInfo(currentSlideId, { signal });
     const caseName = String(result?.case_name || '').trim();
     if (caseName) currentSlideInfo = { ...(currentSlideInfo || {}), case_name: caseName };
     return caseName;
@@ -2671,6 +2713,7 @@ function _renderSameCaseSlides(caseName, slides = []) {
 async function _loadSameCaseSlides() {
     if (!currentSlideId || !$sameCaseDialog) return;
     const requestSeq = ++_sameCaseRequestSeq;
+    const controller = _beginLatestRead('same-case');
     _sameCaseSlides = [];
     _selectedSameCaseSlideIds = [];
     $sameCaseGrid?.replaceChildren();
@@ -2682,13 +2725,16 @@ async function _loadSameCaseSlides() {
     if (!$sameCaseDialog.open) $sameCaseDialog.showModal();
 
     try {
-        const caseName = await _resolveCurrentCaseName();
+        const caseName = await _resolveCurrentCaseName(controller.signal);
         if (!caseName) throw new Error('Case ID is unavailable for the current slide.');
         if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
         if ($sameCaseDialogCase) $sameCaseDialogCase.textContent = `Case: ${caseName}`;
         // A case can span marker/project folders (for example HER2, KI-67, and H&E),
         // so search the upload tree instead of limiting the request to the current folder.
-        const result = await api.listCases({ sampleNo: caseName, page: 1, pageSize: 100 });
+        const result = await api.listCases(
+            { sampleNo: caseName, page: 1, pageSize: 100 },
+            { signal: controller.signal },
+        );
         if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
         const normalizedCaseName = caseName.toLocaleLowerCase();
         const matchedCase = (result.cases || []).find((item) => (
@@ -2699,17 +2745,21 @@ async function _loadSameCaseSlides() {
         _setSameCaseStatus('');
         _renderSameCaseSlides(caseName, slides);
     } catch (err) {
+        if (_isAbortError(err)) return;
         if (requestSeq !== _sameCaseRequestSeq || !$sameCaseDialog.open) return;
         _sameCaseSlides = [];
         _setSameCaseStatus(err?.message || 'Failed to load same-case slides.');
         if ($sameCaseSelection) $sameCaseSelection.textContent = 'No slide selected.';
         if ($btnViewSameCase) $btnViewSameCase.disabled = true;
         if ($btnMultiViewSameCase) $btnMultiViewSameCase.disabled = true;
+    } finally {
+        _finishLatestRead('same-case', controller);
     }
 }
 
 function _closeSameCaseDialog() {
     _sameCaseRequestSeq += 1;
+    _abortLatestRead('same-case');
     if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
     if ($sameCaseDialog?.open) $sameCaseDialog.close();
 }
@@ -2981,6 +3031,7 @@ function _resetMultiViewPane(pane) {
 
 function _exitMultiView(updateStatus = true) {
     _multiViewOpenSeq += 1;
+    _abortLatestRead('multi-view-open');
     document.body.classList.remove('ai-multi-view-active');
     if (!$multiViewContainer || $multiViewContainer.hidden) {
         $viewerContainer?.classList.remove('multi-view-active');
@@ -3040,6 +3091,7 @@ async function _openMultiView(slides = []) {
         analysis: _captureAnalysisContext(),
     };
     const openSeq = ++_multiViewOpenSeq;
+    const controller = _beginLatestRead('multi-view-open');
     _ensureMultiViewPanes();
     if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
     _closeSameCaseDialog();
@@ -3070,7 +3122,12 @@ async function _openMultiView(slides = []) {
     await Promise.all(uniqueSlides.map(async (slide, index) => {
         const pane = _multiViewPanes[index];
         try {
-            const info = await api.openSlide(slide.filename, slide.path || '', 'ai');
+            const info = await api.openSlide(
+                slide.filename,
+                slide.path || '',
+                'ai',
+                { signal: controller.signal },
+            );
             if (openSeq !== _multiViewOpenSeq) return;
             if (!info?.exists) throw new Error('Slide is unavailable.');
             const slideInfo = { ...info, filename: slide.filename };
@@ -3084,12 +3141,14 @@ async function _openMultiView(slides = []) {
                 pane.viewer.fitToWindow();
             });
         } catch (err) {
+            if (_isAbortError(err)) return;
             if (openSeq !== _multiViewOpenSeq) return;
             pane.error.hidden = false;
             pane.error.textContent = `Open failed\n${err?.message || err}`;
             pane.label.textContent = slide.filename;
         }
     }));
+    _finishLatestRead('multi-view-open', controller);
     if (openSeq === _multiViewOpenSeq) {
         const firstAvailablePane = _multiViewPanes
             .slice(0, uniqueSlides.length)
@@ -3187,8 +3246,10 @@ $('#exit-multi-view')?.addEventListener('click', () => _exitMultiView());
 // Slide information dialog.
 $btnInfo.addEventListener('click', async () => {
     if (!currentSlideInfo) return;
+    const str_slide_id = currentSlideId;
     const info = currentSlideInfo;
     const clinicalInfo = await _loadSlideClinicalInfo();
+    if (currentSlideId !== str_slide_id) return;
     const mag = info.objective_power !== 'Unknown' ? `${info.objective_power}x` : '-';
     const physW = info.physical_width_mm?.toFixed(2) ?? '-';
     const physH = info.physical_height_mm?.toFixed(2) ?? '-';
@@ -3253,11 +3314,12 @@ function _setButtonRunning(btnEl, bool_running) {
 async function _maybeCancelRunning(str_key) {
     const entry = _runningAiTasks[str_key];
     if (!entry) return false;
+    entry.pending_cancel = true;
     if (!entry.task_id) {
-        entry.pending_cancel = true;
         setStatus('Cancel queued. The task will stop as soon as it starts.');
         return true;
     }
+    entry.controller?.abort();
     try {
         await api.cancelTask(entry.task_id);
         setStatus('Cancel request sent. Cleaning up shortly...');
@@ -3275,7 +3337,8 @@ async function startDetection() {
     if (await _maybeCancelRunning('detect')) return;
 
     const aiTarget = _currentAiTarget();
-    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect, target: aiTarget };
+    const taskController = new AbortController();
+    _runningAiTasks['detect'] = { task_id: null, buttonEl: $btnDetect, target: aiTarget, controller: taskController };
     _setButtonRunning($btnDetect, true);
     $progressLabel.textContent = 'Cell Detection...';
     setProgress(0);
@@ -3294,13 +3357,15 @@ async function startDetection() {
             _runningAiTasks['detect'].task_id = task_id;
             if (_runningAiTasks['detect'].pending_cancel) {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+                taskController.abort();
+                return;
             }
         }
 
         while (true) {
             await sleep(1000);
             if (!_runningAiTasks['detect']) return;
-            const st = await api.getTaskStatus(task_id);
+            const st = await api.getTaskStatus(task_id, { signal: taskController.signal });
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
@@ -3314,7 +3379,11 @@ async function startDetection() {
             }
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
+                const result = await api.getTaskResult(
+                    task_id,
+                    _makeResultDownloadProgress(),
+                    { signal: taskController.signal },
+                );
                 if (!_applyAiResultToTarget(aiTarget, () => onDetectionComplete(result, roiPolygons, tissueType))) {
                     setStatus('Detection completed, but its slide is no longer open.');
                 }
@@ -3329,6 +3398,7 @@ async function startDetection() {
             }
         }
     } catch (err) {
+        if (_isAbortError(err)) return;
         setStatus(`Cell Detection failed: ${err.message}`);
     } finally {
         delete _runningAiTasks['detect'];
@@ -3894,6 +3964,7 @@ const $loadUserEditDialog = $('#load-user-edit-dialog');
 const $loadUserEditList = $('#load-user-edit-list');
 const $loadUserEditMeta = $('#load-user-edit-meta');
 $('#close-load-user-edit')?.addEventListener('click', () => $loadUserEditDialog?.close());
+$loadUserEditDialog?.addEventListener('close', () => _abortLatestRead('user-edit-list'));
 
 function _fmtDateIso(str) {
     if (!str) return '';
@@ -3915,21 +3986,27 @@ async function _openLoadUserEditDialog() {
     }
     const aiMode = _lastDetectionModel;
     const variant = _lastDetectionTissue;
+    const str_slide_id = currentSlideId;
+    const controller = _beginLatestRead('user-edit-list');
     $loadUserEditMeta.textContent = `Mode: ${aiMode}  /  Variant: ${variant}`;
     $loadUserEditList.innerHTML = '<div style="padding:12px; color:#888;">Loading...</div>';
     $loadUserEditDialog.showModal();
 
     let users = [];
     try {
-        const r = await api.listUserAiEdits(currentSlideId, aiMode, variant);
+        const r = await api.listUserAiEdits(str_slide_id, aiMode, variant, { signal: controller.signal });
+        if (controller.signal.aborted || currentSlideId !== str_slide_id || !$loadUserEditDialog.open) return;
         users = r.users || [];
     } catch (err) {
+        if (_isAbortError(err)) return;
         $loadUserEditList.replaceChildren();
         const errorEl = document.createElement('div');
         errorEl.style.cssText = 'padding:12px; color:#c66;';
         errorEl.textContent = `Failed: ${err.message}`;
         $loadUserEditList.appendChild(errorEl);
         return;
+    } finally {
+        _finishLatestRead('user-edit-list', controller);
     }
 
     $loadUserEditList.innerHTML = '';
@@ -3976,16 +4053,26 @@ async function _openLoadUserEditDialog() {
         info.addEventListener('click', async () => {
             $loadUserEditDialog.close();
             const aiTarget = _currentAiTarget();
+            const loadController = _beginLatestRead('user-edit-load');
             try {
                 setStatus(`Loading ${displayName}'s analysis...`);
-                const r = await api.loadUserAiEdit(aiTarget.slideId, aiMode, u.str_user_id, variant);
+                const r = await api.loadUserAiEdit(
+                    aiTarget.slideId,
+                    aiMode,
+                    u.str_user_id,
+                    variant,
+                    { signal: loadController.signal },
+                );
                 if (!_applyAiResultToTarget(aiTarget, () => _applyLoadedResult(aiMode, variant, r.result))) {
                     setStatus('Result loaded, but its slide is no longer open.');
                     return;
                 }
                 setStatus(`Loaded: ${displayName} (${r.result?.cells?.length ?? 0} cells)`);
             } catch (err) {
+                if (_isAbortError(err)) return;
                 setStatus(`Load failed: ${err.message}`);
+            } finally {
+                _finishLatestRead('user-edit-load', loadController);
             }
         });
         row.appendChild(info);
@@ -4336,8 +4423,9 @@ function _projectLabelForPath(path) {
 
 async function loadProjectList() {
     if (!$projectSelect) return [];
+    const controller = _beginLatestRead('project-list');
     try {
-        const data = await api.listProjects();
+        const data = await api.listProjects({ signal: controller.signal });
         const list_projects = data.projects || [];
         _projectListCache = list_projects;
         const currentProject = _getCurrentProjectName();
@@ -4363,9 +4451,12 @@ async function loadProjectList() {
         _syncProjectSelect();
         return list_projects;
     } catch (err) {
+        if (_isAbortError(err)) return _projectListCache;
         console.warn('Project list load failed:', err);
         _projectListCache = [];
         return [];
+    } finally {
+        _finishLatestRead('project-list', controller);
     }
 }
 
@@ -4519,8 +4610,9 @@ function _refreshProjectGate() {
 
 async function _loadProjectGateStats() {
     if (!$projectStatTotal) return;
+    const controller = _beginLatestRead('project-stats');
     try {
-        const data = await api.dashboard(false);
+        const data = await api.dashboard(false, { signal: controller.signal });
         const counts = data.status_counts || {};
         const ai = data.ai_counts || {};
         $projectStatTotal.textContent = data.total_slides || 0;
@@ -4533,7 +4625,10 @@ async function _loadProjectGateStats() {
             ai['VS IHC'] || 0
         );
     } catch (err) {
+        if (_isAbortError(err)) return;
         console.warn('Project summary load failed:', err);
+    } finally {
+        _finishLatestRead('project-stats', controller);
     }
 }
 
@@ -4691,8 +4786,9 @@ if ($projectGateAdditional) {
 async function loadSlideList() {
     const int_request_seq = ++_slideListRequestSeq;
     const str_request_path = currentBrowsePath;
+    const controller = _beginLatestRead('slide-list');
     try {
-        const data = await api.browse(str_request_path);
+        const data = await api.browse(str_request_path, { signal: controller.signal });
         // Folder changes can overlap. Never render an older folder response
         // using the path of the folder that is active now.
         if (int_request_seq !== _slideListRequestSeq || str_request_path !== currentBrowsePath) return;
@@ -4700,8 +4796,10 @@ async function loadSlideList() {
         _lastBrowseData.path = str_request_path;
         renderSlideList(_lastBrowseData);
     } catch (err) {
-        if (int_request_seq !== _slideListRequestSeq) return;
+        if (_isAbortError(err) || int_request_seq !== _slideListRequestSeq) return;
         console.error('Slide list load failed:', err);
+    } finally {
+        _finishLatestRead('slide-list', controller);
     }
 }
 
@@ -4739,17 +4837,48 @@ function _getFilteredSlides(slides) {
 function _setSlideLabelVisibility(bool_visible) {
     _showSlideLabels = !!bool_visible;
     localStorage.setItem(SLIDE_LABEL_VISIBILITY_KEY, _showSlideLabels ? '1' : '0');
+    _slideLabelObserver?.disconnect();
+    _slideLabelObserver = null;
     $slideList?.querySelectorAll('.slide-label-thumb').forEach((img) => {
         if (!_showSlideLabels) {
+            img.dataset.cancelled = '1';
             img.classList.remove('loaded');
             img.removeAttribute('src');
             return;
         }
-        const str_key = `${img.dataset.path || ''}/${img.dataset.filename || ''}`;
-        if (_slideLabelAvailability.get(str_key) === false) return;
-        const str_url = api.labelUrlByName(img.dataset.filename || '', img.dataset.path || '', 300);
-        if (str_url) img.src = str_url;
+        img.dataset.cancelled = '0';
+        _observeSlideLabelThumb(img);
     });
+}
+
+function _requestSlideLabelImage(img) {
+    if (!img || !_showSlideLabels || img.src) return;
+    const str_key = `${img.dataset.path || ''}/${img.dataset.filename || ''}`;
+    if (_slideLabelAvailability.get(str_key) === false) return;
+    img.dataset.cancelled = '0';
+    const str_url = api.labelUrlByName(img.dataset.filename || '', img.dataset.path || '', 300);
+    if (str_url) img.src = str_url;
+}
+
+function _getSlideLabelObserver() {
+    if (_slideLabelObserver || typeof IntersectionObserver !== 'function') return _slideLabelObserver;
+    _slideLabelObserver = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const img = entry.target.querySelector?.('.slide-label-thumb');
+            _requestSlideLabelImage(img);
+            observer.unobserve(entry.target);
+        }
+    }, { root: $slideList, rootMargin: '240px 0px' });
+    return _slideLabelObserver;
+}
+
+function _observeSlideLabelThumb(img) {
+    if (!img || !_showSlideLabels) return;
+    const item = img.closest('.slide-list-item');
+    const observer = _getSlideLabelObserver();
+    if (observer && item) observer.observe(item);
+    else _requestSlideLabelImage(img);
 }
 
 function _createSlideLabelThumb(filename, path) {
@@ -4757,12 +4886,9 @@ function _createSlideLabelThumb(filename, path) {
     img.className = 'slide-label-thumb';
     img.alt = `${filename} label`;
     img.title = 'Scanner label';
-    // This probe starts with display:none and becomes visible only after a
-    // real label is decoded. Native lazy-loading skips display:none images,
-    // so it must be eager or the request never starts.
-    img.loading = 'eager';
     img.dataset.filename = filename;
     img.dataset.path = path || '';
+    img.dataset.cancelled = '0';
     const str_key = `${path || ''}/${filename}`;
     img.addEventListener('load', () => {
         if (!img.naturalWidth || !img.naturalHeight) {
@@ -4774,17 +4900,20 @@ function _createSlideLabelThumb(filename, path) {
         if (_showSlideLabels) img.classList.add('loaded');
     });
     img.addEventListener('error', () => {
+        if (img.dataset.cancelled === '1') return;
         _slideLabelAvailability.set(str_key, false);
         img.classList.remove('loaded');
     });
-    if (_showSlideLabels && _slideLabelAvailability.get(str_key) !== false) {
-        const str_url = api.labelUrlByName(filename, path, 300);
-        if (str_url) img.src = str_url;
-    }
     return img;
 }
 
 function renderSlideList(data = _lastBrowseData) {
+        _slideLabelObserver?.disconnect();
+        _slideLabelObserver = null;
+        $slideList.querySelectorAll('.slide-label-thumb').forEach((img) => {
+            img.dataset.cancelled = '1';
+            img.removeAttribute('src');
+        });
         $slideList.innerHTML = '';
         _syncProjectSelect();
         const str_list_path = String(data?.path ?? currentBrowsePath);
@@ -4946,6 +5075,7 @@ function renderSlideList(data = _lastBrowseData) {
             });
 
             $slideList.appendChild(item);
+            _observeSlideLabelThumb(labelThumb);
         }
 
         updateBreadcrumb();
@@ -4959,6 +5089,7 @@ $showSlideLabels?.addEventListener('change', () => {
 });
 
 let _aiActivePollTimer = null;
+let _aiActivePollController = null;
 function _startAiActivePolling() {
     if (_isViewerRole()) {
         _stopAiActivePolling();
@@ -4972,18 +5103,31 @@ function _stopAiActivePolling() {
         clearInterval(_aiActivePollTimer);
         _aiActivePollTimer = null;
     }
+    if (_aiActivePollController) {
+        _aiActivePollController.abort();
+        _aiActivePollController = null;
+    }
 }
 async function _refreshAiActiveBadges() {
     if (_isViewerRole()) {
         $slideList?.querySelectorAll('.slide-ai-active').forEach(el => el.remove());
         return;
     }
+    // A slow status response must not stack another poll every four seconds.
+    if (_aiActivePollController) return;
+    const controller = new AbortController();
+    _aiActivePollController = controller;
 
     let dict_active = {};
     try {
-        const data = await api.getActiveAiTasks();
+        const data = await api.getActiveAiTasks({ signal: controller.signal });
         dict_active = data.active || {};
-    } catch (_) { return; }
+    } catch (err) {
+        if (!_isAbortError(err)) console.warn('[active-ai] status refresh failed:', err);
+        return;
+    } finally {
+        if (_aiActivePollController === controller) _aiActivePollController = null;
+    }
 
     const items = $slideList.querySelectorAll('.slide-list-item[data-filename]');
     items.forEach((item) => {
@@ -5384,9 +5528,16 @@ const VS_MPP_CHOICES = [
 ];
 
 async function openFolderAiConfigDialog(folderPath, folderName) {
+    const controller = _beginLatestRead('folder-config');
     let cfg = { enabled: false, tasks: [] };
-    try { cfg = await api.getFolderAiConfig(folderPath); }
-    catch (err) { console.warn('Folder config load failed:', err); }
+    try {
+        cfg = await api.getFolderAiConfig(folderPath, { signal: controller.signal });
+    } catch (err) {
+        if (_isAbortError(err)) return;
+        console.warn('Folder config load failed:', err);
+    } finally {
+        _finishLatestRead('folder-config', controller);
+    }
 
     // Selected base model keys.
     const set_selected = new Set();
@@ -5537,7 +5688,8 @@ async function startVirtualStain(stainType) {
     if (await _maybeCancelRunning(str_key)) return;
 
     const btnEl = $btnVsMembrane;
-    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl };
+    const taskController = new AbortController();
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl, controller: taskController };
     _vsRunning = true;
     _setButtonRunning(btnEl, true);
     $progressLabel.textContent = 'Virtual Staining...';
@@ -5558,6 +5710,8 @@ async function startVirtualStain(stainType) {
             _runningAiTasks[str_key].task_id = task_id;
             if (_runningAiTasks[str_key].pending_cancel) {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+                taskController.abort();
+                return;
             }
         }
         _vsLastTargetMpp = targetMpp;
@@ -5565,13 +5719,17 @@ async function startVirtualStain(stainType) {
         while (true) {
             await sleep(1000);
             if (!_runningAiTasks[str_key]) return;
-            const st = await api.getTaskStatus(task_id);
+            const st = await api.getTaskStatus(task_id, { signal: taskController.signal });
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
+                const result = await api.getTaskResult(
+                    task_id,
+                    _makeResultDownloadProgress(),
+                    { signal: taskController.signal },
+                );
                 onVirtualStainComplete(result);
                 return;
             } else if (st.status === 'error') {
@@ -5584,6 +5742,7 @@ async function startVirtualStain(stainType) {
             }
         }
     } catch (err) {
+        if (_isAbortError(err)) return;
         setStatus(`Virtual staining failed: ${err.message}`);
         $progressLabel.textContent = 'Virtual staining failed';
     } finally {
@@ -5651,7 +5810,8 @@ async function startPdScore() {
     if (await _maybeCancelRunning('pd-score')) return;
 
     const aiTarget = _currentAiTarget();
-    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore, target: aiTarget };
+    const taskController = new AbortController();
+    _runningAiTasks['pd-score'] = { task_id: null, buttonEl: $btnPdScore, target: aiTarget, controller: taskController };
     _setButtonRunning($btnPdScore, true);
     if ($pdScoreResult) $pdScoreResult.hidden = true;
     $progressLabel.textContent = 'PD-L1 Detection...';
@@ -5670,20 +5830,26 @@ async function startPdScore() {
             _runningAiTasks['pd-score'].task_id = task_id;
             if (_runningAiTasks['pd-score'].pending_cancel) {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+                taskController.abort();
+                return;
             }
         }
 
         while (true) {
             await sleep(1000);
             if (!_runningAiTasks['pd-score']) return;
-            const st = await api.getTaskStatus(task_id);
+            const st = await api.getTaskStatus(task_id, { signal: taskController.signal });
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
             $progressLabel.textContent = 'PD-L1 Detection';
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
+                const result = await api.getTaskResult(
+                    task_id,
+                    _makeResultDownloadProgress(),
+                    { signal: taskController.signal },
+                );
                 if (!_applyAiResultToTarget(aiTarget, () => onPdScoreComplete(result, roiPolygons, tissueType))) {
                     setStatus('Quanti PD-L1 completed, but its slide is no longer open.');
                 }
@@ -5698,6 +5864,7 @@ async function startPdScore() {
             }
         }
     } catch (err) {
+        if (_isAbortError(err)) return;
         setStatus(`Quanti PD-L1 failed: ${err.message}`);
     } finally {
         delete _runningAiTasks['pd-score'];
@@ -5786,7 +5953,8 @@ async function startPreciseIhc(marker) {
     const btnEl = marker === 'ER_PR' ? $btnIhcErPr : (marker === 'KI_67' ? $btnIhcKi67 : $btnIhcHer2);
     const markerLabel = marker === 'ER_PR' ? 'ER/PR' : (marker === 'KI_67' ? 'KI-67' : marker);
     const aiTarget = _currentAiTarget();
-    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl, target: aiTarget };
+    const taskController = new AbortController();
+    _runningAiTasks[str_key] = { task_id: null, buttonEl: btnEl, target: aiTarget, controller: taskController };
     _setButtonRunning(btnEl, true);
     if ($ihcScoreResult) $ihcScoreResult.hidden = true;
     $progressLabel.textContent = `${markerLabel} Detection...`;
@@ -5806,20 +5974,26 @@ async function startPreciseIhc(marker) {
             _runningAiTasks[str_key].task_id = task_id;
             if (_runningAiTasks[str_key].pending_cancel) {
                 try { await api.cancelTask(task_id); } catch (e) { console.warn('[cancel] failed', e); }
+                taskController.abort();
+                return;
             }
         }
 
         while (true) {
             await sleep(1000);
             if (!_runningAiTasks[str_key]) return;
-            const st = await api.getTaskStatus(task_id);
+            const st = await api.getTaskStatus(task_id, { signal: taskController.signal });
             const msg = st.status_msg || `${st.progress}%`;
             setProgress(st.progress, msg);
             setStatus(msg);
             $progressLabel.textContent = `${markerLabel} Detection`;
 
             if (st.status === 'completed') {
-                const result = await api.getTaskResult(task_id, _makeResultDownloadProgress());
+                const result = await api.getTaskResult(
+                    task_id,
+                    _makeResultDownloadProgress(),
+                    { signal: taskController.signal },
+                );
                 if (!_applyAiResultToTarget(aiTarget, () => onPreciseIhcComplete(result, roiPolygons, marker))) {
                     setStatus(`${markerLabel} completed, but its slide is no longer open.`);
                 }
@@ -5834,6 +6008,7 @@ async function startPreciseIhc(marker) {
             }
         }
     } catch (err) {
+        if (_isAbortError(err)) return;
         setStatus(`${markerLabel} failed: ${err.message}`);
     } finally {
         delete _runningAiTasks[str_key];
