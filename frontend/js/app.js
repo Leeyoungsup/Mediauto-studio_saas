@@ -3,7 +3,7 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260819-01';
+import { api } from './api.js?v=20260831-01';
 import { AiViewer } from './ai-viewer.js?v=20260824-04';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -45,6 +45,11 @@ const $multiViewContainer = $('#multi-view-container');
 const $multiViewGrid = $('#multi-view-grid');
 const $multiViewTitle = $('#multi-view-title');
 const $slideNameSearch = $('#slide-name-search');
+const $showSlideLabels = $('#show-slide-labels');
+const SLIDE_LABEL_VISIBILITY_KEY = 'showSlideLabels';
+let _showSlideLabels = localStorage.getItem(SLIDE_LABEL_VISIBILITY_KEY) !== '0';
+const _slideLabelAvailability = new Map();
+if ($showSlideLabels) $showSlideLabels.checked = _showSlideLabels;
 const LIST_SLIDE_CLINICAL_FIELDS = [
     { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
     { key: 'ER_intensity_score', label: 'ER_intensity_score (0 - 3) or na', type: 'input', required: true },
@@ -4723,6 +4728,51 @@ function _getFilteredSlides(slides) {
     return (slides || []).filter((slide) => String(slide.filename || '').toLowerCase().includes(query));
 }
 
+function _setSlideLabelVisibility(bool_visible) {
+    _showSlideLabels = !!bool_visible;
+    localStorage.setItem(SLIDE_LABEL_VISIBILITY_KEY, _showSlideLabels ? '1' : '0');
+    $slideList?.querySelectorAll('.slide-label-thumb').forEach((img) => {
+        if (!_showSlideLabels) {
+            img.classList.remove('loaded');
+            img.removeAttribute('src');
+            return;
+        }
+        const str_key = `${img.dataset.path || ''}/${img.dataset.filename || ''}`;
+        if (_slideLabelAvailability.get(str_key) === false) return;
+        const str_url = api.labelUrlByName(img.dataset.filename || '', img.dataset.path || '', 300);
+        if (str_url) img.src = str_url;
+    });
+}
+
+function _createSlideLabelThumb(filename, path) {
+    const img = document.createElement('img');
+    img.className = 'slide-label-thumb';
+    img.alt = `${filename} label`;
+    img.title = 'Scanner label';
+    img.loading = 'lazy';
+    img.dataset.filename = filename;
+    img.dataset.path = path || '';
+    const str_key = `${path || ''}/${filename}`;
+    img.addEventListener('load', () => {
+        if (!img.naturalWidth || !img.naturalHeight) {
+            _slideLabelAvailability.set(str_key, false);
+            img.classList.remove('loaded');
+            return;
+        }
+        _slideLabelAvailability.set(str_key, true);
+        if (_showSlideLabels) img.classList.add('loaded');
+    });
+    img.addEventListener('error', () => {
+        _slideLabelAvailability.set(str_key, false);
+        img.classList.remove('loaded');
+    });
+    if (_showSlideLabels && _slideLabelAvailability.get(str_key) !== false) {
+        const str_url = api.labelUrlByName(filename, path, 300);
+        if (str_url) img.src = str_url;
+    }
+    return img;
+}
+
 function renderSlideList(data = _lastBrowseData) {
         $slideList.innerHTML = '';
         _syncProjectSelect();
@@ -4792,6 +4842,7 @@ function renderSlideList(data = _lastBrowseData) {
             api.attachMediaImageRetry(thumb,
                 () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300),
                 () => { thumb.style.display = 'none'; });
+            const labelThumb = _createSlideLabelThumb(str_thumb_filename, str_thumb_path);
 
             const name = document.createElement('div');
             name.className = 'slide-list-name';
@@ -4800,7 +4851,7 @@ function renderSlideList(data = _lastBrowseData) {
 
             const nameWrap = document.createElement('div');
             nameWrap.className = 'slide-name-cell';
-            nameWrap.append(thumb, name);
+            nameWrap.append(thumb, labelThumb, name);
 
             const clinicalCell = _makeSlideStateCell(
                 'clinical',
@@ -4891,6 +4942,9 @@ function renderSlideList(data = _lastBrowseData) {
 }
 
 $slideNameSearch?.addEventListener('input', () => renderSlideList(_lastBrowseData));
+$showSlideLabels?.addEventListener('change', () => {
+    _setSlideLabelVisibility($showSlideLabels.checked);
+});
 
 let _aiActivePollTimer = null;
 function _startAiActivePolling() {

@@ -665,6 +665,14 @@ export const api = {
         return `${API_BASE}/slides/thumbnail-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${int_size}${str_ndp}&mt=${encodeURIComponent(str_ticket)}`;
     },
 
+    /** Scanner specimen-label image URL. Returns no content when no label is stored. */
+    labelUrlByName(filename, path = '', size = 300) {
+        const str_ticket = _getMediaTicketSync();
+        if (!str_ticket) return '';
+        const int_size = Math.max(64, Math.min(1024, Number(size) || 300));
+        return `${API_BASE}/slides/label-by-name?filename=${encodeURIComponent(filename)}&path=${encodeURIComponent(path)}&size=${int_size}&mt=${encodeURIComponent(str_ticket)}`;
+    },
+
     /**     .     . */
     async ensureMediaReady() {
         await _ensureMediaTicket();

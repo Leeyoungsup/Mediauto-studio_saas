@@ -5,7 +5,7 @@ from pathlib import Path
 
 import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from app.auth import get_media_user
 from app.openslide_utils import open_slide_silently
@@ -50,6 +50,13 @@ def _cached_thumbnail_response(path_thumb: Path) -> FileResponse:
     return FileResponse(
         path=str(path_thumb),
         media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+def _no_label_response() -> Response:
+    return Response(
+        status_code=204,
         headers={"Cache-Control": "private, max-age=3600"},
     )
 
@@ -124,6 +131,55 @@ async def get_thumbnail_by_name(
         raise HTTPException(500, f"Thumbnail generation failed: {exc}")
     finally:
         close_many(thumb_ndp, thumb_rgb, thumb, slide)
+
+
+@router.get("/label-by-name")
+async def get_label_by_name(
+    filename: str = Query(...),
+    path: str = Query(""),
+    size: int = Query(300, ge=64, le=1024),
+):
+    """Return the scanner specimen label when the WSI contains one.
+
+    Negative results are cached with the source identity so reopening the
+    sidebar does not repeatedly scan label-less WSI files.
+    """
+
+    filename = safe_filename(filename)
+    int_size = max(64, min(1024, int(size or 300)))
+    file_path = safe_subpath(path) / filename
+    if not file_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    tiles_root = tile_generator.get_tiles_dir_for_path(str(file_path))
+    path_label = tiles_root / f"associated_label_{int_size}.jpeg"
+    bool_cached = tile_generator.associated_label_cache_status(str(file_path))
+    if bool_cached is True and path_label.is_file():
+        return _cached_thumbnail_response(path_label)
+    if bool_cached is False:
+        return _no_label_response()
+
+    slide = None
+    try:
+        if is_philips_isyntax(file_path):
+            slide = PhilipsSlideProxy(str(file_path))
+        else:
+            slide = open_slide_silently(str(file_path))
+        path_generated = tile_generator.generate_associated_label_cache(
+            slide,
+            tiles_root,
+            str(file_path),
+            int_size=int_size,
+        )
+        if path_generated is None:
+            return _no_label_response()
+        return _cached_thumbnail_response(path_generated)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Label extraction failed: {exc}")
+    finally:
+        close_many(slide)
 
 
 @router.get("/{slide_id}/preview")

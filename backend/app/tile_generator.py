@@ -60,6 +60,8 @@ def _open_slide(file_path: str):
 # v5: stage 1/0 generated from 4096 reads; stage 2 derived from stage-1 tiles.
 COMPLETE_MARKER_VERSION = 5
 COMPLETE_MARKER_NAME = ".complete"
+ASSOCIATED_LABEL_CACHE_NAME = "associated_label_300.jpeg"
+ASSOCIATED_LABEL_STATUS_NAME = ".associated-label.json"
 
 
 def image_to_white_rgb(obj_img: Image.Image) -> Image.Image:
@@ -218,6 +220,94 @@ def generate_standard_thumbnail_cache(
                 obj_output.close()
     finally:
         obj_master.close()
+
+
+def _associated_label_image(slide) -> Optional[Image.Image]:
+    """Return a detached RGB copy of the scanner label image, when present.
+
+    Associated-image keys differ in case between OpenSlide and DICOM WSI
+    adapters. Only the explicit ``label`` key is accepted: macro/overview and
+    Hamamatsu active-region images are not specimen labels.
+    """
+
+    try:
+        associated = slide.associated_images
+        str_key = next(
+            (str(key) for key in associated.keys() if str(key).strip().casefold() == "label"),
+            "",
+        )
+        if not str_key:
+            return None
+        obj_source = associated[str_key]
+        try:
+            return image_to_white_rgb(obj_source)
+        finally:
+            try:
+                obj_source.close()
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+
+def _associated_label_source_stat(file_path: str) -> dict:
+    path_source = Path(file_path)
+    obj_stat = path_source.stat()
+    return {
+        "filename": path_source.name,
+        "size": int(obj_stat.st_size),
+        "mtime_ns": int(obj_stat.st_mtime_ns),
+    }
+
+
+def associated_label_cache_status(file_path: str) -> Optional[bool]:
+    """Return cached label availability, or ``None`` when it is unknown/stale."""
+
+    path_status = get_tiles_dir_for_path(file_path) / ASSOCIATED_LABEL_STATUS_NAME
+    if not path_status.is_file():
+        return None
+    try:
+        dict_status = json.loads(path_status.read_text(encoding="utf-8"))
+        if dict_status.get("source") != _associated_label_source_stat(file_path):
+            return None
+        return bool(dict_status.get("has_label"))
+    except Exception:
+        return None
+
+
+def generate_associated_label_cache(
+    slide,
+    tiles_dir: Path,
+    file_path: str,
+    int_size: int = 300,
+) -> Optional[Path]:
+    """Extract and cache the WSI specimen label without using macro images."""
+
+    int_size = max(64, min(1024, int(int_size or 300)))
+    path_output = tiles_dir / f"associated_label_{int_size}.jpeg"
+    obj_label = _associated_label_image(slide)
+    try:
+        tiles_dir.mkdir(parents=True, exist_ok=True)
+        if obj_label is None:
+            path_output.unlink(missing_ok=True)
+            bool_has_label = False
+        else:
+            obj_label.thumbnail((int_size, int_size), Image.LANCZOS)
+            _save_jpeg(obj_label, path_output, 90)
+            bool_has_label = True
+
+        dict_status = {
+            "source": _associated_label_source_stat(file_path),
+            "has_label": bool_has_label,
+        }
+        (tiles_dir / ASSOCIATED_LABEL_STATUS_NAME).write_text(
+            json.dumps(dict_status, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return path_output if bool_has_label else None
+    finally:
+        if obj_label is not None:
+            obj_label.close()
 
 
 def _image_has_visible_content(obj_img: Image.Image, int_threshold: int = 245) -> bool:
@@ -1122,6 +1212,7 @@ def _generate_tiles(filename: str, file_path: str):
             tiles_dir,
             apply_color=_to_srgb,
         )
+        generate_associated_label_cache(slide, tiles_dir, file_path)
 
         # stage text text
         for int_stage in range(STAGE_COUNT):

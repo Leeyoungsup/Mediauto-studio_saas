@@ -238,6 +238,7 @@ class RateLimitMiddleware:
 
         if (str_path.startswith("/api/tiles/")
                 or "/thumbnail" in str_path
+                or "/label-by-name" in str_path
                 or "/virtual-stain/" in str_path
                 or str_path in {
                     "/api/slides/dashboard",
