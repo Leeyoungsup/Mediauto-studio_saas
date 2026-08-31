@@ -176,7 +176,8 @@ const $projectStatAi = $('#project-stat-ai');
 const $btnNewProject = $('#btn-new-project');
 const $btnRenameProject = $('#btn-rename-project');
 const $btnDeleteProject = $('#btn-delete-project');
-let _lastBrowseData = { folders: [], slides: [] };
+let _lastBrowseData = { path: '', folders: [], slides: [] };
+let _slideListRequestSeq = 0;
 
 let currentSlideId = null;
 let currentSlideInfo = null;
@@ -4688,11 +4689,18 @@ if ($projectGateAdditional) {
 }
 
 async function loadSlideList() {
+    const int_request_seq = ++_slideListRequestSeq;
+    const str_request_path = currentBrowsePath;
     try {
-        const data = await api.browse(currentBrowsePath);
-        _lastBrowseData = data || { folders: [], slides: [] };
+        const data = await api.browse(str_request_path);
+        // Folder changes can overlap. Never render an older folder response
+        // using the path of the folder that is active now.
+        if (int_request_seq !== _slideListRequestSeq || str_request_path !== currentBrowsePath) return;
+        _lastBrowseData = data || { path: str_request_path, folders: [], slides: [] };
+        _lastBrowseData.path = str_request_path;
         renderSlideList(_lastBrowseData);
     } catch (err) {
+        if (int_request_seq !== _slideListRequestSeq) return;
         console.error('Slide list load failed:', err);
     }
 }
@@ -4749,7 +4757,10 @@ function _createSlideLabelThumb(filename, path) {
     img.className = 'slide-label-thumb';
     img.alt = `${filename} label`;
     img.title = 'Scanner label';
-    img.loading = 'lazy';
+    // This probe starts with display:none and becomes visible only after a
+    // real label is decoded. Native lazy-loading skips display:none images,
+    // so it must be eager or the request never starts.
+    img.loading = 'eager';
     img.dataset.filename = filename;
     img.dataset.path = path || '';
     const str_key = `${path || ''}/${filename}`;
@@ -4776,6 +4787,7 @@ function _createSlideLabelThumb(filename, path) {
 function renderSlideList(data = _lastBrowseData) {
         $slideList.innerHTML = '';
         _syncProjectSelect();
+        const str_list_path = String(data?.path ?? currentBrowsePath);
         const filteredSlides = _getFilteredSlides(data.slides || []);
 
         if ((data.folders || []).length === 0 && filteredSlides.length === 0) {
@@ -4783,7 +4795,7 @@ function renderSlideList(data = _lastBrowseData) {
         }
 
         for (const f of data.folders || []) {
-            const folderPath = currentBrowsePath ? `${currentBrowsePath}/${f.name}` : f.name;
+            const folderPath = str_list_path ? `${str_list_path}/${f.name}` : f.name;
             const item = document.createElement('div');
             item.className = 'slide-list-item folder-item';
             item.dataset.folderPath = folderPath;
@@ -4837,7 +4849,7 @@ function renderSlideList(data = _lastBrowseData) {
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
             const str_thumb_filename = s.filename;
-            const str_thumb_path = currentBrowsePath;
+            const str_thumb_path = str_list_path;
             thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300);
             api.attachMediaImageRetry(thumb,
                 () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300),
@@ -4910,7 +4922,7 @@ function renderSlideList(data = _lastBrowseData) {
                 } else {
                     $slideList.querySelectorAll('.slide-list-item.selected').forEach(el => el.classList.remove('selected'));
                     item.classList.add('selected');
-                    openSavedSlide(s.filename, item);
+                    openSavedSlide(s.filename, item, str_list_path);
                 }
             });
 
