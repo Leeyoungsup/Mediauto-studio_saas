@@ -3,7 +3,7 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260831-01';
+import { api } from './api.js?v=20260831-03';
 import { AiViewer } from './ai-viewer.js?v=20260824-04';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -2760,6 +2760,7 @@ async function _loadSameCaseSlides() {
 function _closeSameCaseDialog() {
     _sameCaseRequestSeq += 1;
     _abortLatestRead('same-case');
+    $sameCaseGrid?.querySelectorAll('img').forEach((img) => api.cancelMediaImage?.(img));
     if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
     if ($sameCaseDialog?.open) $sameCaseDialog.close();
 }
@@ -4843,6 +4844,7 @@ function _setSlideLabelVisibility(bool_visible) {
         if (!_showSlideLabels) {
             img.dataset.cancelled = '1';
             img.classList.remove('loaded');
+            img.hidden = true;
             img.removeAttribute('src');
             return;
         }
@@ -4856,6 +4858,7 @@ function _requestSlideLabelImage(img) {
     const str_key = `${img.dataset.path || ''}/${img.dataset.filename || ''}`;
     if (_slideLabelAvailability.get(str_key) === false) return;
     img.dataset.cancelled = '0';
+    img.hidden = true;
     const str_url = api.labelUrlByName(img.dataset.filename || '', img.dataset.path || '', 300);
     if (str_url) img.src = str_url;
 }
@@ -4886,6 +4889,11 @@ function _createSlideLabelThumb(filename, path) {
     img.className = 'slide-label-thumb';
     img.alt = `${filename} label`;
     img.title = 'Scanner label';
+    // Native dimensions/hidden state keep the sidebar stable even while a new
+    // stylesheet is still being fetched from cache.
+    img.width = 40;
+    img.height = 40;
+    img.hidden = true;
     img.dataset.filename = filename;
     img.dataset.path = path || '';
     img.dataset.cancelled = '0';
@@ -4894,15 +4902,20 @@ function _createSlideLabelThumb(filename, path) {
         if (!img.naturalWidth || !img.naturalHeight) {
             _slideLabelAvailability.set(str_key, false);
             img.classList.remove('loaded');
+            img.hidden = true;
             return;
         }
         _slideLabelAvailability.set(str_key, true);
-        if (_showSlideLabels) img.classList.add('loaded');
+        if (_showSlideLabels) {
+            img.classList.add('loaded');
+            img.hidden = false;
+        }
     });
     img.addEventListener('error', () => {
         if (img.dataset.cancelled === '1') return;
         _slideLabelAvailability.set(str_key, false);
         img.classList.remove('loaded');
+        img.hidden = true;
     });
     return img;
 }
@@ -4910,9 +4923,9 @@ function _createSlideLabelThumb(filename, path) {
 function renderSlideList(data = _lastBrowseData) {
         _slideLabelObserver?.disconnect();
         _slideLabelObserver = null;
-        $slideList.querySelectorAll('.slide-label-thumb').forEach((img) => {
-            img.dataset.cancelled = '1';
-            img.removeAttribute('src');
+        $slideList.querySelectorAll('img').forEach((img) => {
+            if (img.classList.contains('slide-label-thumb')) img.dataset.cancelled = '1';
+            api.cancelMediaImage?.(img);
         });
         $slideList.innerHTML = '';
         _syncProjectSelect();

@@ -696,6 +696,7 @@ export const api = {
      */
     attachMediaImageRetry(img_el, fn_build_url, fn_on_final_error) {
         if (!img_el || typeof fn_build_url !== 'function') return;
+        img_el.dataset.mediaCancelled = '0';
         let bool_retried = false;
         const on_final = () => {
             if (typeof fn_on_final_error === 'function') {
@@ -703,6 +704,7 @@ export const api = {
             }
         };
         img_el.addEventListener('error', async () => {
+            if (img_el.dataset.mediaCancelled === '1' || !img_el.isConnected) return;
             if (bool_retried) {
                 on_final();
                 return;
@@ -720,6 +722,13 @@ export const api = {
                 on_final();
             }
         });
+    },
+
+    /** Stop a DOM image request without triggering the media-ticket retry path. */
+    cancelMediaImage(img_el) {
+        if (!img_el) return;
+        img_el.dataset.mediaCancelled = '1';
+        try { img_el.removeAttribute('src'); } catch (_) {}
     },
 
 
