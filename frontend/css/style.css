@@ -1099,7 +1099,7 @@ html.project-gate-boot #app-body {
 }
 .slide-list-table-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 58px 34px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
     align-items: center;
     padding: 6px 12px 4px;
@@ -1110,7 +1110,6 @@ html.project-gate-boot #app-body {
     text-transform: uppercase;
     border-bottom: 1px solid rgba(255,255,255,0.06);
 }
-.slide-list-table-header span:nth-child(n+2) { text-align: center; }
 
 /* text text */
 .slide-list-item.folder-item {
@@ -1339,7 +1338,7 @@ html.project-gate-boot #app-body {
 /* ── text text (text) — text: text text + text text ── */
 .slide-list:not(.grid-view) .slide-list-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 58px 34px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     gap: 6px;
     padding: 5px 8px;
@@ -1364,35 +1363,13 @@ html.project-gate-boot #app-body {
 .slide-list:not(.grid-view) .slide-list-name {
     -webkit-line-clamp: 2; font-size: 11px;
 }
-.slide-state-cell {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    justify-self: center;
-    font-size: 12px;
-    font-weight: 900;
-    line-height: 1;
-    box-sizing: border-box;
-}
-.slide-state-cell.ready {
-    background: #20b86b;
-    color: #fff;
-    box-shadow: 0 0 0 3px rgba(32, 184, 107, 0.14);
-}
-.slide-state-cell.empty {
-    background: #f2c94c;
-    color: #3d3105;
-}
-.slide-state-cell.running {
-    background: transparent;
-    border: 3px solid rgba(52, 152, 219, 0.26);
-    border-top-color: #3498db;
-    animation: slide-ai-active-spin 0.9s linear infinite;
-}
 .slide-list:not(.grid-view) .slide-status-dot { display: none; }
+.slide-list:not(.grid-view) .slide-ai-active {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    margin-left: 0;
+}
 
 /* ── text text — text text text, text text + text text ── */
 body.annotation-page .slide-list:not(.grid-view) {
@@ -1532,9 +1509,6 @@ body.annotation-page .slide-list.grid-view .slide-workflow-cell {
 }
 .slide-list.grid-view .slide-list-name {
     font-size: 10px; -webkit-line-clamp: 2;
-}
-.slide-list.grid-view .slide-state-cell {
-    display: none;
 }
 .slide-list.grid-view .folder-item .folder-icon {
     font-size: 32px; width: 100%; height: var(--slide-thumb-grid);

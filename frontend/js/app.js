@@ -2476,14 +2476,6 @@ function _markBrowseSlideClinicalInfo(slideId, clinicalInfo, caseName = '') {
     listTargets.forEach((itemSlide) => {
         itemSlide.clinical_info = clinicalInfo || {};
         itemSlide.has_clinical_info = hasClinical;
-        const item = $slideList?.querySelector(`.slide-list-item[data-slide-id="${itemSlide.slide_id}"]`);
-        const cell = item?.querySelector('.slide-state-cell.clinical');
-        if (cell) {
-            cell.classList.toggle('ready', hasClinical);
-            cell.classList.toggle('empty', !hasClinical);
-            cell.textContent = hasClinical ? '\u2713' : '-';
-            cell.title = hasClinical ? 'Clinical info saved' : 'No clinical info';
-        }
     });
     if (!listTargets.length && slide) {
         slide.clinical_info = clinicalInfo || {};
@@ -4804,31 +4796,6 @@ async function loadSlideList() {
     }
 }
 
-function _hasSlideAiResult(slide) {
-    const aiResults = slide?.ai_results || {};
-    return Object.values(aiResults).some((result) => !!result?.has_result);
-}
-
-function _hasSlideClinicalInfo(slide) {
-    if (slide?.has_clinical_info) return true;
-    const info = slide?.clinical_info || {};
-    return Object.values(info).some((value) => String(value || '').trim() !== '');
-}
-
-function _makeSlideStateCell(kind, state, title) {
-    const cell = document.createElement('span');
-    cell.className = `slide-state-cell ${kind} ${state}`;
-    cell.title = title || '';
-    if (state === 'ready') {
-        cell.textContent = '\u2713';
-    } else if (state === 'running') {
-        cell.textContent = '';
-    } else {
-        cell.textContent = '-';
-    }
-    return cell;
-}
-
 function _getFilteredSlides(slides) {
     const query = String($slideNameSearch?.value || '').trim().toLowerCase();
     if (!query) return slides || [];
@@ -5006,19 +4973,7 @@ function renderSlideList(data = _lastBrowseData) {
             const nameWrap = document.createElement('div');
             nameWrap.className = 'slide-name-cell';
             nameWrap.append(thumb, labelThumb, name);
-
-            const clinicalCell = _makeSlideStateCell(
-                'clinical',
-                _hasSlideClinicalInfo(s) ? 'ready' : 'empty',
-                _hasSlideClinicalInfo(s) ? 'Clinical info saved' : 'No clinical info'
-            );
-            const aiCell = _makeSlideStateCell(
-                'ai',
-                _hasSlideAiResult(s) ? 'ready' : 'empty',
-                _hasSlideAiResult(s) ? 'AI result exists' : 'No AI result'
-            );
-
-            item.append(nameWrap, clinicalCell, aiCell);
+            item.append(nameWrap);
 
             if (strSlideStatus) {
                 const statusMeta = {
@@ -5147,20 +5102,13 @@ async function _refreshAiActiveBadges() {
         const fn = item.dataset.filename;
         const list_running = dict_active[fn];
         const existing = item.querySelector('.slide-ai-active');
-        const aiCell = item.querySelector('.slide-state-cell.ai');
         if (list_running && list_running.length > 0) {
             const str_title = list_running
                 .map(t => `${t.model}${t.variant ? '/' + t.variant : ''} · ${t.status}`)
                 .join(', ');
-            if (aiCell) {
-                aiCell.classList.remove('empty', 'ready');
-                aiCell.classList.add('running');
-                aiCell.textContent = '';
-                aiCell.title = str_title || 'AI in progress';
-            }
             if (existing) {
                 existing.title = str_title;
-            } else if (!aiCell) {
+            } else {
                 const badge = document.createElement('span');
                 badge.className = 'slide-ai-active';
                 badge.title = str_title;
@@ -5168,19 +5116,8 @@ async function _refreshAiActiveBadges() {
             }
         } else {
             if (existing) existing.remove();
-            if (aiCell) {
-                const hasAi = _hasSlideAiResult(_findSlideByFilename(fn));
-                aiCell.classList.remove('running', hasAi ? 'empty' : 'ready');
-                aiCell.classList.add(hasAi ? 'ready' : 'empty');
-                aiCell.textContent = hasAi ? '\u2713' : '-';
-                aiCell.title = hasAi ? 'AI result exists' : 'No AI result';
-            }
         }
     });
-}
-
-function _findSlideByFilename(filename) {
-    return (_lastBrowseData.slides || []).find((slide) => slide.filename === filename) || null;
 }
 
 function navigateToFolder(path) {
