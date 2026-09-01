@@ -11,10 +11,8 @@ import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from pymongo import ReturnDocument
 
 from app.audit import get_client_ip, log_audit_event
 from app.geo import enrich_audit_with_geo
@@ -27,9 +25,9 @@ from app.auth import (
     TOKEN_TYPE_REFRESH,
 )
 from app.config import settings
-from app.database import get_db
 from app.encryption import encrypt_field, decrypt_field
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password, verify_password
+from app.repositories.auth_store import get_session_store, get_user_store
 from app.totp import generate_totp_secret, verify_totp, build_totp_uri
 
 router = APIRouter()
@@ -108,12 +106,10 @@ async def register(body: RegisterRequest, request: Request):
             detail="Password must be at least 8 characters and include letters, numbers, and a special character.",
         )
 
-    db = get_db()
+    obj_user_store = get_user_store()
 
     # text text text
-    dict_existing = await db.users.find_one(
-        {"str_login_id": body.str_login_id.strip().lower()}
-    )
+    dict_existing = await obj_user_store.find_by_login_id(body.str_login_id)
     if dict_existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -121,7 +117,7 @@ async def register(body: RegisterRequest, request: Request):
         )
 
     # text text text admin + text text, text viewer + pending
-    int_user_count = await db.users.count_documents({})
+    int_user_count = await obj_user_store.count()
     bool_is_first = int_user_count == 0
     str_role = UserRole.ADMIN if bool_is_first else UserRole.VIEWER
     str_status = ApprovalStatus.APPROVED if bool_is_first else ApprovalStatus.PENDING
@@ -139,8 +135,7 @@ async def register(body: RegisterRequest, request: Request):
         str_approved_by="system" if bool_is_first else "",
     )
 
-    result = await db.users.insert_one(dict_user_doc)
-    str_user_id = str(result.inserted_id)
+    str_user_id = await obj_user_store.insert(dict_user_doc)
 
     # text text
     await log_audit_event(
@@ -179,10 +174,11 @@ async def register(body: RegisterRequest, request: Request):
 })
 async def login(body: LoginRequest, request: Request):
     """text/text text → Access + Refresh Token text (text MFA 1text text)."""
-    db = get_db()
+    obj_user_store = get_user_store()
+    obj_session_store = get_session_store()
     str_login_id_lower = body.str_login_id.strip().lower()
 
-    dict_user = await db.users.find_one({"str_login_id": str_login_id_lower})
+    dict_user = await obj_user_store.find_by_login_id(str_login_id_lower)
     if not dict_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -212,9 +208,9 @@ async def login(body: LoginRequest, request: Request):
             )
         else:
             # text text text → text
-            await db.users.update_one(
-                {"_id": dict_user["_id"]},
-                {"$set": {"bool_is_locked": False, "int_failed_login_attempts": 0}},
+            await obj_user_store.update_by_id(
+                str(dict_user["_id"]),
+                {"bool_is_locked": False, "int_failed_login_attempts": 0},
             )
 
     # text text
@@ -236,7 +232,7 @@ async def login(body: LoginRequest, request: Request):
             dict_update["$set"]["bool_is_locked"] = True
             dict_update["$set"]["dt_locked_until"] = dt_lock_until
 
-        await db.users.update_one({"_id": dict_user["_id"]}, dict_update)
+        await obj_user_store.update_by_id(str(dict_user["_id"]), dict_update["$set"])
 
         await log_audit_event(
             str_action="user.login_failed",
@@ -308,14 +304,12 @@ async def login(body: LoginRequest, request: Request):
             )
 
     # text text → text text text
-    await db.users.update_one(
-        {"_id": dict_user["_id"]},
+    await obj_user_store.update_by_id(
+        str(dict_user["_id"]),
         {
-            "$set": {
-                "int_failed_login_attempts": 0,
-                "bool_is_locked": False,
-                "dt_last_login": datetime.now(timezone.utc),
-            }
+            "int_failed_login_attempts": 0,
+            "bool_is_locked": False,
+            "dt_last_login": datetime.now(timezone.utc),
         },
     )
 
@@ -324,7 +318,7 @@ async def login(body: LoginRequest, request: Request):
     str_refresh_token, dt_refresh_expires = create_refresh_token(str_user_id)
 
     # Refresh tokentext DBtext text (text text)
-    await db.sessions.insert_one({
+    await obj_session_store.insert({
         "str_user_id": str_user_id,
         "str_refresh_token": str_refresh_token,
         "str_ip_address": get_client_ip(request),
@@ -383,13 +377,11 @@ async def refresh_token(body: RefreshRequest, request: Request):
         )
 
     str_user_id = dict_payload.get("sub")
-    db = get_db()
+    obj_user_store = get_user_store()
+    obj_session_store = get_session_store()
 
     # text text text text (text text rotation text text text).
-    dict_user = await db.users.find_one(
-        {"_id": ObjectId(str_user_id)},
-        {"str_hashed_password": 0},
-    )
+    dict_user = await obj_user_store.find_by_id(str_user_id, bool_include_secrets=False)
     if not dict_user or not dict_user.get("bool_is_active", False):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -402,22 +394,15 @@ async def refresh_token(body: RefreshRequest, request: Request):
     dt_now = datetime.now(timezone.utc)
 
     # ── text CAS: active text revoked text text replacement text text ──
-    dict_claimed = await db.sessions.find_one_and_update(
-        {
-            "str_refresh_token": body.str_refresh_token,
-            "bool_is_revoked": False,
-        },
-        {"$set": {
-            "bool_is_revoked": True,
-            "dt_rotated_at": dt_now,
-            "str_replaced_by": str_new_refresh,
-        }},
-        return_document=ReturnDocument.AFTER,
+    dict_claimed = await obj_session_store.claim_rotation(
+        body.str_refresh_token,
+        str_new_refresh,
+        dt_now,
     )
 
     if dict_claimed is not None:
         # CAS text — text text rotation text text. text text insert text text text.
-        await db.sessions.insert_one({
+        await obj_session_store.insert({
             "str_user_id": str_user_id,
             "str_refresh_token": str_new_refresh,
             "str_ip_address": get_client_ip(request),
@@ -443,16 +428,11 @@ async def refresh_token(body: RefreshRequest, request: Request):
 
     # ── CAS text text: text text text text revoked ──
     # text revoked text text text text.
-    dict_session = await db.sessions.find_one({
-        "str_refresh_token": body.str_refresh_token,
-    })
+    dict_session = await obj_session_store.find_by_token(body.str_refresh_token)
 
     if dict_session is None:
         # text text DB text text → text text/text text text.
-        await db.sessions.update_many(
-            {"str_user_id": str_user_id},
-            {"$set": {"bool_is_revoked": True}},
-        )
+        await obj_session_store.revoke_for_user(str_user_id, bool_only_active=False)
         await log_audit_event(
             str_action="security.token_reuse_detected",
             str_user_id=str_user_id,
@@ -477,10 +457,10 @@ async def refresh_token(body: RefreshRequest, request: Request):
         and (dt_now - dt_rotated).total_seconds() < REFRESH_ROTATION_GRACE_SECONDS
     )
     if bool_in_grace:
-        dict_repl = await db.sessions.find_one({
-            "str_refresh_token": str_replaced_by,
-            "bool_is_revoked": False,
-        })
+        dict_repl = await obj_session_store.find_by_token(
+            str_replaced_by,
+            bool_only_active=True,
+        )
         if dict_repl is not None:
             # replacement text text → text access_token text text
             # text refresh_token text text text. rotation text text text.
@@ -519,20 +499,17 @@ async def refresh_token(body: RefreshRequest, request: Request):
 @router.post("/logout")
 async def logout(request: Request, dict_current_user: dict = Depends(get_current_user)):
     """text text text (Refresh Token text)"""
-    db = get_db()
+    obj_session_store = get_session_store()
     str_user_id = dict_current_user["_id"]
 
     # text text text text text text
-    result = await db.sessions.update_many(
-        {"str_user_id": str_user_id, "bool_is_revoked": False},
-        {"$set": {"bool_is_revoked": True}},
-    )
+    int_revoked = await obj_session_store.revoke_for_user(str_user_id)
 
     await log_audit_event(
         str_action="user.logout",
         str_user_id=str_user_id,
         str_user_email=dict_current_user.get("str_login_id", ""),
-        str_detail=f"Logged out — {result.modified_count} sessions revoked",
+        str_detail=f"Logged out — {int_revoked} sessions revoked",
         str_ip_address=get_client_ip(request),
         str_user_agent=request.headers.get("User-Agent", ""),
     )
@@ -588,8 +565,9 @@ async def change_password(
             detail="New password must contain uppercase, lowercase, number, and special character",
         )
 
-    db = get_db()
-    dict_user_full = await db.users.find_one({"_id": ObjectId(dict_current_user["_id"])})
+    obj_user_store = get_user_store()
+    obj_session_store = get_session_store()
+    dict_user_full = await obj_user_store.find_by_id(dict_current_user["_id"])
 
     if not verify_password(body.str_current_password, dict_user_full["str_hashed_password"]):
         raise HTTPException(
@@ -598,21 +576,16 @@ async def change_password(
         )
 
     str_new_hashed = hash_password(body.str_new_password)
-    await db.users.update_one(
-        {"_id": ObjectId(dict_current_user["_id"])},
+    await obj_user_store.update_by_id(
+        dict_current_user["_id"],
         {
-            "$set": {
-                "str_hashed_password": str_new_hashed,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "str_hashed_password": str_new_hashed,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
 
     # text text text text text text (text)
-    await db.sessions.update_many(
-        {"str_user_id": dict_current_user["_id"], "bool_is_revoked": False},
-        {"$set": {"bool_is_revoked": True}},
-    )
+    await obj_session_store.revoke_for_user(dict_current_user["_id"])
 
     await log_audit_event(
         str_action="user.password_changed",
@@ -636,7 +609,7 @@ async def mfa_setup(
 
     text text text — /mfa/verify text text text text text.
     """
-    db = get_db()
+    obj_user_store = get_user_store()
     str_user_id = dict_current_user["_id"]
 
     # text text text
@@ -647,10 +620,7 @@ async def mfa_setup(
     str_encrypted = encrypt_field(str_secret)
 
     # text text text (text text — bool_mfa_enabled text text text)
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
-        {"$set": {"str_totp_secret_enc": str_encrypted}},
-    )
+    await obj_user_store.update_by_id(str_user_id, {"str_totp_secret_enc": str_encrypted})
 
     str_uri = build_totp_uri(str_secret, dict_current_user.get("str_login_id", ""))
     return {
@@ -670,10 +640,10 @@ async def mfa_verify(
     dict_current_user: dict = Depends(get_current_user),
 ):
     """text TOTP text text text MFA text."""
-    db = get_db()
+    obj_user_store = get_user_store()
     str_user_id = dict_current_user["_id"]
 
-    dict_user_full = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    dict_user_full = await obj_user_store.find_by_id(str_user_id)
     str_encrypted = dict_user_full.get("str_totp_secret_enc", "")
     if not str_encrypted:
         raise HTTPException(400, "Call /mfa/setup first.")
@@ -682,10 +652,7 @@ async def mfa_verify(
     if not verify_totp(str_secret, body.str_totp_code):
         raise HTTPException(400, "Invalid TOTP code. Please try again.")
 
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
-        {"$set": {"bool_mfa_enabled": True}},
-    )
+    await obj_user_store.update_by_id(str_user_id, {"bool_mfa_enabled": True})
 
     await log_audit_event(
         str_action="user.mfa_enabled",
@@ -705,12 +672,12 @@ async def mfa_disable(
     dict_current_user: dict = Depends(get_current_user),
 ):
     """MFA text (text text text text — text text text text text)."""
-    db = get_db()
+    obj_user_store = get_user_store()
     str_user_id = dict_current_user["_id"]
 
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
-        {"$set": {"bool_mfa_enabled": False, "str_totp_secret_enc": ""}},
+    await obj_user_store.update_by_id(
+        str_user_id,
+        {"bool_mfa_enabled": False, "str_totp_secret_enc": ""},
     )
 
     await log_audit_event(

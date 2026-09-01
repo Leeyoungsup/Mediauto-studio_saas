@@ -221,6 +221,9 @@ mongod --dbpath /data/db
 | ---- | ------ | ---- |
 | `MONGO_URI` | `mongodb://localhost:27017` | MongoDB 연결 문자열 |
 | `MONGO_DB_NAME` | `medicus_studio` | 데이터베이스 이름 |
+| `DATABASE_BACKEND` | `mongodb` | 인증 저장소 선택: `mongodb` 또는 `postgresql` |
+| `POSTGRES_URI` | "" | PostgreSQL 인증 저장소 연결 문자열 |
+| `POSTGRES_POOL_SIZE` / `POSTGRES_MAX_OVERFLOW` | 10 / 20 | PostgreSQL 기본 연결 수와 추가 연결 상한 |
 | `JWT_SECRET_KEY` | `.secrets.json` 자동 생성 | 운영에서는 secret manager 로 주입 |
 | `FIELD_ENCRYPTION_KEY` | `.secrets.json` 자동 생성 | AES-256-GCM 키 |
 | `AUTH_PEPPER` | `.secrets.json` (legacy 또는 신규) | bcrypt pepper |

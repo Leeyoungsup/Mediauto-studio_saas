@@ -88,6 +88,7 @@ from app.config import settings
 from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import connect_db, disconnect_db
+from app.postgres.database import connect_postgres, disconnect_postgres
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
 from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users, admin_settings
 from app import auto_ai
@@ -125,6 +126,14 @@ async def lifespan(app: FastAPI):
 
     # MongoDB text
     await connect_db()
+    if settings.DATABASE_BACKEND == "postgresql":
+        await connect_postgres()
+        print("[MeDIAuto SaaS] PostgreSQL auth repository connected")
+    elif settings.DATABASE_BACKEND != "mongodb":
+        await disconnect_db()
+        raise RuntimeError(
+            "DATABASE_BACKEND must be either 'mongodb' or 'postgresql'."
+        )
     int_repaired_slide_keys = await slide_store.repair_slide_cache_keys()
     if int_repaired_slide_keys:
         print(f"[slide_store] repaired/removed {int_repaired_slide_keys} legacy slide cache record(s)")
@@ -157,6 +166,8 @@ async def lifespan(app: FastAPI):
     shutdown_persistent_bridges()
     cpu_layout.shutdown_executors()
     # MongoDB text text
+    if settings.DATABASE_BACKEND == "postgresql":
+        await disconnect_postgres()
     await disconnect_db()
     print("[MeDIAuto SaaS] Shutdown complete")
 

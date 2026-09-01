@@ -10,13 +10,12 @@ import secrets
 import time
 from datetime import datetime, timedelta, timezone
 
-from bson import ObjectId
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 
 from app.config import settings
-from app.database import get_db, is_db_connected
 from app.models import UserRole
+from app.repositories.auth_store import get_user_store, is_auth_store_connected
 
 # ── text ──
 TOKEN_TYPE_ACCESS = "access"
@@ -142,7 +141,7 @@ async def get_current_user(request: Request) -> dict:
 
     MongoDB text text text text text text text (text/text text text)
     """
-    if not is_db_connected():
+    if not is_auth_store_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
 
     str_token = _extract_bearer_token(request)
@@ -167,11 +166,7 @@ async def get_current_user(request: Request) -> dict:
     if dict_cached is not None:
         return dict_cached
 
-    db = get_db()
-    dict_user = await db.users.find_one(
-        {"_id": ObjectId(str_user_id)},
-        {"str_hashed_password": 0},  # text text text text
-    )
+    dict_user = await get_user_store().find_by_id(str_user_id, bool_include_secrets=False)
 
     if dict_user is None:
         raise HTTPException(
@@ -229,7 +224,7 @@ async def get_media_user(request: Request) -> dict:
         )
 
     # DB text text text text
-    if not is_db_connected():
+    if not is_auth_store_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
 
     # text text — text text text text DB text text
@@ -237,12 +232,8 @@ async def get_media_user(request: Request) -> dict:
     if dict_cached is not None:
         return dict_cached
 
-    db = get_db()
     try:
-        dict_user = await db.users.find_one(
-            {"_id": ObjectId(str_user_id)},
-            {"str_hashed_password": 0},
-        )
+        dict_user = await get_user_store().find_by_id(str_user_id, bool_include_secrets=False)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

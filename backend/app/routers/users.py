@@ -11,7 +11,6 @@ text:
 import re
 from datetime import datetime, timedelta, timezone
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
@@ -19,6 +18,7 @@ from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, invalidate_user_cache, require_role
 from app.database import get_db
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
+from app.repositories.auth_store import get_session_store, get_user_store
 
 LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
 PASSWORD_PATTERN = re.compile(
@@ -26,29 +26,6 @@ PASSWORD_PATTERN = re.compile(
 )
 
 router = APIRouter()
-
-
-# text text/text text text text text.
-# text `str_hashed_password` text text text text text, text text
-# `str_totp_secret_enc` (TOTP text, text text text text text text),
-# `int_failed_login_attempts` text text text admin UI text text.
-# text text text text.
-_DICT_USER_PROJECTION_ADMIN = {
-    "str_login_id": 1,
-    "str_name": 1,
-    "str_role": 1,
-    "str_department": 1,
-    "str_approval_status": 1,
-    "str_approved_by": 1,
-    "dt_approved_at": 1,
-    "bool_is_active": 1,
-    "bool_is_locked": 1,
-    "dt_locked_until": 1,
-    "bool_mfa_enabled": 1,
-    "dt_created_at": 1,
-    "dt_updated_at": 1,
-    "dt_last_login": 1,
-}
 
 
 # ── text text (Admintext) ──
@@ -61,30 +38,18 @@ async def list_users(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text (text, text/text text)"""
-    db = get_db()
-    dict_filter = {}
-    if str_approval_status:
-        dict_filter["str_approval_status"] = str_approval_status
-    if str_search:
-        str_pat = re.escape(str_search.strip())
-        dict_filter["$or"] = [
-            {"str_login_id": {"$regex": str_pat, "$options": "i"}},
-            {"str_name": {"$regex": str_pat, "$options": "i"}},
-            {"str_department": {"$regex": str_pat, "$options": "i"}},
-        ]
-
-    list_users = []
-    cursor = db.users.find(
-        dict_filter,
-        _DICT_USER_PROJECTION_ADMIN,
-    ).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
-
-    async for dict_user in cursor:
-        dict_user["_id"] = str(dict_user["_id"])
-        list_users.append(dict_user)
-
-    int_total = await db.users.count_documents(dict_filter)
-    int_pending_total = await db.users.count_documents({"str_approval_status": "pending"})
+    obj_user_store = get_user_store()
+    list_users = await obj_user_store.list(
+        str_status=str_approval_status,
+        str_search=str_search,
+        int_skip=int_skip,
+        int_limit=int_limit,
+    )
+    int_total = await obj_user_store.count(
+        str_status=str_approval_status,
+        str_search=str_search,
+    )
+    int_pending_total = await obj_user_store.count(str_status="pending")
 
     return {
         "list_users": list_users,
@@ -101,15 +66,10 @@ async def list_pending_users(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text text"""
-    db = get_db()
-    list_pending = []
-    cursor = db.users.find(
-        {"str_approval_status": ApprovalStatus.PENDING},
-        _DICT_USER_PROJECTION_ADMIN,
-    ).sort("dt_created_at", 1)
-    async for dict_user in cursor:
-        dict_user["_id"] = str(dict_user["_id"])
-        list_pending.append(dict_user)
+    list_pending = await get_user_store().list(
+        str_status=ApprovalStatus.PENDING,
+        bool_ascending=True,
+    )
     return {"list_pending": list_pending, "int_total": len(list_pending)}
 
 
@@ -126,8 +86,8 @@ async def approve_user(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text text → text + text text"""
-    db = get_db()
-    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    obj_user_store = get_user_store()
+    dict_target = await obj_user_store.find_by_id(body.str_user_id)
     if not dict_target:
         raise HTTPException(404, "User not found")
     if dict_target.get("str_approval_status") == ApprovalStatus.APPROVED:
@@ -140,17 +100,15 @@ async def approve_user(
     }
 
     dt_now = datetime.now(timezone.utc)
-    await db.users.update_one(
-        {"_id": ObjectId(body.str_user_id)},
+    await obj_user_store.update_by_id(
+        body.str_user_id,
         {
-            "$set": {
-                "str_approval_status": ApprovalStatus.APPROVED,
-                "str_approved_by": dict_current_user["_id"],
-                "dt_approved_at": dt_now,
-                "str_role": body.str_new_role,
-                "bool_is_active": True,
-                "dt_updated_at": dt_now,
-            }
+            "str_approval_status": ApprovalStatus.APPROVED,
+            "str_approved_by": dict_current_user["_id"],
+            "dt_approved_at": dt_now,
+            "str_role": body.str_new_role,
+            "bool_is_active": True,
+            "dt_updated_at": dt_now,
         },
     )
 
@@ -187,8 +145,8 @@ async def reject_user(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text"""
-    db = get_db()
-    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    obj_user_store = get_user_store()
+    dict_target = await obj_user_store.find_by_id(body.str_user_id)
     if not dict_target:
         raise HTTPException(404, "User not found")
 
@@ -198,14 +156,12 @@ async def reject_user(
     }
 
     dt_now = datetime.now(timezone.utc)
-    await db.users.update_one(
-        {"_id": ObjectId(body.str_user_id)},
+    await obj_user_store.update_by_id(
+        body.str_user_id,
         {
-            "$set": {
-                "str_approval_status": ApprovalStatus.REJECTED,
-                "bool_is_active": False,
-                "dt_updated_at": dt_now,
-            }
+            "str_approval_status": ApprovalStatus.REJECTED,
+            "bool_is_active": False,
+            "dt_updated_at": dt_now,
         },
     )
 
@@ -253,10 +209,8 @@ async def create_user(
             "Password must be at least 8 characters and include letters, numbers, and a special character.",
         )
 
-    db = get_db()
-    dict_existing = await db.users.find_one(
-        {"str_login_id": body.str_login_id.strip().lower()}
-    )
+    obj_user_store = get_user_store()
+    dict_existing = await obj_user_store.find_by_login_id(body.str_login_id)
     if dict_existing:
         raise HTTPException(409, "Login ID already exists.")
 
@@ -270,8 +224,7 @@ async def create_user(
         bool_is_active=True,
         str_approved_by=dict_current_user["_id"],
     )
-    result = await db.users.insert_one(dict_doc)
-    str_new_user_id = str(result.inserted_id)
+    str_new_user_id = await obj_user_store.insert(dict_doc)
 
     await log_audit_event(
         str_action="admin.user_created",
@@ -315,7 +268,7 @@ async def update_my_profile(
     dict_current_user: dict = Depends(get_current_user),
 ):
     """text text text text text/text text."""
-    db = get_db()
+    obj_user_store = get_user_store()
     str_user_id = dict_current_user["_id"]
     str_name = body.str_name.strip()
     str_department = body.str_department.strip()
@@ -343,14 +296,12 @@ async def update_my_profile(
             },
         }
 
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
+    await obj_user_store.update_by_id(
+        str_user_id,
         {
-            "$set": {
-                "str_name": str_name,
-                "str_department": str_department,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "str_name": str_name,
+            "str_department": str_department,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
     invalidate_user_cache(str_user_id)
@@ -388,18 +339,16 @@ async def update_my_preferences(
     dict_current_user: dict = Depends(get_current_user),
 ):
     """text text UI preferencetext text."""
-    db = get_db()
+    obj_user_store = get_user_store()
     str_user_id = dict_current_user["_id"]
     dict_current = dict_current_user.get("dict_preferences", {}) or {}
     dict_next = {**dict_current, **(body.dict_preferences or {})}
 
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
+    await obj_user_store.update_by_id(
+        str_user_id,
         {
-            "$set": {
-                "dict_preferences": dict_next,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "dict_preferences": dict_next,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
     invalidate_user_cache(str_user_id)
@@ -430,8 +379,9 @@ async def update_user(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text / text text (text text /role text)"""
-    db = get_db()
-    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    obj_user_store = get_user_store()
+    obj_session_store = get_session_store()
+    dict_target = await obj_user_store.find_by_id(body.str_user_id)
     if not dict_target:
         raise HTTPException(404, "User not found")
 
@@ -461,18 +411,12 @@ async def update_user(
         dict_after["str_password"] = "********(changed)"
         list_changed.append("password")
         # text text text text text text text text
-        await db.sessions.update_many(
-            {"str_user_id": body.str_user_id, "bool_is_revoked": False},
-            {"$set": {"bool_is_revoked": True}},
-        )
+        await obj_session_store.revoke_for_user(body.str_user_id)
 
     if len(dict_updates) <= 1:
         raise HTTPException(400, "No changes to update.")
 
-    result = await db.users.update_one(
-        {"_id": ObjectId(body.str_user_id)},
-        {"$set": dict_updates},
-    )
+    await obj_user_store.update_by_id(body.str_user_id, dict_updates)
     invalidate_user_cache(body.str_user_id)
 
     await log_audit_event(
@@ -501,15 +445,17 @@ async def delete_user(
     if str_user_id == dict_current_user["_id"]:
         raise HTTPException(400, "You cannot delete your own account.")
 
-    db = get_db()
-    dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    obj_user_store = get_user_store()
+    obj_session_store = get_session_store()
+    dict_target = await obj_user_store.find_by_id(str_user_id)
     if not dict_target:
         raise HTTPException(404, "User not found")
 
     # text admin text text text
     if dict_target.get("str_role") == UserRole.ADMIN:
-        int_admin_count = await db.users.count_documents(
-            {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
+        int_admin_count = await obj_user_store.count(
+            str_role=UserRole.ADMIN,
+            str_status=ApprovalStatus.APPROVED,
         )
         if int_admin_count <= 1:
             raise HTTPException(400, "Cannot delete the last approved admin account.")
@@ -522,12 +468,9 @@ async def delete_user(
         "bool_is_active": dict_target.get("bool_is_active"),
     }
 
-    await db.users.delete_one({"_id": ObjectId(str_user_id)})
+    await obj_user_store.delete_by_id(str_user_id)
     invalidate_user_cache(str_user_id)
-    await db.sessions.update_many(
-        {"str_user_id": str_user_id, "bool_is_revoked": False},
-        {"$set": {"bool_is_revoked": True}},
-    )
+    await obj_session_store.revoke_for_user(str_user_id)
 
     await log_audit_event(
         str_action="admin.user_deleted",
@@ -557,7 +500,7 @@ async def update_user_role(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text"""
-    db = get_db()
+    obj_user_store = get_user_store()
 
     # text text text text text
     if body.str_user_id == dict_current_user["_id"]:
@@ -566,7 +509,7 @@ async def update_user_role(
             detail="Cannot change your own role",
         )
 
-    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    dict_target = await obj_user_store.find_by_id(body.str_user_id)
     if not dict_target:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -577,19 +520,18 @@ async def update_user_role(
 
     # text admin text demote text text text
     if body.str_new_role != UserRole.ADMIN and str_old_role == UserRole.ADMIN:
-        int_admin_count = await db.users.count_documents(
-            {"str_role": UserRole.ADMIN, "str_approval_status": ApprovalStatus.APPROVED}
+        int_admin_count = await obj_user_store.count(
+            str_role=UserRole.ADMIN,
+            str_status=ApprovalStatus.APPROVED,
         )
         if int_admin_count <= 1:
             raise HTTPException(400, "Cannot remove the last approved admin account.")
 
-    await db.users.update_one(
-        {"_id": ObjectId(body.str_user_id)},
+    await obj_user_store.update_by_id(
+        body.str_user_id,
         {
-            "$set": {
-                "str_role": body.str_new_role,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "str_role": body.str_new_role,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
 
@@ -624,7 +566,7 @@ async def toggle_user_active(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text/text"""
-    db = get_db()
+    obj_user_store = get_user_store()
 
     if body.str_user_id == dict_current_user["_id"]:
         raise HTTPException(
@@ -632,7 +574,7 @@ async def toggle_user_active(
             detail="Cannot deactivate your own account",
         )
 
-    dict_target = await db.users.find_one({"_id": ObjectId(body.str_user_id)})
+    dict_target = await obj_user_store.find_by_id(body.str_user_id)
     if not dict_target:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -641,13 +583,11 @@ async def toggle_user_active(
 
     bool_old_active = dict_target.get("bool_is_active")
 
-    await db.users.update_one(
-        {"_id": ObjectId(body.str_user_id)},
+    await obj_user_store.update_by_id(
+        body.str_user_id,
         {
-            "$set": {
-                "bool_is_active": body.bool_is_active,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "bool_is_active": body.bool_is_active,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
 
@@ -678,9 +618,8 @@ async def unlock_user(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text"""
-    db = get_db()
-
-    dict_target = await db.users.find_one({"_id": ObjectId(str_user_id)})
+    obj_user_store = get_user_store()
+    dict_target = await obj_user_store.find_by_id(str_user_id)
     if not dict_target:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -692,15 +631,13 @@ async def unlock_user(
         "int_failed_login_attempts": dict_target.get("int_failed_login_attempts"),
     }
 
-    await db.users.update_one(
-        {"_id": ObjectId(str_user_id)},
+    await obj_user_store.update_by_id(
+        str_user_id,
         {
-            "$set": {
-                "bool_is_locked": False,
-                "int_failed_login_attempts": 0,
-                "dt_locked_until": None,
-                "dt_updated_at": datetime.now(timezone.utc),
-            }
+            "bool_is_locked": False,
+            "int_failed_login_attempts": 0,
+            "dt_locked_until": None,
+            "dt_updated_at": datetime.now(timezone.utc),
         },
     )
 
@@ -792,24 +729,14 @@ async def get_recent_logins(
     # text text text — 1 query text text
     dict_user_map: dict[str, dict] = {}
     if set_user_ids:
-        list_object_ids = []
-        for str_uid in set_user_ids:
-            try:
-                list_object_ids.append(ObjectId(str_uid))
-            except Exception:
-                continue
-        if list_object_ids:
-            cursor_users = db.users.find(
-                {"_id": {"$in": list_object_ids}},
-                {"str_login_id": 1, "str_name": 1, "str_role": 1, "str_department": 1},
-            )
-            async for dict_u in cursor_users:
-                dict_user_map[str(dict_u["_id"])] = {
-                    "str_login_id": dict_u.get("str_login_id", ""),
-                    "str_name": dict_u.get("str_name", ""),
-                    "str_role": dict_u.get("str_role", ""),
-                    "str_department": dict_u.get("str_department", ""),
-                }
+        list_users = await get_user_store().list_by_ids(list(set_user_ids))
+        for dict_u in list_users:
+            dict_user_map[str(dict_u["_id"])] = {
+                "str_login_id": dict_u.get("str_login_id", ""),
+                "str_name": dict_u.get("str_name", ""),
+                "str_role": dict_u.get("str_role", ""),
+                "str_department": dict_u.get("str_department", ""),
+            }
 
     for dict_log in list_logs:
         str_uid = dict_log.get("str_user_id") or ""
@@ -848,13 +775,7 @@ async def get_user_activity(
     db = get_db()
 
     # text text text text (text user_id text text 403 text text 404 text text text)
-    try:
-        dict_target = await db.users.find_one(
-            {"_id": ObjectId(user_id)},
-            {"str_login_id": 1, "str_name": 1, "str_role": 1, "str_department": 1},
-        )
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    dict_target = await get_user_store().find_by_id(user_id, bool_include_secrets=False)
     if not dict_target:
         raise HTTPException(status_code=404, detail="User not found")
 
