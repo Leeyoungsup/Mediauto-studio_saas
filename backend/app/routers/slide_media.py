@@ -1,21 +1,55 @@
 """Media endpoints for slide thumbnails and previews."""
 
+import asyncio
 import io
+import threading
 from pathlib import Path
 
 import openslide
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from app.auth import get_media_user
+from app.cpu_layout import thumbnail_executor
 from app.openslide_utils import open_slide_silently
 from app.path_utils import safe_filename, safe_subpath
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
+from app.priority import viewer_recent
 from app.resource_utils import close_many
 from app.slide_manager import build_color_corrector, slide_manager
 from app import tile_generator
 
 router = APIRouter(dependencies=[Depends(get_media_user)])
+
+
+async def _run_low_priority_media_job(request: Request, fn):
+    """Run uncached thumbnail work away from both the event loop and tile pool.
+
+    While viewer tiles are active the dedicated thumbnail thread waits.  A
+    disconnected browser request cancels queued/waiting work before OpenSlide
+    is touched; an OpenSlide call already in progress still has to finish.
+    """
+
+    obj_cancel = threading.Event()
+
+    def _run():
+        while viewer_recent(0.6):
+            if obj_cancel.wait(0.05):
+                return None
+        if obj_cancel.is_set():
+            return None
+        return fn()
+
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(thumbnail_executor, _run)
+    while True:
+        done, _ = await asyncio.wait({future}, timeout=0.1)
+        if done:
+            return future.result()
+        if await request.is_disconnected():
+            obj_cancel.set()
+            future.cancel()
+            raise HTTPException(status_code=499, detail="Client closed request")
 
 
 def _current_tile_cache(filename: str, file_path: str) -> bool:
@@ -77,6 +111,7 @@ def _can_use_thumbnail_cache(tiles_root: Path, bool_current_cache: bool) -> bool
 
 @router.get("/thumbnail-by-name")
 async def get_thumbnail_by_name(
+    request: Request,
     filename: str = Query(...),
     path: str = Query(""),
     size: int = Query(2048, ge=64, le=8192),
@@ -103,38 +138,46 @@ async def get_thumbnail_by_name(
     if not file_path.exists():
         raise HTTPException(404, "File not found")
 
-    slide = None
-    thumb = None
-    thumb_rgb = None
-    thumb_ndp = None
+    def _generate_thumbnail() -> Path:
+        slide = None
+        thumb_rgb = None
+        thumb_ndp = None
+        try:
+            if is_philips_isyntax(file_path):
+                slide = PhilipsSlideProxy(str(file_path))
+            else:
+                slide = open_slide_silently(str(file_path))
+            apply_color, _ = build_color_corrector(slide)
+            thumb_rgb = tile_generator.render_pyramid_thumbnail(
+                slide, int_size, apply_color=apply_color
+            )
+            thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
+            thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
+
+            if ndp:
+                from app.ndp_color_match import apply_ndp_fit
+                thumb_ndp = apply_ndp_fit(thumb_rgb)
+                thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
+                thumb_ndp.save(str(thumb_path_ndp), "JPEG", quality=85)
+                return thumb_path_ndp
+            return thumb_path_raw
+        finally:
+            close_many(thumb_ndp, thumb_rgb, slide)
+
     try:
-        if is_philips_isyntax(file_path):
-            slide = PhilipsSlideProxy(str(file_path))
-        else:
-            slide = open_slide_silently(str(file_path))
-        apply_color, _ = build_color_corrector(slide)
-        thumb_rgb = tile_generator.render_pyramid_thumbnail(
-            slide, int_size, apply_color=apply_color
-        )
-        thumb_path_raw.parent.mkdir(parents=True, exist_ok=True)
-        thumb_rgb.save(str(thumb_path_raw), "JPEG", quality=85)
-
-        if ndp:
-            from app.ndp_color_match import apply_ndp_fit
-            thumb_ndp = apply_ndp_fit(thumb_rgb)
-            thumb_path_ndp.parent.mkdir(parents=True, exist_ok=True)
-            thumb_ndp.save(str(thumb_path_ndp), "JPEG", quality=85)
-            return _jpeg_response(thumb_ndp, quality=85)
-
-        return _jpeg_response(thumb_rgb, quality=85)
+        path_generated = await _run_low_priority_media_job(request, _generate_thumbnail)
+        if path_generated is None:
+            raise HTTPException(499, "Client closed request")
+        return _cached_thumbnail_response(path_generated)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(500, f"Thumbnail generation failed: {exc}")
-    finally:
-        close_many(thumb_ndp, thumb_rgb, thumb, slide)
 
 
 @router.get("/label-by-name")
 async def get_label_by_name(
+    request: Request,
     filename: str = Query(...),
     path: str = Query(""),
     size: int = Query(300, ge=64, le=1024),
@@ -159,18 +202,24 @@ async def get_label_by_name(
     if bool_cached is False:
         return _no_label_response()
 
-    slide = None
+    def _generate_label() -> Path | None:
+        slide = None
+        try:
+            if is_philips_isyntax(file_path):
+                slide = PhilipsSlideProxy(str(file_path))
+            else:
+                slide = open_slide_silently(str(file_path))
+            return tile_generator.generate_associated_label_cache(
+                slide,
+                tiles_root,
+                str(file_path),
+                int_size=int_size,
+            )
+        finally:
+            close_many(slide)
+
     try:
-        if is_philips_isyntax(file_path):
-            slide = PhilipsSlideProxy(str(file_path))
-        else:
-            slide = open_slide_silently(str(file_path))
-        path_generated = tile_generator.generate_associated_label_cache(
-            slide,
-            tiles_root,
-            str(file_path),
-            int_size=int_size,
-        )
+        path_generated = await _run_low_priority_media_job(request, _generate_label)
         if path_generated is None:
             return _no_label_response()
         return _cached_thumbnail_response(path_generated)
@@ -178,8 +227,6 @@ async def get_label_by_name(
         raise
     except Exception as exc:
         raise HTTPException(500, f"Label extraction failed: {exc}")
-    finally:
-        close_many(slide)
 
 
 @router.get("/{slide_id}/preview")

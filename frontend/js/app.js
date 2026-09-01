@@ -3,8 +3,8 @@
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260831-03';
-import { AiViewer } from './ai-viewer.js?v=20260824-04';
+import { api } from './api.js?v=20260901-01';
+import { AiViewer } from './ai-viewer.js?v=20260901-01';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -50,6 +50,7 @@ const SLIDE_LABEL_VISIBILITY_KEY = 'showSlideLabels';
 let _showSlideLabels = localStorage.getItem(SLIDE_LABEL_VISIBILITY_KEY) !== '0';
 const _slideLabelAvailability = new Map();
 let _slideLabelObserver = null;
+let _slideThumbObserver = null;
 if ($showSlideLabels) $showSlideLabels.checked = _showSlideLabels;
 const LIST_SLIDE_CLINICAL_FIELDS = [
     { key: 'ER_proportion_score', label: 'ER_proportion_score (0 - 5) or na', type: 'input', required: true },
@@ -2980,7 +2981,7 @@ function _ensureMultiViewPanes() {
         paneViewer.canEditDetectionResults = _canEditAiDetections();
         // Split panes have a much smaller viewport than the primary viewer.
         // Keep total decoded-tile memory bounded when four WSIs are open.
-        paneViewer._maxCacheTiles = 160;
+        paneViewer._maxCacheTiles = 96;
         const pane = {
             element, canvas, overlay, label, error, viewer: paneViewer,
             slide: null, slideInfo: null, analysis: _emptyAnalysisContext(),
@@ -4851,6 +4852,39 @@ function _observeSlideLabelThumb(img) {
     else _requestSlideLabelImage(img);
 }
 
+function _requestSlideThumbnail(img) {
+    if (!img || img.dataset.thumbRequested === '1') return;
+    img.dataset.thumbRequested = '1';
+    const str_filename = img.dataset.filename || '';
+    const str_path = img.dataset.path || '';
+    api.queueMediaImage(
+        img,
+        () => api.thumbnailUrlByName(str_filename, str_path, 300),
+        () => { img.style.display = 'none'; }
+    );
+}
+
+function _getSlideThumbObserver() {
+    if (_slideThumbObserver || typeof IntersectionObserver !== 'function') return _slideThumbObserver;
+    _slideThumbObserver = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const img = entry.target.querySelector?.('.slide-thumb');
+            _requestSlideThumbnail(img);
+            observer.unobserve(entry.target);
+        }
+    }, { root: $slideList, rootMargin: '160px 0px' });
+    return _slideThumbObserver;
+}
+
+function _observeSlideThumbnail(img) {
+    if (!img) return;
+    const item = img.closest('.slide-list-item');
+    const observer = _getSlideThumbObserver();
+    if (observer && item) observer.observe(item);
+    else _requestSlideThumbnail(img);
+}
+
 function _createSlideLabelThumb(filename, path) {
     const img = document.createElement('img');
     img.className = 'slide-label-thumb';
@@ -4890,6 +4924,8 @@ function _createSlideLabelThumb(filename, path) {
 function renderSlideList(data = _lastBrowseData) {
         _slideLabelObserver?.disconnect();
         _slideLabelObserver = null;
+        _slideThumbObserver?.disconnect();
+        _slideThumbObserver = null;
         $slideList.querySelectorAll('img').forEach((img) => {
             if (img.classList.contains('slide-label-thumb')) img.dataset.cancelled = '1';
             api.cancelMediaImage?.(img);
@@ -4957,12 +4993,12 @@ function renderSlideList(data = _lastBrowseData) {
             thumb.className = 'slide-thumb';
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
+            thumb.fetchPriority = 'low';
             const str_thumb_filename = s.filename;
             const str_thumb_path = str_list_path;
-            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300);
-            api.attachMediaImageRetry(thumb,
-                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300),
-                () => { thumb.style.display = 'none'; });
+            thumb.dataset.filename = str_thumb_filename;
+            thumb.dataset.path = str_thumb_path;
+            thumb.dataset.thumbRequested = '0';
             const labelThumb = _createSlideLabelThumb(str_thumb_filename, str_thumb_path);
 
             const name = document.createElement('div');
@@ -5043,6 +5079,7 @@ function renderSlideList(data = _lastBrowseData) {
             });
 
             $slideList.appendChild(item);
+            _observeSlideThumbnail(thumb);
             _observeSlideLabelThumb(labelThumb);
         }
 

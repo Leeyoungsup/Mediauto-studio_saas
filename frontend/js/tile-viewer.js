@@ -10,7 +10,7 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20260526-01';
+import { api } from './api.js?v=20260901-01';
 
 const TILE_SIZE = 1024;
 const VIEWER_FAST_THUMBNAIL_SIZE = 300;
@@ -145,12 +145,19 @@ export class TileViewer {
         // ON text text/text URL text ?ndp=true text /ndp/ text text — text
         // ndpmatch text JPEG text text text text text. text CPU text text.
         this._colorCorrectionEnabled = false;
-        this._maxCacheTiles = 3000;
+        // A decoded 1024px RGB/RGBA tile can occupy roughly 3–4 MiB.  Keeping
+        // 3,000 of them allowed one viewer to retain several GiB and caused
+        // intermittent browser GC/decode stalls after extended panning.
+        this._maxCacheTiles = 256;
         this._loadQueue = [];         // text text text
         this._loadQueuedKeys = new Set();
         this._activeLoads = 0;
         // text Image text — text text text abort text
         this._inflightImages = new Set();
+        // Tile requests use fetch instead of a bare <img src>.  Keeping the
+        // controllers separate from decoded images lets a viewport change
+        // abort the HTTP transfer itself, not just ignore a late onload.
+        this._tileFetchControllers = new Set();
         // text generation — onload text text generation text text stale text
         this._loadGeneration = 0;
         this._lastViewportTileAbortAt = 0;
@@ -231,7 +238,8 @@ export class TileViewer {
         this._vsLoadQueuedKeys = new Set();
         this._vsActiveLoads = 0;          // text text text VS text text text
         this._vsInflightImages = new Set();
-        this._vsMaxTiles = 512;
+        this._vsFetchControllers = new Set();
+        this._vsMaxTiles = 192;
 
         // ── Annotation ──
         this.annotations = [];        // [{id, name, type, coordinates, color, visible, selected, group}]
@@ -294,7 +302,15 @@ export class TileViewer {
         set_images.clear();
     }
 
+    _abortFetchSet(set_controllers) {
+        for (const controller of set_controllers) {
+            try { controller.abort(); } catch (e) {}
+        }
+        set_controllers.clear();
+    }
+
     _abortInflightImages() {
+        this._abortFetchSet(this._tileFetchControllers);
         this._abortImageSet(this._inflightImages);
     }
 
@@ -324,7 +340,56 @@ export class TileViewer {
     }
 
     _abortVsInflightImages() {
+        this._abortFetchSet(this._vsFetchControllers);
         this._abortImageSet(this._vsInflightImages);
+    }
+
+    async _fetchTileImage(str_url, set_controllers, set_images) {
+        const controller = new AbortController();
+        set_controllers.add(controller);
+        let img = null;
+        let str_object_url = '';
+        try {
+            const response = await fetch(str_url, {
+                signal: controller.signal,
+                cache: 'force-cache',
+                credentials: 'same-origin',
+                priority: 'high',
+            });
+            if (!response.ok) {
+                throw new Error(`Tile request failed with HTTP ${response.status}`);
+            }
+            const blob = await response.blob();
+            if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+            str_object_url = URL.createObjectURL(blob);
+            img = new Image();
+            img.decoding = 'async';
+            set_images.add(img);
+            await new Promise((resolve, reject) => {
+                const on_abort = () => reject(new DOMException('Aborted', 'AbortError'));
+                controller.signal.addEventListener('abort', on_abort, { once: true });
+                img.onload = () => {
+                    controller.signal.removeEventListener('abort', on_abort);
+                    resolve();
+                };
+                img.onerror = () => {
+                    controller.signal.removeEventListener('abort', on_abort);
+                    reject(new Error('Tile image decode failed'));
+                };
+                img.src = str_object_url;
+            });
+            if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            return img;
+        } finally {
+            set_controllers.delete(controller);
+            if (img) {
+                img.onload = null;
+                img.onerror = null;
+                set_images.delete(img);
+            }
+            if (str_object_url) URL.revokeObjectURL(str_object_url);
+        }
     }
 
     _resetVsTileLoads(clearCache = false) {
@@ -1997,40 +2062,30 @@ export class TileViewer {
             this._vsTileLoading.add(task.key);
             this._vsActiveLoads++;
 
-            const img = new Image();
-            img.decoding = 'async';
-            this._vsInflightImages.add(img);
-            img.onload = () => {
-                this._vsInflightImages.delete(img);
-                this._vsActiveLoads--;
-                this._vsTileLoading.delete(task.key);
-                // text text overlay text text text
-                if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) {
-                    this._processVsLoadQueue();
-                    return;
-                }
-                // LRU text
-                if (this._vsTileCache.size >= this._vsMaxTiles) {
-                    const oldest = this._vsTileCache.keys().next().value;
-                    this._vsTileCache.delete(oldest);
-                }
-                this._vsTileCache.set(task.key, img);
-                this._processVsLoadQueue();
-                this.requestRender();
-            };
-            img.onerror = () => {
-                this._vsInflightImages.delete(img);
-                this._vsActiveLoads--;
-                this._vsTileLoading.delete(task.key);
-                if (task.generation === this._loadGeneration && this._vsOverlay === task.ov) {
-                    this._vsTileMissing.add(task.key);
-                }
-                this._processVsLoadQueue();
-            };
-            img.src = api.virtualStainTileUrl(
+            const str_url = api.virtualStainTileUrl(
                 task.ov.slideId, task.ov.stainType, task.ov.targetMpp,
                 task.level, task.tx, task.ty
             );
+            this._fetchTileImage(str_url, this._vsFetchControllers, this._vsInflightImages)
+                .then((img) => {
+                    if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) return;
+                    this._vsActiveLoads = Math.max(0, this._vsActiveLoads - 1);
+                    this._vsTileLoading.delete(task.key);
+                    if (this._vsTileCache.size >= this._vsMaxTiles) {
+                        const oldest = this._vsTileCache.keys().next().value;
+                        this._vsTileCache.delete(oldest);
+                    }
+                    this._vsTileCache.set(task.key, img);
+                    this._processVsLoadQueue();
+                    this.requestRender();
+                })
+                .catch((err) => {
+                    if (task.generation !== this._loadGeneration || this._vsOverlay !== task.ov) return;
+                    this._vsActiveLoads = Math.max(0, this._vsActiveLoads - 1);
+                    this._vsTileLoading.delete(task.key);
+                    if (err?.name !== 'AbortError') this._vsTileMissing.add(task.key);
+                    this._processVsLoadQueue();
+                });
         }
     }
 
@@ -2089,41 +2144,31 @@ export class TileViewer {
         this._tileLoading.add(key);
         this._activeLoads++;
 
-        // text text text text generation — text text text text text
+        // AbortController cancels the transfer itself when the viewport moves.
         const int_gen = this._loadGeneration;
-        const img = new Image();
-        img.decoding = 'async';
-        this._inflightImages.add(img);
-        img.onload = () => {
-            this._inflightImages.delete(img);
-            this._tileLoading.delete(key);
-            this._activeLoads--;
-            // text text text text text text (text text text text cache text
-            // text text text contamination text)
-            if (int_gen !== this._loadGeneration) {
+        const str_url = api.tileUrl(this.slideId, level, tx, ty, this._colorCorrectionEnabled);
+        this._fetchTileImage(str_url, this._tileFetchControllers, this._inflightImages)
+            .then((img) => {
+                if (int_gen !== this._loadGeneration) return;
+                this._tileLoading.delete(key);
+                this._activeLoads = Math.max(0, this._activeLoads - 1);
+                this._putCache(key, img);
+                this._tileFadeStart.set(key, performance.now());
+                this._markPreloadTileDone(key);
                 this._processLoadQueue();
-                return;
-            }
-            this._putCache(key, img);
-            this._tileFadeStart.set(key, performance.now());
-            this._markPreloadTileDone(key);
-            this._processLoadQueue();
-            this.requestRender();
-        };
-        img.onerror = () => {
-            this._inflightImages.delete(img);
-            this._tileLoading.delete(key);
-            this._activeLoads--;
-            // text "text" text text text text text text
-            this._markPreloadTileDone(key);
-            this._processLoadQueue();
-            if (int_gen === this._loadGeneration) {
+                this.requestRender();
+            })
+            .catch((err) => {
+                if (int_gen !== this._loadGeneration) return;
+                this._tileLoading.delete(key);
+                this._activeLoads = Math.max(0, this._activeLoads - 1);
+                if (err?.name === 'AbortError') return;
+                this._markPreloadTileDone(key);
+                this._processLoadQueue();
                 setTimeout(() => {
                     if (int_gen === this._loadGeneration) this.requestRender();
                 }, 800);
-            }
-        };
-        img.src = api.tileUrl(this.slideId, level, tx, ty, this._colorCorrectionEnabled);
+            });
     }
 
     _putCache(key, img) {

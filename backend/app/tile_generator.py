@@ -25,7 +25,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import openslide
@@ -42,7 +41,6 @@ from app.slide_manager import (
     build_color_corrector,
 )
 
-_thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
 
 TILE_SIZE = TILE_SIZE_OUT
 

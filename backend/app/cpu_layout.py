@@ -202,6 +202,15 @@ viewer_executor = ThreadPoolExecutor(
     initializer=_make_initializer(frozenset_viewer_cpus),
 )
 
+# Cache-miss thumbnails/labels have their own small queue.  They share viewer
+# CPU affinity but are delayed while tile activity is recent, so a large slide
+# list cannot fill the latency-sensitive tile executor queue.
+thumbnail_executor = ThreadPoolExecutor(
+    max_workers=max(1, min(2, INT_VIEWER)),
+    thread_name_prefix="thumbnail",
+    initializer=_make_initializer(frozenset_viewer_cpus),
+)
+
 tile_executor = ThreadPoolExecutor(
     max_workers=INT_TILE,
     thread_name_prefix="tile_worker",
@@ -231,5 +240,12 @@ bg_executor = tile_executor
 
 
 def shutdown_executors() -> None:
-    for executor in (viewer_executor, tile_executor, ai_executor, patch_executor, upload_executor):
+    for executor in (
+        viewer_executor,
+        thumbnail_executor,
+        tile_executor,
+        ai_executor,
+        patch_executor,
+        upload_executor,
+    ):
         executor.shutdown(wait=False, cancel_futures=True)

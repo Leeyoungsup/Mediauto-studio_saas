@@ -2,9 +2,9 @@
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260807-02';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260814-01';
+import { api } from './api.js?v=20260901-01';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260901-01';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260901-01';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -5900,6 +5900,7 @@ let currentBrowsePath = '';  // Path relative to uploads/.
 let _projectListCache = [];
 let _projectGatePage = 1;
 let _projectGateSort = { key: 'name', dir: 'asc' };
+let _slideThumbObserver = null;
 const $breadcrumb = $('#folder-breadcrumb');
 
 function _getCurrentProjectName() {
@@ -6383,11 +6384,47 @@ if ($projectGateAdditional) {
     });
 }
 
+function _requestSlideThumbnail(img) {
+    if (!img || img.dataset.thumbRequested === '1') return;
+    img.dataset.thumbRequested = '1';
+    const str_filename = img.dataset.filename || '';
+    const str_path = img.dataset.path || '';
+    api.queueMediaImage(
+        img,
+        () => api.thumbnailUrlByName(str_filename, str_path, 300),
+        () => { img.style.display = 'none'; }
+    );
+}
+
+function _getSlideThumbObserver() {
+    if (_slideThumbObserver || typeof IntersectionObserver !== 'function') return _slideThumbObserver;
+    _slideThumbObserver = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const img = entry.target.querySelector?.('.slide-thumb');
+            _requestSlideThumbnail(img);
+            observer.unobserve(entry.target);
+        }
+    }, { root: $slideList, rootMargin: '160px 0px' });
+    return _slideThumbObserver;
+}
+
+function _observeSlideThumbnail(img) {
+    if (!img) return;
+    const item = img.closest('.slide-list-item');
+    const observer = _getSlideThumbObserver();
+    if (observer && item) observer.observe(item);
+    else _requestSlideThumbnail(img);
+}
+
 async function loadSlideList() {
     try {
         await _loadAnnotationClassesForCurrentProject();
         const data = await api.browse(currentBrowsePath);
         if (ANNOTATION_PAGE_KIND === 'cell') _cellPatchProjectSummaries.clear();
+        _slideThumbObserver?.disconnect();
+        _slideThumbObserver = null;
+        $slideList.querySelectorAll('img').forEach((img) => api.cancelMediaImage?.(img));
         $slideList.innerHTML = '';
         _appendAnnotationSlideListHeader();
         _syncProjectSelect();
@@ -6456,12 +6493,12 @@ async function loadSlideList() {
             thumb.className = 'slide-thumb';
             thumb.alt = s.filename;
             thumb.loading = 'lazy';
+            thumb.fetchPriority = 'low';
             const str_thumb_filename = s.filename;
             const str_thumb_path = currentBrowsePath;
-            thumb.src = api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300);
-            api.attachMediaImageRetry(thumb,
-                () => api.thumbnailUrlByName(str_thumb_filename, str_thumb_path, 300),
-                () => { thumb.style.display = 'none'; });
+            thumb.dataset.filename = str_thumb_filename;
+            thumb.dataset.path = str_thumb_path;
+            thumb.dataset.thumbRequested = '0';
 
             const name = document.createElement('div');
             name.className = 'slide-list-name';
@@ -6538,6 +6575,7 @@ async function loadSlideList() {
             });
 
             $slideList.appendChild(item);
+            _observeSlideThumbnail(thumb);
         }
 
         updateBreadcrumb();

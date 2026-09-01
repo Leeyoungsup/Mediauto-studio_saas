@@ -52,6 +52,8 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Improve Philips tile and AI patch loading, bridge affinity, empty-region handling, and image read stability.
 - Optimize static file responses and cache-control handling for versioned JS/CSS assets.
 - Update bootstrap to validate model bundles, prepare runtime directories and secrets, and create the initial administrator in an empty PostgreSQL database.
+- Prioritize visible WSI and Virtual Stain tiles with abortable fetch requests, and bound decoded tile caches to prevent long-session browser memory stalls.
+- Load only visible slide-list thumbnails through a two-request low-priority queue and isolate cache-miss thumbnail generation from viewer tile workers.
 
 ### Fixed
 
@@ -63,6 +65,7 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Fix JPG decompression-bomb handling by using streaming/pyramidal conversion instead of loading oversized images as one bitmap.
 - Fix DICOM missing-tile retry loops by distinguishing unavailable frames and cached blank tiles.
 - Fix late network responses and pending image requests that caused lag while navigating between folders.
+- Fix cached tile serving repeatedly parsing the completion marker and stat'ing the original WSI for every JPEG request.
 
 ### Security
 
