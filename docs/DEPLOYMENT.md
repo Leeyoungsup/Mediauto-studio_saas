@@ -29,6 +29,7 @@ running MeDIAuto Studio SaaS outside a local workstation.
 | `UPLOAD_DIR` | Persistent WSI storage. |
 | `TILES_DIR` | Persistent or rebuildable tile cache storage. |
 | `AI_RESULTS_DIR` | Persistent AI result cache storage. |
+| `MODEL_DIR` | Read-only directory containing the model files listed in `backend/model_manifest.json`. |
 | `TILE_CACHE_QUOTA_BYTES` | Disk quota for tile cache eviction. Use `0` only when another cleanup job exists. |
 | `MAX_UPLOAD_BYTES` | Match institutional policy and reverse proxy upload limits. |
 | `JPEG_CONVERSION_QUALITY` | Internal JPEG quality for JPG-to-pyramidal-TIFF conversion. Default: `100`. |

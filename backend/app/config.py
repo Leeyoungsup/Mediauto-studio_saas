@@ -131,8 +131,12 @@ class Settings:
         "JPEG_CONVERSION_QUALITY", "100"
     ))
 
-    # AI text text (backend/model/)
-    MODEL_DIR: str = str(Path(__file__).parent.parent / "model")
+    # AI model weights. Keep the local path as the workstation default while
+    # allowing production deployments to mount models outside the Git tree.
+    MODEL_DIR: str = os.environ.get(
+        "MODEL_DIR",
+        str(Path(__file__).parent.parent / "model"),
+    )
 
     # text text
     SUPPORTED_EXTENSIONS: set = {

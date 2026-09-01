@@ -11,9 +11,12 @@ REM ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set ENV_NAME=yslee
+set ENV_NAME=medicus-saas
+if defined MEDIAUTO_CONDA_ENV set ENV_NAME=%MEDIAUTO_CONDA_ENV%
 set PY_VER=3.12
+if defined MEDIAUTO_PYTHON_VERSION set PY_VER=%MEDIAUTO_PYTHON_VERSION%
 set CUDA_TAG=cu121
+if defined MEDIAUTO_CUDA_TAG set CUDA_TAG=%MEDIAUTO_CUDA_TAG%
 set MONGO_SERVICE=MongoDB
 
 where conda >nul 2>&1
@@ -26,7 +29,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 1/6] MongoDB Setup
+echo [STEP 1/7] MongoDB Setup
 echo ============================================================
 where mongod >nul 2>&1
 if errorlevel 1 (
@@ -85,7 +88,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 2/6] Conda environment "%ENV_NAME%"
+echo [STEP 2/7] Conda environment "%ENV_NAME%"
 echo ============================================================
 call conda env list | findstr /b /c:"%ENV_NAME% " >nul
 if errorlevel 1 (
@@ -102,7 +105,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 3/6] PyTorch ^(CUDA %CUDA_TAG%^)
+echo [STEP 3/7] PyTorch ^(CUDA %CUDA_TAG%^)
 echo ============================================================
 call conda run -n %ENV_NAME% pip install --upgrade pip
 call conda run -n %ENV_NAME% pip install torch torchvision --index-url https://download.pytorch.org/whl/%CUDA_TAG%
@@ -113,7 +116,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 4/6] Backend requirements
+echo [STEP 4/7] Backend requirements
 echo ============================================================
 call conda run -n %ENV_NAME% pip install -r "%~dp0backend\requirements.txt"
 if errorlevel 1 (
@@ -124,7 +127,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 5/6] MongoDB connectivity test
+echo [STEP 5/7] MongoDB connectivity test
 echo ============================================================
 REM Use the same default URI as backend/app/config.py — env var override respected.
 call conda run -n %ENV_NAME% python -c "import os; from pymongo import MongoClient; uri=os.environ.get('MONGO_URI','mongodb://localhost:27017'); MongoClient(uri, serverSelectionTimeoutMS=3000).admin.command('ping'); print('[OK] MongoDB ping succeeded @', uri)"
@@ -139,7 +142,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 6/6] Optional: restore MongoDB dump
+echo [STEP 6/7] Optional: restore MongoDB dump
 echo ============================================================
 set DUMP_DB_NAME=medicus_studio
 if defined MONGO_DB_NAME set DUMP_DB_NAME=%MONGO_DB_NAME%
@@ -158,6 +161,23 @@ if exist "%DUMP_FOLDER%\" (
     set DUMP_TYPE=archive
     set DUMP_PATH=%DUMP_ARCHIVE%
 )
+
+if defined DUMP_PATH if not exist "%~dp0backend\.secrets.json" (
+    if not defined JWT_SECRET_KEY goto MISSING_RESTORE_SECRETS
+    if not defined FIELD_ENCRYPTION_KEY goto MISSING_RESTORE_SECRETS
+    if not defined AUTH_PEPPER goto MISSING_RESTORE_SECRETS
+)
+goto RESTORE_SECRETS_OK
+
+:MISSING_RESTORE_SECRETS
+echo [ERROR] A MongoDB dump was found, but its matching application secrets are missing.
+echo         Restore backend\.secrets.json from the source server, or set
+echo         JWT_SECRET_KEY, FIELD_ENCRYPTION_KEY, and AUTH_PEPPER before retrying.
+echo         Continuing with new keys would break existing passwords/MFA data.
+pause
+exit /b 1
+
+:RESTORE_SECRETS_OK
 
 if not defined DUMP_PATH (
     echo [INFO] No dump found at expected locations — skipping restore.
@@ -219,9 +239,25 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
+echo [STEP 7/7] Runtime bootstrap and preflight
+echo ============================================================
+set BOOTSTRAP_ARGS=
+if "%MEDIAUTO_STRICT_MODELS%"=="1" set BOOTSTRAP_ARGS=!BOOTSTRAP_ARGS! --strict-models
+if "%MEDIAUTO_STRICT_DB%"=="1" set BOOTSTRAP_ARGS=!BOOTSTRAP_ARGS! --strict-db
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\bootstrap_runtime.py" !BOOTSTRAP_ARGS!
+if errorlevel 1 (
+    echo [ERROR] Runtime bootstrap failed. Resolve the errors above and rerun install.bat.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ============================================================
 echo [DONE] Install complete.
 echo.
 echo  Run start.bat to launch the SaaS server.
+echo  Conda env: %ENV_NAME% ^(override with MEDIAUTO_CONDA_ENV^)
+echo  Model bundle: set MEDIAUTO_MODEL_SOURCE=C:\path\to\models-or-archive before install.
 echo.
 echo  NOTE ^(OpenSlide on Windows^):
 echo    openslide-python requires OpenSlide binary DLLs.

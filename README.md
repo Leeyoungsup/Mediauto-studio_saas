@@ -131,23 +131,71 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 ## 설치 및 실행
 
+### GitHub clone만으로 준비되는 범위
+
+소스 코드와 프론트엔드는 저장소에 포함되지만 아래 항목은 보안·용량 문제로 Git에 포함되지 않는다.
+
+- `backend/model/`의 AI 가중치(현재 전체 약 3.4 GB)
+- MongoDB 데이터와 사용자 계정
+- `backend/.secrets.json`의 영구 암호화 키
+- 업로드 WSI, 타일 캐시, AI 결과
+- 선택 기능인 Philips SDK
+
+따라서 코드만 clone한 상태에서는 AI 전체 기능을 바로 실행할 수 없다. 다만 설치 스크립트가 런타임 폴더와 신규 보안키를 자동 생성하고, 모델 번들을 지정하면 필요한 파일을 자동 배치한다. 기존 운영 DB를 이전할 때는 새 키를 만들지 말고 기존 `backend/.secrets.json`도 반드시 함께 복원해야 한다.
+
 ### 사전 요구사항
 
-- Python 3.12+
+- Miniconda/Anaconda
 - MongoDB 7.0+ (로컬 설치 또는 Docker). 미연결 시 인증/감사/AI 결과 캐싱 등이 비활성화됨
-- OpenSlide 라이브러리 (Windows 는 `libs/openslide_lib/bin/` 자동 인식)
+- OpenSlide와 libvips 시스템 라이브러리
 - (선택) NVIDIA GPU + CUDA 11.8+ — AI 추론 가속
 
-### 1. 의존성 설치
+### 1. 자동 초기 설정
+
+모델 파일이 담긴 디렉터리, ZIP, TAR 또는 TAR.GZ 경로를 `MEDIAUTO_MODEL_SOURCE`로 지정할 수 있다. 번들 내부의 파일명은 [model_manifest.json](backend/model_manifest.json)과 일치해야 한다.
+
+Linux:
 
 ```bash
-cd backend
-pip install -r requirements.txt
+export MEDIAUTO_MODEL_SOURCE=/secure/mediauto-models.tar.gz
+./install.sh
 ```
 
-또는 루트의 `install.bat` (Windows) / `install.sh` (Linux/macOS) 실행.
+Windows PowerShell:
 
-### 2. MongoDB 시작
+```powershell
+$env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
+.\install.bat
+```
+
+설치 스크립트는 다음을 자동 처리한다.
+
+- `medicus-saas` Conda 환경과 Python 의존성 설치
+- CUDA PyTorch 설치 실패 시 CPU 빌드 fallback
+- 런타임 디렉터리와 신규 `.secrets.json` 생성
+- 선택적으로 모델 번들 배치
+- OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
+- 기존 `mongo_dump` 발견 시 확인 후 복원
+
+운영 자동화에서 누락된 DB나 모델을 오류로 처리하려면 다음 변수를 사용한다.
+
+```bash
+export MEDIAUTO_STRICT_DB=1
+export MEDIAUTO_STRICT_MODELS=1
+```
+
+빈 MongoDB에 최초 관리자를 비대화형으로 생성할 수도 있다. 비밀번호는 명령행 인자가 아닌 환경변수로 전달하며, 영문·숫자·특수문자를 포함한 8자 이상이어야 한다.
+
+```bash
+export MEDIAUTO_BOOTSTRAP_ADMIN_ID=admin
+export MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password-1!'
+export MEDIAUTO_BOOTSTRAP_ADMIN_NAME='Administrator'
+./install.sh
+```
+
+관리자 환경변수를 사용하지 않으면 기존 방식대로 웹 화면의 첫 가입자가 즉시 승인된 admin이 된다.
+
+### 2. MongoDB 수동 시작이 필요한 경우
 
 ```bash
 mongod --dbpath /data/db
@@ -173,16 +221,20 @@ mongod --dbpath /data/db
 | `BLOCKED_IPS` | "" | 추가 차단 IP/CIDR 목록. `207.175.151.181`은 기본 차단됨 |
 | `MEDIAUTO_404_RATE_LIMIT_MAX` | 30 | 비-API 경로에서 1분 동안 허용할 404 응답 수 |
 | `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
+| `MEDIAUTO_CONDA_ENV` | `medicus-saas` | 설치·실행에 사용할 Conda 환경 이름 |
+| `MEDIAUTO_MODEL_SOURCE` | "" | AI 모델 디렉터리 또는 ZIP/TAR 번들 경로 |
+| `MEDIAUTO_STRICT_DB` / `MEDIAUTO_STRICT_MODELS` | 0 | 초기 점검 실패를 설치 오류로 처리 |
+| `MEDIAUTO_BOOTSTRAP_ADMIN_*` | "" | 빈 DB의 최초 관리자 자동 생성 정보 |
+| `MODEL_DIR` | `backend/model` | AI 모델 저장 경로(외부 읽기 전용 볼륨 지정 가능) |
 | `UPLOAD_DIR` / `TILES_DIR` / `AI_RESULTS_DIR` | `backend/uploads,tiles,ai_results` | 캐시 위치 오버라이드 |
 
 ### 4. 서버 시작
 
 ```bash
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8091
+./start.sh
 ```
 
-또는 루트의 `start.bat` / `start.sh` 실행. 첫 가입자는 자동으로 admin + 즉시 승인된다.
+Windows에서는 `start.bat`를 실행한다. 기본 주소는 `http://localhost:8092`이며 `MEDIAUTO_HOST`, `MEDIAUTO_PORT`, `MEDIAUTO_CONDA_ENV`로 변경할 수 있다.
 
 ## 인증 시스템
 

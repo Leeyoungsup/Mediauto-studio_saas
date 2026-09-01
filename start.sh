@@ -2,7 +2,7 @@
 
 # ============================================================
 #  MeDICus Studio SaaS - Server Start Script
-#  - conda env "yslee" activate (via conda run)
+#  - conda env "medicus-saas" activate (via env Python)
 #  - uvicorn FastAPI start
 # ============================================================
 
@@ -11,9 +11,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/backend"
 
-ENV_NAME="medicus-saas"
-HOST="0.0.0.0"
-PORT="8092"
+ENV_NAME="${MEDIAUTO_CONDA_ENV:-medicus-saas}"
+HOST="${MEDIAUTO_HOST:-0.0.0.0}"
+PORT="${MEDIAUTO_PORT:-8092}"
 
 if ! command -v conda >/dev/null 2>&1; then
   echo "[ERROR] conda not found. Install Miniconda/Anaconda first."
@@ -22,7 +22,7 @@ fi
 
 if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
   echo "[ERROR] conda env \"$ENV_NAME\" not found."
-  echo "        Run install.bat first."
+  echo "        Run ./install.sh first."
   exit 1
 fi
 

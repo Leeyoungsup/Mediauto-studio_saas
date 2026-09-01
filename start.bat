@@ -8,9 +8,12 @@ setlocal
 
 cd /d "%~dp0backend"
 
-set ENV_NAME=yslee
+set ENV_NAME=medicus-saas
+if defined MEDIAUTO_CONDA_ENV set ENV_NAME=%MEDIAUTO_CONDA_ENV%
 set HOST=0.0.0.0
+if defined MEDIAUTO_HOST set HOST=%MEDIAUTO_HOST%
 set PORT=8092
+if defined MEDIAUTO_PORT set PORT=%MEDIAUTO_PORT%
 
 where conda >nul 2>&1
 if errorlevel 1 (

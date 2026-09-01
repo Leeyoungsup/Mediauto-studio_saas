@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "models": [
+    {"filename": "HnE_detection.pt", "feature": "Quanti HE", "required": true},
+    {"filename": "HnE_BR_segmentation.pt", "feature": "Quanti HE breast segmentation", "required": true},
+    {"filename": "HnE_ST_segmentation.pt", "feature": "Quanti HE stomach segmentation", "required": true},
+    {"filename": "PDL1_ST_CPS_detection.pt", "feature": "Quanti PD-L1 stomach CPS", "required": true},
+    {"filename": "PDL1_TPS_detection.pt", "feature": "Quanti PD-L1 lung TPS", "required": true},
+    {"filename": "Precise_IHC_HER2_detection.pt", "feature": "Quanti IHC HER2", "required": true},
+    {"filename": "Precise_IHC_ER_PR_detection.pt", "feature": "Quanti IHC ER/PR and Ki-67", "required": true},
+    {"filename": "IHC_Membrane(Breast).pt", "feature": "Cell annotation membrane assistance", "required": true},
+    {"filename": "IHC_Nucleus(Breast).pt", "feature": "Cell annotation nucleus assistance", "required": true},
+    {"filename": "IHC_HnE_virtual_stain_membrane.pth", "feature": "Virtual stain membrane", "required": true},
+    {"filename": "IHC_HnE_virtual_stain_nucleus.pth", "feature": "Reserved virtual stain nucleus model", "required": false}
+  ]
+}

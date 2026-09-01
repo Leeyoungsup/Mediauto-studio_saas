@@ -8,15 +8,16 @@
 #  - Install backend/requirements.txt
 #  - Verify MongoDB connectivity
 #  - Optional: restore mongo_dump if present (migration)
+#  - Prepare runtime directories/secrets and validate models/native libraries
 # ============================================================
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ENV_NAME="yslee"
-PY_VER="3.12"
-CUDA_TAG="cu121"
+ENV_NAME="${MEDIAUTO_CONDA_ENV:-medicus-saas}"
+PY_VER="${MEDIAUTO_PYTHON_VERSION:-3.12}"
+CUDA_TAG="${MEDIAUTO_CUDA_TAG:-cu121}"
 
 # ── Colors (skipped if not a tty) ──
 if [[ -t 1 ]]; then
@@ -60,7 +61,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # ── STEP 1: MongoDB ──
-section "[STEP 1/7] MongoDB Setup"
+section "[STEP 1/8] MongoDB Setup"
 if command -v mongod >/dev/null 2>&1; then
     log_info "mongod found: $(command -v mongod)"
 else
@@ -133,7 +134,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # ── STEP 2: OpenSlide system library ──
-section "[STEP 2/7] OpenSlide system library"
+section "[STEP 2/8] OpenSlide and libvips system libraries"
 # openslide-python wraps libopenslide.so.0. Wheel doesn't bundle it on Linux.
 if ldconfig -p 2>/dev/null | grep -q "libopenslide\.so"; then
     log_ok "libopenslide already installed."
@@ -148,15 +149,30 @@ else
     else
         echo "    Install OpenSlide for your distro: https://openslide.org/download/"
     fi
-    if confirm "Continue without OpenSlide"; then
-        log_warn "Continuing — slide loading will fail until OpenSlide is installed."
+    log_error "Install OpenSlide with the command above, then rerun install.sh."
+    exit 1
+fi
+
+# pyvips is a Python binding and still needs the native libvips shared library.
+if ldconfig -p 2>/dev/null | grep -q "libvips\.so"; then
+    log_ok "libvips already installed."
+else
+    log_warn "libvips not found."
+    if is_debian_family; then
+        echo "    sudo apt install -y libvips42 libvips-dev"
+    elif is_rhel_family; then
+        echo "    sudo dnf install -y vips vips-devel"
+    elif is_arch_family; then
+        echo "    sudo pacman -S --needed libvips"
     else
-        exit 1
+        echo "    Install libvips for your distro: https://www.libvips.org/install.html"
     fi
+    log_error "Install libvips with the command above, then rerun install.sh."
+    exit 1
 fi
 
 # ── STEP 3: Conda env ──
-section "[STEP 3/7] Conda environment \"$ENV_NAME\""
+section "[STEP 3/8] Conda environment \"$ENV_NAME\""
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
     log_info "env \"$ENV_NAME\" already exists."
 else
@@ -168,7 +184,7 @@ else
 fi
 
 # ── STEP 4: PyTorch ──
-section "[STEP 4/7] PyTorch (CUDA $CUDA_TAG)"
+section "[STEP 4/8] PyTorch (CUDA $CUDA_TAG)"
 conda run -n "$ENV_NAME" pip install --upgrade pip
 if ! conda run -n "$ENV_NAME" pip install torch torchvision \
         --index-url "https://download.pytorch.org/whl/$CUDA_TAG"; then
@@ -177,14 +193,14 @@ if ! conda run -n "$ENV_NAME" pip install torch torchvision \
 fi
 
 # ── STEP 5: backend requirements ──
-section "[STEP 5/7] Backend requirements"
+section "[STEP 5/8] Backend requirements"
 if ! conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/backend/requirements.txt"; then
     log_error "pip install failed."
     exit 1
 fi
 
 # ── STEP 6: connectivity test ──
-section "[STEP 6/7] MongoDB connectivity test"
+section "[STEP 6/8] MongoDB connectivity test"
 MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
 if conda run -n "$ENV_NAME" python -c "
 import os
@@ -204,7 +220,7 @@ else
 fi
 
 # ── STEP 7: optional dump restore (migration) ──
-section "[STEP 7/7] Optional: restore MongoDB dump"
+section "[STEP 7/8] Optional: restore MongoDB dump"
 DUMP_DB_NAME="${MONGO_DB_NAME:-medicus_studio}"
 DUMP_FOLDER="$SCRIPT_DIR/mongo_dump/$DUMP_DB_NAME"
 DUMP_ARCHIVE_GZ="$SCRIPT_DIR/mongo_dump.archive.gz"
@@ -217,6 +233,16 @@ elif [[ -f "$DUMP_ARCHIVE_GZ" ]]; then
     DUMP_TYPE="archive_gz"; DUMP_PATH="$DUMP_ARCHIVE_GZ"
 elif [[ -f "$DUMP_ARCHIVE" ]]; then
     DUMP_TYPE="archive"; DUMP_PATH="$DUMP_ARCHIVE"
+fi
+
+if [[ -n "$DUMP_PATH" && ! -f "$SCRIPT_DIR/backend/.secrets.json" ]]; then
+    if [[ -z "${JWT_SECRET_KEY:-}" || -z "${FIELD_ENCRYPTION_KEY:-}" || -z "${AUTH_PEPPER:-}" ]]; then
+        log_error "A MongoDB dump was found, but its matching application secrets are missing."
+        echo "        Restore backend/.secrets.json from the source server, or export"
+        echo "        JWT_SECRET_KEY, FIELD_ENCRYPTION_KEY, and AUTH_PEPPER before retrying."
+        echo "        Continuing with new keys would break existing passwords/MFA data."
+        exit 1
+    fi
 fi
 
 if [[ -z "$DUMP_PATH" ]]; then
@@ -293,12 +319,28 @@ PYEOF
     fi
 fi
 
+# ── STEP 8: runtime bootstrap ──
+section "[STEP 8/8] Runtime bootstrap and preflight"
+BOOTSTRAP_ARGS=()
+if [[ "${MEDIAUTO_STRICT_MODELS:-0}" == "1" ]]; then
+    BOOTSTRAP_ARGS+=(--strict-models)
+fi
+if [[ "${MEDIAUTO_STRICT_DB:-0}" == "1" ]]; then
+    BOOTSTRAP_ARGS+=(--strict-db)
+fi
+if ! conda run -n "$ENV_NAME" python "$SCRIPT_DIR/backend/scripts/bootstrap_runtime.py" "${BOOTSTRAP_ARGS[@]}"; then
+    log_error "Runtime bootstrap failed. Resolve the errors above and rerun install.sh."
+    exit 1
+fi
+
 # ── Done ──
 echo
 echo "${C_BOLD}============================================================${C_RESET}"
 echo "${C_GREEN}[DONE]${C_RESET} Install complete."
 echo
 echo " Run ./start.sh to launch the SaaS server."
+echo " Conda env: $ENV_NAME (override with MEDIAUTO_CONDA_ENV)"
+echo " Model bundle: set MEDIAUTO_MODEL_SOURCE=/path/to/models-or-archive before install."
 echo
 echo " NOTE (Migration to another machine):"
 echo "   Copy these from the original install:"
