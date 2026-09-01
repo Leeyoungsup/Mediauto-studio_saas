@@ -202,6 +202,14 @@ viewer_executor = ThreadPoolExecutor(
     initializer=_make_initializer(frozenset_viewer_cpus),
 )
 
+# Cache-miss thumbnails and scanner labels perform blocking WSI reads but must
+# not run on the FastAPI event-loop thread or occupy the on-demand tile queue.
+media_executor = ThreadPoolExecutor(
+    max_workers=max(1, min(2, INT_VIEWER)),
+    thread_name_prefix="slide_media",
+    initializer=_make_initializer(frozenset_viewer_cpus),
+)
+
 tile_executor = ThreadPoolExecutor(
     max_workers=INT_TILE,
     thread_name_prefix="tile_worker",
@@ -231,5 +239,12 @@ bg_executor = tile_executor
 
 
 def shutdown_executors() -> None:
-    for executor in (viewer_executor, tile_executor, ai_executor, patch_executor, upload_executor):
+    for executor in (
+        viewer_executor,
+        media_executor,
+        tile_executor,
+        ai_executor,
+        patch_executor,
+        upload_executor,
+    ):
         executor.shutdown(wait=False, cancel_futures=True)

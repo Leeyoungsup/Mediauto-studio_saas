@@ -25,7 +25,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import openslide
@@ -34,6 +33,7 @@ from PIL import Image
 from app.config import settings
 from app.openslide_utils import open_slide_silently
 from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
+from app.priority import viewer_recent
 from app.slide_identity import slide_cache_key
 from app.slide_manager import (
     STAGE_READ_SIZE,
@@ -42,9 +42,20 @@ from app.slide_manager import (
     build_color_corrector,
 )
 
-_thumb_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumb")
-
 TILE_SIZE = TILE_SIZE_OUT
+
+
+def _yield_background_generation_to_viewer() -> None:
+    """Pause whole-slide cache generation between atomic tile reads.
+
+    An OpenSlide read already in progress cannot be interrupted safely.  The
+    next block, however, should not start while interactive viewer requests are
+    arriving, otherwise an obsolete whole-slide job keeps the source file and
+    storage queue busy after the user has moved elsewhere.
+    """
+
+    while viewer_recent(0.4):
+        time.sleep(0.04)
 
 
 def _open_slide(file_path: str):
@@ -985,8 +996,14 @@ def generate_priority_single_tile(
     slide=None,
     apply_color=None,
     store_blank: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> bool:
     """Generate only the viewer-requested tile instead of a whole stage-2 block."""
+    def _cancelled() -> bool:
+        return bool(cancel_event is not None and cancel_event.is_set())
+
+    if _cancelled():
+        return False
     path_target = _target_tile_path_for_file(file_path, level, tile_x, tile_y)
     if _tile_result_exists(path_target):
         if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
@@ -999,6 +1016,8 @@ def generate_priority_single_tile(
     progress_key = slide_cache_key(file_path)
     lock = _get_priority_block_lock(progress_key, tx2, ty2)
     with lock:
+        if _cancelled():
+            return False
         if _tile_result_exists(path_target):
             if not (get_tiles_dir_for_path(file_path) / COMPLETE_MARKER_NAME).exists() or tiles_marker_matches_file(filename, file_path):
                 return True
@@ -1006,8 +1025,12 @@ def generate_priority_single_tile(
 
         bool_close_slide = slide is None
         if slide is None:
+            if _cancelled():
+                return False
             slide = _open_slide(file_path)
         try:
+            if _cancelled():
+                return False
             if apply_color is None:
                 _to_srgb, _ = build_color_corrector(slide)
             else:
@@ -1027,13 +1050,20 @@ def generate_priority_single_tile(
                 (int_read_size, int_read_size),
                 (TILE_SIZE_OUT, TILE_SIZE_OUT),
             )
-            obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
+            obj_rgb = None
             try:
+                if _cancelled():
+                    return False
+                obj_rgb = _to_srgb(image_to_white_rgb(obj_region))
+                if _cancelled():
+                    return False
                 if obj_rgb.size != (TILE_SIZE_OUT, TILE_SIZE_OUT):
                     obj_tile = obj_rgb.resize((TILE_SIZE_OUT, TILE_SIZE_OUT), Image.LANCZOS)
                 else:
                     obj_tile = obj_rgb
                 try:
+                    if _cancelled():
+                        return False
                     if store_blank or _image_has_visible_content(obj_tile):
                         _save_jpeg(obj_tile, path_target, settings.TILE_QUALITY)
                     else:
@@ -1045,7 +1075,8 @@ def generate_priority_single_tile(
             finally:
                 obj_region.close()
                 try:
-                    obj_rgb.close()
+                    if obj_rgb is not None:
+                        obj_rgb.close()
                 except Exception:
                     pass
         finally:
@@ -1206,12 +1237,19 @@ def _generate_tiles(filename: str, file_path: str):
         progress.total_tiles = int_total_tiles
         progress.status = "generating"
 
+        # Give the slide-open response time to reach the browser.  If the user
+        # immediately starts viewing, subsequent cache reads yield to the
+        # latency-sensitive on-demand tile path.
+        time.sleep(0.2)
+        _yield_background_generation_to_viewer()
+
         # text text text
         generate_standard_thumbnail_cache(
             slide,
             tiles_dir,
             apply_color=_to_srgb,
         )
+        _yield_background_generation_to_viewer()
         generate_associated_label_cache(slide, tiles_dir, file_path)
 
         # stage text text
@@ -1233,6 +1271,7 @@ def _generate_tiles(filename: str, file_path: str):
         list_stage1_coords = _stage1_coords_with_data(slide, int_nx1, int_ny1, int_read_size1)
         set_done_stage1: set[tuple[int, int]] = set()
         while len(set_done_stage1) < len(list_stage1_coords):
+            _yield_background_generation_to_viewer()
             coord_stage1 = _next_stage1_coord(progress_key, list_stage1_coords, set_done_stage1)
             if coord_stage1 is None:
                 break
@@ -1254,6 +1293,7 @@ def _generate_tiles(filename: str, file_path: str):
         progress.current_level = 2
         list_stage2_coords = _stage2_coords_with_data(slide, int_nx2, int_ny2, int_read_size2)
         for tx2, ty2 in list_stage2_coords:
+            _yield_background_generation_to_viewer()
             _compose_stage2_from_stage1(
                 stage1_dir,
                 stage2_dir,

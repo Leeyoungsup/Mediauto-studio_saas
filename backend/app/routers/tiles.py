@@ -27,7 +27,6 @@ from app.slide_manager import (
     TILE_SIZE_OUT,
 )
 from app.tile_generator import (
-    any_generation_running,
     blank_tile_marker_exists,
     invalidate_tiles,
     generate_priority_single_tile,
@@ -146,8 +145,9 @@ def _can_inline_generate(level: int, bool_philips: bool) -> bool:
         return False
     if _viewer_queue_size() >= _INLINE_QUEUE_LIMIT:
         return False
-    if any_generation_running() and (bool_philips or level >= 2):
-        return False
+    # Whole-slide generators now yield between reads while the viewer is
+    # active.  Refusing an inline tile merely because such a generator exists
+    # would leave both sides waiting and cause repeated 503 retries.
     return True
 
 
@@ -166,12 +166,14 @@ def _pending_tile_response() -> Response:
 
 async def _run_viewer_job(request: Request, fn, *, timeout_seconds: float | None = None):
     loop = asyncio.get_running_loop()
+    obj_cancel = threading.Event()
+
     def _tracked_fn():
         global _INLINE_ACTIVE
         with _INLINE_ACTIVE_LOCK:
             _INLINE_ACTIVE += 1
         try:
-            return fn()
+            return fn(obj_cancel)
         finally:
             with _INLINE_ACTIVE_LOCK:
                 _INLINE_ACTIVE -= 1
@@ -183,10 +185,16 @@ async def _run_viewer_job(request: Request, fn, *, timeout_seconds: float | None
         if done:
             return fut.result()
         if timeout_seconds is not None and time.monotonic() - float_started >= timeout_seconds:
+            # This is only the HTTP response budget, not a client cancellation.
+            # If the OpenSlide read is already running, let it finish and cache
+            # the tile so the browser retry can use it.  Cancelling here made
+            # every slow (> timeout) tile restart from zero and could leave the
+            # viewer permanently blank.
             if not fut.cancel():
                 fut.add_done_callback(_consume_future_exception)
             raise HTTPException(status_code=503, detail="Tile generation queued", headers={"Retry-After": "1"})
         if await request.is_disconnected():
+            obj_cancel.set()
             if not fut.cancel():
                 fut.add_done_callback(_consume_future_exception)
             raise HTTPException(status_code=499, detail="Client closed request")
@@ -229,7 +237,7 @@ async def _ensure_philips_tile(
     try:
         await _run_viewer_job(
             request,
-            lambda: generate_priority_single_tile(
+            lambda obj_cancel: generate_priority_single_tile(
                 filename,
                 info.file_path,
                 level,
@@ -237,6 +245,7 @@ async def _ensure_philips_tile(
                 tile_y,
                 info.slide,
                 info.apply_icc,
+                cancel_event=obj_cancel,
             ),
             timeout_seconds=timeout_seconds,
         )
@@ -385,41 +394,60 @@ async def get_tile_ndp(
                 return _blank_tile_response("no-store")
             return _blank_tile_response("public, max-age=604800")
 
-    def _make_ndp_variant() -> bytes:
-        # (1) raw text text
-        if not path_raw_tile.exists():
-            obj_slide = get_thread_slide(slide_id, info.file_path)
-            obj_region = obj_slide.read_region(
-                (tile_x * int_read_size, tile_y * int_read_size),
-                0,
-                (int_read_size, int_read_size),
-            )
-            obj_rgb = image_to_white_rgb(obj_region)
-            obj_rgb = info.apply_icc(obj_rgb)
-            if int_read_size != TILE_SIZE:
-                obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
-            _save_jpeg_atomic(obj_rgb, path_raw_tile, settings.TILE_QUALITY)
-            obj_region.close()
-        else:
-            with Image.open(str(path_raw_tile)) as obj_file:
-                obj_rgb = obj_file.convert("RGB")
+    def _make_ndp_variant(obj_cancel: threading.Event) -> bytes:
+        def _check_cancelled() -> None:
+            if obj_cancel.is_set():
+                raise RuntimeError("Tile request cancelled")
 
-        # (2) NDP fit text → text
-        obj_ndp = apply_ndp_fit(obj_rgb)
-        _save_jpeg_atomic(obj_ndp, path_ndp_tile, settings.TILE_QUALITY)
+        obj_rgb = None
+        obj_ndp = None
+        try:
+            # (1) raw text text
+            _check_cancelled()
+            if not path_raw_tile.exists():
+                obj_slide = get_thread_slide(slide_id, info.file_path)
+                obj_region = obj_slide.read_region(
+                    (tile_x * int_read_size, tile_y * int_read_size),
+                    0,
+                    (int_read_size, int_read_size),
+                )
+                try:
+                    _check_cancelled()
+                    obj_rgb = image_to_white_rgb(obj_region)
+                    _check_cancelled()
+                    obj_rgb = info.apply_icc(obj_rgb)
+                    if int_read_size != TILE_SIZE:
+                        obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
+                    _check_cancelled()
+                    _save_jpeg_atomic(obj_rgb, path_raw_tile, settings.TILE_QUALITY)
+                finally:
+                    obj_region.close()
+            else:
+                with Image.open(str(path_raw_tile)) as obj_file:
+                    obj_rgb = obj_file.convert("RGB")
 
-        # (3) text text
-        buf = io.BytesIO()
-        obj_ndp.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
-        try:
-            obj_rgb.close()
-        except Exception:
-            pass
-        try:
-            obj_ndp.close()
-        except Exception:
-            pass
-        return buf.getvalue()
+            # (2) NDP fit text → text
+            _check_cancelled()
+            obj_ndp = apply_ndp_fit(obj_rgb)
+            _check_cancelled()
+            _save_jpeg_atomic(obj_ndp, path_ndp_tile, settings.TILE_QUALITY)
+
+            # (3) text text
+            _check_cancelled()
+            buf = io.BytesIO()
+            obj_ndp.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+            return buf.getvalue()
+        finally:
+            try:
+                if obj_rgb is not None:
+                    obj_rgb.close()
+            except Exception:
+                pass
+            try:
+                if obj_ndp is not None:
+                    obj_ndp.close()
+            except Exception:
+                pass
 
     try:
         content = await _run_viewer_job(request, _make_ndp_variant)
@@ -495,47 +523,62 @@ async def get_tile(
         )
         return _pending_tile_response()
 
-    def _render_and_save() -> bytes:
+    def _render_and_save(obj_cancel: threading.Event) -> bytes:
+        def _check_cancelled() -> None:
+            if obj_cancel.is_set():
+                raise RuntimeError("Tile request cancelled")
+
         # thread-local text read — text text text text text text text
+        _check_cancelled()
         obj_slide = get_thread_slide(slide_id, info.file_path)
         float_t0 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
 
-        obj_region = read_region_for_output(
-            obj_slide,
-            (int_sx, int_sy),
-            (int_read_size, int_read_size),
-            (TILE_SIZE, TILE_SIZE),
-        )
-        float_t1 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-        obj_rgb = image_to_white_rgb(obj_region)
-        obj_rgb = info.apply_icc(obj_rgb)
-        if obj_rgb.size != (TILE_SIZE, TILE_SIZE):
-            obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
-        float_t2 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-        _save_jpeg_atomic(obj_rgb, tile_path, settings.TILE_QUALITY)
-        float_t3 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-        buf = io.BytesIO()
-        obj_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
-        float_t4 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-        if _BOOL_TILE_DEBUG:
-            print(
-                f"[tiles] {threading.current_thread().name} S{level} "
-                f"read={int((float_t1-float_t0)*1000)}ms "
-                f"rgb+resize={int((float_t2-float_t1)*1000)}ms "
-                f"savedisk={int((float_t3-float_t2)*1000)}ms "
-                f"encode={int((float_t4-float_t3)*1000)}ms "
-                f"total={int((float_t4-float_t0)*1000)}ms"
-            )
-        obj_region.close()
+        obj_region = None
+        obj_rgb = None
         try:
-            obj_rgb.close()
-        except Exception:
-            pass
-        return buf.getvalue()
+            obj_region = read_region_for_output(
+                obj_slide,
+                (int_sx, int_sy),
+                (int_read_size, int_read_size),
+                (TILE_SIZE, TILE_SIZE),
+            )
+            float_t1 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
+            _check_cancelled()
+
+            obj_rgb = image_to_white_rgb(obj_region)
+            _check_cancelled()
+            obj_rgb = info.apply_icc(obj_rgb)
+            if obj_rgb.size != (TILE_SIZE, TILE_SIZE):
+                obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
+            float_t2 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
+            _check_cancelled()
+
+            _save_jpeg_atomic(obj_rgb, tile_path, settings.TILE_QUALITY)
+            float_t3 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
+            _check_cancelled()
+
+            buf = io.BytesIO()
+            obj_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
+            float_t4 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
+
+            if _BOOL_TILE_DEBUG:
+                print(
+                    f"[tiles] {threading.current_thread().name} S{level} "
+                    f"read={int((float_t1-float_t0)*1000)}ms "
+                    f"rgb+resize={int((float_t2-float_t1)*1000)}ms "
+                    f"savedisk={int((float_t3-float_t2)*1000)}ms "
+                    f"encode={int((float_t4-float_t3)*1000)}ms "
+                    f"total={int((float_t4-float_t0)*1000)}ms"
+                )
+            return buf.getvalue()
+        finally:
+            if obj_region is not None:
+                obj_region.close()
+            try:
+                if obj_rgb is not None:
+                    obj_rgb.close()
+            except Exception:
+                pass
 
     try:
         # viewer text pool — viewer cores text text (cpu_layout)
