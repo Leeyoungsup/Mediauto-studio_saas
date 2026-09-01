@@ -141,6 +141,8 @@ echo ============================================================
 set "POSTGRES_ENV_FILE=%~dp0.env.postgres"
 if defined MEDIAUTO_POSTGRES_ENV_FILE set "POSTGRES_ENV_FILE=%MEDIAUTO_POSTGRES_ENV_FILE%"
 set POSTGRES_MODE=docker
+if exist "!POSTGRES_ENV_FILE!" for /f "usebackq eol=# tokens=1,* delims==" %%A in ("!POSTGRES_ENV_FILE!") do if /I "%%A"=="POSTGRES_DEPLOYMENT" set POSTGRES_MODE=%%B
+if defined MEDIAUTO_POSTGRES_MODE set POSTGRES_MODE=%MEDIAUTO_POSTGRES_MODE%
 if defined POSTGRES_URI if not exist "!POSTGRES_ENV_FILE!" set POSTGRES_MODE=external
 if "%MEDIAUTO_POSTGRES_EXTERNAL%"=="1" set POSTGRES_MODE=external
 call conda run -n %ENV_NAME% python "%~dp0backend\scripts\configure_postgres_env.py" --env-file "!POSTGRES_ENV_FILE!" --mode !POSTGRES_MODE!
@@ -151,6 +153,12 @@ if errorlevel 1 (
 )
 for /f "usebackq eol=# tokens=1,* delims==" %%A in ("!POSTGRES_ENV_FILE!") do set "%%A=%%B"
 
+if /I "!POSTGRES_DEPLOYMENT!"=="native" (
+    echo [ERROR] Native managed PostgreSQL is currently supported by install.sh on Linux.
+    echo         On Windows use Docker, or install PostgreSQL separately and select external mode.
+    pause
+    exit /b 1
+)
 if /I "!POSTGRES_DEPLOYMENT!"=="external" goto POSTGRES_EXTERNAL_READY
 where docker >nul 2>&1
 if errorlevel 1 (

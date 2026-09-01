@@ -34,6 +34,16 @@ class ConfigurePostgresEnvTests(unittest.TestCase):
             self.assertEqual(dict_values["POSTGRES_URI"], str_uri)
             self.assertEqual(_parse_env(path_env)["POSTGRES_DEPLOYMENT"], "external")
 
+    def test_native_configuration_uses_local_connection(self):
+        with tempfile.TemporaryDirectory() as str_temp, patch.dict(
+            os.environ, {"POSTGRES_PORT": "55432"}, clear=True,
+        ):
+            path_env = Path(str_temp) / ".env.postgres"
+            dict_values, _ = configure(path_env, "native")
+
+            self.assertEqual(dict_values["POSTGRES_DEPLOYMENT"], "native")
+            self.assertIn("@127.0.0.1:55432/", dict_values["POSTGRES_URI"])
+
 
 if __name__ == "__main__":
     unittest.main()

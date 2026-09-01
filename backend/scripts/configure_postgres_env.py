@@ -31,9 +31,9 @@ def _validate(dict_values: dict[str, str], path_env: Path) -> None:
     if not dict_values.get("POSTGRES_URI"):
         raise ValueError(f"POSTGRES_URI is required in {path_env}")
     str_deployment = dict_values.get("POSTGRES_DEPLOYMENT", "docker").lower()
-    if str_deployment not in {"docker", "external"}:
-        raise ValueError("POSTGRES_DEPLOYMENT must be 'docker' or 'external'")
-    if str_deployment == "docker":
+    if str_deployment not in {"docker", "native", "external"}:
+        raise ValueError("POSTGRES_DEPLOYMENT must be 'docker', 'native', or 'external'")
+    if str_deployment in {"docker", "native"}:
         for str_key in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_PORT"):
             if not dict_values.get(str_key):
                 raise ValueError(f"{str_key} is required for Docker PostgreSQL")
@@ -68,7 +68,7 @@ def configure(path_env: Path, str_mode: str) -> tuple[dict[str, str], bool]:
             f"@127.0.0.1:{str_port}/{quote(str_database, safe='')}"
         )
         dict_values = {
-            "POSTGRES_DEPLOYMENT": "docker",
+            "POSTGRES_DEPLOYMENT": str_mode,
             "POSTGRES_DB": str_database,
             "POSTGRES_USER": str_user,
             "POSTGRES_PASSWORD": str_password,
@@ -100,7 +100,7 @@ async def _check_connection(str_uri: str) -> None:
 def main() -> int:
     obj_parser = argparse.ArgumentParser(description=__doc__)
     obj_parser.add_argument("--env-file", required=True)
-    obj_parser.add_argument("--mode", choices=("docker", "external"), default="docker")
+    obj_parser.add_argument("--mode", choices=("docker", "native", "external"), default="docker")
     obj_parser.add_argument("--check-connection", action="store_true")
     obj_args = obj_parser.parse_args()
     try:
@@ -112,7 +112,7 @@ def main() -> int:
         return 1
     print(
         "[OK] PostgreSQL environment "
-        + ("created with a generated password." if bool_created else "validated.")
+        + ("created with protected credentials." if bool_created else "validated.")
     )
     if obj_args.check_connection:
         print("[OK] PostgreSQL ping succeeded.")

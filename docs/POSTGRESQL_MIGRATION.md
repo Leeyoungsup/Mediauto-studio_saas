@@ -32,6 +32,18 @@
 - 최초 MongoDB 데이터 이관 및 중단된 첫 이관 재개; 완료 봉인 이후에는 자동 재이관 금지
 - 기준 저장소가 비어 있으면 최초 PostgreSQL 관리자 생성
 
+Linux는 Docker 없이 native PostgreSQL 18 설치도 지원한다.
+
+```bash
+export MEDIAUTO_POSTGRES_MODE=native
+./install.sh
+```
+
+native 모드는 `mediauto-postgres` Conda 환경에 서버 바이너리를 설치하고 프로젝트의
+`postgres_data/`에 클러스터를 초기화한다. 서버는 localhost에만 바인딩되고
+`mediauto-postgresql.service` 사용자 systemd 서비스로 자동 시작된다. 이 방식은
+Docker 데몬이나 root 권한을 요구하지 않는다.
+
 실제 비밀번호가 들어가는 `.env.postgres`는 Git에 커밋하지 않는다. 수동 구성은 다음과
 같으며, 템플릿의 `POSTGRES_PASSWORD`와 `POSTGRES_URI` 비밀번호를 함께 변경해야 한다.
 

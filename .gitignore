@@ -9,6 +9,9 @@ __pycache__/
 /backend/.secrets.json
 .env
 .env.postgres
+.env.postgres.*
+/postgres_data/
+/postgres_backup/
 project.tar
 /mongo_backup/*
 tools/

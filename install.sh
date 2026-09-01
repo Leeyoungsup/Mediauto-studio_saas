@@ -20,6 +20,9 @@ PY_VER="${MEDIAUTO_PYTHON_VERSION:-3.12}"
 CUDA_TAG="${MEDIAUTO_CUDA_TAG:-cu121}"
 PHILIPS_ENV_NAME="${PHILIPS_CONDA_ENV:-philips-sdk-py38}"
 PHILIPS_PY_VER="3.8"
+POSTGRES_ENV_NAME="${MEDIAUTO_POSTGRES_CONDA_ENV:-mediauto-postgres}"
+POSTGRES_DATA_DIR="${MEDIAUTO_POSTGRES_DATA_DIR:-$SCRIPT_DIR/postgres_data}"
+POSTGRES_UNIT_FILE="${MEDIAUTO_POSTGRES_UNIT_FILE:-$HOME/.config/systemd/user/mediauto-postgresql.service}"
 
 # ── Colors (skipped if not a tty) ──
 if [[ -t 1 ]]; then
@@ -232,7 +235,11 @@ fi
 # ── STEP 6: PostgreSQL environment and service ──
 section "[STEP 6/11] PostgreSQL environment and service"
 POSTGRES_ENV_FILE="${MEDIAUTO_POSTGRES_ENV_FILE:-$SCRIPT_DIR/.env.postgres}"
-POSTGRES_MODE="docker"
+POSTGRES_EXISTING_MODE=""
+if [[ -f "$POSTGRES_ENV_FILE" ]]; then
+    POSTGRES_EXISTING_MODE=$(awk -F= '$1 == "POSTGRES_DEPLOYMENT" {print tolower($2); exit}' "$POSTGRES_ENV_FILE")
+fi
+POSTGRES_MODE="${MEDIAUTO_POSTGRES_MODE:-${POSTGRES_EXISTING_MODE:-docker}}"
 if [[ "${MEDIAUTO_POSTGRES_EXTERNAL:-0}" == "1" || ( ! -f "$POSTGRES_ENV_FILE" && -n "${POSTGRES_URI:-}" ) ]]; then
     POSTGRES_MODE="external"
 fi
@@ -277,6 +284,39 @@ if [[ "${POSTGRES_DEPLOYMENT:-docker}" == "docker" ]]; then
         exit 1
     fi
     log_ok "Persistent PostgreSQL container is healthy on 127.0.0.1:${POSTGRES_PORT:-5432}."
+elif [[ "${POSTGRES_DEPLOYMENT}" == "native" ]]; then
+    if [[ "$(uname -s)" != "Linux" ]] || ! command -v systemctl >/dev/null 2>&1; then
+        log_error "Native PostgreSQL installation currently requires Linux with user systemd."
+        exit 1
+    fi
+    if conda env list | awk '{print $1}' | grep -Fxq "$POSTGRES_ENV_NAME"; then
+        log_info "Native PostgreSQL env '$POSTGRES_ENV_NAME' already exists."
+    else
+        log_info "Installing native PostgreSQL 18 in Conda env '$POSTGRES_ENV_NAME'."
+        if ! conda create -y -n "$POSTGRES_ENV_NAME" -c conda-forge "postgresql=18"; then
+            log_error "Native PostgreSQL package installation failed."
+            exit 1
+        fi
+    fi
+    POSTGRES_CONDA_PREFIX=$(conda env list | awk -v name="$POSTGRES_ENV_NAME" '$1 == name {print $NF; exit}')
+    if [[ -z "$POSTGRES_CONDA_PREFIX" || ! -x "$POSTGRES_CONDA_PREFIX/bin/postgres" ]]; then
+        log_error "Could not locate native PostgreSQL binaries for '$POSTGRES_ENV_NAME'."
+        exit 1
+    fi
+    if ! conda run -n "$ENV_NAME" python \
+        "$SCRIPT_DIR/backend/scripts/manage_native_postgres.py" \
+        --bin-dir "$POSTGRES_CONDA_PREFIX/bin" \
+        --data-dir "$POSTGRES_DATA_DIR" \
+        --unit-file "$POSTGRES_UNIT_FILE" \
+        --port "$POSTGRES_PORT" \
+        --user "$POSTGRES_USER" \
+        --database "$POSTGRES_DB"; then
+        log_error "Native PostgreSQL initialization failed."
+        exit 1
+    fi
+    loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || \
+        log_warn "Could not enable user lingering; native PostgreSQL may stop after logout."
+    log_ok "Native PostgreSQL service is enabled: mediauto-postgresql.service"
 else
     log_info "External PostgreSQL deployment selected; Docker startup skipped."
 fi
@@ -493,6 +533,10 @@ echo " PostgreSQL runtime:"
 echo "   Environment = $POSTGRES_ENV_FILE"
 echo "   Backend     = postgresql"
 echo "   Deployment  = ${POSTGRES_DEPLOYMENT:-docker}"
+if [[ "${POSTGRES_DEPLOYMENT:-}" == "native" ]]; then
+    echo "   Data dir    = $POSTGRES_DATA_DIR"
+    echo "   Service     = mediauto-postgresql.service"
+fi
 echo
 echo " MongoDB defaults:"
 echo "   URI    = mongodb://localhost:27017   (override: export MONGO_URI=...)"

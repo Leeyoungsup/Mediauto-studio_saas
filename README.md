@@ -146,7 +146,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 ### 사전 요구사항
 
 - Miniconda/Anaconda
-- Docker Engine + Compose 플러그인(PostgreSQL 18 영구 컨테이너 기본 배포)
+- PostgreSQL 배포 방식에 따라 Docker Engine + Compose 또는 Linux 사용자 systemd
 - MongoDB 7.0+(프로젝트·슬라이드·AI·annotation의 잔여 저장소)
 - OpenSlide와 libvips 시스템 라이브러리
 - (선택) NVIDIA GPU + CUDA 11.8+ — AI 추론 가속
@@ -178,11 +178,23 @@ $env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
 - 선택적으로 모델 번들 배치
 - OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
 - 소유자 전용 `.env.postgres`와 임의 DB 비밀번호 자동 생성
-- PostgreSQL 영구 컨테이너 시작, Alembic 스키마 적용 및 연결 점검
+- 선택한 PostgreSQL 영구 서비스 시작, Alembic 스키마 적용 및 연결 점검
 - 초기 PostgreSQL에 기존 MongoDB 인증·감사·IP·임상정보를 이관하고 중단된 첫 이관은 안전하게 재개
 - 기존 `mongo_dump` 발견 시 확인 후 복원
 - 지원 OS에서 로컬 MongoDB 설치 및 서비스 시작
 - 요청 시 Philips 전용 Conda 환경 생성과 SDK smoke test
+
+Linux에서 Docker 없이 PostgreSQL 18을 직접 설치하려면 다음처럼 native 모드를 선택한다.
+별도 `mediauto-postgres` Conda 환경, `postgres_data/` 데이터 디렉터리와
+`mediauto-postgresql.service` 사용자 systemd 서비스가 자동 구성된다.
+
+```bash
+export MEDIAUTO_POSTGRES_MODE=native
+./install.sh
+```
+
+기본값은 `docker`이며 외부 DB는 `external`을 사용한다. Windows의 자동 native 관리는
+지원하지 않으므로 Docker 또는 별도로 설치한 PostgreSQL의 외부 연결을 사용한다.
 
 Philips iSyntax 지원은 메인 환경과 분리된다. Linux SDK는 `philips-sdk-py38`(Python 3.8), Windows SDK는 `philips-sdk-py37`(Python 3.7)을 사용한다. SDK는 Git에 포함되지 않으며, 라이선스 문서를 직접 확인한 후에만 다음처럼 설치한다.
 
@@ -227,7 +239,7 @@ docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 | `MONGO_URI` | `mongodb://localhost:27017` | MongoDB 연결 문자열 |
 | `MONGO_DB_NAME` | `medicus_studio` | 데이터베이스 이름 |
 | `DATABASE_BACKEND` | 설치 시 `postgresql` | 운영 저장소 선택. `.env.postgres`에서 설정 |
-| `POSTGRES_DEPLOYMENT` | `docker` | `docker` 또는 외부 DB를 뜻하는 `external` |
+| `POSTGRES_DEPLOYMENT` | `docker` | 실제 구성 결과: `docker`, Linux `native`, 또는 `external` |
 | `POSTGRES_URI` | 설치 시 자동 생성 | PostgreSQL 연결 문자열 |
 | `POSTGRES_POOL_SIZE` / `POSTGRES_MAX_OVERFLOW` | 10 / 20 | PostgreSQL 기본 연결 수와 추가 연결 상한 |
 | `JWT_SECRET_KEY` | `.secrets.json` 자동 생성 | 운영에서는 secret manager 로 주입 |
@@ -246,6 +258,9 @@ docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 | `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
 | `MEDIAUTO_CONDA_ENV` | `medicus-saas` | 설치·실행에 사용할 Conda 환경 이름 |
 | `MEDIAUTO_AUTO_INSTALL_DB` | 0 | 지원 OS에서 로컬 MongoDB 자동 설치(Windows winget, Ubuntu 20.04/22.04 apt) |
+| `MEDIAUTO_POSTGRES_MODE` | `docker` | PostgreSQL 설치 방식: `docker`, Linux `native`, `external` |
+| `MEDIAUTO_POSTGRES_CONDA_ENV` | `mediauto-postgres` | native PostgreSQL 18 전용 Conda 환경 |
+| `MEDIAUTO_POSTGRES_DATA_DIR` | `postgres_data` | native PostgreSQL 영구 데이터 디렉터리 |
 | `MEDIAUTO_POSTGRES_EXTERNAL` | 0 | `1`이면 Docker 대신 미리 지정한 외부 `POSTGRES_URI` 사용 |
 | `MEDIAUTO_MODEL_SOURCE` | "" | AI 모델 디렉터리 또는 ZIP/TAR 번들 경로 |
 | `MEDIAUTO_STRICT_DB` / `MEDIAUTO_STRICT_MODELS` | 0 | 초기 점검 실패를 설치 오류로 처리 |
