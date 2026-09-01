@@ -1,5 +1,10 @@
 <!-- markdownlint-disable MD024 MD031 MD032 MD036 MD040 -->
-# MeDIAuto Studio SaaS — MongoDB 스키마
+# MeDIAuto Studio SaaS — 데이터베이스 스키마
+
+> 이 문서의 MongoDB 컬렉션 설명은 기존 설치 데이터 이관과 롤백을 위한 레거시
+> 구조 기록이다. 현재 `DATABASE_BACKEND=postgresql` 운영 저장소는 Alembic 스키마의
+> 정규 테이블과 `application_documents` JSONB 문서 저장소를 사용한다. 프로젝트,
+> 슬라이드, AI 상태, cell annotation도 PostgreSQL이 기준 저장소다.
 
 FastAPI + MongoDB (motor async) 기반. 모든 필드는 `str_/int_/bool_/dict_/list_/dt_/float_` 접두어 규칙을 따른다.
 인덱스는 앱 시작 시 `connect_db()`에서 멱등 생성된다.

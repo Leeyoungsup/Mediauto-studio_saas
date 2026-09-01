@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -156,3 +156,52 @@ class AuditIntegritySeal(Base):
     dict_summary: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
     dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class ApplicationDocument(Base):
+    """PostgreSQL document row for slide/project/AI/annotation application state.
+
+    The original documents are retained as JSONB so staged migrations do not
+    discard fields introduced by older deployments.  Natural-key columns keep
+    the high-traffic slide and patch lookups indexed and enforce the same
+    uniqueness guarantees as the former MongoDB collections.
+    """
+
+    __tablename__ = "application_documents"
+
+    str_collection: Mapped[str] = mapped_column(String(80), primary_key=True)
+    str_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    str_natural_key: Mapped[str] = mapped_column(Text, nullable=False)
+    str_secondary_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    dict_document: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False)
+    dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "str_collection", "str_natural_key", "str_secondary_key",
+            name="uq_application_documents_natural_key",
+        ),
+        Index("ix_application_documents_collection", "str_collection"),
+        Index(
+            "ix_application_documents_lookup",
+            "str_collection", "str_natural_key", "str_secondary_key",
+        ),
+        Index(
+            "ix_application_documents_json_gin",
+            "dict_document",
+            postgresql_using="gin",
+        ),
+    )
+
+
+class ApplicationDataMigration(Base):
+    """Verified snapshot marker for an application-data migration."""
+
+    __tablename__ = "application_data_migrations"
+
+    str_id: Mapped[str] = mapped_column("id", String(100), primary_key=True)
+    dict_source_counts: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
+    dict_target_counts: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
+    str_payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    dt_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

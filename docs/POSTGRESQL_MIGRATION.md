@@ -1,9 +1,9 @@
 # PostgreSQL 단계적 전환
 
-이 브랜치는 MongoDB 서비스를 중단하지 않고 기능군별로 PostgreSQL로 이전한다.
-신규 설치와 현재 운영 환경은 `DATABASE_BACKEND=postgresql`로 인증·감사·IP 캐시·
-임상정보를 처리한다. 프로젝트·슬라이드·AI 상태·annotation이 이전될 때까지 MongoDB도
-반드시 함께 실행한다.
+이 브랜치는 기능군별로 PostgreSQL 이전을 수행한다. 현재 운영 환경은
+`DATABASE_BACKEND=postgresql`로 인증·감사·IP 캐시·임상정보뿐 아니라 프로젝트,
+슬라이드, AI 상태와 annotation까지 처리한다. MongoDB는 기존 데이터 이관과 검증된
+롤백 스냅샷 용도로만 남아 있으며 PostgreSQL 모드의 런타임은 MongoDB에 연결하지 않는다.
 
 ## 원칙
 
@@ -18,8 +18,8 @@
 1. PostgreSQL 연결, Alembic, Docker Compose 기반 구성
 2. `users`, `sessions`와 인증 API 전환 — **Repository 구현 완료**
 3. `audit_logs`, `ip_geo_cache`, 임상정보 전환 — **Repository 및 이관 도구 구현 완료**
-4. 프로젝트, 슬라이드, AI 상태와 annotation 전환
-5. MongoDB → PostgreSQL 이관 도구, 검증 보고서와 롤백 절차 작성
+4. 프로젝트, 슬라이드, AI 상태와 annotation 전환 — **완료**
+5. MongoDB → PostgreSQL 이관 도구, 검증 마커와 롤백 스냅샷 — **완료**
 6. 운영 안정화 후 Motor/PyMongo/MongoDB 제거
 
 ## 로컬 PostgreSQL 준비
@@ -64,10 +64,10 @@ alembic upgrade head
 ```
 
 현재 Alembic revision은 `users`, `sessions`, `audit_logs`, `ip_geo_cache`,
-`case_clinical_info`, `audit_integrity_seals`를 생성한다. PostgreSQL Repository는
+`case_clinical_info`, `audit_integrity_seals`, `application_documents`,
+`application_data_migrations`를 생성한다. PostgreSQL Repository는
 로그인, 계정 잠금, 토큰 회전 CAS, 로그아웃, 비밀번호 변경, MFA와 관리자 사용자
-관리를 지원한다. 나머지 데이터는 계속 MongoDB를 사용하므로 전환 기간에는 두 DB가
-모두 실행되어야 한다.
+관리 및 프로젝트·슬라이드·AI 상태·annotation 저장을 지원한다.
 
 외부 PostgreSQL을 사용하면 설치 전에 URL 인코딩된 연결 문자열을 지정한다.
 
@@ -143,10 +143,25 @@ case name)는 건너뛰며, 내용 충돌은 오류로 중단한다.
 `/api/users/audit-logs/verify-chain`은 원본 HMAC, 복원된 서명 시각, 이관 봉인과 봉인
 이후 신규 체인을 함께 검사해 `bool_integrity_intact`를 반환한다.
 
-현재 슬라이드 본문은 MongoDB에 남아 있다. 임상정보의 기준 저장소는 PostgreSQL로
-전환되지만, 기존 슬라이드 문서의 임상정보 읽기 fallback과 호환용 갱신은 다음 단계가
-끝날 때까지 유지한다. 따라서 `DATABASE_BACKEND=postgresql`인 동안에도 MongoDB를
-중지하면 안 된다.
+## 프로젝트·슬라이드·AI·annotation 이관
+
+전환 직전 웹 서버와 백그라운드 워커를 중지한 상태에서 실행한다.
+
+```bash
+cd backend
+python scripts/migrate_application_to_postgres.py --dry-run
+python scripts/migrate_application_to_postgres.py --if-empty
+```
+
+대상은 `slides`, `folder_ai_configs`, `project_infos`,
+`annotation_required_regions`, `patch_annotation_status`,
+`patch_cell_annotations`, `user_ai_edits`, `app_settings`이다. BSON ObjectId와 datetime을
+손실 없이 JSONB로 보존하고, 슬라이드·프로젝트·patch 복합키는 별도 자연키 열과
+PostgreSQL 인덱스로 강제한다. 모든 문서의 정규 직렬화 SHA-256과 컬렉션별 건수가
+일치해야 `application_data_migrations` 완료 마커가 기록된다.
+
+전환 후 PostgreSQL 모드의 앱은 MongoDB에 연결하지 않는다. 기존 MongoDB 데이터와
+전환 직전 `mongodump`는 안정화 기간 동안 롤백용으로 보존한다.
 
 ## 운영 전환 조건
 

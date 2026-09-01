@@ -55,7 +55,9 @@ async def connect_postgres() -> None:
                 "SELECT to_regclass('public.users'), to_regclass('public.sessions'), "
                 "to_regclass('public.audit_logs'), to_regclass('public.ip_geo_cache'), "
                 "to_regclass('public.case_clinical_info'), "
-                "to_regclass('public.audit_integrity_seals')"
+                "to_regclass('public.audit_integrity_seals'), "
+                "to_regclass('public.application_documents'), "
+                "to_regclass('public.application_data_migrations')"
             ))).one())
             if any(obj_table is None for obj_table in tuple_tables):
                 raise RuntimeError(

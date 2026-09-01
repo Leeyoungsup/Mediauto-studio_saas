@@ -383,6 +383,12 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\migrate_application_to_postgres.py" --if-empty
+if errorlevel 1 (
+    echo [ERROR] Project/slide/AI/annotation migration failed. Existing PostgreSQL data was preserved.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ============================================================
@@ -417,8 +423,8 @@ echo    Copy these from the original install:
 echo      - backend\.secrets.json   ^(password pepper, AES key - CRITICAL^)
 echo      - backend\uploads\        ^(WSI files, tile cache^)
 echo      - backend\model\          ^(AI weights^)
-echo      - MongoDB dump            ^(remaining project/slide/AI/annotation data^)
-echo      - PostgreSQL backup       ^(users/sessions/audit/geo/clinical data^)
+echo      - MongoDB dump            ^(legacy import or rollback only^)
+echo      - PostgreSQL backup       ^(all application database data^)
 echo    Losing .secrets.json breaks all existing user passwords.
 echo.
 echo    Dump on the OLD machine ^(any of these formats^):

@@ -758,49 +758,27 @@ async def get_dashboard_stats(bool_include_disk: bool = True) -> dict:
 
     db = get_db()
 
-    # text aggregation text text text text + text + AItext text text text text
-    pipeline = [
-        {"$facet": {
-            "total": [{"$count": "n"}],
-            "by_status": [
-                {"$group": {
-                    "_id": {"$ifNull": ["$str_status", ""]},
-                    "n": {"$sum": 1},
-                }},
-            ],
-            **{
-                _safe_ai_facet_key(str_k): [
-                    {"$match": {"$or": [
-                        {f"dict_ai_results.{str_k}.bool_has_result": True},
-                        {f"dict_ai_results.{_legacy_ai_model_key(str_k)}.bool_has_result": True},
-                    ]}},
-                    {"$count": "n"},
-                ]
-                for str_k in LIST_AI_MODEL_KEYS
-            },
-        }},
-    ]
-    cursor = db.slides.aggregate(pipeline)
-    dict_facet = await cursor.to_list(length=1)
-    if dict_facet:
-        facet = dict_facet[0]
-        # text text text
-        total_list = facet.get("total", [])
-        dict_result["int_total_slides"] = total_list[0]["n"] if total_list else 0
-
-        # text text
-        for doc in facet.get("by_status", []):
-            str_s = doc["_id"]
-            if str_s == "" or str_s is None:
-                dict_result["dict_status_counts"]["none"] = doc["n"]
-            else:
-                dict_result["dict_status_counts"][str_s] = doc["n"]
-
-        # AI text text
-        for str_k in LIST_AI_MODEL_KEYS:
-            safe_key = _safe_ai_facet_key(str_k)
-            ai_list = facet.get(safe_key, [])
-            dict_result["dict_ai_counts"][str_k] = ai_list[0]["n"] if ai_list else 0
+    # Keep dashboard aggregation backend-neutral.  The collection adapter
+    # streams one compact projection and PostgreSQL serves it from JSONB.
+    list_docs = await db.slides.find(
+        {},
+        {"str_status": 1, "dict_ai_results": 1},
+    ).to_list(length=None)
+    dict_result["int_total_slides"] = len(list_docs)
+    dict_result["dict_ai_counts"] = {str_key: 0 for str_key in LIST_AI_MODEL_KEYS}
+    for dict_doc in list_docs:
+        str_status = dict_doc.get("str_status") or "none"
+        dict_result["dict_status_counts"][str_status] = (
+            dict_result["dict_status_counts"].get(str_status, 0) + 1
+        )
+        dict_ai_results = dict_doc.get("dict_ai_results") or {}
+        for str_key in LIST_AI_MODEL_KEYS:
+            str_legacy_key = _legacy_ai_model_key(str_key)
+            if bool((dict_ai_results.get(str_key) or {}).get("bool_has_result")) or (
+                str_legacy_key
+                and bool((dict_ai_results.get(str_legacy_key) or {}).get("bool_has_result"))
+            ):
+                dict_result["dict_ai_counts"][str_key] += 1
 
     return dict_result
 

@@ -154,7 +154,10 @@ async def disconnect_db():
 
 
 def is_db_connected() -> bool:
-    """MongoDB text text text"""
+    """Return readiness for the configured application persistence backend."""
+    if settings.DATABASE_BACKEND == "postgresql":
+        from app.postgres.database import is_postgres_connected
+        return is_postgres_connected()
     return _connected
 
 
@@ -163,8 +166,27 @@ def get_main_loop() -> asyncio.AbstractEventLoop:
     return _main_loop
 
 
+def initialize_main_loop() -> None:
+    """Record the application loop when MongoDB startup is intentionally skipped."""
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+
 def get_db():
-    """text DB text text"""
+    """Return the configured application database facade."""
+    if settings.DATABASE_BACKEND == "postgresql":
+        from app.repositories.application_store import get_application_db
+        from app.postgres.database import is_postgres_connected
+        if not is_postgres_connected():
+            raise RuntimeError("PostgreSQL is not connected.")
+        return get_application_db()
     if _db is None:
         raise RuntimeError("Database not connected. MongoDB is required for auth features.")
+    return _db
+
+
+def get_mongo_db():
+    """Return MongoDB explicitly for rollback-only repository implementations."""
+    if _db is None:
+        raise RuntimeError("MongoDB is not connected.")
     return _db

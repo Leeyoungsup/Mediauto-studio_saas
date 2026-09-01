@@ -489,6 +489,11 @@ if ! conda run -n "$ENV_NAME" python \
     log_error "Operational data migration failed. Existing PostgreSQL data was preserved."
     exit 1
 fi
+if ! conda run -n "$ENV_NAME" python \
+    "$SCRIPT_DIR/backend/scripts/migrate_application_to_postgres.py" --if-empty; then
+    log_error "Project/slide/AI/annotation migration failed. Existing PostgreSQL data was preserved."
+    exit 1
+fi
 
 # ── STEP 11: runtime bootstrap ──
 section "[STEP 11/11] Runtime bootstrap and preflight"
@@ -518,8 +523,8 @@ echo "   Copy these from the original install:"
 echo "     - backend/.secrets.json   (password pepper, AES key — CRITICAL)"
 echo "     - backend/uploads/        (WSI files, tile cache)"
 echo "     - backend/model/          (AI weights)"
-echo "     - MongoDB dump            (remaining project/slide/AI/annotation data)"
-echo "     - PostgreSQL backup       (users/sessions/audit/geo/clinical data)"
+echo "     - MongoDB dump            (legacy import or rollback only)"
+echo "     - PostgreSQL backup       (all application database data)"
 echo "   Losing .secrets.json breaks all existing user passwords."
 echo
 echo "   Dump on the OLD machine (any of these formats):"

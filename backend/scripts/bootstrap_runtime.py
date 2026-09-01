@@ -362,6 +362,25 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
     if bool_skip_db:
         _log("INFO", "Database checks skipped.")
         return True, ""
+    bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
+    if not all((str_login_id, str_password, str_name)):
+        str_error = "Admin bootstrap requires ID, password, and name environment variables."
+        _log("ERROR", str_error)
+        return False, str_error
+    if not STR_PASSWORD_PATTERN.match(str_password):
+        str_error = "Bootstrap admin password does not meet the application password policy."
+        _log("ERROR", str_error)
+        return False, str_error
+
+    if settings.DATABASE_BACKEND == "postgresql":
+        return asyncio.run(_check_postgres_and_admin(
+            settings, bool_explicit, str_login_id, str_password, str_name, str_department,
+        ))
+    if settings.DATABASE_BACKEND != "mongodb":
+        str_error = "DATABASE_BACKEND must be either 'mongodb' or 'postgresql'."
+        _log("ERROR", str_error)
+        return False, str_error
+
     try:
         from pymongo import MongoClient
 
@@ -372,29 +391,6 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
     except Exception as obj_error:
         _log("WARN", f"MongoDB is unavailable: {obj_error}")
         return False, str(obj_error)
-
-    bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
-    if not all((str_login_id, str_password, str_name)):
-        obj_client.close()
-        str_error = "Admin bootstrap requires ID, password, and name environment variables."
-        _log("ERROR", str_error)
-        return False, str_error
-    if not STR_PASSWORD_PATTERN.match(str_password):
-        obj_client.close()
-        str_error = "Bootstrap admin password does not meet the application password policy."
-        _log("ERROR", str_error)
-        return False, str_error
-
-    if settings.DATABASE_BACKEND == "postgresql":
-        obj_client.close()
-        return asyncio.run(_check_postgres_and_admin(
-            settings, bool_explicit, str_login_id, str_password, str_name, str_department,
-        ))
-    if settings.DATABASE_BACKEND != "mongodb":
-        obj_client.close()
-        str_error = "DATABASE_BACKEND must be either 'mongodb' or 'postgresql'."
-        _log("ERROR", str_error)
-        return False, str_error
 
     try:
         int_user_count = obj_mongo_db.users.count_documents({})

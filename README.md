@@ -28,7 +28,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 - **Backend**: Python 3.12, FastAPI, Uvicorn (ASGI)
 - **Frontend**: Vanilla JS (ES Modules), HTML5 Canvas — 빌드 도구 없음
-- **Database**: PostgreSQL 18(인증·감사·임상정보) + MongoDB 7.x+(프로젝트·슬라이드·AI·annotation, 단계적 전환 중)
+- **Database**: PostgreSQL 18(인증·감사·임상정보·프로젝트·슬라이드·AI 상태·annotation). MongoDB는 기존 데이터 이관/롤백에만 사용
 - **인증**: JWT HS256 + bcrypt(cost=12) + pepper, RFC 6238 TOTP, AES-256-GCM, HMAC-SHA256 미디어 티켓
 - **슬라이드**: OpenSlide, Pillow, ICC profile 지원, Hamamatsu NDP.view2 색 매칭
 - **AI**: PyTorch (CUDA AMP), YOLOv11-M (Quanti HE / Quanti PD-L1 / Quanti IHC), pix2pix U-Net (VS IHC)
@@ -136,7 +136,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 소스 코드와 프론트엔드는 저장소에 포함되지만 아래 항목은 보안·용량 문제로 Git에 포함되지 않는다.
 
 - `backend/model/`의 AI 가중치(현재 전체 약 3.4 GB)
-- PostgreSQL과 MongoDB 운영 데이터
+- PostgreSQL 운영 데이터와 전환 기간의 MongoDB 롤백 스냅샷
 - `backend/.secrets.json`의 영구 암호화 키
 - 업로드 WSI, 타일 캐시, AI 결과
 - 선택 기능인 Philips SDK
@@ -147,7 +147,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 - Miniconda/Anaconda
 - PostgreSQL 배포 방식에 따라 Docker Engine + Compose 또는 Linux 사용자 systemd
-- MongoDB 7.0+(프로젝트·슬라이드·AI·annotation의 잔여 저장소)
+- MongoDB 7.0+(기존 설치 데이터 이관 시에만 필요)
 - OpenSlide와 libvips 시스템 라이브러리
 - (선택) NVIDIA GPU + CUDA 11.8+ — AI 추론 가속
 
@@ -179,7 +179,7 @@ $env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
 - OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
 - 소유자 전용 `.env.postgres`와 임의 DB 비밀번호 자동 생성
 - 선택한 PostgreSQL 영구 서비스 시작, Alembic 스키마 적용 및 연결 점검
-- 초기 PostgreSQL에 기존 MongoDB 인증·감사·IP·임상정보를 이관하고 중단된 첫 이관은 안전하게 재개
+- 초기 PostgreSQL에 기존 MongoDB 인증·감사·IP·임상정보·프로젝트·슬라이드·AI·annotation을 이관하고 중단된 첫 이관은 안전하게 재개
 - 기존 `mongo_dump` 발견 시 확인 후 복원
 - 지원 OS에서 로컬 MongoDB 설치 및 서비스 시작
 - 요청 시 Philips 전용 Conda 환경 생성과 SDK smoke test
