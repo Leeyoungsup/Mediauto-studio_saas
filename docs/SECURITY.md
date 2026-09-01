@@ -482,7 +482,7 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 
 ### 설계상 한계
 
-- **DB 미연결 시 anonymous admin** — 개발 편의용 fallback. 운영에서 Mongo가 잠시라도 끊기면 인증이 우회된다. Mongo 헬스체크로 앱이 unhealthy 상태가 되도록 orchestrator 레벨에서 보장할 것.
+- **DB 미연결 시 anonymous admin** — 개발 편의용 fallback. 운영에서 PostgreSQL이 잠시라도 끊기면 인증이 우회될 수 있으므로 DB 장애 시 앱이 unhealthy 상태가 되도록 orchestrator 레벨에서 보장하고, 향후 fail-closed로 전환해야 한다.
 - **AES-GCM 필드 암호화는 검색 불가** — 암호화된 필드로는 쿼리할 수 없음. 필요 시 HMAC 인덱스 컬럼 추가.
 - **Refresh rotation grace window 5분** — 너무 길면 reuse 탐지가 둔해지고, 너무 짧으면 모바일 백그라운드 탭이 깨어날 때 세션 무효화 경험. 현재 값은 경험적 절충.
 - **사용자 캐시 30초 TTL** — 관리자 변경은 즉시 무효화되지만, 일반 사용자 상태 변경(비밀번호 변경 등)은 최대 30초 지연 가능. 보안상 민감한 작업(비밀번호 변경)은 세션 revoke로 추가 방어.

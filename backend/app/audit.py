@@ -75,12 +75,12 @@ def _as_utc_datetime(obj_value) -> Optional[datetime]:
 
 
 def verify_log_hmac(dict_log: dict) -> tuple[bool, str, Optional[datetime]]:
-    """Verify current and legacy MongoDB audit HMAC timestamps.
+    """Verify current and legacy imported audit HMAC timestamps.
 
-    MongoDB stores BSON datetimes at millisecond precision. Older code signed a
-    Python datetime before insertion, so the final 0-999 microseconds were
-    discarded. Trying that finite range recovers the exact signed timestamp
-    without changing the original HMAC.
+    The previous datastore persisted datetimes at millisecond precision. Older
+    code signed a Python datetime before insertion, so the final 0-999
+    microseconds were discarded. Trying that finite range recovers the exact
+    signed timestamp without changing the original HMAC.
     """
     str_stored_hmac = dict_log.get("str_hmac", "") or ""
     if not str_stored_hmac:
@@ -245,7 +245,7 @@ async def log_audit_event(
             "str_detail": str_detail,
             "str_ip_address": str_ip_address,
             "str_user_agent": str_user_agent,
-            # BSON datetimes are millisecond precision. Sign the value that can
+            # Persisted audit datetimes use millisecond precision. Sign the value that can
             # actually be persisted so historical imported records remain verifiable.
             "dt_created_at": dt_created_at,
             "dt_hmac_created_at": dt_created_at,

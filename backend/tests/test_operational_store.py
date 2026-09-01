@@ -43,7 +43,7 @@ class OperationalStoreTests(unittest.TestCase):
         self.assertIn("ESCAPE", str_sql)
         self.assertEqual(obj_query.whereclause.right.value, "%slide\\_\\%%")
 
-    def test_json_extra_converts_bson_values(self):
+    def test_json_extra_converts_custom_scalar_values(self):
         obj_id = "64f000000000000000000001"
         _, dict_values = operational_store._audit_values({
             "str_action": "test",
@@ -51,7 +51,7 @@ class OperationalStoreTests(unittest.TestCase):
         })
         self.assertEqual(dict_values["dict_extra"]["nested"]["id"], obj_id)
 
-    def test_mongodb_millisecond_loss_is_recovered_without_resigning(self):
+    def test_legacy_millisecond_loss_is_recovered_without_resigning(self):
         dt_exact = datetime(2026, 9, 1, 1, 2, 3, 456789, tzinfo=timezone.utc)
         dict_exact = {
             "str_action": "slide.view",

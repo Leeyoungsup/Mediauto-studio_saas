@@ -52,8 +52,8 @@ def _json_safe(obj_value):
         return {str(str_key): _json_safe(obj_item) for str_key, obj_item in obj_value.items()}
     if isinstance(obj_value, (list, tuple)):
         return [_json_safe(obj_item) for obj_item in obj_value]
-    # Decimal128, UUID, bytes, and other BSON-compatible custom types cannot
-    # be serialized by SQLAlchemy's JSON encoder directly.
+    # Decimal-like values, UUID, bytes, and other custom scalar types cannot be
+    # serialized by SQLAlchemy's JSON encoder directly.
     return str(obj_value)
 
 
@@ -84,7 +84,7 @@ def _audit_model_to_dict(obj_log: AuditLog) -> dict:
     for str_field in _AUDIT_FIELDS:
         obj_value = getattr(obj_log, str_field)
         # Nullable HMAC input fields must remain explicit None values.  The
-        # original MongoDB document hashes str(None), not an absent key's "".
+        # The original imported document hashes str(None), not an absent key's "".
         if obj_value is not None or str_field in {
             "str_user_id", "str_user_email", "str_resource_type", "str_resource_id",
         }:

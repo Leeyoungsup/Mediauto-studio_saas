@@ -13,11 +13,9 @@ __pycache__/
 /postgres_data/
 /postgres_backup/
 project.tar
-/mongo_backup/*
 tools/
 certs/
 /backend/certs/*
-/mongo_dump/*
 annotations/
 /backend/annotations/
 backend/annotations/CODIPAI-BRCA-SS-00194-S-TP-01.svs/annotations.json

@@ -40,7 +40,7 @@ _DICT_LOCKS = {str_name: asyncio.Lock() for str_name in APPLICATION_COLLECTIONS}
 
 
 def encode_document_value(obj_value: Any) -> Any:
-    """Convert BSON/Python-only values to lossless JSONB values."""
+    """Convert Python-only values to lossless JSONB values."""
     if isinstance(obj_value, datetime):
         obj_dt = obj_value
         if obj_dt.tzinfo is None:
@@ -59,8 +59,8 @@ def decode_document_value(obj_value: Any) -> Any:
         if obj_value.get(_TYPE_KEY) == "datetime" and _VALUE_KEY in obj_value:
             return datetime.fromisoformat(str(obj_value[_VALUE_KEY]))
         if obj_value.get(_TYPE_KEY) == "object_id" and _VALUE_KEY in obj_value:
-            # Compatibility with documents imported from BSON. PostgreSQL IDs
-            # are plain strings after the one-time migration.
+            # Compatibility with documents imported during the datastore
+            # cutover. PostgreSQL IDs are plain strings after that migration.
             return str(obj_value[_VALUE_KEY])
         return {k: decode_document_value(v) for k, v in obj_value.items()}
     if isinstance(obj_value, list):
@@ -355,7 +355,7 @@ class PostgresDocumentCollection:
             return obj_statement
 
         # GIN containment efficiently narrows common slide/status queries while
-        # document_matches below remains the source of truth for Mongo semantics.
+        # document_matches below remains the source of truth for document-query semantics.
         for str_key, obj_value in dict_filter.items():
             if str_key.startswith("$") or "." in str_key or isinstance(obj_value, dict):
                 continue

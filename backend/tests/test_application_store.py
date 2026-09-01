@@ -41,7 +41,7 @@ def test_document_matcher_supports_application_queries():
     assert not document_matches(dict_doc, {"str_status": {"$ne": "done"}})
 
 
-def test_projection_matches_mongo_include_and_exclude_rules():
+def test_projection_matches_document_include_and_exclude_rules():
     dict_doc = {
         "_id": "id-1",
         "str_status": "done",
