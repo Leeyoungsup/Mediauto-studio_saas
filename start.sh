@@ -11,6 +11,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/backend"
 
+# Load the local PostgreSQL cutover configuration when present. The file is
+# git-ignored and created with owner-only permissions by the deployment setup.
+POSTGRES_ENV_FILE="${MEDIAUTO_POSTGRES_ENV_FILE:-$SCRIPT_DIR/.env.postgres}"
+if [[ -f "$POSTGRES_ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$POSTGRES_ENV_FILE"
+  set +a
+fi
+
 ENV_NAME="${MEDIAUTO_CONDA_ENV:-medicus-saas}"
 HOST="${MEDIAUTO_HOST:-0.0.0.0}"
 PORT="${MEDIAUTO_PORT:-8092}"
