@@ -63,38 +63,6 @@ _INLINE_TIMEOUT_MS = {
 _INLINE_PHILIPS_TIMEOUT_MS = max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_PHILIPS_TIMEOUT_MS", "650")))
 _INLINE_DICOM_TIMEOUT_MS = max(1000, int(os.environ.get("MEDIAUTO_TILE_INLINE_DICOM_TIMEOUT_MS", "8000")))
 
-# A cached tile request previously reparsed `.complete` and stat'ed the WSI for
-# every JPEG.  One viewport can request dozens of tiles at once, so those tiny
-# synchronous operations became visible on slower disks.  Keep the positive
-# result briefly; source replacement/invalidation is still observed within a
-# few seconds, while an incomplete cache is rechecked almost immediately.
-_TILE_MARKER_CACHE_LOCK = threading.Lock()
-_TILE_MARKER_CACHE: dict[str, tuple[float, bool]] = {}
-_TILE_MARKER_VALID_TTL_SEC = max(0.25, float(os.environ.get("MEDIAUTO_TILE_MARKER_VALID_TTL_SEC", "5")))
-_TILE_MARKER_MISSING_TTL_SEC = max(0.05, float(os.environ.get("MEDIAUTO_TILE_MARKER_MISSING_TTL_SEC", "0.25")))
-
-
-def _cached_tiles_marker_matches_file(filename: str, file_path: str) -> bool:
-    str_key = str(file_path)
-    float_now = time.monotonic()
-    with _TILE_MARKER_CACHE_LOCK:
-        tuple_cached = _TILE_MARKER_CACHE.get(str_key)
-        if tuple_cached is not None and tuple_cached[0] > float_now:
-            return tuple_cached[1]
-
-    bool_valid = tiles_marker_matches_file(filename, file_path)
-    float_ttl = _TILE_MARKER_VALID_TTL_SEC if bool_valid else _TILE_MARKER_MISSING_TTL_SEC
-    with _TILE_MARKER_CACHE_LOCK:
-        if len(_TILE_MARKER_CACHE) > 4096:
-            _TILE_MARKER_CACHE.clear()
-        _TILE_MARKER_CACHE[str_key] = (float_now + float_ttl, bool_valid)
-    return bool_valid
-
-
-def _forget_tiles_marker_cache(file_path: str) -> None:
-    with _TILE_MARKER_CACHE_LOCK:
-        _TILE_MARKER_CACHE.pop(str(file_path), None)
-
 
 def _blank_tile_bytes() -> bytes:
     global _BLANK_TILE_BYTES
@@ -400,10 +368,9 @@ async def get_tile_ndp(
     filename = Path(info.file_path).name
     tiles_root = get_tiles_dir_for_path(info.file_path)
     _touch_slide_access(slide_id, tiles_root)
-    bool_cache_valid = _cached_tiles_marker_matches_file(filename, info.file_path)
+    bool_cache_valid = tiles_marker_matches_file(filename, info.file_path)
     if not bool_cache_valid and (tiles_root / ".complete").exists():
         invalidate_tiles(filename, info.file_path)
-        _forget_tiles_marker_cache(info.file_path)
 
     path_ndp_tile = tiles_root / "ndpmatch" / str(level) / f"{tile_x}_{tile_y}.jpeg"
     if bool_cache_valid and path_ndp_tile.exists():
@@ -494,10 +461,9 @@ async def get_tile(
     tile_path = tiles_root / str(level) / f"{tile_x}_{tile_y}.jpeg"
     _touch_slide_access(slide_id, tiles_root)
     path_complete_marker = tiles_root / ".complete"
-    bool_cache_valid = _cached_tiles_marker_matches_file(filename, info.file_path)
+    bool_cache_valid = tiles_marker_matches_file(filename, info.file_path)
     if not bool_cache_valid and path_complete_marker.exists():
         invalidate_tiles(filename, info.file_path)
-        _forget_tiles_marker_cache(info.file_path)
 
     # A tile generated during the current background run is immediately usable.
     # Waiting for the whole-slide .complete marker caused the viewer to request

@@ -146,131 +146,6 @@ function _clearMediaTicket() {
     _mediaTicketInFlight = null;
 }
 
-// Sidebar/list thumbnails must never monopolize the same browser connections
-// used by visible WSI tiles.  They run through a small, abortable, low-priority
-// queue instead of assigning every <img>.src at once.
-const _LOW_PRIORITY_MEDIA_MAX = 2;
-const _lowPriorityMediaQueue = [];
-const _lowPriorityMediaTasks = new WeakMap();
-let _lowPriorityMediaActive = 0;
-
-function _finishLowPriorityMediaTask(task) {
-    if (!task || task.finished) return;
-    task.finished = true;
-    if (task.active) {
-        task.active = false;
-        _lowPriorityMediaActive = Math.max(0, _lowPriorityMediaActive - 1);
-    }
-    if (task.img) {
-        if (task.onLoad) task.img.removeEventListener('load', task.onLoad);
-        if (task.onError) task.img.removeEventListener('error', task.onError);
-    }
-    if (task.objectUrl) {
-        URL.revokeObjectURL(task.objectUrl);
-        task.objectUrl = '';
-    }
-    if (_lowPriorityMediaTasks.get(task.img) === task) {
-        _lowPriorityMediaTasks.delete(task.img);
-    }
-    queueMicrotask(_drainLowPriorityMediaQueue);
-}
-
-function _cancelLowPriorityMediaTask(task) {
-    if (!task || task.finished) return;
-    task.cancelled = true;
-    try { task.controller?.abort(); } catch (_) {}
-    if (task.img) {
-        try { task.img.removeAttribute('src'); } catch (_) {}
-    }
-    _finishLowPriorityMediaTask(task);
-}
-
-async function _runLowPriorityMediaTask(task) {
-    task.active = true;
-    _lowPriorityMediaActive += 1;
-    task.controller = new AbortController();
-    try {
-        await _ensureMediaTicket();
-        if (task.cancelled || !task.img?.isConnected) return;
-
-        let response = null;
-        for (let int_attempt = 0; int_attempt < 2; int_attempt++) {
-            const str_url = task.buildUrl();
-            response = await fetch(str_url, {
-                signal: task.controller.signal,
-                cache: 'force-cache',
-                credentials: 'same-origin',
-                priority: 'low',
-            });
-            if (response.status !== 401 || int_attempt > 0) break;
-            _clearMediaTicket();
-            await _ensureMediaTicket();
-        }
-        if (!response?.ok) {
-            throw new Error(`Media request failed with HTTP ${response?.status || 0}`);
-        }
-        const blob = await response.blob();
-        if (task.cancelled || task.controller.signal.aborted) return;
-
-        task.objectUrl = URL.createObjectURL(blob);
-        await new Promise((resolve, reject) => {
-            const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
-            task.onLoad = () => {
-                task.controller.signal.removeEventListener('abort', onAbort);
-                resolve();
-            };
-            task.onError = () => {
-                task.controller.signal.removeEventListener('abort', onAbort);
-                reject(new Error('Media image decode failed'));
-            };
-            task.controller.signal.addEventListener('abort', onAbort, { once: true });
-            task.img.addEventListener('load', task.onLoad, { once: true });
-            task.img.addEventListener('error', task.onError, { once: true });
-            task.img.src = task.objectUrl;
-        });
-    } catch (err) {
-        if (!task.cancelled && err?.name !== 'AbortError' && typeof task.onFinalError === 'function') {
-            try { task.onFinalError(err); } catch (_) {}
-        }
-    } finally {
-        _finishLowPriorityMediaTask(task);
-    }
-}
-
-function _drainLowPriorityMediaQueue() {
-    while (_lowPriorityMediaActive < _LOW_PRIORITY_MEDIA_MAX && _lowPriorityMediaQueue.length) {
-        const task = _lowPriorityMediaQueue.shift();
-        if (!task || task.finished || task.cancelled || !task.img?.isConnected) {
-            _finishLowPriorityMediaTask(task);
-            continue;
-        }
-        void _runLowPriorityMediaTask(task);
-    }
-}
-
-function _queueLowPriorityMediaImage(img, buildUrl, onFinalError) {
-    if (!img || typeof buildUrl !== 'function') return;
-    const existing = _lowPriorityMediaTasks.get(img);
-    if (existing) _cancelLowPriorityMediaTask(existing);
-    img.dataset.mediaCancelled = '0';
-    img.fetchPriority = 'low';
-    const task = {
-        img,
-        buildUrl,
-        onFinalError,
-        controller: null,
-        objectUrl: '',
-        onLoad: null,
-        onError: null,
-        active: false,
-        cancelled: false,
-        finished: false,
-    };
-    _lowPriorityMediaTasks.set(img, task);
-    _lowPriorityMediaQueue.push(task);
-    _drainLowPriorityMediaQueue();
-}
-
 function _authHeaders() {
     return {
         'Authorization': `Bearer ${_getAccessToken()}`,
@@ -853,14 +728,7 @@ export const api = {
     cancelMediaImage(img_el) {
         if (!img_el) return;
         img_el.dataset.mediaCancelled = '1';
-        const task = _lowPriorityMediaTasks.get(img_el);
-        if (task) _cancelLowPriorityMediaTask(task);
         try { img_el.removeAttribute('src'); } catch (_) {}
-    },
-
-    /** Queue a non-critical thumbnail with bounded, abortable concurrency. */
-    queueMediaImage(img_el, fn_build_url, fn_on_final_error) {
-        _queueLowPriorityMediaImage(img_el, fn_build_url, fn_on_final_error);
     },
 
 

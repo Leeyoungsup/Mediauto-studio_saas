@@ -82,16 +82,5 @@ class TileBlankMarkerTests(unittest.TestCase):
             self.assertEqual(response.headers["cache-control"], "public, max-age=604800")
 
 
-class TileMarkerRequestCacheTests(unittest.TestCase):
-    def test_reuses_positive_marker_validation_within_ttl(self):
-        file_path = "/tmp/mediauto-marker-cache-test.svs"
-        tile_routes._forget_tiles_marker_cache(file_path)
-        with patch.object(tile_routes, "tiles_marker_matches_file", return_value=True) as mocked:
-            self.assertTrue(tile_routes._cached_tiles_marker_matches_file("test.svs", file_path))
-            self.assertTrue(tile_routes._cached_tiles_marker_matches_file("test.svs", file_path))
-        self.assertEqual(mocked.call_count, 1)
-        tile_routes._forget_tiles_marker_cache(file_path)
-
-
 if __name__ == "__main__":
     unittest.main()
