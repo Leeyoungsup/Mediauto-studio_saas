@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "1.1.233",
+  "version": "2.0.0",
   "channel": "production",
-  "release_date": "2026-06-09",
-  "description": "Clips VS IHC rendering and split-view controls to the selected patch in Cell Annotation patch view."
+  "release_date": "2026-09-01",
+  "description": "Completes the PostgreSQL-only datastore transition and removes the legacy MongoDB runtime, dependencies, installer, and rollback data."
 }

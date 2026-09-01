@@ -7,9 +7,9 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 1.1.63 |
+| 현재 버전 | 2.0.0 |
 | 릴리스 채널 | production |
-| 최신 릴리스 | 2026-05-21 |
+| 최신 릴리스 | 2026-09-01 |
 | 배포 형태 | 병원 내부망 On-Premise |
 | 주요 사용자 | 병리과 의사, 연구자, 관리자, viewer 계정 |
 | 핵심 목적 | WSI 조회, Annotation, AI 분석, 프로젝트 단위 운영, 감사 추적 |
@@ -41,6 +41,13 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v2.0.0
+
+- PostgreSQL 18을 인증·감사·임상정보·프로젝트·슬라이드·AI 상태·annotation의 단일 저장소로 전환했습니다.
+- Docker, Linux native 및 외부 PostgreSQL 배포 방식을 설치기에 통합했습니다.
+- 레거시 데이터베이스 런타임·드라이버·설치·복원 경로를 제거했습니다.
+- 기존 배포는 2.0.0 적용 전에 PostgreSQL 데이터 이관과 백업 검증을 완료해야 합니다.
 
 ### v1.1.63
 - Viewer letterbox cleanup: transparent/outside-slide padding is composited onto white before tile and thumbnail RGB conversion, preventing black bars in the viewer.

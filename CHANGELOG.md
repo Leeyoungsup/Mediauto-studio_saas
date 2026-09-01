@@ -2,6 +2,34 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [2.0.0] - 2026-09-01
+
+### Added
+
+- Add PostgreSQL 18 persistence for authentication, sessions, audit logs, IP geo cache, clinical information, projects, slides, AI state, and annotations.
+- Add Alembic-managed schemas and indexed JSONB application-document storage.
+- Add persistent PostgreSQL deployment modes for Docker, Linux native installation, and externally managed databases.
+- Add PostgreSQL backup/restore guidance and verified application-data migration markers.
+
+### Changed
+
+- Make PostgreSQL the sole application datastore and remove the runtime database backend switch.
+- Update bootstrap, reset, and maintenance scripts to use asynchronous PostgreSQL repositories.
+- Update installation and operations documentation for PostgreSQL-only deployment.
+- Preserve historical audit-log HMAC timestamps and the verified cutover integrity seal during PostgreSQL operation.
+
+### Removed
+
+- Remove the Motor and PyMongo runtime dependencies.
+- Remove MongoDB connection, fallback repository, installer, service bootstrap, restore, and migration-script paths.
+- Remove the retained MongoDB rollback archives after PostgreSQL backup and cutover verification.
+
+### Breaking Changes
+
+- `POSTGRES_URI` and the Alembic schema are now required; `DATABASE_BACKEND`, `MONGO_URI`, and `MONGO_DB_NAME` are no longer supported.
+- Deployments that still store application data in MongoDB must migrate that data before upgrading to 2.0.0. The 2.0.0 runtime does not perform an automatic MongoDB migration.
+- Rollback to a MongoDB-backed application version is not supported after new writes are accepted by 2.0.0.
+
 ## [1.1.233] - 2026-06-09
 
 ### Fixed
