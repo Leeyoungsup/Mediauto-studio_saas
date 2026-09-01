@@ -52,6 +52,7 @@
             const channel = info.channel && info.channel !== 'production' ? info.channel : '';
             badge.textContent = channel ? `${version} ${channel}` : version;
             badge.title = [info.name, version, channel, info.release_date].filter(Boolean).join(' ');
+            badge.setAttribute('aria-label', `${version} release notes`);
             badge.hidden = !version;
         } catch (_) {
             badge.hidden = true;
@@ -103,10 +104,12 @@
         root.innerHTML = `
             <header class="shared-header">
                 <div class="shared-header-inner">
-                    <a href="/home" class="shared-brand">
-                        <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
-                        <span class="shared-version" hidden></span>
-                    </a>
+                    <div class="shared-brand">
+                        <a href="/home" class="shared-brand-home" aria-label="MeDIAuto Studio home">
+                            <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
+                        </a>
+                        <a href="/version" class="shared-version" title="View release notes" hidden></a>
+                    </div>
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
                         <a href="/project" class="shared-nav-item ${active === 'project' ? 'active' : ''}">Project</a>

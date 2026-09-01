@@ -89,10 +89,12 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │   ├── upload.html                # 청크 업로드 다이얼로그
 │   ├── app.html                   # 메인 뷰어
 │   ├── admin.html                 # 관리자 페이지 (승인/사용자/활동 로그)
+│   ├── version.html               # 검색 가능한 전체 릴리스 이력
 │   ├── css/
 │   │   ├── style.css              # 메인 + 반응형 (≤900px drawer)
 │   │   ├── home.css               # 대시보드 전용
-│   │   └── admin.css              # 관리자 전용
+│   │   ├── admin.css              # 관리자 전용
+│   │   └── version.css            # 버전 이력 페이지
 │   └── js/
 │       ├── api.js                 # REST 클라이언트 + JWT 자동 관리 + 미디어 티켓
 │       ├── home.js                # 대시보드 로직
@@ -100,6 +102,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │       ├── tile-viewer.js         # Canvas 타일 렌더러 (3-stage, fallback, fade-in)
 │       ├── visualization.js       # AI 결과 다이얼로그 (4탭) + PDF export
 │       ├── color-correction.js    # NDP 색보정 토글
+│       ├── version.js             # CHANGELOG 검색·필터·점진 렌더링
 │       └── admin.js               # 관리자 페이지 로직
 ├── docs/
 │   ├── README.md                 # 문서 목차와 읽는 순서
@@ -289,6 +292,8 @@ Windows에서는 `start.bat`를 실행한다. 기본 주소는 `http://localhost
 
 | Method | Path | 설명 |
 |--------|------|------|
+| GET | `/api/version` | 현재 제품 버전 메타데이터 |
+| GET | `/api/version-history` | CHANGELOG 기반 전체 릴리스 이력 |
 | POST | `/api/auth/register` | 회원가입 — 첫 사용자만 즉시 admin, 이후엔 `pending` |
 | POST | `/api/auth/login` | 아이디/비밀번호 로그인 (+ TOTP 코드, geo enrichment 자동) |
 | POST | `/api/auth/refresh` | 토큰 갱신 (CAS rotation + reuse 탐지 + 5분 grace) |

@@ -70,6 +70,7 @@ MeDIAuto Studio SaaS는 병원 온프레미스 환경을 대상으로 하는 디
 | `/cell-annotation` | 패치 기반 Cell Annotation 워크스페이스 |
 | `/upload` | 팝업형 대용량 업로드 화면 |
 | `/profile` | 내 프로필·비밀번호 변경 |
+| `/version` | 전체 버전 이력 검색·필터·변경 내용 조회 |
 | `/admin` | 관리자 화면 |
 
 기존 `.html` 주소는 현재 라우트로 308 리다이렉트된다.
@@ -80,7 +81,7 @@ MeDIAuto Studio SaaS는 병원 온프레미스 환경을 대상으로 하는 디
 - Annotation 하위 Tissue Annotation, Cell Annotation 메뉴
 - 관리자에게만 Admin 메뉴 표시
 - 사용자 이름 클릭으로 Profile 이동
-- 버전 배지 표시
+- 버전 배지 표시 및 클릭 시 Version History 이동
 - 로그아웃 시 로컬 토큰 및 사용자 정보 제거
 
 ## 4. 계정·로그인·프로필

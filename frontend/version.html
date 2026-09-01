@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDIAuto Studio — Version History</title>
+    <link rel="icon" href="assets/app_icon.ico">
+    <link rel="stylesheet" href="css/shared-header.css?v=20260901-01">
+    <link rel="stylesheet" href="css/version.css?v=20260901-01">
+</head>
+<body class="version-page">
+    <div id="shared-header-root"></div>
+
+    <main class="version-main">
+        <section class="version-hero" aria-labelledby="version-page-title">
+            <div>
+                <p class="version-eyebrow">PRODUCT RELEASE NOTES</p>
+                <h1 id="version-page-title">Version History</h1>
+                <p class="version-intro">Explore new features, improvements, fixes, and deployment changes across every MeDIAuto Studio release.</p>
+            </div>
+            <div class="current-release-card" aria-label="Current release">
+                <span class="current-release-label">CURRENT RELEASE</span>
+                <strong id="current-version">—</strong>
+                <span id="current-release-date">—</span>
+                <small id="current-channel">—</small>
+            </div>
+        </section>
+
+        <section class="version-toolbar" aria-label="Version history controls">
+            <label class="version-search">
+                <span class="sr-only">Search release notes</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+                <input id="version-search" type="search" placeholder="Search versions or changes" autocomplete="off">
+            </label>
+            <label class="version-filter-label">
+                <span>Release series</span>
+                <select id="version-series">
+                    <option value="all">All versions</option>
+                </select>
+            </label>
+            <button id="expand-visible" class="version-control-button" type="button">Expand visible</button>
+            <button id="collapse-all" class="version-control-button" type="button">Collapse all</button>
+        </section>
+
+        <section class="version-summary" aria-live="polite">
+            <div><strong id="release-count">—</strong><span>releases</span></div>
+            <div><strong id="change-count">—</strong><span>documented changes</span></div>
+            <p id="version-result-summary">Loading release history…</p>
+        </section>
+
+        <div id="version-error" class="version-error" hidden></div>
+        <section id="version-list" class="version-list" aria-label="Release history"></section>
+
+        <div class="version-load-more-wrap">
+            <button id="version-load-more" class="version-load-more" type="button" hidden>Show more releases</button>
+        </div>
+    </main>
+
+    <script src="js/shared-header.js?v=20260901-01"></script>
+    <script src="js/version.js?v=20260901-01"></script>
+</body>
+</html>

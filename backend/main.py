@@ -95,7 +95,7 @@ from app import auto_ai
 from app import slide_store
 from app import tile_worker
 from app.runtime_settings import load_worker_settings
-from app.version import APP_VERSION, get_version_info
+from app.version import APP_VERSION, get_version_history, get_version_info
 
 
 def _install_asyncio_noise_filter():
@@ -240,6 +240,11 @@ async def version_check():
     return get_version_info()
 
 
+@app.get("/api/version-history")
+async def version_history():
+    return get_version_history()
+
+
 @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
 async def chrome_devtools_probe():
     return Response(status_code=204)
@@ -256,6 +261,7 @@ _DICT_PAGE_ROUTES = {
     "admin": "admin.html",
     "login": "login.html",
     "profile": "profile.html",
+    "version": "version.html",
     "upload": "upload.html",
 }
 

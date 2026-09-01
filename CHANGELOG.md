@@ -4,12 +4,34 @@ All notable changes to MeDIAuto Studio are tracked here.
 
 ## [2.0.0] - 2026-09-01
 
+### Highlights
+
+- Consolidate all development after 1.1.233 into the first major 2.x release, based on the complete Git commit history through 2026-09-01.
+- Complete the PostgreSQL-only datastore cutover across authentication, clinical data, slide state, AI results, and annotation workflows.
+- Expand WSI ingestion with DICOM WSI ZIP, Philips iSyntax, and fixed-20x JPG/JPEG support.
+- Add AI-estimated stromal TIL scoring, spatial heatmap visualization, and richer PDF reporting.
+- Improve large-slide responsiveness through cancellable requests, deferred tile work, standardized thumbnail caching, and cache repair.
+- Publish a searchable in-app version history sourced directly from this changelog.
+
 ### Added
 
 - Add PostgreSQL 18 persistence for authentication, sessions, audit logs, IP geo cache, clinical information, projects, slides, AI state, and annotations.
 - Add Alembic-managed schemas and indexed JSONB application-document storage.
 - Add persistent PostgreSQL deployment modes for Docker, Linux native installation, and externally managed databases.
 - Add PostgreSQL backup/restore guidance and verified application-data migration markers.
+- Add DICOM whole-slide ZIP support with a DICOM slide proxy, frame-aware region reading, tile serving, thumbnail caching, and color handling.
+- Add licensed Philips iSyntax support through a separate Python SDK environment and persistent bridge process.
+- Add JPG/JPEG slide upload as fixed 20x input, including a raster slide proxy and OpenSlide-compatible pyramidal BigTIFF conversion at JPEG quality 100.
+- Add AI-estimated stromal TIL percentage, lymphocyte and plasma-cell density, tumor-associated stroma measurements, and local sTIL heatmap visualization.
+- Add Data Linkage actions for opening a selected image in AI View or user-selected Multi View.
+- Add scanner specimen-label extraction, caching, sidebar display, and a Show labels toggle when a label image is available.
+- Add Cell Annotation patch-view cell-count badges and completed-patch downloads.
+- Add annotation brush tooling, heatmap controls, improved panel resizing, and accessibility attributes.
+- Add hierarchical detection-head and model-metadata support for updated AI architectures.
+- Add cached whole-slide preview thumbnails to the first page of AI PDF exports and include sTIL analysis content in reports.
+- Add configurable IP/CIDR blocking and repeated-404 rate limiting for public probe traffic.
+- Add comprehensive Korean and English page-feature guides, screenshot-based user manuals, architecture diagrams, and operational documentation.
+- Add a clickable header version badge, `/version` release-history page, search and release-series filters, and `/api/version-history`.
 
 ### Changed
 
@@ -17,6 +39,36 @@ All notable changes to MeDIAuto Studio are tracked here.
 - Update bootstrap, reset, and maintenance scripts to use asynchronous PostgreSQL repositories.
 - Update installation and operations documentation for PostgreSQL-only deployment.
 - Preserve historical audit-log HMAC timestamps and the verified cutover integrity seal during PostgreSQL operation.
+- Standardize slide identity and cache paths around `slide_cache_key` for duplicate filenames and nested projects.
+- Generate and validate standard 300px thumbnails once, then serve cached files without repeatedly opening the original WSI.
+- Defer background tile processing, prioritize viewer-requested tiles, add blank-tile markers, and repair incomplete cache pyramids.
+- Increase the default tile-cache quota to 1 TB and refine CPU allocation for viewer, tile, upload, patch, and AI workloads.
+- Cancel obsolete API and image requests with AbortController when users change folders, slides, or pages.
+- Ignore late responses from previous browse contexts so stale thumbnails and labels cannot overwrite the active view.
+- Improve AI auto-run logging, input validation, candidate scanning, metrics, worker controls, and idle-aware scheduling.
+- Improve Cell Annotation patch persistence, selection, class permissions, workflow summaries, confidence filtering, and visibility controls.
+- Improve annotation merge behavior and disable unsupported merging in Cell Annotation patch view.
+- Improve project navigation, asynchronous project loading, project display metadata, and slide drag-and-drop feedback.
+- Improve Philips tile and AI patch loading, bridge affinity, empty-region handling, and image read stability.
+- Optimize static file responses and cache-control handling for versioned JS/CSS assets.
+- Update bootstrap to validate model bundles, prepare runtime directories and secrets, and create the initial administrator in an empty PostgreSQL database.
+
+### Fixed
+
+- Fix VS IHC PNG and metadata cache paths and preserve virtual-stain tile continuity while higher-resolution patches load.
+- Fix stale or missing slide files from blocking folder browsing and background workers.
+- Fix thumbnail cropping by using contained previews and source-signature validation.
+- Fix annotation panel and visualization layout issues, including dense patch lists and resizable side panels.
+- Fix AI result cache invalidation when model architecture or post-processing metadata changes.
+- Fix JPG decompression-bomb handling by using streaming/pyramidal conversion instead of loading oversized images as one bitmap.
+- Fix DICOM missing-tile retry loops by distinguishing unavailable frames and cached blank tiles.
+- Fix late network responses and pending image requests that caused lag while navigating between folders.
+
+### Security
+
+- Keep audit-log HMAC verification valid across millisecond timestamp precision changes without re-signing historical records.
+- Preserve a verified audit snapshot seal for unsigned and previously migrated records.
+- Add default blocking for known hostile probe traffic and rate-limit repeated abnormal 404 requests while exempting normal tile/media flows.
 
 ### Removed
 

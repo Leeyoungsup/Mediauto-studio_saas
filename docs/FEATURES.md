@@ -771,6 +771,13 @@ admin 역할만 접근 가능. 4개 탭.
 
 ## 부록 A — 엔드포인트 일람
 
+### 제품 버전
+
+```
+GET    /api/version                 현재 제품 버전 메타데이터
+GET    /api/version-history         CHANGELOG 기반 전체 릴리스·변경 내역
+```
+
 ### 인증
 
 ```

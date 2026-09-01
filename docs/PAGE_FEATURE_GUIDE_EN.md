@@ -109,6 +109,7 @@ After signing in, the following menus are available at the top of most pages.
 ### User Menu
 
 - Select the user name in the top bar to open Profile.
+- Select the version badge beside the logo to open Version History. You can search releases, filter by release series, and expand each version's changes.
 - Select `Logout` to end the current session and return to the sign-in page.
 
 ---
