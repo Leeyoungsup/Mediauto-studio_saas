@@ -16,9 +16,9 @@ from pydantic import BaseModel, Field
 
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, invalidate_user_cache, require_role
-from app.database import get_db
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 from app.repositories.auth_store import get_session_store, get_user_store
+from app.repositories.operational_store import get_audit_store
 
 LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
 PASSWORD_PATTERN = re.compile(
@@ -672,21 +672,12 @@ async def get_audit_logs(
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text text"""
-    db = get_db()
-    dict_filter = {}
-    if str_action:
-        dict_filter["str_action"] = {"$regex": str_action, "$options": "i"}
-    if str_user_id:
-        dict_filter["str_user_id"] = str_user_id
-
-    list_logs = []
-    cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
-
-    async for dict_log in cursor:
-        dict_log["_id"] = str(dict_log["_id"])
-        list_logs.append(dict_log)
-
-    int_total = await db.audit_logs.count_documents(dict_filter)
+    obj_audit_store = get_audit_store()
+    dict_filters = {"str_action_search": str_action, "str_user_id": str_user_id}
+    list_logs = await obj_audit_store.list(
+        int_skip=int_skip, int_limit=int_limit, **dict_filters,
+    )
+    int_total = await obj_audit_store.count(**dict_filters)
 
     return {
         "list_logs": list_logs,
@@ -712,19 +703,18 @@ async def get_recent_logins(
     audit_logs text str_action='user.login_success' text text text text.
     text text text text (text/text) text text text text.
     """
-    db = get_db()
-    dict_filter = {"str_action": "user.login_success"}
-    if str_user_id:
-        dict_filter["str_user_id"] = str_user_id
-
-    list_logs = []
-    cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
+    obj_audit_store = get_audit_store()
+    dict_filters = {
+        "str_action_exact": "user.login_success",
+        "str_user_id": str_user_id,
+    }
+    list_logs = await obj_audit_store.list(
+        int_skip=int_skip, int_limit=int_limit, **dict_filters,
+    )
     set_user_ids = set()
-    async for dict_log in cursor:
-        dict_log["_id"] = str(dict_log["_id"])
+    for dict_log in list_logs:
         if dict_log.get("str_user_id"):
             set_user_ids.add(dict_log["str_user_id"])
-        list_logs.append(dict_log)
 
     # text text text — 1 query text text
     dict_user_map: dict[str, dict] = {}
@@ -742,7 +732,7 @@ async def get_recent_logins(
         str_uid = dict_log.get("str_user_id") or ""
         dict_log["dict_user"] = dict_user_map.get(str_uid, {})
 
-    int_total = await db.audit_logs.count_documents(dict_filter)
+    int_total = await obj_audit_store.count(**dict_filters)
     return {
         "list_logs": list_logs,
         "int_total": int_total,
@@ -772,7 +762,7 @@ async def get_user_activity(
     - slide: slide.view
     - ai:    ai.analyze
     """
-    db = get_db()
+    obj_audit_store = get_audit_store()
 
     # text text text text (text user_id text text 403 text text 404 text text text)
     dict_target = await get_user_store().find_by_id(user_id, bool_include_secrets=False)
@@ -780,75 +770,52 @@ async def get_user_activity(
         raise HTTPException(status_code=404, detail="User not found")
 
     dict_base_filter: dict = {"str_user_id": user_id}
-    dict_date_filter = {}
     if str_start_date:
         try:
-            dict_date_filter["$gte"] = datetime.fromisoformat(str_start_date).replace(tzinfo=timezone.utc)
+            dict_base_filter["dt_start"] = datetime.fromisoformat(str_start_date).replace(tzinfo=timezone.utc)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid str_start_date")
     if str_end_date:
         try:
             dt_end = datetime.fromisoformat(str_end_date).replace(tzinfo=timezone.utc)
-            dict_date_filter["$lt"] = dt_end + timedelta(days=1)
+            dict_base_filter["dt_end"] = dt_end + timedelta(days=1)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid str_end_date")
-    if dict_date_filter:
-        dict_base_filter["dt_created_at"] = dict_date_filter
 
-    def _with_action(value):
-        dict_f = dict_base_filter.copy()
-        dict_f["str_action"] = value
-        return dict_f
+    list_login_actions = ["user.login_success", "user.login_failed", "user.logout"]
+    list_file_actions = [
+        "folder.create", "folder.rename", "folder.delete",
+        "folder.ai_config_update", "folder.ai_config_delete",
+        "file.delete", "file.move", "slide.upload", "slide.status_update",
+    ]
 
-    dict_filter: dict = dict_base_filter.copy()
-    if str_category == "login":
-        dict_filter["str_action"] = {"$in": ["user.login_success", "user.login_failed", "user.logout"]}
-    elif str_category == "slide":
-        dict_filter["str_action"] = "slide.view"
-    elif str_category == "ai":
-        dict_filter["str_action"] = "ai.analyze"
-    elif str_category == "project":
-        dict_filter["str_action"] = {"$regex": r"^project\."}
-    elif str_category == "file":
-        dict_filter["str_action"] = {"$in": [
-            "folder.create", "folder.rename", "folder.delete",
-            "folder.ai_config_update", "folder.ai_config_delete",
-            "file.delete", "file.move",
-            "slide.upload", "slide.status_update",
-        ]}
+    def _category_filter(str_value: str) -> dict:
+        dict_result = dict_base_filter.copy()
+        if str_value == "login":
+            dict_result["list_actions"] = list_login_actions
+        elif str_value == "slide":
+            dict_result["str_action_exact"] = "slide.view"
+        elif str_value == "ai":
+            dict_result["str_action_exact"] = "ai.analyze"
+        elif str_value == "project":
+            dict_result["str_action_prefix"] = "project."
+        elif str_value == "file":
+            dict_result["list_actions"] = list_file_actions
+        return dict_result
 
-    list_logs = []
-    cursor = db.audit_logs.find(dict_filter).sort("dt_created_at", -1).skip(int_skip).limit(int_limit)
-    async for dict_log in cursor:
-        dict_log["_id"] = str(dict_log["_id"])
-        list_logs.append(dict_log)
-
-    int_total = await db.audit_logs.count_documents(dict_filter)
+    dict_filter = _category_filter(str_category)
+    list_logs = await obj_audit_store.list(
+        int_skip=int_skip, int_limit=int_limit, **dict_filter,
+    )
+    int_total = await obj_audit_store.count(**dict_filter)
 
     # text text text — text text
     dict_counts = {
-        "login": await db.audit_logs.count_documents(
-            _with_action({"$in": [
-                "user.login_success", "user.login_failed", "user.logout",
-            ]})
-        ),
-        "slide": await db.audit_logs.count_documents(
-            _with_action("slide.view")
-        ),
-        "ai": await db.audit_logs.count_documents(
-            _with_action("ai.analyze")
-        ),
-        "project": await db.audit_logs.count_documents(
-            _with_action({"$regex": r"^project\."})
-        ),
-        "file": await db.audit_logs.count_documents(
-            _with_action({"$in": [
-                "folder.create", "folder.rename", "folder.delete",
-                "folder.ai_config_update", "folder.ai_config_delete",
-                "file.delete", "file.move",
-                "slide.upload", "slide.status_update",
-            ]})
-        ),
+        "login": await obj_audit_store.count(**_category_filter("login")),
+        "slide": await obj_audit_store.count(**_category_filter("slide")),
+        "ai": await obj_audit_store.count(**_category_filter("ai")),
+        "project": await obj_audit_store.count(**_category_filter("project")),
+        "file": await obj_audit_store.count(**_category_filter("file")),
     }
 
     return {
@@ -878,10 +845,9 @@ async def verify_audit_chain(
     """
     from app.audit import _compute_log_hmac
 
-    db = get_db()
-    list_logs = []
-    async for dict_doc in db.audit_logs.find().sort("dt_created_at", 1).limit(int_limit):
-        list_logs.append(dict_doc)
+    list_logs = await get_audit_store().list(
+        int_limit=int_limit, bool_ascending=True,
+    )
 
     int_total = len(list_logs)
     int_valid = 0

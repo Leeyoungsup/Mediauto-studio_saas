@@ -12,6 +12,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.repositories.operational_store import get_clinical_info_store
+
 CLINICAL_INFO_KEYS = {
     "ER_proportion_score",
     "ER_intensity_score",
@@ -64,7 +66,7 @@ def iso_datetime(value) -> Optional[str]:
 
 
 async def get_case_clinical_info(db, case_name: str) -> dict:
-    case_doc = await db.case_clinical_info.find_one({"str_case_name": case_name})
+    case_doc = await get_clinical_info_store().find(case_name)
     if case_doc and isinstance(case_doc.get("dict_clinical_info"), dict):
         return case_doc.get("dict_clinical_info") or {}
     slide_doc = await db.slides.find_one({
@@ -79,18 +81,7 @@ async def get_case_clinical_info(db, case_name: str) -> dict:
 
 async def upsert_case_clinical_info(db, case_name: str, clinical_info: dict) -> None:
     now = datetime.now(timezone.utc)
-    await db.case_clinical_info.update_one(
-        {"str_case_name": case_name},
-        {
-            "$set": {
-                "str_case_name": case_name,
-                "dict_clinical_info": clinical_info,
-                "dt_updated_at": now,
-            },
-            "$setOnInsert": {"dt_created_at": now},
-        },
-        upsert=True,
-    )
+    await get_clinical_info_store().upsert(case_name, clinical_info, now)
     await db.slides.update_many(
         {"$or": [
             {"str_case_name": case_name},

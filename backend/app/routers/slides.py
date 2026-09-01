@@ -29,6 +29,7 @@ from app.clinical_info import (
     upsert_case_clinical_info as _upsert_case_clinical_info,
 )
 from app.models import UserRole
+from app.repositories.operational_store import get_clinical_info_store
 from app.path_utils import (
     rel_path_for as _rel_path_for,
     safe_filename as _safe_filename,
@@ -432,9 +433,7 @@ async def browse(path: str = Query("", description="uploads/ ??? ??? ???")):
     dict_db_slides = await slide_store.list_slides_in_folder(path)
     if is_db_connected() and set_case_names:
         db = get_db()
-        async for dict_doc in db.case_clinical_info.find({
-            "str_case_name": {"$in": sorted(set_case_names)},
-        }):
+        for dict_doc in await get_clinical_info_store().find_many(sorted(set_case_names)):
             dict_clinical = dict_doc.get("dict_clinical_info") or {}
             if _has_clinical_info(dict_clinical):
                 dict_case_clinical[dict_doc.get("str_case_name", "")] = dict_clinical
@@ -533,7 +532,7 @@ async def list_cases(
         db = get_db()
         async for dict_doc in db.project_infos.find({}):
             dict_project_info[dict_doc.get("str_project_path", "")] = dict_doc
-        async for dict_doc in db.case_clinical_info.find({}):
+        for dict_doc in await get_clinical_info_store().list_all():
             str_case = dict_doc.get("str_case_name", "")
             if str_case:
                 dict_case_clinical[str_case] = dict_doc

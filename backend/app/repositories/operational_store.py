@@ -1,0 +1,420 @@
+"""Backend-neutral persistence for audit, IP geo cache, and clinical data."""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+from typing import Any
+
+from bson import ObjectId
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+
+from app.config import settings
+from app.database import get_db, is_db_connected
+from app.postgres.database import get_postgres_session, is_postgres_connected
+from app.postgres.models import AuditLog, CaseClinicalInfo, IpGeoCache
+
+
+_AUDIT_FIELDS = (
+    "str_action", "str_user_id", "str_user_email", "str_resource_type",
+    "str_resource_id", "str_detail", "str_ip_address", "str_user_agent",
+    "dt_created_at", "str_prev_hmac", "str_hmac", "dict_before", "dict_after",
+    "str_country", "str_country_name", "str_city", "str_region",
+)
+_AUDIT_DEFAULTS = {
+    "str_action": "", "str_detail": "", "str_ip_address": "",
+    "str_user_agent": "", "str_prev_hmac": "", "str_hmac": "",
+    "str_country": "", "str_country_name": "", "str_city": "", "str_region": "",
+}
+_GEO_FIELDS = (
+    "str_ip", "str_country", "str_country_name", "str_city", "str_region",
+    "dt_expires_at", "dt_updated_at",
+)
+_CLINICAL_FIELDS = (
+    "str_case_name", "dict_clinical_info", "dt_created_at", "dt_updated_at",
+)
+
+
+def _new_id() -> str:
+    return str(ObjectId())
+
+
+def _mongo_id_filter(str_id: str) -> dict:
+    try:
+        return {"_id": ObjectId(str_id)}
+    except Exception:
+        return {"_id": str_id}
+
+
+def _mongo_document_to_dict(dict_doc: dict | None) -> dict | None:
+    if not dict_doc:
+        return None
+    dict_result = dict(dict_doc)
+    dict_result["_id"] = str(dict_result.get("_id", ""))
+    return dict_result
+
+
+def _json_safe(obj_value):
+    if obj_value is None or isinstance(obj_value, (str, int, float, bool)):
+        return obj_value
+    if isinstance(obj_value, ObjectId):
+        return str(obj_value)
+    if isinstance(obj_value, datetime):
+        return obj_value.isoformat()
+    if isinstance(obj_value, dict):
+        return {str(str_key): _json_safe(obj_item) for str_key, obj_item in obj_value.items()}
+    if isinstance(obj_value, (list, tuple)):
+        return [_json_safe(obj_item) for obj_item in obj_value]
+    # Decimal128, UUID, bytes, and other BSON-compatible custom types cannot
+    # be serialized by SQLAlchemy's JSON encoder directly.
+    return str(obj_value)
+
+
+def _audit_values(dict_log: dict) -> tuple[str, dict]:
+    str_id = str(dict_log.get("_id") or _new_id())
+    dict_values = {
+        str_field: dict_log[str_field]
+        for str_field in _AUDIT_FIELDS
+        if str_field in dict_log
+    }
+    for str_field, obj_default in _AUDIT_DEFAULTS.items():
+        dict_values.setdefault(str_field, obj_default)
+    dict_values.setdefault("dt_created_at", datetime.now(timezone.utc))
+    for str_field in ("dict_before", "dict_after"):
+        if str_field in dict_values:
+            dict_values[str_field] = _json_safe(dict_values[str_field])
+    dict_values["dict_extra"] = {
+        str_key: _json_safe(obj_value)
+        for str_key, obj_value in dict_log.items()
+        if str_key not in _AUDIT_FIELDS and str_key not in {"_id", "dict_extra"}
+    }
+    dict_values["dict_extra"].update(_json_safe(dict_log.get("dict_extra") or {}))
+    return str_id, dict_values
+
+
+def _audit_model_to_dict(obj_log: AuditLog) -> dict:
+    dict_log = {"_id": obj_log.str_id}
+    for str_field in _AUDIT_FIELDS:
+        obj_value = getattr(obj_log, str_field)
+        # Nullable HMAC input fields must remain explicit None values.  The
+        # original MongoDB document hashes str(None), not an absent key's "".
+        if obj_value is not None or str_field in {
+            "str_user_id", "str_user_email", "str_resource_type", "str_resource_id",
+        }:
+            dict_log[str_field] = obj_value
+    for str_key, obj_value in (obj_log.dict_extra or {}).items():
+        dict_log.setdefault(str_key, obj_value)
+    return dict_log
+
+
+def _geo_model_to_dict(obj_geo: IpGeoCache) -> dict:
+    dict_geo = {"_id": obj_geo.str_id}
+    for str_field in _GEO_FIELDS:
+        dict_geo[str_field] = getattr(obj_geo, str_field)
+    return dict_geo
+
+
+def _clinical_model_to_dict(obj_info: CaseClinicalInfo) -> dict:
+    dict_info = {"_id": obj_info.str_id}
+    for str_field in _CLINICAL_FIELDS:
+        dict_info[str_field] = getattr(obj_info, str_field)
+    return dict_info
+
+
+class MongoAuditStore:
+    @staticmethod
+    def _filter(
+        str_user_id=None, str_action_exact=None, str_action_search=None,
+        str_action_prefix=None, list_actions=None, dt_start=None, dt_end=None,
+    ) -> dict:
+        dict_filter: dict[str, Any] = {}
+        if str_user_id:
+            dict_filter["str_user_id"] = str_user_id
+        if str_action_exact:
+            dict_filter["str_action"] = str_action_exact
+        elif str_action_search:
+            dict_filter["str_action"] = {"$regex": re.escape(str_action_search), "$options": "i"}
+        elif str_action_prefix:
+            dict_filter["str_action"] = {"$regex": "^" + re.escape(str_action_prefix)}
+        elif list_actions:
+            dict_filter["str_action"] = {"$in": list_actions}
+        dict_date = {}
+        if dt_start:
+            dict_date["$gte"] = dt_start
+        if dt_end:
+            dict_date["$lt"] = dt_end
+        if dict_date:
+            dict_filter["dt_created_at"] = dict_date
+        return dict_filter
+
+    async def latest_hmac(self) -> str:
+        dict_doc = await get_db().audit_logs.find_one(
+            sort=[("dt_created_at", -1), ("_id", -1)], projection={"str_hmac": 1},
+        )
+        return (dict_doc or {}).get("str_hmac", "")
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        return _mongo_document_to_dict(await get_db().audit_logs.find_one(_mongo_id_filter(str_id)))
+
+    async def insert(self, dict_log: dict) -> str:
+        dict_doc = dict(dict_log)
+        if dict_doc.get("_id"):
+            try:
+                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
+            except Exception:
+                pass
+        result = await get_db().audit_logs.insert_one(dict_doc)
+        return str(result.inserted_id)
+
+    async def update_geo(self, str_id: str, dict_geo: dict) -> bool:
+        result = await get_db().audit_logs.update_one(
+            _mongo_id_filter(str_id),
+            {"$set": {
+                "str_country": dict_geo.get("country", ""),
+                "str_country_name": dict_geo.get("country_name", ""),
+                "str_city": dict_geo.get("city", ""),
+                "str_region": dict_geo.get("region", ""),
+            }},
+        )
+        return bool(result.matched_count)
+
+    async def list(self, int_skip=0, int_limit=None, bool_ascending=False, **kwargs) -> list[dict]:
+        cursor = get_db().audit_logs.find(self._filter(**kwargs)).sort(
+            [("dt_created_at", 1 if bool_ascending else -1), ("_id", 1 if bool_ascending else -1)]
+        ).skip(int_skip)
+        if int_limit is not None:
+            cursor = cursor.limit(int_limit)
+        return [_mongo_document_to_dict(dict_doc) async for dict_doc in cursor]
+
+    async def count(self, **kwargs) -> int:
+        return await get_db().audit_logs.count_documents(self._filter(**kwargs))
+
+
+class PostgresAuditStore:
+    @staticmethod
+    def _where(obj_query, str_user_id=None, str_action_exact=None, str_action_search=None,
+               str_action_prefix=None, list_actions=None, dt_start=None, dt_end=None):
+        if str_user_id:
+            obj_query = obj_query.where(AuditLog.str_user_id == str_user_id)
+        if str_action_exact:
+            obj_query = obj_query.where(AuditLog.str_action == str_action_exact)
+        elif str_action_search:
+            str_value = str_action_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            obj_query = obj_query.where(AuditLog.str_action.ilike(f"%{str_value}%", escape="\\"))
+        elif str_action_prefix:
+            str_value = str_action_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            obj_query = obj_query.where(AuditLog.str_action.like(f"{str_value}%", escape="\\"))
+        elif list_actions:
+            obj_query = obj_query.where(AuditLog.str_action.in_(list_actions))
+        if dt_start:
+            obj_query = obj_query.where(AuditLog.dt_created_at >= dt_start)
+        if dt_end:
+            obj_query = obj_query.where(AuditLog.dt_created_at < dt_end)
+        return obj_query
+
+    async def latest_hmac(self) -> str:
+        async with get_postgres_session() as obj_session:
+            obj_value = await obj_session.scalar(
+                select(AuditLog.str_hmac).order_by(AuditLog.dt_created_at.desc(), AuditLog.str_id.desc()).limit(1)
+            )
+            return obj_value or ""
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_log = await obj_session.get(AuditLog, str_id)
+            return _audit_model_to_dict(obj_log) if obj_log else None
+
+    async def insert(self, dict_log: dict) -> str:
+        str_id, dict_values = _audit_values(dict_log)
+        async with get_postgres_session() as obj_session:
+            obj_session.add(AuditLog(str_id=str_id, **dict_values))
+        return str_id
+
+    async def update_geo(self, str_id: str, dict_geo: dict) -> bool:
+        async with get_postgres_session() as obj_session:
+            result = await obj_session.execute(update(AuditLog).where(AuditLog.str_id == str_id).values(
+                str_country=dict_geo.get("country", ""),
+                str_country_name=dict_geo.get("country_name", ""),
+                str_city=dict_geo.get("city", ""),
+                str_region=dict_geo.get("region", ""),
+            ))
+            return bool(result.rowcount)
+
+    async def list(self, int_skip=0, int_limit=None, bool_ascending=False, **kwargs) -> list[dict]:
+        obj_query = self._where(select(AuditLog), **kwargs)
+        obj_query = obj_query.order_by(
+            AuditLog.dt_created_at.asc() if bool_ascending else AuditLog.dt_created_at.desc(),
+            AuditLog.str_id.asc() if bool_ascending else AuditLog.str_id.desc(),
+        ).offset(int_skip)
+        if int_limit is not None:
+            obj_query = obj_query.limit(int_limit)
+        async with get_postgres_session() as obj_session:
+            list_logs = list((await obj_session.scalars(obj_query)).all())
+        return [_audit_model_to_dict(obj_log) for obj_log in list_logs]
+
+    async def count(self, **kwargs) -> int:
+        obj_query = self._where(select(func.count()).select_from(AuditLog), **kwargs)
+        async with get_postgres_session() as obj_session:
+            return int(await obj_session.scalar(obj_query) or 0)
+
+
+class MongoIpGeoStore:
+    async def find(self, str_ip: str) -> dict | None:
+        return _mongo_document_to_dict(await get_db().ip_geo_cache.find_one({"str_ip": str_ip}))
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        return _mongo_document_to_dict(await get_db().ip_geo_cache.find_one(_mongo_id_filter(str_id)))
+
+    async def insert(self, dict_geo: dict) -> str:
+        dict_doc = dict(dict_geo)
+        if dict_doc.get("_id"):
+            try:
+                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
+            except Exception:
+                pass
+        result = await get_db().ip_geo_cache.insert_one(dict_doc)
+        return str(result.inserted_id)
+
+    async def upsert(self, str_ip: str, dict_values: dict) -> None:
+        await get_db().ip_geo_cache.update_one({"str_ip": str_ip}, {"$set": {"str_ip": str_ip, **dict_values}}, upsert=True)
+
+    async def count(self) -> int:
+        return await get_db().ip_geo_cache.count_documents({})
+
+
+class PostgresIpGeoStore:
+    async def find(self, str_ip: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_geo = await obj_session.scalar(select(IpGeoCache).where(IpGeoCache.str_ip == str_ip))
+            return _geo_model_to_dict(obj_geo) if obj_geo else None
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_geo = await obj_session.get(IpGeoCache, str_id)
+            return _geo_model_to_dict(obj_geo) if obj_geo else None
+
+    async def insert(self, dict_geo: dict) -> str:
+        str_id = str(dict_geo.get("_id") or _new_id())
+        dict_values = {str_field: dict_geo[str_field] for str_field in _GEO_FIELDS if str_field in dict_geo}
+        async with get_postgres_session() as obj_session:
+            obj_session.add(IpGeoCache(str_id=str_id, **dict_values))
+        return str_id
+
+    async def upsert(self, str_ip: str, dict_values: dict) -> None:
+        dict_row = {str_field: dict_values[str_field] for str_field in _GEO_FIELDS if str_field in dict_values}
+        dict_row.update({"id": _new_id(), "str_ip": str_ip})
+        obj_statement = postgres_insert(IpGeoCache).values(**dict_row)
+        dict_update = {str_field: getattr(obj_statement.excluded, str_field) for str_field in _GEO_FIELDS if str_field != "str_ip"}
+        async with get_postgres_session() as obj_session:
+            await obj_session.execute(obj_statement.on_conflict_do_update(index_elements=[IpGeoCache.str_ip], set_=dict_update))
+
+    async def count(self) -> int:
+        async with get_postgres_session() as obj_session:
+            return int(await obj_session.scalar(select(func.count()).select_from(IpGeoCache)) or 0)
+
+
+class MongoClinicalInfoStore:
+    async def find(self, str_case_name: str) -> dict | None:
+        return _mongo_document_to_dict(await get_db().case_clinical_info.find_one({"str_case_name": str_case_name}))
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        return _mongo_document_to_dict(await get_db().case_clinical_info.find_one(_mongo_id_filter(str_id)))
+
+    async def find_many(self, list_case_names: list[str]) -> list[dict]:
+        if not list_case_names:
+            return []
+        return [_mongo_document_to_dict(dict_doc) async for dict_doc in get_db().case_clinical_info.find({"str_case_name": {"$in": list_case_names}})]
+
+    async def list_all(self) -> list[dict]:
+        return [_mongo_document_to_dict(dict_doc) async for dict_doc in get_db().case_clinical_info.find({})]
+
+    async def insert(self, dict_info: dict) -> str:
+        dict_doc = dict(dict_info)
+        if dict_doc.get("_id"):
+            try:
+                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
+            except Exception:
+                pass
+        result = await get_db().case_clinical_info.insert_one(dict_doc)
+        return str(result.inserted_id)
+
+    async def upsert(self, str_case_name: str, dict_clinical_info: dict, dt_now: datetime) -> None:
+        await get_db().case_clinical_info.update_one(
+            {"str_case_name": str_case_name},
+            {"$set": {"str_case_name": str_case_name, "dict_clinical_info": dict_clinical_info, "dt_updated_at": dt_now},
+             "$setOnInsert": {"dt_created_at": dt_now}}, upsert=True,
+        )
+
+    async def count(self) -> int:
+        return await get_db().case_clinical_info.count_documents({})
+
+
+class PostgresClinicalInfoStore:
+    async def find(self, str_case_name: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_info = await obj_session.scalar(select(CaseClinicalInfo).where(CaseClinicalInfo.str_case_name == str_case_name))
+            return _clinical_model_to_dict(obj_info) if obj_info else None
+
+    async def find_by_id(self, str_id: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_info = await obj_session.get(CaseClinicalInfo, str_id)
+            return _clinical_model_to_dict(obj_info) if obj_info else None
+
+    async def find_many(self, list_case_names: list[str]) -> list[dict]:
+        if not list_case_names:
+            return []
+        async with get_postgres_session() as obj_session:
+            list_info = list((await obj_session.scalars(select(CaseClinicalInfo).where(CaseClinicalInfo.str_case_name.in_(list_case_names)))).all())
+        return [_clinical_model_to_dict(obj_info) for obj_info in list_info]
+
+    async def list_all(self) -> list[dict]:
+        async with get_postgres_session() as obj_session:
+            list_info = list((await obj_session.scalars(select(CaseClinicalInfo))).all())
+        return [_clinical_model_to_dict(obj_info) for obj_info in list_info]
+
+    async def insert(self, dict_info: dict) -> str:
+        str_id = str(dict_info.get("_id") or _new_id())
+        dict_values = {str_field: dict_info[str_field] for str_field in _CLINICAL_FIELDS if str_field in dict_info}
+        async with get_postgres_session() as obj_session:
+            obj_session.add(CaseClinicalInfo(str_id=str_id, **dict_values))
+        return str_id
+
+    async def upsert(self, str_case_name: str, dict_clinical_info: dict, dt_now: datetime) -> None:
+        obj_statement = postgres_insert(CaseClinicalInfo).values(
+            id=_new_id(), str_case_name=str_case_name, dict_clinical_info=dict_clinical_info,
+            dt_created_at=dt_now, dt_updated_at=dt_now,
+        )
+        async with get_postgres_session() as obj_session:
+            await obj_session.execute(obj_statement.on_conflict_do_update(
+                index_elements=[CaseClinicalInfo.str_case_name],
+                set_={"dict_clinical_info": obj_statement.excluded.dict_clinical_info, "dt_updated_at": dt_now},
+            ))
+
+    async def count(self) -> int:
+        async with get_postgres_session() as obj_session:
+            return int(await obj_session.scalar(select(func.count()).select_from(CaseClinicalInfo)) or 0)
+
+
+_MONGO_AUDIT = MongoAuditStore()
+_POSTGRES_AUDIT = PostgresAuditStore()
+_MONGO_GEO = MongoIpGeoStore()
+_POSTGRES_GEO = PostgresIpGeoStore()
+_MONGO_CLINICAL = MongoClinicalInfoStore()
+_POSTGRES_CLINICAL = PostgresClinicalInfoStore()
+
+
+def get_audit_store() -> MongoAuditStore | PostgresAuditStore:
+    return _POSTGRES_AUDIT if settings.DATABASE_BACKEND == "postgresql" else _MONGO_AUDIT
+
+
+def get_ip_geo_store() -> MongoIpGeoStore | PostgresIpGeoStore:
+    return _POSTGRES_GEO if settings.DATABASE_BACKEND == "postgresql" else _MONGO_GEO
+
+
+def get_clinical_info_store() -> MongoClinicalInfoStore | PostgresClinicalInfoStore:
+    return _POSTGRES_CLINICAL if settings.DATABASE_BACKEND == "postgresql" else _MONGO_CLINICAL
+
+
+def is_operational_store_connected() -> bool:
+    return is_postgres_connected() if settings.DATABASE_BACKEND == "postgresql" else is_db_connected()

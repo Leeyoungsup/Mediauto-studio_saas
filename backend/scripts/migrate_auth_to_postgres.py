@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pymongo import MongoClient
@@ -23,6 +24,9 @@ from app.repositories.auth_store import PostgresSessionStore, PostgresUserStore 
 def _copy_document_with_string_id(dict_source: dict) -> dict:
     dict_target = dict(dict_source)
     dict_target["_id"] = str(dict_target["_id"])
+    for str_key, obj_value in list(dict_target.items()):
+        if str_key.startswith("dt_") and isinstance(obj_value, datetime) and obj_value.tzinfo is None:
+            dict_target[str_key] = obj_value.replace(tzinfo=timezone.utc)
     return dict_target
 
 

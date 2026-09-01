@@ -15,9 +15,11 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from bson import ObjectId
-
-from app.database import get_db, is_db_connected
+from app.repositories.operational_store import (
+    get_audit_store,
+    get_ip_geo_store,
+    is_operational_store_connected,
+)
 
 
 _INT_CACHE_TTL_DAYS = 30
@@ -76,12 +78,12 @@ async def lookup_geo(str_ip: str) -> Optional[dict]:
     """IP → {"country", "country_name", "city", "region"} or None."""
     if _is_private_ip(str_ip):
         return None
-    if not is_db_connected():
+    if not is_operational_store_connected():
         # DB text text text text text text
         return await asyncio.to_thread(_fetch_geo_sync, str_ip)
 
-    db = get_db()
-    dict_cached = await db.ip_geo_cache.find_one({"str_ip": str_ip})
+    obj_geo_store = get_ip_geo_store()
+    dict_cached = await obj_geo_store.find(str_ip)
     if dict_cached:
         dt_expires = dict_cached.get("dt_expires_at")
         if isinstance(dt_expires, datetime):
@@ -101,21 +103,14 @@ async def lookup_geo(str_ip: str) -> Optional[dict]:
 
     dt_now = datetime.now(timezone.utc)
     try:
-        await db.ip_geo_cache.update_one(
-            {"str_ip": str_ip},
-            {
-                "$set": {
-                    "str_ip": str_ip,
-                    "str_country": dict_result["country"],
-                    "str_country_name": dict_result["country_name"],
-                    "str_city": dict_result["city"],
-                    "str_region": dict_result["region"],
-                    "dt_expires_at": dt_now + timedelta(days=_INT_CACHE_TTL_DAYS),
-                    "dt_updated_at": dt_now,
-                }
-            },
-            upsert=True,
-        )
+        await obj_geo_store.upsert(str_ip, {
+            "str_country": dict_result["country"],
+            "str_country_name": dict_result["country_name"],
+            "str_city": dict_result["city"],
+            "str_region": dict_result["region"],
+            "dt_expires_at": dt_now + timedelta(days=_INT_CACHE_TTL_DAYS),
+            "dt_updated_at": dt_now,
+        })
     except Exception:
         pass
     return dict_result
@@ -132,20 +127,9 @@ async def enrich_audit_with_geo(str_audit_log_id: Optional[str], str_ip: str) ->
     dict_geo = await lookup_geo(str_ip)
     if not dict_geo:
         return
-    if not is_db_connected():
+    if not is_operational_store_connected():
         return
-    db = get_db()
     try:
-        await db.audit_logs.update_one(
-            {"_id": ObjectId(str_audit_log_id)},
-            {
-                "$set": {
-                    "str_country": dict_geo["country"],
-                    "str_country_name": dict_geo["country_name"],
-                    "str_city": dict_geo["city"],
-                    "str_region": dict_geo["region"],
-                }
-            },
-        )
+        await get_audit_store().update_geo(str_audit_log_id, dict_geo)
     except Exception:
         pass

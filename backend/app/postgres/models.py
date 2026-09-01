@@ -1,4 +1,4 @@
-"""Initial PostgreSQL schema for authentication and session migration."""
+"""PostgreSQL schema for the staged MongoDB migration."""
 
 from datetime import datetime, timezone
 
@@ -72,4 +72,67 @@ class Session(Base):
     __table_args__ = (
         Index("ix_sessions_user_id", "str_user_id"),
         Index("ix_sessions_expires_at", "dt_expires_at"),
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    str_id: Mapped[str] = mapped_column("id", String(36), primary_key=True)
+    str_action: Mapped[str] = mapped_column(String(160), nullable=False)
+    str_user_id: Mapped[str | None] = mapped_column(String(36))
+    str_user_email: Mapped[str | None] = mapped_column(String(200))
+    str_resource_type: Mapped[str | None] = mapped_column(String(100))
+    str_resource_id: Mapped[str | None] = mapped_column(String(200))
+    str_detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    str_ip_address: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    str_user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    str_prev_hmac: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    str_hmac: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    dict_before: Mapped[dict | None] = mapped_column(TYPE_JSON)
+    dict_after: Mapped[dict | None] = mapped_column(TYPE_JSON)
+    dict_extra: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
+    str_country: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    str_country_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    str_city: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    str_region: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "dt_created_at"),
+        Index("ix_audit_logs_user_id", "str_user_id"),
+        Index("ix_audit_logs_action", "str_action"),
+        Index("ix_audit_logs_hmac", "str_hmac"),
+        Index("ix_audit_logs_user_action_created", "str_user_id", "str_action", "dt_created_at"),
+    )
+
+
+class IpGeoCache(Base):
+    __tablename__ = "ip_geo_cache"
+
+    str_id: Mapped[str] = mapped_column("id", String(36), primary_key=True)
+    str_ip: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    str_country: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    str_country_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    str_city: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    str_region: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    dt_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_ip_geo_cache_expires_at", "dt_expires_at"),
+    )
+
+
+class CaseClinicalInfo(Base):
+    __tablename__ = "case_clinical_info"
+
+    str_id: Mapped[str] = mapped_column("id", String(36), primary_key=True)
+    str_case_name: Mapped[str] = mapped_column(String(240), unique=True, nullable=False)
+    dict_clinical_info: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
+    dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_case_clinical_info_updated_at", "dt_updated_at"),
     )

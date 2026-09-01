@@ -7,6 +7,7 @@ text text text: text text text text 5text text
 - HMAC text text: text text text text HMACtext text text text
 """
 
+import asyncio
 import hashlib
 import hmac
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from typing import Any, Optional
 
 from fastapi import Request
 
-from app.database import get_db
+from app.repositories.operational_store import get_audit_store
 
 # ── HMAC text text (JWT text text) ──
 _AUDIT_HMAC_KEY: bytes = b""
@@ -22,6 +23,7 @@ _AUDIT_HMAC_KEY: bytes = b""
 # ── text HMAC text text (text DB text text) ──
 _last_hmac: str = ""
 _last_hmac_loaded: bool = False
+_audit_chain_lock = asyncio.Lock()
 
 
 def _get_hmac_key() -> bytes:
@@ -64,16 +66,17 @@ async def _ensure_last_hmac_loaded():
     if _last_hmac_loaded:
         return
     try:
-        db = get_db()
-        dict_last = await db.audit_logs.find_one(
-            sort=[("dt_created_at", -1)],
-            projection={"str_hmac": 1},
-        )
-        if dict_last:
-            _last_hmac = dict_last.get("str_hmac", "")
+        _last_hmac = await get_audit_store().latest_hmac()
     except Exception:
         pass
     _last_hmac_loaded = True
+
+
+def reset_audit_chain_cache() -> None:
+    """Reload the chain tail after a backend switch or bulk migration."""
+    global _last_hmac, _last_hmac_loaded
+    _last_hmac = ""
+    _last_hmac_loaded = False
 
 
 # ── text text text ──
@@ -100,46 +103,40 @@ async def log_audit_event(
     """
     global _last_hmac
 
-    db = get_db()
+    # A single append lock prevents concurrent requests from branching the HMAC
+    # chain inside this application process.
+    async with _audit_chain_lock:
+        await _ensure_last_hmac_loaded()
+        str_prev_hmac = _last_hmac
 
-    # text HMAC — text text text (text text text DB text)
-    await _ensure_last_hmac_loaded()
-    str_prev_hmac = _last_hmac
+        dict_log = {
+            "str_action": str_action,
+            "str_user_id": str_user_id,
+            "str_user_email": str_user_email,
+            "str_resource_type": str_resource_type,
+            "str_resource_id": str_resource_id,
+            "str_detail": str_detail,
+            "str_ip_address": str_ip_address,
+            "str_user_agent": str_user_agent,
+            "dt_created_at": datetime.now(timezone.utc),
+            "str_prev_hmac": str_prev_hmac,
+        }
 
-    dict_log = {
-        "str_action": str_action,
-        "str_user_id": str_user_id,
-        "str_user_email": str_user_email,
-        "str_resource_type": str_resource_type,
-        "str_resource_id": str_resource_id,
-        "str_detail": str_detail,
-        "str_ip_address": str_ip_address,
-        "str_user_agent": str_user_agent,
-        "dt_created_at": datetime.now(timezone.utc),
-        "str_prev_hmac": str_prev_hmac,
-    }
+        if dict_before is not None:
+            dict_log["dict_before"] = dict_before
+        if dict_after is not None:
+            dict_log["dict_after"] = dict_after
 
-    # text text/text text
-    if dict_before is not None:
-        dict_log["dict_before"] = dict_before
-    if dict_after is not None:
-        dict_log["dict_after"] = dict_after
+        if dict_extra:
+            for str_k, v in dict_extra.items():
+                if str_k not in dict_log:
+                    dict_log[str_k] = v
 
-    if dict_extra:
-        for str_k, v in dict_extra.items():
-            if str_k not in dict_log:
-                dict_log[str_k] = v
-
-    # HMAC text
-    str_new_hmac = _compute_log_hmac(dict_log, str_prev_hmac)
-    dict_log["str_hmac"] = str_new_hmac
-
-    result = await db.audit_logs.insert_one(dict_log)
-
-    # text text — text text DB text text text text text
-    _last_hmac = str_new_hmac
-
-    return str(result.inserted_id)
+        str_new_hmac = _compute_log_hmac(dict_log, str_prev_hmac)
+        dict_log["str_hmac"] = str_new_hmac
+        str_inserted_id = await get_audit_store().insert(dict_log)
+        _last_hmac = str_new_hmac
+        return str_inserted_id
 
 
 def _get_trusted_proxies() -> set:

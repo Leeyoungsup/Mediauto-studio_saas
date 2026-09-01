@@ -16,7 +16,7 @@
 
 1. PostgreSQL 연결, Alembic, Docker Compose 기반 구성
 2. `users`, `sessions`와 인증 API 전환 — **Repository 구현 완료**
-3. `audit_logs`, `ip_geo_cache`, 임상정보 전환
+3. `audit_logs`, `ip_geo_cache`, 임상정보 전환 — **Repository 및 이관 도구 구현 완료**
 4. 프로젝트, 슬라이드, AI 상태와 annotation 전환
 5. MongoDB → PostgreSQL 이관 도구, 검증 보고서와 롤백 절차 작성
 6. 운영 안정화 후 Motor/PyMongo/MongoDB 제거
@@ -41,7 +41,8 @@ cd backend
 alembic upgrade head
 ```
 
-현재 첫 revision은 `users`, `sessions`를 생성한다. PostgreSQL Repository는
+현재 Alembic revision은 `users`, `sessions`, `audit_logs`, `ip_geo_cache`,
+`case_clinical_info`를 생성한다. PostgreSQL Repository는
 로그인, 계정 잠금, 토큰 회전 CAS, 로그아웃, 비밀번호 변경, MFA와 관리자 사용자
 관리를 지원한다. 나머지 데이터는 계속 MongoDB를 사용하므로 전환 기간에는 두 DB가
 모두 실행되어야 한다.
@@ -82,6 +83,31 @@ export POSTGRES_URI='postgresql+asyncpg://mediauto:<url-encoded-password>@localh
 PostgreSQL 전환 후 MongoDB의 사용자 데이터는 더 이상 갱신되지 않는다. 되돌려야 할
 경우 단순히 환경변수만 변경하지 말고, 전환 후 사용자 변경분을 먼저 역이관하거나
 점검 시간 동안 PostgreSQL 쓰기를 중단해야 한다.
+
+## 감사·IP 캐시·임상정보 이관
+
+이 세 기능도 dual-write가 아니므로 전환 직전에는 로그인 및 임상정보 편집을 잠시
+중지한다. 먼저 충돌과 예상 건수를 확인한 뒤 이관한다.
+
+```bash
+cd backend
+python scripts/migrate_operational_to_postgres.py --dry-run
+python scripts/migrate_operational_to_postgres.py
+```
+
+스크립트는 MongoDB ObjectId와 감사 로그 HMAC/이전 HMAC, IP 캐시 만료 시각,
+임상정보 생성·수정 시각을 보존한다. 여러 번 실행해도 같은 ID 또는 자연키(IP,
+case name)는 건너뛰며, 내용 충돌은 오류로 중단한다.
+
+이관은 과거 감사 서명을 재생성하거나 덮어쓰지 않는다. 운영 전환 전
+`/api/users/audit-logs/verify-chain` 결과를 별도 보관하고, 기존 키 변경이나 예전
+로그 포맷 때문에 이미 검증되지 않는 레코드는 이관 성공 여부와 구분해 조사해야 한다.
+기존 로그를 새 키로 다시 서명하면 원본 감사 증거가 바뀌므로 자동 보정하지 않는다.
+
+현재 슬라이드 본문은 MongoDB에 남아 있다. 임상정보의 기준 저장소는 PostgreSQL로
+전환되지만, 기존 슬라이드 문서의 임상정보 읽기 fallback과 호환용 갱신은 다음 단계가
+끝날 때까지 유지한다. 따라서 `DATABASE_BACKEND=postgresql`인 동안에도 MongoDB를
+중지하면 안 된다.
 
 ## 운영 전환 조건
 

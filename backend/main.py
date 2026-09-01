@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
     await connect_db()
     if settings.DATABASE_BACKEND == "postgresql":
         await connect_postgres()
-        print("[MeDIAuto SaaS] PostgreSQL auth repository connected")
+        print("[MeDIAuto SaaS] PostgreSQL staged repositories connected")
     elif settings.DATABASE_BACKEND != "mongodb":
         await disconnect_db()
         raise RuntimeError(

@@ -52,11 +52,13 @@ async def connect_postgres() -> None:
         async with _engine.connect() as obj_connection:
             await obj_connection.execute(text("SELECT 1"))
             tuple_tables = tuple((await obj_connection.execute(text(
-                "SELECT to_regclass('public.users'), to_regclass('public.sessions')"
+                "SELECT to_regclass('public.users'), to_regclass('public.sessions'), "
+                "to_regclass('public.audit_logs'), to_regclass('public.ip_geo_cache'), "
+                "to_regclass('public.case_clinical_info')"
             ))).one())
             if any(obj_table is None for obj_table in tuple_tables):
                 raise RuntimeError(
-                    "PostgreSQL auth schema is missing. Run 'alembic upgrade head' first."
+                    "PostgreSQL schema is missing. Run 'alembic upgrade head' first."
                 )
     except Exception:
         await _engine.dispose()

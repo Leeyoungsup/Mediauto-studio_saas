@@ -58,8 +58,13 @@ class AuthStoreTests(unittest.TestCase):
         from bson import ObjectId
 
         obj_id = ObjectId()
-        dict_copy = _copy_document_with_string_id({"_id": obj_id, "value": 1})
-        self.assertEqual(dict_copy, {"_id": str(obj_id), "value": 1})
+        dt_naive = datetime(2026, 9, 1, 0, 0)
+        dict_copy = _copy_document_with_string_id({
+            "_id": obj_id, "value": 1, "dt_created_at": dt_naive,
+        })
+        self.assertEqual(dict_copy["_id"], str(obj_id))
+        self.assertEqual(dict_copy["value"], 1)
+        self.assertEqual(dict_copy["dt_created_at"].tzinfo, timezone.utc)
 
     def test_session_model_accepts_timezone_aware_expiry(self):
         dt_now = datetime.now(timezone.utc)
