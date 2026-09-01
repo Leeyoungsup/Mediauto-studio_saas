@@ -105,8 +105,10 @@ Important environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PHILIPS_CONDA_ENV` | `philips-sdk-py37` | Conda environment name used when `PHILIPS_PYTHON` is not set. |
+| `PHILIPS_CONDA_ENV` | OS-specific | `philips-sdk-py38` on Linux and `philips-sdk-py37` on Windows. |
 | `PHILIPS_PYTHON` | empty | Absolute path to the Python executable that can import the Philips SDK. |
+| `MEDIAUTO_PHILIPS_SDK_SOURCE` | empty | Licensed SDK directory or ZIP/TAR used only during bootstrap. |
+| `MEDIAUTO_ACCEPT_PHILIPS_EULA` | `0` | Must be set to `1` by the operator after reviewing the SDK EULA. |
 | `PHILIPS_VIEW` | `display` | OpenPhi view mode. |
 | `PHILIPS_BRIDGE_MODE` | `auto` | `auto`, `persistent`, or `cli`. |
 | `PHILIPS_TIMEOUT_SECONDS` | `120` | Per-command timeout. |

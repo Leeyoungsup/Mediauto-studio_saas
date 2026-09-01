@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PHILIPS_CLI = BACKEND_DIR / "philips_bridge" / "philips_cli.py"
 PHILIPS_SERVER = BACKEND_DIR / "philips_bridge" / "philips_server.py"
-PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", "philips-sdk-py38")
+_DEFAULT_PHILIPS_CONDA_ENV = "philips-sdk-py37" if os.name == "nt" else "philips-sdk-py38"
+PHILIPS_CONDA_ENV = os.environ.get("PHILIPS_CONDA_ENV", _DEFAULT_PHILIPS_CONDA_ENV)
 PHILIPS_PYTHON = os.environ.get("PHILIPS_PYTHON", "").strip()
 PHILIPS_VIEW = os.environ.get("PHILIPS_VIEW", "display").strip() or "display"
 PHILIPS_TIMEOUT_SECONDS = int(os.environ.get("PHILIPS_TIMEOUT_SECONDS", "120"))

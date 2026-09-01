@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -229,6 +230,58 @@ def _check_native_dependencies() -> list[str]:
     return list_errors
 
 
+def _check_philips_if_enabled() -> list[str]:
+    bool_enabled = os.environ.get("MEDIAUTO_ENABLE_PHILIPS", "").strip().lower() in {
+        "1", "true", "yes", "y",
+    }
+    if not bool_enabled and not os.environ.get("MEDIAUTO_PHILIPS_SDK_SOURCE", "").strip():
+        _log("INFO", "Philips iSyntax support is not requested.")
+        return []
+
+    str_env_name = os.environ.get(
+        "PHILIPS_CONDA_ENV",
+        "philips-sdk-py37" if os.name == "nt" else "philips-sdk-py38",
+    ).strip()
+    str_python = os.environ.get("PHILIPS_PYTHON", "").strip()
+    if str_python:
+        list_command = [str_python]
+    else:
+        path_envs = Path(sys.prefix).resolve().parent
+        path_python = (
+            path_envs / str_env_name / "python.exe"
+            if os.name == "nt"
+            else path_envs / str_env_name / "bin" / "python"
+        )
+        if path_python.is_file():
+            list_command = [str(path_python)]
+        elif shutil.which("conda"):
+            list_command = ["conda", "run", "-n", str_env_name, "python"]
+        else:
+            str_error = f"Philips environment cannot be located: {str_env_name}"
+            _log("ERROR", str_error)
+            return [str_error]
+    list_command += [str(PATH_BACKEND / "scripts" / "bootstrap_philips.py"), "--check-only"]
+    try:
+        obj_result = subprocess.run(
+            list_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=90,
+        )
+    except Exception as obj_error:
+        str_error = f"Philips preflight failed: {obj_error}"
+        _log("ERROR", str_error)
+        return [str_error]
+    if obj_result.returncode != 0:
+        str_detail = (obj_result.stderr or obj_result.stdout).strip()
+        str_error = f"Philips preflight failed: {str_detail}"
+        _log("ERROR", str_error)
+        return [str_error]
+    _log("OK", f"Philips iSyntax environment is ready: {str_env_name}")
+    return []
+
+
 def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
     if bool_skip_db:
         _log("INFO", "MongoDB check skipped.")
@@ -313,12 +366,13 @@ def main() -> int:
         )
         list_missing_required, _ = _check_models(Path(settings.MODEL_DIR), list_models)
         list_native_errors = _check_native_dependencies()
+        list_philips_errors = _check_philips_if_enabled()
         bool_db_ok, str_db_error = _check_database_and_admin(settings, obj_args.skip_db)
     except Exception as obj_error:
         _log("ERROR", str(obj_error))
         return 1
 
-    list_failures = list(list_native_errors)
+    list_failures = list(list_native_errors) + list(list_philips_errors)
     if obj_args.strict_models and list_missing_required:
         list_failures.append("required AI models are missing")
     if obj_args.strict_db and not bool_db_ok:

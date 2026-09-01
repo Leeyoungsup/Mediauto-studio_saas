@@ -17,6 +17,9 @@ set PY_VER=3.12
 if defined MEDIAUTO_PYTHON_VERSION set PY_VER=%MEDIAUTO_PYTHON_VERSION%
 set CUDA_TAG=cu121
 if defined MEDIAUTO_CUDA_TAG set CUDA_TAG=%MEDIAUTO_CUDA_TAG%
+set PHILIPS_ENV_NAME=philips-sdk-py37
+if defined PHILIPS_CONDA_ENV set PHILIPS_ENV_NAME=%PHILIPS_CONDA_ENV%
+set PHILIPS_PY_VER=3.7
 set MONGO_SERVICE=MongoDB
 
 where conda >nul 2>&1
@@ -29,11 +32,15 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 1/7] MongoDB Setup
+echo [STEP 1/8] MongoDB Setup
 echo ============================================================
 where mongod >nul 2>&1
 if errorlevel 1 (
     echo [WARN] mongod not found in PATH.
+    if defined MONGO_URI (
+        echo [INFO] MONGO_URI is configured; local MongoDB installation is skipped.
+        goto MONGO_SKIP_INSTALL
+    )
     echo.
     echo  Install options:
     echo    1^) winget install MongoDB.Server         ^(recommended, Windows 10+/11^)
@@ -41,8 +48,10 @@ if errorlevel 1 (
     echo       https://www.mongodb.com/try/download/community
     echo    3^) Use a remote/managed MongoDB and set MONGO_URI env var.
     echo.
-    choice /C YN /M "Try 'winget install MongoDB.Server' now"
-    if errorlevel 2 goto MONGO_SKIP_INSTALL
+    if not "%MEDIAUTO_AUTO_INSTALL_DB%"=="1" (
+        choice /C YN /M "Try 'winget install MongoDB.Server' now"
+        if errorlevel 2 goto MONGO_SKIP_INSTALL
+    )
     where winget >nul 2>&1
     if errorlevel 1 (
         echo [ERROR] winget not available. Install manually from the URL above.
@@ -88,7 +97,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 2/7] Conda environment "%ENV_NAME%"
+echo [STEP 2/8] Conda environment "%ENV_NAME%"
 echo ============================================================
 call conda env list | findstr /b /c:"%ENV_NAME% " >nul
 if errorlevel 1 (
@@ -105,7 +114,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 3/7] PyTorch ^(CUDA %CUDA_TAG%^)
+echo [STEP 3/8] PyTorch ^(CUDA %CUDA_TAG%^)
 echo ============================================================
 call conda run -n %ENV_NAME% pip install --upgrade pip
 call conda run -n %ENV_NAME% pip install torch torchvision --index-url https://download.pytorch.org/whl/%CUDA_TAG%
@@ -116,7 +125,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 4/7] Backend requirements
+echo [STEP 4/8] Backend requirements
 echo ============================================================
 call conda run -n %ENV_NAME% pip install -r "%~dp0backend\requirements.txt"
 if errorlevel 1 (
@@ -127,7 +136,42 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 5/7] MongoDB connectivity test
+echo [STEP 5/8] Optional Philips iSyntax environment
+echo ============================================================
+set PHILIPS_REQUESTED=0
+if "%MEDIAUTO_ENABLE_PHILIPS%"=="1" set PHILIPS_REQUESTED=1
+if defined MEDIAUTO_PHILIPS_SDK_SOURCE set PHILIPS_REQUESTED=1
+if "!PHILIPS_REQUESTED!"=="1" (
+    if not "%MEDIAUTO_ACCEPT_PHILIPS_EULA%"=="1" (
+        echo [ERROR] Review the licensed Philips SDK EULA, then set MEDIAUTO_ACCEPT_PHILIPS_EULA=1.
+        pause
+        exit /b 1
+    )
+    call conda env list | findstr /b /c:"!PHILIPS_ENV_NAME! " >nul
+    if errorlevel 1 (
+        echo [INFO] Creating Philips env: !PHILIPS_ENV_NAME! ^(python %PHILIPS_PY_VER%^)
+        call conda create -y -n !PHILIPS_ENV_NAME! python=%PHILIPS_PY_VER% pip
+        if errorlevel 1 (
+            echo [ERROR] Failed to create Philips SDK environment.
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo [INFO] Philips env "!PHILIPS_ENV_NAME!" already exists.
+    )
+    call conda run -n !PHILIPS_ENV_NAME! python "%~dp0backend\scripts\bootstrap_philips.py"
+    if errorlevel 1 (
+        echo [ERROR] Philips SDK environment setup failed.
+        pause
+        exit /b 1
+    )
+) else (
+    echo [INFO] Philips setup skipped. Set MEDIAUTO_ENABLE_PHILIPS=1 and MEDIAUTO_PHILIPS_SDK_SOURCE to enable it.
+)
+
+echo.
+echo ============================================================
+echo [STEP 6/8] MongoDB connectivity test
 echo ============================================================
 REM Use the same default URI as backend/app/config.py — env var override respected.
 call conda run -n %ENV_NAME% python -c "import os; from pymongo import MongoClient; uri=os.environ.get('MONGO_URI','mongodb://localhost:27017'); MongoClient(uri, serverSelectionTimeoutMS=3000).admin.command('ping'); print('[OK] MongoDB ping succeeded @', uri)"
@@ -142,7 +186,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 6/7] Optional: restore MongoDB dump
+echo [STEP 7/8] Optional: restore MongoDB dump
 echo ============================================================
 set DUMP_DB_NAME=medicus_studio
 if defined MONGO_DB_NAME set DUMP_DB_NAME=%MONGO_DB_NAME%
@@ -239,7 +283,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 7/7] Runtime bootstrap and preflight
+echo [STEP 8/8] Runtime bootstrap and preflight
 echo ============================================================
 set BOOTSTRAP_ARGS=
 if "%MEDIAUTO_STRICT_MODELS%"=="1" set BOOTSTRAP_ARGS=!BOOTSTRAP_ARGS! --strict-models
@@ -278,7 +322,7 @@ echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=./
 echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip
 echo.
 echo    Then on the NEW machine, drop the dump folder/archive at the project root
-echo    and re-run this script - STEP 6 will auto-restore.
+echo    and re-run this script - STEP 7 will auto-restore.
 echo.
 echo  MongoDB defaults:
 echo    URI    = mongodb://localhost:27017   ^(override: set MONGO_URI=...^)

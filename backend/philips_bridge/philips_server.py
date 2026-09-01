@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-"""Persistent Python 3.7 side server for Philips iSyntax access.
+"""Persistent ABI-specific side server for Philips iSyntax access.
+
+The licensed SDK uses Python 3.7 on Windows and Python 3.8 on Linux.
 
 Protocol:
   stdin  : one JSON object per line

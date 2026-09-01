@@ -14,6 +14,7 @@ set HOST=0.0.0.0
 if defined MEDIAUTO_HOST set HOST=%MEDIAUTO_HOST%
 set PORT=8092
 if defined MEDIAUTO_PORT set PORT=%MEDIAUTO_PORT%
+if not defined PHILIPS_CONDA_ENV set PHILIPS_CONDA_ENV=philips-sdk-py37
 
 where conda >nul 2>&1
 if errorlevel 1 (

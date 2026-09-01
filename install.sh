@@ -18,6 +18,8 @@ cd "$SCRIPT_DIR"
 ENV_NAME="${MEDIAUTO_CONDA_ENV:-medicus-saas}"
 PY_VER="${MEDIAUTO_PYTHON_VERSION:-3.12}"
 CUDA_TAG="${MEDIAUTO_CUDA_TAG:-cu121}"
+PHILIPS_ENV_NAME="${PHILIPS_CONDA_ENV:-philips-sdk-py38}"
+PHILIPS_PY_VER="3.8"
 
 # ── Colors (skipped if not a tty) ──
 if [[ -t 1 ]]; then
@@ -53,6 +55,23 @@ is_debian_family() { [[ "$DISTRO_ID" == "debian" || "$DISTRO_ID" == "ubuntu" || 
 is_rhel_family()   { [[ "$DISTRO_ID" == "rhel" || "$DISTRO_ID" == "centos" || "$DISTRO_ID" == "fedora" || "$DISTRO_ID" == "rocky" || "$DISTRO_ID" == "almalinux" || "$DISTRO_LIKE" == *"rhel"* || "$DISTRO_LIKE" == *"fedora"* ]]; }
 is_arch_family()   { [[ "$DISTRO_ID" == "arch" || "$DISTRO_LIKE" == *"arch"* ]]; }
 
+install_mongodb_ubuntu_7() {
+    local codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+    if [[ "$codename" != "jammy" && "$codename" != "focal" ]]; then
+        log_error "MongoDB 7 apt automation supports Ubuntu 22.04 (jammy) and 20.04 (focal); found '$codename'."
+        return 1
+    fi
+    log_info "Installing MongoDB 7 Community from the official MongoDB repository (sudo required) ..."
+    sudo apt-get update || return 1
+    sudo apt-get install -y gnupg curl || return 1
+    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        sudo gpg --batch --yes -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor || return 1
+    echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg] https://repo.mongodb.org/apt/ubuntu ${codename}/mongodb-org/7.0 multiverse" | \
+        sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null || return 1
+    sudo apt-get update || return 1
+    sudo apt-get install -y mongodb-org || return 1
+}
+
 # ── Pre-checks ──
 if ! command -v conda >/dev/null 2>&1; then
     log_error "conda not found. Install Miniconda/Anaconda first:"
@@ -61,11 +80,21 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # ── STEP 1: MongoDB ──
-section "[STEP 1/8] MongoDB Setup"
+section "[STEP 1/9] MongoDB Setup"
 if command -v mongod >/dev/null 2>&1; then
     log_info "mongod found: $(command -v mongod)"
 else
     log_warn "mongod not found in PATH."
+    MONGO_URI_CHECK="${MONGO_URI:-mongodb://localhost:27017}"
+    if [[ "$MONGO_URI_CHECK" != *"localhost"* && "$MONGO_URI_CHECK" != *"127.0.0.1"* && "$MONGO_URI_CHECK" != *"[::1]"* ]]; then
+        log_info "Remote MONGO_URI is configured; local MongoDB installation is skipped."
+    elif [[ "$DISTRO_ID" == "ubuntu" ]] && { [[ "${MEDIAUTO_AUTO_INSTALL_DB:-0}" == "1" ]] || confirm "Install MongoDB 7 Community automatically now"; }; then
+        if ! install_mongodb_ubuntu_7; then
+            log_error "MongoDB automatic installation failed."
+            exit 1
+        fi
+        log_ok "MongoDB installed."
+    else
     echo
     echo "  Install commands (community edition — copy-paste, then rerun this script):"
     if is_debian_family; then
@@ -111,6 +140,7 @@ EOF
     else
         exit 1
     fi
+    fi
 fi
 
 # Try to ensure mongod service is running (if systemd available).
@@ -134,7 +164,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # ── STEP 2: OpenSlide system library ──
-section "[STEP 2/8] OpenSlide and libvips system libraries"
+section "[STEP 2/9] OpenSlide and libvips system libraries"
 # openslide-python wraps libopenslide.so.0. Wheel doesn't bundle it on Linux.
 if ldconfig -p 2>/dev/null | grep -q "libopenslide\.so"; then
     log_ok "libopenslide already installed."
@@ -172,7 +202,7 @@ else
 fi
 
 # ── STEP 3: Conda env ──
-section "[STEP 3/8] Conda environment \"$ENV_NAME\""
+section "[STEP 3/9] Conda environment \"$ENV_NAME\""
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
     log_info "env \"$ENV_NAME\" already exists."
 else
@@ -184,7 +214,7 @@ else
 fi
 
 # ── STEP 4: PyTorch ──
-section "[STEP 4/8] PyTorch (CUDA $CUDA_TAG)"
+section "[STEP 4/9] PyTorch (CUDA $CUDA_TAG)"
 conda run -n "$ENV_NAME" pip install --upgrade pip
 if ! conda run -n "$ENV_NAME" pip install torch torchvision \
         --index-url "https://download.pytorch.org/whl/$CUDA_TAG"; then
@@ -193,14 +223,39 @@ if ! conda run -n "$ENV_NAME" pip install torch torchvision \
 fi
 
 # ── STEP 5: backend requirements ──
-section "[STEP 5/8] Backend requirements"
+section "[STEP 5/9] Backend requirements"
 if ! conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/backend/requirements.txt"; then
     log_error "pip install failed."
     exit 1
 fi
 
-# ── STEP 6: connectivity test ──
-section "[STEP 6/8] MongoDB connectivity test"
+# ── STEP 6: optional Philips SDK environment ──
+section "[STEP 6/9] Optional Philips iSyntax environment"
+if [[ "${MEDIAUTO_ENABLE_PHILIPS:-0}" == "1" || -n "${MEDIAUTO_PHILIPS_SDK_SOURCE:-}" ]]; then
+    if [[ "${MEDIAUTO_ACCEPT_PHILIPS_EULA:-0}" != "1" ]]; then
+        log_error "Review the licensed Philips SDK EULA, then set MEDIAUTO_ACCEPT_PHILIPS_EULA=1."
+        exit 1
+    fi
+    if conda env list | awk '{print $1}' | grep -Fxq "$PHILIPS_ENV_NAME"; then
+        log_info "Philips env '$PHILIPS_ENV_NAME' already exists."
+    else
+        log_info "Creating Philips env: $PHILIPS_ENV_NAME (python $PHILIPS_PY_VER)"
+        if ! conda create -y -n "$PHILIPS_ENV_NAME" python="$PHILIPS_PY_VER" pip; then
+            log_error "Failed to create Philips SDK environment."
+            exit 1
+        fi
+    fi
+    if ! conda run -n "$PHILIPS_ENV_NAME" python \
+        "$SCRIPT_DIR/backend/scripts/bootstrap_philips.py"; then
+        log_error "Philips SDK environment setup failed."
+        exit 1
+    fi
+else
+    log_info "Philips setup skipped. Set MEDIAUTO_ENABLE_PHILIPS=1 and MEDIAUTO_PHILIPS_SDK_SOURCE to enable it."
+fi
+
+# ── STEP 7: connectivity test ──
+section "[STEP 7/9] MongoDB connectivity test"
 MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
 if conda run -n "$ENV_NAME" python -c "
 import os
@@ -219,8 +274,8 @@ else
     echo "        Backend will still install but won't start without a reachable MongoDB."
 fi
 
-# ── STEP 7: optional dump restore (migration) ──
-section "[STEP 7/8] Optional: restore MongoDB dump"
+# ── STEP 8: optional dump restore (migration) ──
+section "[STEP 8/9] Optional: restore MongoDB dump"
 DUMP_DB_NAME="${MONGO_DB_NAME:-medicus_studio}"
 DUMP_FOLDER="$SCRIPT_DIR/mongo_dump/$DUMP_DB_NAME"
 DUMP_ARCHIVE_GZ="$SCRIPT_DIR/mongo_dump.archive.gz"
@@ -319,8 +374,8 @@ PYEOF
     fi
 fi
 
-# ── STEP 8: runtime bootstrap ──
-section "[STEP 8/8] Runtime bootstrap and preflight"
+# ── STEP 9: runtime bootstrap ──
+section "[STEP 9/9] Runtime bootstrap and preflight"
 BOOTSTRAP_ARGS=()
 if [[ "${MEDIAUTO_STRICT_MODELS:-0}" == "1" ]]; then
     BOOTSTRAP_ARGS+=(--strict-models)
@@ -355,7 +410,7 @@ echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=.
 echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip"
 echo
 echo "   Then on the NEW machine, drop the dump folder/archive at the project root"
-echo "   and re-run this script — STEP 7 will auto-restore."
+echo "   and re-run this script — STEP 8 will auto-restore."
 echo
 echo " MongoDB defaults:"
 echo "   URI    = mongodb://localhost:27017   (override: export MONGO_URI=...)"

@@ -158,6 +158,7 @@ Linux:
 
 ```bash
 export MEDIAUTO_MODEL_SOURCE=/secure/mediauto-models.tar.gz
+export MEDIAUTO_AUTO_INSTALL_DB=1
 ./install.sh
 ```
 
@@ -176,6 +177,19 @@ $env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
 - 선택적으로 모델 번들 배치
 - OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
 - 기존 `mongo_dump` 발견 시 확인 후 복원
+- 지원 OS에서 로컬 MongoDB 설치 및 서비스 시작
+- 요청 시 Philips 전용 Conda 환경 생성과 SDK smoke test
+
+Philips iSyntax 지원은 메인 환경과 분리된다. Linux SDK는 `philips-sdk-py38`(Python 3.8), Windows SDK는 `philips-sdk-py37`(Python 3.7)을 사용한다. SDK는 Git에 포함되지 않으며, 라이선스 문서를 직접 확인한 후에만 다음처럼 설치한다.
+
+```bash
+export MEDIAUTO_ENABLE_PHILIPS=1
+export MEDIAUTO_PHILIPS_SDK_SOURCE=/secure/Philips_SDK
+export MEDIAUTO_ACCEPT_PHILIPS_EULA=1
+./install.sh
+```
+
+`MEDIAUTO_ACCEPT_PHILIPS_EULA=1`은 사용자가 해당 SDK EULA를 검토하고 동의했다는 명시적 표시이며 설치 스크립트가 임의로 설정하지 않는다.
 
 운영 자동화에서 누락된 DB나 모델을 오류로 처리하려면 다음 변수를 사용한다.
 
@@ -222,9 +236,14 @@ mongod --dbpath /data/db
 | `MEDIAUTO_404_RATE_LIMIT_MAX` | 30 | 비-API 경로에서 1분 동안 허용할 404 응답 수 |
 | `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
 | `MEDIAUTO_CONDA_ENV` | `medicus-saas` | 설치·실행에 사용할 Conda 환경 이름 |
+| `MEDIAUTO_AUTO_INSTALL_DB` | 0 | 지원 OS에서 로컬 MongoDB 자동 설치(Windows winget, Ubuntu 20.04/22.04 apt) |
 | `MEDIAUTO_MODEL_SOURCE` | "" | AI 모델 디렉터리 또는 ZIP/TAR 번들 경로 |
 | `MEDIAUTO_STRICT_DB` / `MEDIAUTO_STRICT_MODELS` | 0 | 초기 점검 실패를 설치 오류로 처리 |
 | `MEDIAUTO_BOOTSTRAP_ADMIN_*` | "" | 빈 DB의 최초 관리자 자동 생성 정보 |
+| `MEDIAUTO_ENABLE_PHILIPS` | 0 | 별도 Philips iSyntax 환경 설치 활성화 |
+| `MEDIAUTO_PHILIPS_SDK_SOURCE` | "" | 라이선스가 있는 Philips SDK 폴더 또는 압축파일 |
+| `MEDIAUTO_ACCEPT_PHILIPS_EULA` | 0 | 사용자가 Philips SDK EULA를 검토·동의했음을 명시 |
+| `PHILIPS_CONDA_ENV` | OS별 기본값 | Linux `philips-sdk-py38`, Windows `philips-sdk-py37` |
 | `MODEL_DIR` | `backend/model` | AI 모델 저장 경로(외부 읽기 전용 볼륨 지정 가능) |
 | `UPLOAD_DIR` / `TILES_DIR` / `AI_RESULTS_DIR` | `backend/uploads,tiles,ai_results` | 캐시 위치 오버라이드 |
 
