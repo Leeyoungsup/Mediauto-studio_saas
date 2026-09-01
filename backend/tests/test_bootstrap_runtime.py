@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 from pathlib import Path
 
 from scripts import bootstrap_runtime
@@ -54,6 +55,18 @@ class BootstrapRuntimeTests(unittest.TestCase):
             self.assertEqual(int_copied, 1)
             self.assertEqual((path_target / "two.pth").read_bytes(), b"two")
             self.assertFalse((path_root / "not-a-model.txt").exists())
+
+    def test_default_bootstrap_administrator(self):
+        with patch.dict("os.environ", {}, clear=True):
+            bool_explicit, str_login_id, str_password, str_name, str_department = (
+                bootstrap_runtime._admin_bootstrap_values()
+            )
+
+        self.assertFalse(bool_explicit)
+        self.assertEqual(str_login_id, "admin")
+        self.assertEqual(str_password, "urban12!@")
+        self.assertEqual(str_name, "Administrator")
+        self.assertEqual(str_department, "")
 
 
 if __name__ == "__main__":

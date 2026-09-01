@@ -198,16 +198,16 @@ export MEDIAUTO_STRICT_DB=1
 export MEDIAUTO_STRICT_MODELS=1
 ```
 
-빈 MongoDB에 최초 관리자를 비대화형으로 생성할 수도 있다. 비밀번호는 명령행 인자가 아닌 환경변수로 전달하며, 영문·숫자·특수문자를 포함한 8자 이상이어야 한다.
+빈 MongoDB에는 설치 과정에서 아래 기본 관리자가 자동 생성된다. 운영 환경에서는 최초 로그인 직후 비밀번호를 변경해야 한다. 환경변수를 지정하면 기본 관리자 정보를 덮어쓸 수 있다.
 
 ```bash
 export MEDIAUTO_BOOTSTRAP_ADMIN_ID=admin
-export MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD='replace-with-a-strong-password-1!'
+export MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD='urban12!@'
 export MEDIAUTO_BOOTSTRAP_ADMIN_NAME='Administrator'
 ./install.sh
 ```
 
-관리자 환경변수를 사용하지 않으면 기존 방식대로 웹 화면의 첫 가입자가 즉시 승인된 admin이 된다.
+관리자 환경변수를 사용하지 않으면 ID `admin`, 이름 `Administrator`와 배포 기본 비밀번호로 생성된다. DB에 사용자가 이미 있으면 기본 관리자 생성은 건너뛴다.
 
 ### 2. MongoDB 수동 시작이 필요한 경우
 
@@ -239,7 +239,7 @@ mongod --dbpath /data/db
 | `MEDIAUTO_AUTO_INSTALL_DB` | 0 | 지원 OS에서 로컬 MongoDB 자동 설치(Windows winget, Ubuntu 20.04/22.04 apt) |
 | `MEDIAUTO_MODEL_SOURCE` | "" | AI 모델 디렉터리 또는 ZIP/TAR 번들 경로 |
 | `MEDIAUTO_STRICT_DB` / `MEDIAUTO_STRICT_MODELS` | 0 | 초기 점검 실패를 설치 오류로 처리 |
-| `MEDIAUTO_BOOTSTRAP_ADMIN_*` | "" | 빈 DB의 최초 관리자 자동 생성 정보 |
+| `MEDIAUTO_BOOTSTRAP_ADMIN_*` | `admin` / 배포 기본 비밀번호 / `Administrator` | 빈 DB의 최초 관리자 자동 생성 정보 |
 | `MEDIAUTO_ENABLE_PHILIPS` | 0 | 별도 Philips iSyntax 환경 설치 활성화 |
 | `MEDIAUTO_PHILIPS_SDK_SOURCE` | "" | 라이선스가 있는 Philips SDK 폴더 또는 압축파일 |
 | `MEDIAUTO_ACCEPT_PHILIPS_EULA` | 0 | 사용자가 Philips SDK EULA를 검토·동의했음을 명시 |

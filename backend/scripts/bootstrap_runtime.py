@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Prepare and validate a fresh MeDIAuto Studio checkout.
 
-This script intentionally does not contain credentials or model binaries.  It
-can install model files from an operator-provided directory/ZIP/TAR bundle and
-can create the first administrator from environment variables on an empty DB.
+This script does not contain model binaries. It can install model files from an
+operator-provided directory/ZIP/TAR bundle and creates the initial administrator
+on an empty DB. The deployment defaults can be overridden with environment
+variables.
 """
 
 from __future__ import annotations
@@ -33,10 +34,32 @@ LIST_RUNTIME_DIRS = (
     "model",
 )
 STR_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$")
+DICT_DEFAULT_BOOTSTRAP_ADMIN = {
+    "MEDIAUTO_BOOTSTRAP_ADMIN_ID": "admin",
+    "MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD": "urban12!@",
+    "MEDIAUTO_BOOTSTRAP_ADMIN_NAME": "Administrator",
+    "MEDIAUTO_BOOTSTRAP_ADMIN_DEPARTMENT": "",
+}
 
 
 def _log(str_level: str, str_message: str) -> None:
     print(f"[{str_level}] {str_message}")
+
+
+def _admin_bootstrap_values() -> tuple[bool, str, str, str, str]:
+    tuple_keys = tuple(DICT_DEFAULT_BOOTSTRAP_ADMIN)
+    bool_explicit = any(str_key in os.environ for str_key in tuple_keys)
+    dict_values = {
+        str_key: os.environ.get(str_key, str_default)
+        for str_key, str_default in DICT_DEFAULT_BOOTSTRAP_ADMIN.items()
+    }
+    return (
+        bool_explicit,
+        dict_values["MEDIAUTO_BOOTSTRAP_ADMIN_ID"].strip().lower(),
+        dict_values["MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD"],
+        dict_values["MEDIAUTO_BOOTSTRAP_ADMIN_NAME"].strip(),
+        dict_values["MEDIAUTO_BOOTSTRAP_ADMIN_DEPARTMENT"].strip(),
+    )
 
 
 def _load_model_manifest() -> list[dict]:
@@ -298,13 +321,10 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
         return False, str(obj_error)
 
     try:
-        str_login_id = os.environ.get("MEDIAUTO_BOOTSTRAP_ADMIN_ID", "").strip().lower()
-        str_password = os.environ.get("MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD", "")
-        str_name = os.environ.get("MEDIAUTO_BOOTSTRAP_ADMIN_NAME", "").strip()
-        str_department = os.environ.get("MEDIAUTO_BOOTSTRAP_ADMIN_DEPARTMENT", "").strip()
-        if not any((str_login_id, str_password, str_name)):
-            if obj_db.users.count_documents({}) == 0:
-                _log("INFO", "No users exist. The first account registered in the UI becomes admin.")
+        bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
+        int_user_count = obj_db.users.count_documents({})
+        if int_user_count > 0 and not bool_explicit:
+            _log("INFO", "Existing users found; default administrator bootstrap was skipped.")
             return True, ""
         if not all((str_login_id, str_password, str_name)):
             str_error = "Admin bootstrap requires ID, password, and name environment variables."
@@ -314,7 +334,7 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
             str_error = "Bootstrap admin password does not meet the application password policy."
             _log("ERROR", str_error)
             return False, str_error
-        if obj_db.users.count_documents({}) > 0:
+        if int_user_count > 0:
             if obj_db.users.find_one({"str_login_id": str_login_id}):
                 _log("OK", f"Bootstrap admin already exists: {str_login_id}")
                 return True, ""
