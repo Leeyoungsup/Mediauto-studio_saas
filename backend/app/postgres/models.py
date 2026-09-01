@@ -88,6 +88,10 @@ class AuditLog(Base):
     str_ip_address: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     str_user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
     dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    dt_hmac_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    str_hmac_verification_status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="unknown",
+    )
     str_prev_hmac: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     str_hmac: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     dict_before: Mapped[dict | None] = mapped_column(TYPE_JSON)
@@ -136,3 +140,19 @@ class CaseClinicalInfo(Base):
     __table_args__ = (
         Index("ix_case_clinical_info_updated_at", "dt_updated_at"),
     )
+
+
+class AuditIntegritySeal(Base):
+    __tablename__ = "audit_integrity_seals"
+
+    str_id: Mapped[str] = mapped_column("id", String(36), primary_key=True)
+    str_scope: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    int_record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    str_first_record_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    str_last_record_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    str_payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    str_hmac: Mapped[str] = mapped_column(String(64), nullable=False)
+    str_key_fingerprint: Mapped[str] = mapped_column(String(16), nullable=False)
+    dict_summary: Mapped[dict] = mapped_column(TYPE_JSON, nullable=False, default=dict)
+    dt_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

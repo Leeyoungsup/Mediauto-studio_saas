@@ -7,6 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from app.config import settings
+from app.audit import (
+    _compute_log_hmac,
+    compute_audit_seal_hmac,
+    compute_audit_snapshot_digest,
+    verify_log_hmac,
+)
 from app.postgres.models import AuditLog
 from app.repositories import operational_store
 from scripts.migrate_operational_to_postgres import _with_string_id
@@ -60,6 +66,41 @@ class OperationalStoreTests(unittest.TestCase):
             "nested": {"id": obj_id},
         })
         self.assertEqual(dict_values["dict_extra"]["nested"]["id"], str(obj_id))
+
+    def test_mongodb_millisecond_loss_is_recovered_without_resigning(self):
+        dt_exact = datetime(2026, 9, 1, 1, 2, 3, 456789, tzinfo=timezone.utc)
+        dict_exact = {
+            "str_action": "slide.view",
+            "str_user_id": "64f000000000000000000001",
+            "str_user_email": "admin",
+            "str_resource_type": "slide",
+            "str_resource_id": "slide-1",
+            "str_detail": "sample.svs",
+            "str_ip_address": "127.0.0.1",
+            "dt_created_at": dt_exact,
+            "str_prev_hmac": "",
+        }
+        dict_exact["str_hmac"] = _compute_log_hmac(dict_exact, "")
+        dict_stored = dict(dict_exact)
+        dict_stored["dt_created_at"] = dt_exact.replace(microsecond=456000)
+
+        bool_valid, str_status, dt_recovered = verify_log_hmac(dict_stored)
+        self.assertTrue(bool_valid)
+        self.assertEqual(str_status, "valid_millisecond_recovered")
+        self.assertEqual(dt_recovered, dt_exact)
+        self.assertEqual(dict_stored["str_hmac"], dict_exact["str_hmac"])
+
+    def test_snapshot_seal_detects_content_changes(self):
+        list_logs = [{"_id": "1", "str_action": "a"}, {"_id": "2", "str_action": "b"}]
+        str_digest = compute_audit_snapshot_digest(list_logs)
+        str_hmac = compute_audit_seal_hmac("scope", 2, "1", "2", str_digest)
+        list_logs[1]["str_action"] = "changed"
+        str_changed = compute_audit_snapshot_digest(list_logs)
+        self.assertNotEqual(str_digest, str_changed)
+        self.assertNotEqual(
+            str_hmac,
+            compute_audit_seal_hmac("scope", 2, "1", "2", str_changed),
+        )
 
 
 if __name__ == "__main__":

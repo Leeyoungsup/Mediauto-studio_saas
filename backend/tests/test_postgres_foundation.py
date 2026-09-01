@@ -19,12 +19,15 @@ class PostgresFoundationTests(unittest.TestCase):
     def test_migrated_tables_are_registered(self):
         self.assertEqual(set(Base.metadata.tables), {
             "users", "sessions", "audit_logs", "ip_geo_cache", "case_clinical_info",
+            "audit_integrity_seals",
         })
         self.assertIn("str_login_id", Base.metadata.tables["users"].columns)
         self.assertIn("str_refresh_token", Base.metadata.tables["sessions"].columns)
         self.assertIn("str_hmac", Base.metadata.tables["audit_logs"].columns)
+        self.assertIn("dt_hmac_created_at", Base.metadata.tables["audit_logs"].columns)
         self.assertIn("str_ip", Base.metadata.tables["ip_geo_cache"].columns)
         self.assertIn("dict_clinical_info", Base.metadata.tables["case_clinical_info"].columns)
+        self.assertIn("str_payload_sha256", Base.metadata.tables["audit_integrity_seals"].columns)
 
 
 if __name__ == "__main__":

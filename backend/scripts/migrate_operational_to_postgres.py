@@ -17,8 +17,15 @@ if str(PATH_BACKEND) not in sys.path:
     sys.path.insert(0, str(PATH_BACKEND))
 
 from app.config import settings  # noqa: E402
+from app.audit import (  # noqa: E402
+    audit_hmac_key_fingerprint,
+    compute_audit_seal_hmac,
+    compute_audit_snapshot_digest,
+    verify_log_hmac,
+)
 from app.postgres.database import connect_postgres, disconnect_postgres  # noqa: E402
 from app.repositories.operational_store import (  # noqa: E402
+    PostgresAuditIntegritySealStore,
     PostgresAuditStore,
     PostgresClinicalInfoStore,
     PostgresIpGeoStore,
@@ -49,6 +56,12 @@ async def _migrate_collection(
     for dict_source in obj_cursor:
         dict_doc = _with_string_id(dict_source)
         str_id = dict_doc["_id"]
+        str_hmac_status = None
+        dt_hmac_created_at = None
+        if str_label == "audit_logs":
+            _, str_hmac_status, dt_hmac_created_at = verify_log_hmac(dict_doc)
+            dict_doc["str_hmac_verification_status"] = str_hmac_status
+            dict_doc["dt_hmac_created_at"] = dt_hmac_created_at
         dict_existing = await obj_store.find_by_id(str_id)
         if dict_existing is None and str_natural_key:
             obj_value = dict_doc.get(str_natural_key)
@@ -70,12 +83,83 @@ async def _migrate_collection(
                 or dict_existing.get("str_hmac", "") != dict_doc.get("str_hmac", "")
             ):
                 raise RuntimeError(f"audit_logs content conflict: {str_id}")
+            if str_label == "audit_logs" and not bool_dry_run:
+                await obj_store.update_verification_metadata(
+                    str_id,
+                    str_hmac_status,
+                    dt_hmac_created_at,
+                )
             int_existing += 1
             continue
         if not bool_dry_run:
             await obj_store.insert(dict_doc)
         int_inserted += 1
     return int_inserted, int_existing
+
+
+async def _seal_migrated_audit_snapshot(obj_mongo_collection, obj_audit) -> dict:
+    """HMAC-seal the exact ordered MongoDB snapshot after it reaches PostgreSQL."""
+    list_source_ids = [
+        str(dict_doc["_id"])
+        for dict_doc in obj_mongo_collection.find({}, {"_id": 1}).sort([
+            ("dt_created_at", 1), ("_id", 1),
+        ])
+    ]
+    dict_target = {
+        dict_log["_id"]: dict_log
+        for dict_log in await obj_audit.list(bool_ascending=True)
+    }
+    list_snapshot = []
+    for str_id in list_source_ids:
+        if str_id not in dict_target:
+            raise RuntimeError(f"Cannot seal missing PostgreSQL audit log: {str_id}")
+        list_snapshot.append(dict_target[str_id])
+
+    dict_status_counts: dict[str, int] = {}
+    for dict_log in list_snapshot:
+        str_status = dict_log.get("str_hmac_verification_status") or "unknown"
+        dict_status_counts[str_status] = dict_status_counts.get(str_status, 0) + 1
+
+    list_signed = sorted(
+        [dict_log for dict_log in list_snapshot if dict_log.get("str_hmac")],
+        key=lambda dict_log: (
+            dict_log.get("dt_hmac_created_at") or dict_log.get("dt_created_at"),
+            dict_log["_id"],
+        ),
+    )
+    int_chain_discontinuities = 0
+    str_previous_hmac = ""
+    for dict_log in list_signed:
+        if dict_log.get("str_prev_hmac", "") != str_previous_hmac:
+            int_chain_discontinuities += 1
+        str_previous_hmac = dict_log.get("str_hmac", "")
+
+    str_scope = "mongodb_migration_v1"
+    str_first_id = list_source_ids[0] if list_source_ids else ""
+    str_last_id = list_source_ids[-1] if list_source_ids else ""
+    str_digest = compute_audit_snapshot_digest(list_snapshot)
+    int_count = len(list_snapshot)
+    dt_now = datetime.now(timezone.utc)
+    dict_seal = {
+        "str_scope": str_scope,
+        "int_record_count": int_count,
+        "str_first_record_id": str_first_id,
+        "str_last_record_id": str_last_id,
+        "str_payload_sha256": str_digest,
+        "str_hmac": compute_audit_seal_hmac(
+            str_scope, int_count, str_first_id, str_last_id, str_digest,
+        ),
+        "str_key_fingerprint": audit_hmac_key_fingerprint(),
+        "dict_summary": {
+            "hmac_status_counts": dict_status_counts,
+            "original_chain_discontinuities": int_chain_discontinuities,
+            "source": "mongodb",
+        },
+        "dt_created_at": dt_now,
+        "dt_updated_at": dt_now,
+    }
+    await PostgresAuditIntegritySealStore().upsert(dict_seal)
+    return dict_seal
 
 
 async def _migrate(bool_dry_run: bool) -> int:
@@ -132,9 +216,16 @@ async def _migrate(bool_dry_run: bool) -> int:
                         f"Count mismatch for {str_name}: MongoDB={int_source}, "
                         f"PostgreSQL={dict_targets[str_name]}"
                     )
+            dict_seal = await _seal_migrated_audit_snapshot(obj_db.audit_logs, obj_audit)
             print("[OK] verification: " + ", ".join(
                 f"{str_name}={int_count}" for str_name, int_count in dict_targets.items()
             ))
+            print(
+                "[OK] audit snapshot seal: "
+                f"records={dict_seal['int_record_count']}, "
+                f"sha256={dict_seal['str_payload_sha256'][:16]}..., "
+                f"status={dict_seal['dict_summary']['hmac_status_counts']}"
+            )
         return 0
     finally:
         await disconnect_postgres()

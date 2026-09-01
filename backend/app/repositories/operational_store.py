@@ -13,13 +13,14 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from app.config import settings
 from app.database import get_db, is_db_connected
 from app.postgres.database import get_postgres_session, is_postgres_connected
-from app.postgres.models import AuditLog, CaseClinicalInfo, IpGeoCache
+from app.postgres.models import AuditIntegritySeal, AuditLog, CaseClinicalInfo, IpGeoCache
 
 
 _AUDIT_FIELDS = (
     "str_action", "str_user_id", "str_user_email", "str_resource_type",
     "str_resource_id", "str_detail", "str_ip_address", "str_user_agent",
     "dt_created_at", "str_prev_hmac", "str_hmac", "dict_before", "dict_after",
+    "dt_hmac_created_at", "str_hmac_verification_status",
     "str_country", "str_country_name", "str_city", "str_region",
 )
 _AUDIT_DEFAULTS = {
@@ -33,6 +34,11 @@ _GEO_FIELDS = (
 )
 _CLINICAL_FIELDS = (
     "str_case_name", "dict_clinical_info", "dt_created_at", "dt_updated_at",
+)
+_SEAL_FIELDS = (
+    "str_scope", "int_record_count", "str_first_record_id", "str_last_record_id",
+    "str_payload_sha256", "str_hmac", "str_key_fingerprint", "dict_summary",
+    "dt_created_at", "dt_updated_at",
 )
 
 
@@ -120,6 +126,13 @@ def _clinical_model_to_dict(obj_info: CaseClinicalInfo) -> dict:
     for str_field in _CLINICAL_FIELDS:
         dict_info[str_field] = getattr(obj_info, str_field)
     return dict_info
+
+
+def _seal_model_to_dict(obj_seal: AuditIntegritySeal) -> dict:
+    dict_seal = {"_id": obj_seal.str_id}
+    for str_field in _SEAL_FIELDS:
+        dict_seal[str_field] = getattr(obj_seal, str_field)
+    return dict_seal
 
 
 class MongoAuditStore:
@@ -239,6 +252,21 @@ class PostgresAuditStore:
                 str_city=dict_geo.get("city", ""),
                 str_region=dict_geo.get("region", ""),
             ))
+            return bool(result.rowcount)
+
+    async def update_verification_metadata(
+        self,
+        str_id: str,
+        str_status: str,
+        dt_hmac_created_at: datetime | None,
+    ) -> bool:
+        async with get_postgres_session() as obj_session:
+            result = await obj_session.execute(
+                update(AuditLog).where(AuditLog.str_id == str_id).values(
+                    str_hmac_verification_status=str_status,
+                    dt_hmac_created_at=dt_hmac_created_at,
+                )
+            )
             return bool(result.rowcount)
 
     async def list(self, int_skip=0, int_limit=None, bool_ascending=False, **kwargs) -> list[dict]:
@@ -396,12 +424,48 @@ class PostgresClinicalInfoStore:
             return int(await obj_session.scalar(select(func.count()).select_from(CaseClinicalInfo)) or 0)
 
 
+class MongoAuditIntegritySealStore:
+    async def get(self, str_scope: str) -> None:
+        return None
+
+
+class PostgresAuditIntegritySealStore:
+    async def get(self, str_scope: str) -> dict | None:
+        async with get_postgres_session() as obj_session:
+            obj_seal = await obj_session.scalar(
+                select(AuditIntegritySeal).where(AuditIntegritySeal.str_scope == str_scope)
+            )
+            return _seal_model_to_dict(obj_seal) if obj_seal else None
+
+    async def upsert(self, dict_seal: dict) -> str:
+        str_id = str(dict_seal.get("_id") or _new_id())
+        dict_values = {
+            str_field: dict_seal[str_field]
+            for str_field in _SEAL_FIELDS
+            if str_field in dict_seal
+        }
+        obj_statement = postgres_insert(AuditIntegritySeal).values(id=str_id, **dict_values)
+        set_values = {
+            str_field: getattr(obj_statement.excluded, str_field)
+            for str_field in _SEAL_FIELDS
+            if str_field not in {"str_scope", "dt_created_at"}
+        }
+        async with get_postgres_session() as obj_session:
+            await obj_session.execute(obj_statement.on_conflict_do_update(
+                index_elements=[AuditIntegritySeal.str_scope],
+                set_=set_values,
+            ))
+        return str_id
+
+
 _MONGO_AUDIT = MongoAuditStore()
 _POSTGRES_AUDIT = PostgresAuditStore()
 _MONGO_GEO = MongoIpGeoStore()
 _POSTGRES_GEO = PostgresIpGeoStore()
 _MONGO_CLINICAL = MongoClinicalInfoStore()
 _POSTGRES_CLINICAL = PostgresClinicalInfoStore()
+_MONGO_AUDIT_SEALS = MongoAuditIntegritySealStore()
+_POSTGRES_AUDIT_SEALS = PostgresAuditIntegritySealStore()
 
 
 def get_audit_store() -> MongoAuditStore | PostgresAuditStore:
@@ -414,6 +478,10 @@ def get_ip_geo_store() -> MongoIpGeoStore | PostgresIpGeoStore:
 
 def get_clinical_info_store() -> MongoClinicalInfoStore | PostgresClinicalInfoStore:
     return _POSTGRES_CLINICAL if settings.DATABASE_BACKEND == "postgresql" else _MONGO_CLINICAL
+
+
+def get_audit_integrity_seal_store() -> MongoAuditIntegritySealStore | PostgresAuditIntegritySealStore:
+    return _POSTGRES_AUDIT_SEALS if settings.DATABASE_BACKEND == "postgresql" else _MONGO_AUDIT_SEALS
 
 
 def is_operational_store_connected() -> bool:

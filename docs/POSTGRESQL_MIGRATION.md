@@ -42,7 +42,7 @@ alembic upgrade head
 ```
 
 현재 Alembic revision은 `users`, `sessions`, `audit_logs`, `ip_geo_cache`,
-`case_clinical_info`를 생성한다. PostgreSQL Repository는
+`case_clinical_info`, `audit_integrity_seals`를 생성한다. PostgreSQL Repository는
 로그인, 계정 잠금, 토큰 회전 CAS, 로그아웃, 비밀번호 변경, MFA와 관리자 사용자
 관리를 지원한다. 나머지 데이터는 계속 MongoDB를 사용하므로 전환 기간에는 두 DB가
 모두 실행되어야 한다.
@@ -99,10 +99,19 @@ python scripts/migrate_operational_to_postgres.py
 임상정보 생성·수정 시각을 보존한다. 여러 번 실행해도 같은 ID 또는 자연키(IP,
 case name)는 건너뛰며, 내용 충돌은 오류로 중단한다.
 
-이관은 과거 감사 서명을 재생성하거나 덮어쓰지 않는다. 운영 전환 전
-`/api/users/audit-logs/verify-chain` 결과를 별도 보관하고, 기존 키 변경이나 예전
-로그 포맷 때문에 이미 검증되지 않는 레코드는 이관 성공 여부와 구분해 조사해야 한다.
-기존 로그를 새 키로 다시 서명하면 원본 감사 증거가 바뀌므로 자동 보정하지 않는다.
+이관은 과거 감사 서명을 재생성하거나 덮어쓰지 않는다. 과거 MongoDB 구현은 Python
+`datetime`을 HMAC에 사용한 뒤 BSON의 밀리초 정밀도로 저장하여 마지막
+0~999마이크로초가 유실됐다. 이관 도구는 가능한 1,000개 값만 역검증해 원본 HMAC과
+일치하는 정확한 서명 시각을 복원하고 `dt_hmac_created_at`에 보관한다. HMAC 값 자체는
+변경하지 않는다. 앞으로 생성되는 로그는 저장 가능한 밀리초 값으로 먼저 정규화한 뒤
+서명한다.
+
+서명 기능 도입 전 로그와 과거 동시 요청으로 분기된 체인은 원래 서명이 있었다고
+소급해서 만들지 않는다. 대신 이관된 MongoDB 감사 로그 전체를 정규 직렬화한 SHA-256
+스냅샷과 HMAC 봉인을 `audit_integrity_seals`에 기록한다. 따라서 과거의 서명 유무를
+정직하게 구분하면서도 이관 시점 이후의 수정·삭제·순서 변경은 탐지할 수 있다.
+`/api/users/audit-logs/verify-chain`은 원본 HMAC, 복원된 서명 시각, 이관 봉인과 봉인
+이후 신규 체인을 함께 검사해 `bool_integrity_intact`를 반환한다.
 
 현재 슬라이드 본문은 MongoDB에 남아 있다. 임상정보의 기준 저장소는 PostgreSQL로
 전환되지만, 기존 슬라이드 문서의 임상정보 읽기 fallback과 호환용 갱신은 다음 단계가

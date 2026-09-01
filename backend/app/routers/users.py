@@ -18,7 +18,10 @@ from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, invalidate_user_cache, require_role
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 from app.repositories.auth_store import get_session_store, get_user_store
-from app.repositories.operational_store import get_audit_store
+from app.repositories.operational_store import (
+    get_audit_integrity_seal_store,
+    get_audit_store,
+)
 
 LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
 PASSWORD_PATTERN = re.compile(
@@ -836,45 +839,141 @@ async def get_user_activity(
 
 @router.get("/audit-logs/verify-chain")
 async def verify_audit_chain(
-    int_limit: int = Query(1000, ge=100, le=10000),
+    int_limit: int = Query(10000, ge=100, le=100000),
     dict_admin: dict = Depends(require_role(UserRole.ADMIN)),
 ):
     """text text HMAC text text text.
 
     text int_limit text text text HMAC text text text text.
     """
-    from app.audit import _compute_log_hmac
-
-    list_logs = await get_audit_store().list(
-        int_limit=int_limit, bool_ascending=True,
+    from app.audit import (
+        audit_hmac_key_fingerprint,
+        compute_audit_seal_hmac,
+        compute_audit_snapshot_digest,
+        verify_log_hmac,
     )
 
-    int_total = len(list_logs)
+    obj_audit_store = get_audit_store()
+    int_database_total = await obj_audit_store.count()
+    list_logs = await obj_audit_store.list(
+        int_limit=int_limit, bool_ascending=True,
+    )
+    bool_all_records_checked = len(list_logs) == int_database_total
+
     int_valid = 0
+    int_valid_recovered = 0
     int_broken = 0
     int_missing_hmac = 0
     list_broken_ids = []
-
-    for i, dict_doc in enumerate(list_logs):
-        str_stored_hmac = dict_doc.get("str_hmac", "")
-        if not str_stored_hmac:
+    for dict_doc in list_logs:
+        bool_valid, str_status, dt_hmac = verify_log_hmac(dict_doc)
+        if str_status == "legacy_unsigned":
             int_missing_hmac += 1
-            continue
-
-        str_prev_hmac = dict_doc.get("str_prev_hmac", "")
-        str_expected = _compute_log_hmac(dict_doc, str_prev_hmac)
-
-        if str_stored_hmac == str_expected:
+        elif bool_valid:
             int_valid += 1
+            if str_status == "valid_millisecond_recovered":
+                int_valid_recovered += 1
+            dict_doc["dt_hmac_created_at"] = dt_hmac
         else:
             int_broken += 1
             list_broken_ids.append(str(dict_doc.get("_id", "")))
 
+    list_signed = sorted(
+        [dict_log for dict_log in list_logs if dict_log.get("str_hmac")],
+        key=lambda dict_log: (
+            dict_log.get("dt_hmac_created_at") or dict_log.get("dt_created_at"),
+            dict_log.get("_id", ""),
+        ),
+    )
+    int_original_chain_discontinuities = 0
+    str_previous_hmac = ""
+    for dict_log in list_signed:
+        if dict_log.get("str_prev_hmac", "") != str_previous_hmac:
+            int_original_chain_discontinuities += 1
+        str_previous_hmac = dict_log.get("str_hmac", "")
+
+    dict_seal = await get_audit_integrity_seal_store().get("mongodb_migration_v1")
+    bool_seal_valid = False
+    int_sealed_records = 0
+    int_legacy_unsigned_sealed = 0
+    int_post_seal_chain_discontinuities = int_original_chain_discontinuities
+    if dict_seal:
+        int_sealed_records = int(dict_seal.get("int_record_count") or 0)
+        list_snapshot = list_logs[:int_sealed_records]
+        str_first_id = list_snapshot[0]["_id"] if list_snapshot else ""
+        str_last_id = list_snapshot[-1]["_id"] if list_snapshot else ""
+        str_digest = compute_audit_snapshot_digest(list_snapshot)
+        str_expected_seal_hmac = compute_audit_seal_hmac(
+            dict_seal.get("str_scope", ""),
+            int_sealed_records,
+            str_first_id,
+            str_last_id,
+            str_digest,
+        )
+        bool_seal_valid = bool(
+            len(list_snapshot) == int_sealed_records
+            and str_first_id == dict_seal.get("str_first_record_id", "")
+            and str_last_id == dict_seal.get("str_last_record_id", "")
+            and str_digest == dict_seal.get("str_payload_sha256", "")
+            and str_expected_seal_hmac == dict_seal.get("str_hmac", "")
+            and audit_hmac_key_fingerprint() == dict_seal.get("str_key_fingerprint", "")
+        )
+        if bool_seal_valid:
+            int_legacy_unsigned_sealed = sum(
+                1 for dict_log in list_snapshot if not dict_log.get("str_hmac")
+            )
+
+        # The append path selects the latest row by persisted timestamp + ID,
+        # so use the same ordering at the sealed/new-record boundary.
+        str_previous_hmac = next((
+            dict_log.get("str_hmac", "")
+            for dict_log in reversed(list_snapshot)
+            if dict_log.get("str_hmac")
+        ), "")
+        int_post_seal_chain_discontinuities = 0
+        list_post_seal_signed = sorted(
+            [dict_log for dict_log in list_logs[int_sealed_records:] if dict_log.get("str_hmac")],
+            key=lambda dict_log: (
+                dict_log.get("dt_hmac_created_at") or dict_log.get("dt_created_at"),
+                dict_log.get("_id", ""),
+            ),
+        )
+        for dict_log in list_post_seal_signed:
+            if dict_log.get("str_prev_hmac", "") != str_previous_hmac:
+                int_post_seal_chain_discontinuities += 1
+            str_previous_hmac = dict_log.get("str_hmac", "")
+
+    bool_integrity_intact = bool(
+        bool_all_records_checked
+        and int_broken == 0
+        and int_post_seal_chain_discontinuities == 0
+        and (
+            bool_seal_valid
+            or (int_missing_hmac == 0 and int_original_chain_discontinuities == 0)
+        )
+    )
+
     return {
-        "int_total_checked": int_total,
+        "int_total_checked": len(list_logs),
+        "int_database_total": int_database_total,
         "int_valid": int_valid,
+        "int_valid_millisecond_recovered": int_valid_recovered,
         "int_broken": int_broken,
         "int_missing_hmac": int_missing_hmac,
-        "bool_chain_intact": int_broken == 0,
+        "int_legacy_unsigned_sealed": int_legacy_unsigned_sealed,
+        "int_unprotected_unsigned": max(
+            0, int_missing_hmac - int_legacy_unsigned_sealed,
+        ),
+        "int_original_chain_discontinuities": int_original_chain_discontinuities,
+        "int_post_seal_chain_discontinuities": int_post_seal_chain_discontinuities,
+        "int_sealed_records": int_sealed_records,
+        "bool_baseline_seal_valid": bool_seal_valid,
+        "bool_all_records_checked": bool_all_records_checked,
+        "bool_chain_intact": bool_integrity_intact,
+        "bool_integrity_intact": bool_integrity_intact,
+        "str_integrity_basis": (
+            "original_hmac_and_migration_snapshot_seal"
+            if bool_seal_valid else "original_hmac_only"
+        ),
         "list_broken_ids": list_broken_ids[:20],
     }
