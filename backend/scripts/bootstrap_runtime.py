@@ -10,6 +10,7 @@ variables.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -305,57 +306,114 @@ def _check_philips_if_enabled() -> list[str]:
     return []
 
 
+def _bootstrap_admin_document(str_login_id: str, str_password: str, str_name: str, str_department: str) -> dict:
+    from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
+
+    return create_user_document(
+        str_login_id=str_login_id,
+        str_hashed_password=hash_password(str_password),
+        str_name=str_name,
+        str_role=UserRole.ADMIN,
+        str_department=str_department,
+        str_approval_status=ApprovalStatus.APPROVED,
+        bool_is_active=True,
+        str_approved_by="bootstrap",
+    )
+
+
+async def _check_postgres_and_admin(
+    settings, bool_explicit: bool, str_login_id: str, str_password: str,
+    str_name: str, str_department: str,
+) -> tuple[bool, str]:
+    from app.postgres.database import connect_postgres, disconnect_postgres
+    from app.repositories.auth_store import PostgresUserStore
+
+    try:
+        await connect_postgres()
+        obj_users = PostgresUserStore()
+        int_user_count = await obj_users.count()
+        _log("OK", "PostgreSQL is reachable and the application schema is ready.")
+        if int_user_count > 0 and not bool_explicit:
+            _log("INFO", "Existing PostgreSQL users found; default administrator bootstrap was skipped.")
+            return True, ""
+        if int_user_count > 0:
+            if await obj_users.find_by_login_id(str_login_id):
+                _log("OK", f"Bootstrap administrator already exists in PostgreSQL: {str_login_id}")
+                return True, ""
+            str_error = "PostgreSQL already contains users; automatic admin creation was refused."
+            _log("ERROR", str_error)
+            return False, str_error
+        await obj_users.insert(
+            _bootstrap_admin_document(
+                str_login_id, str_password, str_name, str_department,
+            )
+        )
+        _log("OK", f"Created the first PostgreSQL administrator: {str_login_id}")
+        return True, ""
+    except Exception as obj_error:
+        str_error = f"PostgreSQL is unavailable or not initialized: {obj_error}"
+        _log("WARN", str_error)
+        return False, str_error
+    finally:
+        await disconnect_postgres()
+
+
 def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
     if bool_skip_db:
-        _log("INFO", "MongoDB check skipped.")
+        _log("INFO", "Database checks skipped.")
         return True, ""
     try:
         from pymongo import MongoClient
 
         obj_client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
         obj_client.admin.command("ping")
-        obj_db = obj_client[settings.MONGO_DB_NAME]
+        obj_mongo_db = obj_client[settings.MONGO_DB_NAME]
         _log("OK", f"MongoDB is reachable: {settings.MONGO_DB_NAME}")
     except Exception as obj_error:
         _log("WARN", f"MongoDB is unavailable: {obj_error}")
         return False, str(obj_error)
 
+    bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
+    if not all((str_login_id, str_password, str_name)):
+        obj_client.close()
+        str_error = "Admin bootstrap requires ID, password, and name environment variables."
+        _log("ERROR", str_error)
+        return False, str_error
+    if not STR_PASSWORD_PATTERN.match(str_password):
+        obj_client.close()
+        str_error = "Bootstrap admin password does not meet the application password policy."
+        _log("ERROR", str_error)
+        return False, str_error
+
+    if settings.DATABASE_BACKEND == "postgresql":
+        obj_client.close()
+        return asyncio.run(_check_postgres_and_admin(
+            settings, bool_explicit, str_login_id, str_password, str_name, str_department,
+        ))
+    if settings.DATABASE_BACKEND != "mongodb":
+        obj_client.close()
+        str_error = "DATABASE_BACKEND must be either 'mongodb' or 'postgresql'."
+        _log("ERROR", str_error)
+        return False, str_error
+
     try:
-        bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
-        int_user_count = obj_db.users.count_documents({})
+        int_user_count = obj_mongo_db.users.count_documents({})
         if int_user_count > 0 and not bool_explicit:
             _log("INFO", "Existing users found; default administrator bootstrap was skipped.")
             return True, ""
-        if not all((str_login_id, str_password, str_name)):
-            str_error = "Admin bootstrap requires ID, password, and name environment variables."
-            _log("ERROR", str_error)
-            return False, str_error
-        if not STR_PASSWORD_PATTERN.match(str_password):
-            str_error = "Bootstrap admin password does not meet the application password policy."
-            _log("ERROR", str_error)
-            return False, str_error
         if int_user_count > 0:
-            if obj_db.users.find_one({"str_login_id": str_login_id}):
+            if obj_mongo_db.users.find_one({"str_login_id": str_login_id}):
                 _log("OK", f"Bootstrap admin already exists: {str_login_id}")
                 return True, ""
             str_error = "Database already contains users; automatic admin creation was refused."
             _log("ERROR", str_error)
             return False, str_error
 
-        from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
-
-        dict_user = create_user_document(
-            str_login_id=str_login_id,
-            str_hashed_password=hash_password(str_password),
-            str_name=str_name,
-            str_role=UserRole.ADMIN,
-            str_department=str_department,
-            str_approval_status=ApprovalStatus.APPROVED,
-            bool_is_active=True,
-            str_approved_by="bootstrap",
+        dict_user = _bootstrap_admin_document(
+            str_login_id, str_password, str_name, str_department,
         )
-        obj_db.users.create_index("str_login_id", unique=True)
-        obj_db.users.insert_one(dict_user)
+        obj_mongo_db.users.create_index("str_login_id", unique=True)
+        obj_mongo_db.users.insert_one(dict_user)
         _log("OK", f"Created the first administrator: {str_login_id}")
         return True, ""
     finally:
@@ -371,8 +429,8 @@ def main() -> int:
     )
     obj_parser.add_argument("--force-models", action="store_true", help="Replace existing model files.")
     obj_parser.add_argument("--strict-models", action="store_true", help="Fail if required models are missing.")
-    obj_parser.add_argument("--strict-db", action="store_true", help="Fail if MongoDB/admin bootstrap is not ready.")
-    obj_parser.add_argument("--skip-db", action="store_true", help="Skip MongoDB connectivity/admin checks.")
+    obj_parser.add_argument("--strict-db", action="store_true", help="Fail if required databases/admin bootstrap are not ready.")
+    obj_parser.add_argument("--skip-db", action="store_true", help="Skip database connectivity/admin checks.")
     obj_args = obj_parser.parse_args()
 
     try:
@@ -396,7 +454,7 @@ def main() -> int:
     if obj_args.strict_models and list_missing_required:
         list_failures.append("required AI models are missing")
     if obj_args.strict_db and not bool_db_ok:
-        list_failures.append(str_db_error or "MongoDB is unavailable")
+        list_failures.append(str_db_error or "Required databases are unavailable")
     if list_failures:
         _log("ERROR", "Bootstrap validation failed: " + "; ".join(list_failures))
         return 1
@@ -404,7 +462,7 @@ def main() -> int:
     if list_missing_required:
         _log("WARN", "Viewer can start, but AI features with missing models will be unavailable.")
     if not bool_db_ok:
-        _log("WARN", "MongoDB or administrator bootstrap needs attention before production use.")
+        _log("WARN", "Database connectivity or administrator bootstrap needs attention before production use.")
     _log("OK", "Runtime bootstrap completed.")
     return 0
 

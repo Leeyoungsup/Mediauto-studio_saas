@@ -1,8 +1,9 @@
 # PostgreSQL 단계적 전환
 
 이 브랜치는 MongoDB 서비스를 중단하지 않고 기능군별로 PostgreSQL로 이전한다.
-전환이 완료될 때까지 기본값은 `DATABASE_BACKEND=mongodb`이며, PostgreSQL을
-준비했다는 이유만으로 운영 트래픽을 PostgreSQL에 보내지 않는다.
+신규 설치와 현재 운영 환경은 `DATABASE_BACKEND=postgresql`로 인증·감사·IP 캐시·
+임상정보를 처리한다. 프로젝트·슬라이드·AI 상태·annotation이 이전될 때까지 MongoDB도
+반드시 함께 실행한다.
 
 ## 원칙
 
@@ -23,7 +24,16 @@
 
 ## 로컬 PostgreSQL 준비
 
-실제 비밀번호가 들어가는 `.env.postgres`는 Git에 커밋하지 않는다.
+기본 설치는 아래 작업을 `install.sh`/`install.bat`에서 자동 수행한다.
+
+- `.env.postgres`가 없으면 임의 48자리 hexadecimal 비밀번호로 소유자 전용 파일 생성
+- Docker Compose 영구 PostgreSQL 컨테이너 시작 및 health check
+- `alembic upgrade head`
+- 최초 MongoDB 데이터 이관 및 중단된 첫 이관 재개; 완료 봉인 이후에는 자동 재이관 금지
+- 기준 저장소가 비어 있으면 최초 PostgreSQL 관리자 생성
+
+실제 비밀번호가 들어가는 `.env.postgres`는 Git에 커밋하지 않는다. 수동 구성은 다음과
+같으며, 템플릿의 `POSTGRES_PASSWORD`와 `POSTGRES_URI` 비밀번호를 함께 변경해야 한다.
 
 ```bash
 cp .env.postgres.example .env.postgres
@@ -31,7 +41,7 @@ cp .env.postgres.example .env.postgres
 docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 ```
 
-최초 인증 스키마를 적용한다.
+스키마를 수동 적용하려면 다음을 실행한다.
 
 ```bash
 set -a
@@ -46,6 +56,14 @@ alembic upgrade head
 로그인, 계정 잠금, 토큰 회전 CAS, 로그아웃, 비밀번호 변경, MFA와 관리자 사용자
 관리를 지원한다. 나머지 데이터는 계속 MongoDB를 사용하므로 전환 기간에는 두 DB가
 모두 실행되어야 한다.
+
+외부 PostgreSQL을 사용하면 설치 전에 URL 인코딩된 연결 문자열을 지정한다.
+
+```bash
+export MEDIAUTO_POSTGRES_EXTERNAL=1
+export POSTGRES_URI='postgresql+asyncpg://user:encoded-password@db-host:5432/medicus_studio'
+./install.sh
+```
 
 ## 인증 데이터 이관 및 전환
 

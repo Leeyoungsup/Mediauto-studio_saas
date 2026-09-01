@@ -162,7 +162,7 @@ async def _seal_migrated_audit_snapshot(obj_mongo_collection, obj_audit) -> dict
     return dict_seal
 
 
-async def _migrate(bool_dry_run: bool) -> int:
+async def _migrate(bool_dry_run: bool, bool_if_empty: bool = False) -> int:
     if not settings.POSTGRES_URI:
         print("[ERROR] POSTGRES_URI is required.")
         return 2
@@ -184,6 +184,28 @@ async def _migrate(bool_dry_run: bool) -> int:
         obj_audit = PostgresAuditStore()
         obj_geo = PostgresIpGeoStore()
         obj_clinical = PostgresClinicalInfoStore()
+
+        if bool_if_empty:
+            dict_existing_targets = {
+                "audit_logs": await obj_audit.count(),
+                "ip_geo_cache": await obj_geo.count(),
+                "case_clinical_info": await obj_clinical.count(),
+            }
+            # The snapshot seal is written only after every legacy collection
+            # has been copied and verified.  Its presence distinguishes a
+            # completed cutover from an interrupted import that should resume.
+            dict_existing_seal = await PostgresAuditIntegritySealStore().get(
+                "mongodb_migration_v1"
+            )
+            if dict_existing_seal is not None:
+                print(
+                    "[SKIP] PostgreSQL operational data is already initialized and sealed: "
+                    + ", ".join(
+                        f"{str_name}={int_count}"
+                        for str_name, int_count in dict_existing_targets.items()
+                    )
+                )
+                return 0
 
         list_jobs = [
             ("audit_logs", obj_db.audit_logs, obj_audit, None, [("dt_created_at", 1), ("_id", 1)]),
@@ -240,9 +262,13 @@ def main() -> int:
         "--dry-run", action="store_true",
         help="Check conflicts and report planned inserts without writing PostgreSQL.",
     )
+    obj_parser.add_argument(
+        "--if-empty", action="store_true",
+        help="Installer mode: resume until the MongoDB snapshot seal exists, then preserve PostgreSQL data.",
+    )
     obj_args = obj_parser.parse_args()
     try:
-        return asyncio.run(_migrate(obj_args.dry_run))
+        return asyncio.run(_migrate(obj_args.dry_run, obj_args.if_empty))
     except Exception as obj_error:
         print(f"[ERROR] Operational-data migration failed: {obj_error}")
         return 1

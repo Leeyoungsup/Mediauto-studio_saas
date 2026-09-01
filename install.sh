@@ -2,11 +2,11 @@
 # ============================================================
 #  MeDIAuto Studio SaaS - Dependency Install Script (Linux)
 #  - Detect distro
-#  - Verify/install MongoDB + OpenSlide system libs
+#  - Verify/install residual MongoDB + configure PostgreSQL
 #  - Create/update conda env
 #  - Install PyTorch with CUDA
 #  - Install backend/requirements.txt
-#  - Verify MongoDB connectivity
+#  - Apply PostgreSQL schema and migrate legacy operational data when empty
 #  - Optional: restore mongo_dump if present (migration)
 #  - Prepare runtime directories/secrets and validate models/native libraries
 # ============================================================
@@ -80,7 +80,7 @@ if ! command -v conda >/dev/null 2>&1; then
 fi
 
 # ── STEP 1: MongoDB ──
-section "[STEP 1/9] MongoDB Setup"
+section "[STEP 1/11] Residual MongoDB setup"
 if command -v mongod >/dev/null 2>&1; then
     log_info "mongod found: $(command -v mongod)"
 else
@@ -164,7 +164,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # ── STEP 2: OpenSlide system library ──
-section "[STEP 2/9] OpenSlide and libvips system libraries"
+section "[STEP 2/11] OpenSlide and libvips system libraries"
 # openslide-python wraps libopenslide.so.0. Wheel doesn't bundle it on Linux.
 if ldconfig -p 2>/dev/null | grep -q "libopenslide\.so"; then
     log_ok "libopenslide already installed."
@@ -202,7 +202,7 @@ else
 fi
 
 # ── STEP 3: Conda env ──
-section "[STEP 3/9] Conda environment \"$ENV_NAME\""
+section "[STEP 3/11] Conda environment \"$ENV_NAME\""
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
     log_info "env \"$ENV_NAME\" already exists."
 else
@@ -214,7 +214,7 @@ else
 fi
 
 # ── STEP 4: PyTorch ──
-section "[STEP 4/9] PyTorch (CUDA $CUDA_TAG)"
+section "[STEP 4/11] PyTorch (CUDA $CUDA_TAG)"
 conda run -n "$ENV_NAME" pip install --upgrade pip
 if ! conda run -n "$ENV_NAME" pip install torch torchvision \
         --index-url "https://download.pytorch.org/whl/$CUDA_TAG"; then
@@ -223,14 +223,66 @@ if ! conda run -n "$ENV_NAME" pip install torch torchvision \
 fi
 
 # ── STEP 5: backend requirements ──
-section "[STEP 5/9] Backend requirements"
+section "[STEP 5/11] Backend requirements"
 if ! conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/backend/requirements.txt"; then
     log_error "pip install failed."
     exit 1
 fi
 
-# ── STEP 6: optional Philips SDK environment ──
-section "[STEP 6/9] Optional Philips iSyntax environment"
+# ── STEP 6: PostgreSQL environment and service ──
+section "[STEP 6/11] PostgreSQL environment and service"
+POSTGRES_ENV_FILE="${MEDIAUTO_POSTGRES_ENV_FILE:-$SCRIPT_DIR/.env.postgres}"
+POSTGRES_MODE="docker"
+if [[ "${MEDIAUTO_POSTGRES_EXTERNAL:-0}" == "1" || ( ! -f "$POSTGRES_ENV_FILE" && -n "${POSTGRES_URI:-}" ) ]]; then
+    POSTGRES_MODE="external"
+fi
+if ! conda run -n "$ENV_NAME" python \
+    "$SCRIPT_DIR/backend/scripts/configure_postgres_env.py" \
+    --env-file "$POSTGRES_ENV_FILE" --mode "$POSTGRES_MODE"; then
+    log_error "PostgreSQL environment setup failed."
+    exit 1
+fi
+set -a
+# shellcheck disable=SC1090
+source "$POSTGRES_ENV_FILE"
+set +a
+
+if [[ "${POSTGRES_DEPLOYMENT:-docker}" == "docker" ]]; then
+    if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+        log_error "Docker Engine with the Compose plugin is required for the default PostgreSQL deployment."
+        echo "        Install Docker, or set POSTGRES_URI and MEDIAUTO_POSTGRES_EXTERNAL=1."
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        log_error "Docker is installed but this user cannot access the daemon."
+        echo "        Re-login after joining the docker group, then rerun install.sh."
+        exit 1
+    fi
+    if ! docker compose --env-file "$POSTGRES_ENV_FILE" \
+        -f "$SCRIPT_DIR/compose.postgres.yml" up -d; then
+        log_error "PostgreSQL container startup failed."
+        exit 1
+    fi
+    POSTGRES_CONTAINER_ID=$(docker compose --env-file "$POSTGRES_ENV_FILE" \
+        -f "$SCRIPT_DIR/compose.postgres.yml" ps -q postgres)
+    POSTGRES_HEALTH=""
+    for _ in $(seq 1 60); do
+        POSTGRES_HEALTH=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+            "$POSTGRES_CONTAINER_ID" 2>/dev/null || true)
+        [[ "$POSTGRES_HEALTH" == "healthy" ]] && break
+        sleep 1
+    done
+    if [[ "$POSTGRES_HEALTH" != "healthy" ]]; then
+        log_error "PostgreSQL container did not become healthy (status: ${POSTGRES_HEALTH:-unknown})."
+        exit 1
+    fi
+    log_ok "Persistent PostgreSQL container is healthy on 127.0.0.1:${POSTGRES_PORT:-5432}."
+else
+    log_info "External PostgreSQL deployment selected; Docker startup skipped."
+fi
+
+# ── STEP 7: optional Philips SDK environment ──
+section "[STEP 7/11] Optional Philips iSyntax environment"
 if [[ "${MEDIAUTO_ENABLE_PHILIPS:-0}" == "1" || -n "${MEDIAUTO_PHILIPS_SDK_SOURCE:-}" ]]; then
     if [[ "${MEDIAUTO_ACCEPT_PHILIPS_EULA:-0}" != "1" ]]; then
         log_error "Review the licensed Philips SDK EULA, then set MEDIAUTO_ACCEPT_PHILIPS_EULA=1."
@@ -254,8 +306,8 @@ else
     log_info "Philips setup skipped. Set MEDIAUTO_ENABLE_PHILIPS=1 and MEDIAUTO_PHILIPS_SDK_SOURCE to enable it."
 fi
 
-# ── STEP 7: connectivity test ──
-section "[STEP 7/9] MongoDB connectivity test"
+# ── STEP 8: connectivity test ──
+section "[STEP 8/11] MongoDB and PostgreSQL connectivity"
 MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
 if conda run -n "$ENV_NAME" python -c "
 import os
@@ -274,8 +326,15 @@ else
     echo "        Backend will still install but won't start without a reachable MongoDB."
 fi
 
-# ── STEP 8: optional dump restore (migration) ──
-section "[STEP 8/9] Optional: restore MongoDB dump"
+if ! conda run -n "$ENV_NAME" python \
+    "$SCRIPT_DIR/backend/scripts/configure_postgres_env.py" \
+    --env-file "$POSTGRES_ENV_FILE" --mode "$POSTGRES_MODE" --check-connection; then
+    log_error "PostgreSQL connectivity failed. Check POSTGRES_URI and the database service."
+    exit 1
+fi
+
+# ── STEP 9: optional dump restore (migration) ──
+section "[STEP 9/11] Optional: restore MongoDB dump"
 DUMP_DB_NAME="${MONGO_DB_NAME:-medicus_studio}"
 DUMP_FOLDER="$SCRIPT_DIR/mongo_dump/$DUMP_DB_NAME"
 DUMP_ARCHIVE_GZ="$SCRIPT_DIR/mongo_dump.archive.gz"
@@ -374,8 +433,25 @@ PYEOF
     fi
 fi
 
-# ── STEP 9: runtime bootstrap ──
-section "[STEP 9/9] Runtime bootstrap and preflight"
+# ── STEP 10: PostgreSQL schema and one-time legacy migration ──
+section "[STEP 10/11] PostgreSQL schema and legacy data migration"
+if ! (cd "$SCRIPT_DIR/backend" && conda run -n "$ENV_NAME" python -m alembic upgrade head); then
+    log_error "PostgreSQL schema migration failed."
+    exit 1
+fi
+if ! conda run -n "$ENV_NAME" python \
+    "$SCRIPT_DIR/backend/scripts/migrate_auth_to_postgres.py" --if-empty; then
+    log_error "Authentication data migration failed. Existing PostgreSQL data was preserved."
+    exit 1
+fi
+if ! conda run -n "$ENV_NAME" python \
+    "$SCRIPT_DIR/backend/scripts/migrate_operational_to_postgres.py" --if-empty; then
+    log_error "Operational data migration failed. Existing PostgreSQL data was preserved."
+    exit 1
+fi
+
+# ── STEP 11: runtime bootstrap ──
+section "[STEP 11/11] Runtime bootstrap and preflight"
 BOOTSTRAP_ARGS=()
 if [[ "${MEDIAUTO_STRICT_MODELS:-0}" == "1" ]]; then
     BOOTSTRAP_ARGS+=(--strict-models)
@@ -402,7 +478,8 @@ echo "   Copy these from the original install:"
 echo "     - backend/.secrets.json   (password pepper, AES key — CRITICAL)"
 echo "     - backend/uploads/        (WSI files, tile cache)"
 echo "     - backend/model/          (AI weights)"
-echo "     - MongoDB dump            (see below)"
+echo "     - MongoDB dump            (remaining project/slide/AI/annotation data)"
+echo "     - PostgreSQL backup       (users/sessions/audit/geo/clinical data)"
 echo "   Losing .secrets.json breaks all existing user passwords."
 echo
 echo "   Dump on the OLD machine (any of these formats):"
@@ -410,7 +487,12 @@ echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=.
 echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip"
 echo
 echo "   Then on the NEW machine, drop the dump folder/archive at the project root"
-echo "   and re-run this script — STEP 8 will auto-restore."
+echo "   and re-run this script — STEP 9 will auto-restore."
+echo
+echo " PostgreSQL runtime:"
+echo "   Environment = $POSTGRES_ENV_FILE"
+echo "   Backend     = postgresql"
+echo "   Deployment  = ${POSTGRES_DEPLOYMENT:-docker}"
 echo
 echo " MongoDB defaults:"
 echo "   URI    = mongodb://localhost:27017   (override: export MONGO_URI=...)"

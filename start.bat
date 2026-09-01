@@ -6,6 +6,12 @@ REM  - uvicorn FastAPI start
 REM ============================================================
 setlocal
 
+set "POSTGRES_ENV_FILE=%~dp0.env.postgres"
+if defined MEDIAUTO_POSTGRES_ENV_FILE set "POSTGRES_ENV_FILE=%MEDIAUTO_POSTGRES_ENV_FILE%"
+if exist "%POSTGRES_ENV_FILE%" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%POSTGRES_ENV_FILE%") do set "%%A=%%B"
+)
+
 cd /d "%~dp0backend"
 
 set ENV_NAME=medicus-saas

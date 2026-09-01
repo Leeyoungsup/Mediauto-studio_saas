@@ -18,7 +18,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 | VS IHC | Virtual Staining (H&E → IHC membrane/nucleus). 타일 스트리머로 큰 SVS 도 ~100 MB 메모리 |
 | 폴더 자동 AI | `folder_ai_configs` 기반, 60초 주기로 미완 (model, variant) 자동 추론. idle 600초·업로드·뷰어 활동 시 양보 |
 | 사용자 편집본 | 셀 수정·저장본을 사용자별로 분리 저장 (`user_ai_edits`). 원본 추론 캐시는 보존 |
-| 인증·인가 | MongoDB + JWT (Access 15분 + Refresh 7일). RBAC 3단계 + 가입 승인 워크플로 + 5회 실패 30분 잠금 |
+| 인증·인가 | PostgreSQL + JWT (Access 15분 + Refresh 7일). RBAC 3단계 + 가입 승인 워크플로 + 5회 실패 30분 잠금 |
 | 2차 인증 (MFA) | RFC 6238 TOTP 자체 구현. AES-256-GCM 으로 시드 암호화 저장 |
 | 미디어 URL 서명 | `<img src>` 타일·썸네일에 단기(10분) HMAC 티켓 (`?mt=`) — JWT URL 노출 제거 |
 | 감사 로그 | 로그인·슬라이드 뷰·AI 분석·관리자 작업을 HMAC 체인으로 기록. IP geo enrichment + before/after 변경 추적 |
@@ -28,7 +28,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 - **Backend**: Python 3.12, FastAPI, Uvicorn (ASGI)
 - **Frontend**: Vanilla JS (ES Modules), HTML5 Canvas — 빌드 도구 없음
-- **Database**: MongoDB 7.x+ (motor async driver). DB 미연결 시 일부 기능만 비활성화되고 뷰어는 동작
+- **Database**: PostgreSQL 18(인증·감사·임상정보) + MongoDB 7.x+(프로젝트·슬라이드·AI·annotation, 단계적 전환 중)
 - **인증**: JWT HS256 + bcrypt(cost=12) + pepper, RFC 6238 TOTP, AES-256-GCM, HMAC-SHA256 미디어 티켓
 - **슬라이드**: OpenSlide, Pillow, ICC profile 지원, Hamamatsu NDP.view2 색 매칭
 - **AI**: PyTorch (CUDA AMP), YOLOv11-M (Quanti HE / Quanti PD-L1 / Quanti IHC), pix2pix U-Net (VS IHC)
@@ -136,7 +136,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 소스 코드와 프론트엔드는 저장소에 포함되지만 아래 항목은 보안·용량 문제로 Git에 포함되지 않는다.
 
 - `backend/model/`의 AI 가중치(현재 전체 약 3.4 GB)
-- MongoDB 데이터와 사용자 계정
+- PostgreSQL과 MongoDB 운영 데이터
 - `backend/.secrets.json`의 영구 암호화 키
 - 업로드 WSI, 타일 캐시, AI 결과
 - 선택 기능인 Philips SDK
@@ -146,7 +146,8 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 ### 사전 요구사항
 
 - Miniconda/Anaconda
-- MongoDB 7.0+ (로컬 설치 또는 Docker). 미연결 시 인증/감사/AI 결과 캐싱 등이 비활성화됨
+- Docker Engine + Compose 플러그인(PostgreSQL 18 영구 컨테이너 기본 배포)
+- MongoDB 7.0+(프로젝트·슬라이드·AI·annotation의 잔여 저장소)
 - OpenSlide와 libvips 시스템 라이브러리
 - (선택) NVIDIA GPU + CUDA 11.8+ — AI 추론 가속
 
@@ -176,6 +177,9 @@ $env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
 - 런타임 디렉터리와 신규 `.secrets.json` 생성
 - 선택적으로 모델 번들 배치
 - OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
+- 소유자 전용 `.env.postgres`와 임의 DB 비밀번호 자동 생성
+- PostgreSQL 영구 컨테이너 시작, Alembic 스키마 적용 및 연결 점검
+- 초기 PostgreSQL에 기존 MongoDB 인증·감사·IP·임상정보를 이관하고 중단된 첫 이관은 안전하게 재개
 - 기존 `mongo_dump` 발견 시 확인 후 복원
 - 지원 OS에서 로컬 MongoDB 설치 및 서비스 시작
 - 요청 시 Philips 전용 Conda 환경 생성과 SDK smoke test
@@ -198,7 +202,7 @@ export MEDIAUTO_STRICT_DB=1
 export MEDIAUTO_STRICT_MODELS=1
 ```
 
-빈 MongoDB에는 설치 과정에서 아래 기본 관리자가 자동 생성된다. 운영 환경에서는 최초 로그인 직후 비밀번호를 변경해야 한다. 환경변수를 지정하면 기본 관리자 정보를 덮어쓸 수 있다.
+빈 PostgreSQL에는 설치 과정에서 아래 기본 관리자가 자동 생성된다. 운영 환경에서는 최초 로그인 직후 비밀번호를 변경해야 한다. 환경변수를 지정하면 기본 관리자 정보를 덮어쓸 수 있다.
 
 ```bash
 export MEDIAUTO_BOOTSTRAP_ADMIN_ID=admin
@@ -209,10 +213,11 @@ export MEDIAUTO_BOOTSTRAP_ADMIN_NAME='Administrator'
 
 관리자 환경변수를 사용하지 않으면 ID `admin`, 이름 `Administrator`와 배포 기본 비밀번호로 생성된다. DB에 사용자가 이미 있으면 기본 관리자 생성은 건너뛴다.
 
-### 2. MongoDB 수동 시작이 필요한 경우
+### 2. 데이터베이스 수동 시작이 필요한 경우
 
 ```bash
 mongod --dbpath /data/db
+docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 ```
 
 ### 3. 환경 변수 (모두 선택 — 미설정 시 기본값 또는 `.secrets.json` 자동 생성)
@@ -221,8 +226,9 @@ mongod --dbpath /data/db
 | ---- | ------ | ---- |
 | `MONGO_URI` | `mongodb://localhost:27017` | MongoDB 연결 문자열 |
 | `MONGO_DB_NAME` | `medicus_studio` | 데이터베이스 이름 |
-| `DATABASE_BACKEND` | `mongodb` | 인증 저장소 선택: `mongodb` 또는 `postgresql` |
-| `POSTGRES_URI` | "" | PostgreSQL 인증 저장소 연결 문자열 |
+| `DATABASE_BACKEND` | 설치 시 `postgresql` | 운영 저장소 선택. `.env.postgres`에서 설정 |
+| `POSTGRES_DEPLOYMENT` | `docker` | `docker` 또는 외부 DB를 뜻하는 `external` |
+| `POSTGRES_URI` | 설치 시 자동 생성 | PostgreSQL 연결 문자열 |
 | `POSTGRES_POOL_SIZE` / `POSTGRES_MAX_OVERFLOW` | 10 / 20 | PostgreSQL 기본 연결 수와 추가 연결 상한 |
 | `JWT_SECRET_KEY` | `.secrets.json` 자동 생성 | 운영에서는 secret manager 로 주입 |
 | `FIELD_ENCRYPTION_KEY` | `.secrets.json` 자동 생성 | AES-256-GCM 키 |
@@ -240,6 +246,7 @@ mongod --dbpath /data/db
 | `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
 | `MEDIAUTO_CONDA_ENV` | `medicus-saas` | 설치·실행에 사용할 Conda 환경 이름 |
 | `MEDIAUTO_AUTO_INSTALL_DB` | 0 | 지원 OS에서 로컬 MongoDB 자동 설치(Windows winget, Ubuntu 20.04/22.04 apt) |
+| `MEDIAUTO_POSTGRES_EXTERNAL` | 0 | `1`이면 Docker 대신 미리 지정한 외부 `POSTGRES_URI` 사용 |
 | `MEDIAUTO_MODEL_SOURCE` | "" | AI 모델 디렉터리 또는 ZIP/TAR 번들 경로 |
 | `MEDIAUTO_STRICT_DB` / `MEDIAUTO_STRICT_MODELS` | 0 | 초기 점검 실패를 설치 오류로 처리 |
 | `MEDIAUTO_BOOTSTRAP_ADMIN_*` | `admin` / 배포 기본 비밀번호 / `Administrator` | 빈 DB의 최초 관리자 자동 생성 정보 |

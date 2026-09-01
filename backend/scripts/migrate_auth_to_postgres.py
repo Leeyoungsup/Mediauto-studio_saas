@@ -30,7 +30,7 @@ def _copy_document_with_string_id(dict_source: dict) -> dict:
     return dict_target
 
 
-async def _migrate(bool_dry_run: bool, bool_skip_sessions: bool) -> int:
+async def _migrate(bool_dry_run: bool, bool_skip_sessions: bool, bool_if_empty: bool = False) -> int:
     if not settings.POSTGRES_URI:
         print("[ERROR] POSTGRES_URI is required.")
         return 2
@@ -49,6 +49,27 @@ async def _migrate(bool_dry_run: bool, bool_skip_sessions: bool) -> int:
         await connect_postgres()
         obj_users = PostgresUserStore()
         obj_sessions = PostgresSessionStore()
+
+        if bool_if_empty:
+            int_target_users = await obj_users.count()
+            int_target_sessions = await obj_sessions.count()
+            # A completed cutover may legitimately have more PostgreSQL
+            # sessions/users than the frozen MongoDB source.  An interrupted
+            # first import has fewer users and must be allowed to resume.
+            bool_initialized = (
+                int_target_users > int_source_users
+                or (
+                    int_target_users > 0
+                    and int_target_users == int_source_users
+                    and int_target_sessions >= int_source_sessions
+                )
+            )
+            if bool_initialized:
+                print(
+                    "[SKIP] PostgreSQL authentication data is already initialized: "
+                    f"users={int_target_users}, sessions={int_target_sessions}"
+                )
+                return 0
 
         int_users_inserted = 0
         int_users_skipped = 0
@@ -138,9 +159,14 @@ def main() -> int:
         action="store_true",
         help="Copy users only; all clients must sign in again after cutover.",
     )
+    obj_parser.add_argument(
+        "--if-empty",
+        action="store_true",
+        help="Installer mode: resume an incomplete first import, otherwise preserve initialized PostgreSQL auth data.",
+    )
     obj_args = obj_parser.parse_args()
     try:
-        return asyncio.run(_migrate(obj_args.dry_run, obj_args.skip_sessions))
+        return asyncio.run(_migrate(obj_args.dry_run, obj_args.skip_sessions, obj_args.if_empty))
     except Exception as obj_error:
         print(f"[ERROR] Authentication migration failed: {obj_error}")
         return 1

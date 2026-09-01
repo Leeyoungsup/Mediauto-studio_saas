@@ -1,11 +1,11 @@
 @echo off
 REM ============================================================
 REM  MeDIAuto Studio SaaS - Dependency Install Script (Windows)
-REM  - Verify/start MongoDB
+REM  - Verify/start residual MongoDB and configure PostgreSQL
 REM  - Create/update conda env
 REM  - Install PyTorch with CUDA
 REM  - Install backend/requirements.txt
-REM  - Verify MongoDB connectivity
+REM  - Apply PostgreSQL schema and migrate legacy operational data when empty
 REM  - Optional: restore mongo_dump if present (migration)
 REM ============================================================
 setlocal enabledelayedexpansion
@@ -32,7 +32,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 1/8] MongoDB Setup
+echo [STEP 1/10] Residual MongoDB setup
 echo ============================================================
 where mongod >nul 2>&1
 if errorlevel 1 (
@@ -97,7 +97,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 2/8] Conda environment "%ENV_NAME%"
+echo [STEP 2/10] Conda environment "%ENV_NAME%"
 echo ============================================================
 call conda env list | findstr /b /c:"%ENV_NAME% " >nul
 if errorlevel 1 (
@@ -114,7 +114,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 3/8] PyTorch ^(CUDA %CUDA_TAG%^)
+echo [STEP 3/10] PyTorch ^(CUDA %CUDA_TAG%^)
 echo ============================================================
 call conda run -n %ENV_NAME% pip install --upgrade pip
 call conda run -n %ENV_NAME% pip install torch torchvision --index-url https://download.pytorch.org/whl/%CUDA_TAG%
@@ -125,7 +125,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 4/8] Backend requirements
+echo [STEP 4/10] Backend requirements
 echo ============================================================
 call conda run -n %ENV_NAME% pip install -r "%~dp0backend\requirements.txt"
 if errorlevel 1 (
@@ -136,7 +136,69 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 5/8] Optional Philips iSyntax environment
+echo [STEP 5/10] PostgreSQL environment and service
+echo ============================================================
+set "POSTGRES_ENV_FILE=%~dp0.env.postgres"
+if defined MEDIAUTO_POSTGRES_ENV_FILE set "POSTGRES_ENV_FILE=%MEDIAUTO_POSTGRES_ENV_FILE%"
+set POSTGRES_MODE=docker
+if defined POSTGRES_URI if not exist "!POSTGRES_ENV_FILE!" set POSTGRES_MODE=external
+if "%MEDIAUTO_POSTGRES_EXTERNAL%"=="1" set POSTGRES_MODE=external
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\configure_postgres_env.py" --env-file "!POSTGRES_ENV_FILE!" --mode !POSTGRES_MODE!
+if errorlevel 1 (
+    echo [ERROR] PostgreSQL environment setup failed.
+    pause
+    exit /b 1
+)
+for /f "usebackq eol=# tokens=1,* delims==" %%A in ("!POSTGRES_ENV_FILE!") do set "%%A=%%B"
+
+if /I "!POSTGRES_DEPLOYMENT!"=="external" goto POSTGRES_EXTERNAL_READY
+where docker >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Docker Desktop with Compose is required for the default PostgreSQL deployment.
+    echo         Install Docker Desktop, or set POSTGRES_URI and MEDIAUTO_POSTGRES_EXTERNAL=1.
+    pause
+    exit /b 1
+)
+docker compose version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Docker Compose plugin is not available.
+    pause
+    exit /b 1
+)
+docker info >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Docker Desktop is not running or is not accessible.
+    pause
+    exit /b 1
+)
+docker compose --env-file "!POSTGRES_ENV_FILE!" -f "%~dp0compose.postgres.yml" up -d
+if errorlevel 1 (
+    echo [ERROR] PostgreSQL container startup failed.
+    pause
+    exit /b 1
+)
+for /f "usebackq delims=" %%I in (`docker compose --env-file "!POSTGRES_ENV_FILE!" -f "%~dp0compose.postgres.yml" ps -q postgres`) do set POSTGRES_CONTAINER_ID=%%I
+set POSTGRES_HEALTH=
+for /L %%I in (1,1,60) do (
+    for /f "usebackq delims=" %%H in (`docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" !POSTGRES_CONTAINER_ID! 2^>nul`) do set POSTGRES_HEALTH=%%H
+    if /I "!POSTGRES_HEALTH!"=="healthy" goto POSTGRES_DOCKER_READY
+    timeout /t 1 /nobreak >nul
+)
+echo [ERROR] PostgreSQL container did not become healthy. Status: !POSTGRES_HEALTH!
+pause
+exit /b 1
+
+:POSTGRES_DOCKER_READY
+echo [OK]   Persistent PostgreSQL container is healthy on 127.0.0.1:!POSTGRES_PORT!.
+goto POSTGRES_SETUP_DONE
+
+:POSTGRES_EXTERNAL_READY
+echo [INFO] External PostgreSQL deployment selected; Docker startup skipped.
+
+:POSTGRES_SETUP_DONE
+echo.
+echo ============================================================
+echo [STEP 6/10] Optional Philips iSyntax environment
 echo ============================================================
 set PHILIPS_REQUESTED=0
 if "%MEDIAUTO_ENABLE_PHILIPS%"=="1" set PHILIPS_REQUESTED=1
@@ -171,7 +233,7 @@ if "!PHILIPS_REQUESTED!"=="1" (
 
 echo.
 echo ============================================================
-echo [STEP 6/8] MongoDB connectivity test
+echo [STEP 7/10] MongoDB and PostgreSQL connectivity
 echo ============================================================
 REM Use the same default URI as backend/app/config.py — env var override respected.
 call conda run -n %ENV_NAME% python -c "import os; from pymongo import MongoClient; uri=os.environ.get('MONGO_URI','mongodb://localhost:27017'); MongoClient(uri, serverSelectionTimeoutMS=3000).admin.command('ping'); print('[OK] MongoDB ping succeeded @', uri)"
@@ -184,9 +246,16 @@ if errorlevel 1 (
     echo        Backend will still install but won't start without a reachable MongoDB.
 )
 
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\configure_postgres_env.py" --env-file "!POSTGRES_ENV_FILE!" --mode !POSTGRES_MODE! --check-connection
+if errorlevel 1 (
+    echo [ERROR] PostgreSQL connectivity failed. Check POSTGRES_URI and the database service.
+    pause
+    exit /b 1
+)
+
 echo.
 echo ============================================================
-echo [STEP 7/8] Optional: restore MongoDB dump
+echo [STEP 8/10] Optional: restore MongoDB dump
 echo ============================================================
 set DUMP_DB_NAME=medicus_studio
 if defined MONGO_DB_NAME set DUMP_DB_NAME=%MONGO_DB_NAME%
@@ -283,7 +352,33 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [STEP 8/8] Runtime bootstrap and preflight
+echo [STEP 9/10] PostgreSQL schema and legacy data migration
+echo ============================================================
+pushd "%~dp0backend"
+call conda run -n %ENV_NAME% python -m alembic upgrade head
+set ALEMBIC_RESULT=!ERRORLEVEL!
+popd
+if not "!ALEMBIC_RESULT!"=="0" (
+    echo [ERROR] PostgreSQL schema migration failed.
+    pause
+    exit /b 1
+)
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\migrate_auth_to_postgres.py" --if-empty
+if errorlevel 1 (
+    echo [ERROR] Authentication data migration failed. Existing PostgreSQL data was preserved.
+    pause
+    exit /b 1
+)
+call conda run -n %ENV_NAME% python "%~dp0backend\scripts\migrate_operational_to_postgres.py" --if-empty
+if errorlevel 1 (
+    echo [ERROR] Operational data migration failed. Existing PostgreSQL data was preserved.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ============================================================
+echo [STEP 10/10] Runtime bootstrap and preflight
 echo ============================================================
 set BOOTSTRAP_ARGS=
 if "%MEDIAUTO_STRICT_MODELS%"=="1" set BOOTSTRAP_ARGS=!BOOTSTRAP_ARGS! --strict-models
@@ -314,7 +409,8 @@ echo    Copy these from the original install:
 echo      - backend\.secrets.json   ^(password pepper, AES key - CRITICAL^)
 echo      - backend\uploads\        ^(WSI files, tile cache^)
 echo      - backend\model\          ^(AI weights^)
-echo      - MongoDB dump            ^(see below^)
+echo      - MongoDB dump            ^(remaining project/slide/AI/annotation data^)
+echo      - PostgreSQL backup       ^(users/sessions/audit/geo/clinical data^)
 echo    Losing .secrets.json breaks all existing user passwords.
 echo.
 echo    Dump on the OLD machine ^(any of these formats^):
@@ -322,7 +418,12 @@ echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=./
 echo      mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip
 echo.
 echo    Then on the NEW machine, drop the dump folder/archive at the project root
-echo    and re-run this script - STEP 7 will auto-restore.
+echo    and re-run this script - STEP 8 will auto-restore.
+echo.
+echo  PostgreSQL runtime:
+echo    Environment = !POSTGRES_ENV_FILE!
+echo    Backend     = postgresql
+echo    Deployment  = !POSTGRES_DEPLOYMENT!
 echo.
 echo  MongoDB defaults:
 echo    URI    = mongodb://localhost:27017   ^(override: set MONGO_URI=...^)
