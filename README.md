@@ -339,6 +339,7 @@ Windows에서는 `start.bat`를 실행한다. 기본 주소는 `http://localhost
 - [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — 사용자 가이드 + IFU 초안
 - [docs/FEATURES.md](docs/FEATURES.md) — 전체 기능 명세 (사용자/내부 동작)
 - [docs/DATABASE.md](docs/DATABASE.md) — MongoDB 스키마 + 인덱스
+- [docs/POSTGRESQL_MIGRATION.md](docs/POSTGRESQL_MIGRATION.md) — PostgreSQL 단계적 전환 현황과 실행 절차
 - [docs/SECURITY.md](docs/SECURITY.md) — 인증·인가·암호화·감사 로그·운영
 - [docs/COMPLIANCE_STATUS.md](docs/COMPLIANCE_STATUS.md) — 의료기기 SW 규격 충족 현황
 - [docs/color_match_analysis.md](docs/color_match_analysis.md) — Hamamatsu NDP 색 매칭 분석
