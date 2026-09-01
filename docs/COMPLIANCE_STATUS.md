@@ -121,7 +121,7 @@
 ### P3: DB 레벨 감사 로그 보호 (부분 충족)
 
 **현재:** 애플리케이션 레벨 insert-only 패턴
-**필요:** MongoDB 사용자 권한으로 audit_logs 컬렉션 update/delete 차단
+**필요:** PostgreSQL 권한으로 `audit_logs` 테이블의 update/delete를 제한하고 별도 감사 보존 정책 적용
 
 ---
 

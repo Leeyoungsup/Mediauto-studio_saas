@@ -26,8 +26,6 @@ def _parse_env(path_env: Path) -> dict[str, str]:
 
 
 def _validate(dict_values: dict[str, str], path_env: Path) -> None:
-    if dict_values.get("DATABASE_BACKEND", "").lower() != "postgresql":
-        raise ValueError(f"DATABASE_BACKEND=postgresql is required in {path_env}")
     if not dict_values.get("POSTGRES_URI"):
         raise ValueError(f"POSTGRES_URI is required in {path_env}")
     str_deployment = dict_values.get("POSTGRES_DEPLOYMENT", "docker").lower()
@@ -53,7 +51,6 @@ def configure(path_env: Path, str_mode: str) -> tuple[dict[str, str], bool]:
         dict_values = {
             "POSTGRES_DEPLOYMENT": "external",
             "POSTGRES_URI": str_uri,
-            "DATABASE_BACKEND": "postgresql",
         }
     else:
         str_database = os.environ.get("POSTGRES_DB", "medicus_studio").strip()
@@ -74,7 +71,6 @@ def configure(path_env: Path, str_mode: str) -> tuple[dict[str, str], bool]:
             "POSTGRES_PASSWORD": str_password,
             "POSTGRES_PORT": str_port,
             "POSTGRES_URI": str_uri,
-            "DATABASE_BACKEND": "postgresql",
         }
 
     path_env.parent.mkdir(parents=True, exist_ok=True)

@@ -1,23 +1,16 @@
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 from sqlalchemy.dialects import postgresql
 
-from app.config import settings
 from app.postgres.models import Session, User
 from app.repositories import auth_store
-from scripts.migrate_auth_to_postgres import _copy_document_with_string_id
 
 
 class AuthStoreTests(unittest.TestCase):
-    def test_backend_switch_selects_matching_repository(self):
-        with patch.object(settings, "DATABASE_BACKEND", "mongodb"):
-            self.assertIsInstance(auth_store.get_user_store(), auth_store.MongoUserStore)
-            self.assertIsInstance(auth_store.get_session_store(), auth_store.MongoSessionStore)
-        with patch.object(settings, "DATABASE_BACKEND", "postgresql"):
-            self.assertIsInstance(auth_store.get_user_store(), auth_store.PostgresUserStore)
-            self.assertIsInstance(auth_store.get_session_store(), auth_store.PostgresSessionStore)
+    def test_postgres_repositories_are_the_only_backend(self):
+        self.assertIsInstance(auth_store.get_user_store(), auth_store.PostgresUserStore)
+        self.assertIsInstance(auth_store.get_session_store(), auth_store.PostgresSessionStore)
 
     def test_public_user_mapping_excludes_authentication_secrets(self):
         obj_user = User(
@@ -54,17 +47,10 @@ class AuthStoreTests(unittest.TestCase):
         self.assertIn("RETURNING", str_sql)
         self.assertIn("str_refresh_token = 'old'", str_sql)
 
-    def test_migration_preserves_mongo_object_id_as_string(self):
-        from bson import ObjectId
-
-        obj_id = ObjectId()
-        dt_naive = datetime(2026, 9, 1, 0, 0)
-        dict_copy = _copy_document_with_string_id({
-            "_id": obj_id, "value": 1, "dt_created_at": dt_naive,
-        })
-        self.assertEqual(dict_copy["_id"], str(obj_id))
-        self.assertEqual(dict_copy["value"], 1)
-        self.assertEqual(dict_copy["dt_created_at"].tzinfo, timezone.utc)
+    def test_new_ids_remain_24_character_compatible_strings(self):
+        str_id = auth_store._new_id()
+        self.assertEqual(len(str_id), 24)
+        int(str_id, 16)
 
     def test_session_model_accepts_timezone_aware_expiry(self):
         dt_now = datetime.now(timezone.utc)

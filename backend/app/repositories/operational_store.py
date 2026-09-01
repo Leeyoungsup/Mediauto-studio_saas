@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import datetime, timezone
-from typing import Any
 
-from bson import ObjectId
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
-from app.config import settings
-from app.database import get_db, is_db_connected
 from app.postgres.database import get_postgres_session, is_postgres_connected
 from app.postgres.models import AuditIntegritySeal, AuditLog, CaseClinicalInfo, IpGeoCache
 
@@ -43,29 +40,12 @@ _SEAL_FIELDS = (
 
 
 def _new_id() -> str:
-    return str(ObjectId())
-
-
-def _mongo_id_filter(str_id: str) -> dict:
-    try:
-        return {"_id": ObjectId(str_id)}
-    except Exception:
-        return {"_id": str_id}
-
-
-def _mongo_document_to_dict(dict_doc: dict | None) -> dict | None:
-    if not dict_doc:
-        return None
-    dict_result = dict(dict_doc)
-    dict_result["_id"] = str(dict_result.get("_id", ""))
-    return dict_result
+    return secrets.token_hex(12)
 
 
 def _json_safe(obj_value):
     if obj_value is None or isinstance(obj_value, (str, int, float, bool)):
         return obj_value
-    if isinstance(obj_value, ObjectId):
-        return str(obj_value)
     if isinstance(obj_value, datetime):
         return obj_value.isoformat()
     if isinstance(obj_value, dict):
@@ -133,75 +113,6 @@ def _seal_model_to_dict(obj_seal: AuditIntegritySeal) -> dict:
     for str_field in _SEAL_FIELDS:
         dict_seal[str_field] = getattr(obj_seal, str_field)
     return dict_seal
-
-
-class MongoAuditStore:
-    @staticmethod
-    def _filter(
-        str_user_id=None, str_action_exact=None, str_action_search=None,
-        str_action_prefix=None, list_actions=None, dt_start=None, dt_end=None,
-    ) -> dict:
-        dict_filter: dict[str, Any] = {}
-        if str_user_id:
-            dict_filter["str_user_id"] = str_user_id
-        if str_action_exact:
-            dict_filter["str_action"] = str_action_exact
-        elif str_action_search:
-            dict_filter["str_action"] = {"$regex": re.escape(str_action_search), "$options": "i"}
-        elif str_action_prefix:
-            dict_filter["str_action"] = {"$regex": "^" + re.escape(str_action_prefix)}
-        elif list_actions:
-            dict_filter["str_action"] = {"$in": list_actions}
-        dict_date = {}
-        if dt_start:
-            dict_date["$gte"] = dt_start
-        if dt_end:
-            dict_date["$lt"] = dt_end
-        if dict_date:
-            dict_filter["dt_created_at"] = dict_date
-        return dict_filter
-
-    async def latest_hmac(self) -> str:
-        dict_doc = await get_db().audit_logs.find_one(
-            sort=[("dt_created_at", -1), ("_id", -1)], projection={"str_hmac": 1},
-        )
-        return (dict_doc or {}).get("str_hmac", "")
-
-    async def find_by_id(self, str_id: str) -> dict | None:
-        return _mongo_document_to_dict(await get_db().audit_logs.find_one(_mongo_id_filter(str_id)))
-
-    async def insert(self, dict_log: dict) -> str:
-        dict_doc = dict(dict_log)
-        if dict_doc.get("_id"):
-            try:
-                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
-            except Exception:
-                pass
-        result = await get_db().audit_logs.insert_one(dict_doc)
-        return str(result.inserted_id)
-
-    async def update_geo(self, str_id: str, dict_geo: dict) -> bool:
-        result = await get_db().audit_logs.update_one(
-            _mongo_id_filter(str_id),
-            {"$set": {
-                "str_country": dict_geo.get("country", ""),
-                "str_country_name": dict_geo.get("country_name", ""),
-                "str_city": dict_geo.get("city", ""),
-                "str_region": dict_geo.get("region", ""),
-            }},
-        )
-        return bool(result.matched_count)
-
-    async def list(self, int_skip=0, int_limit=None, bool_ascending=False, **kwargs) -> list[dict]:
-        cursor = get_db().audit_logs.find(self._filter(**kwargs)).sort(
-            [("dt_created_at", 1 if bool_ascending else -1), ("_id", 1 if bool_ascending else -1)]
-        ).skip(int_skip)
-        if int_limit is not None:
-            cursor = cursor.limit(int_limit)
-        return [_mongo_document_to_dict(dict_doc) async for dict_doc in cursor]
-
-    async def count(self, **kwargs) -> int:
-        return await get_db().audit_logs.count_documents(self._filter(**kwargs))
 
 
 class PostgresAuditStore:
@@ -287,30 +198,6 @@ class PostgresAuditStore:
             return int(await obj_session.scalar(obj_query) or 0)
 
 
-class MongoIpGeoStore:
-    async def find(self, str_ip: str) -> dict | None:
-        return _mongo_document_to_dict(await get_db().ip_geo_cache.find_one({"str_ip": str_ip}))
-
-    async def find_by_id(self, str_id: str) -> dict | None:
-        return _mongo_document_to_dict(await get_db().ip_geo_cache.find_one(_mongo_id_filter(str_id)))
-
-    async def insert(self, dict_geo: dict) -> str:
-        dict_doc = dict(dict_geo)
-        if dict_doc.get("_id"):
-            try:
-                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
-            except Exception:
-                pass
-        result = await get_db().ip_geo_cache.insert_one(dict_doc)
-        return str(result.inserted_id)
-
-    async def upsert(self, str_ip: str, dict_values: dict) -> None:
-        await get_db().ip_geo_cache.update_one({"str_ip": str_ip}, {"$set": {"str_ip": str_ip, **dict_values}}, upsert=True)
-
-    async def count(self) -> int:
-        return await get_db().ip_geo_cache.count_documents({})
-
-
 class PostgresIpGeoStore:
     async def find(self, str_ip: str) -> dict | None:
         async with get_postgres_session() as obj_session:
@@ -340,42 +227,6 @@ class PostgresIpGeoStore:
     async def count(self) -> int:
         async with get_postgres_session() as obj_session:
             return int(await obj_session.scalar(select(func.count()).select_from(IpGeoCache)) or 0)
-
-
-class MongoClinicalInfoStore:
-    async def find(self, str_case_name: str) -> dict | None:
-        return _mongo_document_to_dict(await get_db().case_clinical_info.find_one({"str_case_name": str_case_name}))
-
-    async def find_by_id(self, str_id: str) -> dict | None:
-        return _mongo_document_to_dict(await get_db().case_clinical_info.find_one(_mongo_id_filter(str_id)))
-
-    async def find_many(self, list_case_names: list[str]) -> list[dict]:
-        if not list_case_names:
-            return []
-        return [_mongo_document_to_dict(dict_doc) async for dict_doc in get_db().case_clinical_info.find({"str_case_name": {"$in": list_case_names}})]
-
-    async def list_all(self) -> list[dict]:
-        return [_mongo_document_to_dict(dict_doc) async for dict_doc in get_db().case_clinical_info.find({})]
-
-    async def insert(self, dict_info: dict) -> str:
-        dict_doc = dict(dict_info)
-        if dict_doc.get("_id"):
-            try:
-                dict_doc["_id"] = ObjectId(str(dict_doc["_id"]))
-            except Exception:
-                pass
-        result = await get_db().case_clinical_info.insert_one(dict_doc)
-        return str(result.inserted_id)
-
-    async def upsert(self, str_case_name: str, dict_clinical_info: dict, dt_now: datetime) -> None:
-        await get_db().case_clinical_info.update_one(
-            {"str_case_name": str_case_name},
-            {"$set": {"str_case_name": str_case_name, "dict_clinical_info": dict_clinical_info, "dt_updated_at": dt_now},
-             "$setOnInsert": {"dt_created_at": dt_now}}, upsert=True,
-        )
-
-    async def count(self) -> int:
-        return await get_db().case_clinical_info.count_documents({})
 
 
 class PostgresClinicalInfoStore:
@@ -424,11 +275,6 @@ class PostgresClinicalInfoStore:
             return int(await obj_session.scalar(select(func.count()).select_from(CaseClinicalInfo)) or 0)
 
 
-class MongoAuditIntegritySealStore:
-    async def get(self, str_scope: str) -> None:
-        return None
-
-
 class PostgresAuditIntegritySealStore:
     async def get(self, str_scope: str) -> dict | None:
         async with get_postgres_session() as obj_session:
@@ -458,31 +304,27 @@ class PostgresAuditIntegritySealStore:
         return str_id
 
 
-_MONGO_AUDIT = MongoAuditStore()
 _POSTGRES_AUDIT = PostgresAuditStore()
-_MONGO_GEO = MongoIpGeoStore()
 _POSTGRES_GEO = PostgresIpGeoStore()
-_MONGO_CLINICAL = MongoClinicalInfoStore()
 _POSTGRES_CLINICAL = PostgresClinicalInfoStore()
-_MONGO_AUDIT_SEALS = MongoAuditIntegritySealStore()
 _POSTGRES_AUDIT_SEALS = PostgresAuditIntegritySealStore()
 
 
-def get_audit_store() -> MongoAuditStore | PostgresAuditStore:
-    return _POSTGRES_AUDIT if settings.DATABASE_BACKEND == "postgresql" else _MONGO_AUDIT
+def get_audit_store() -> PostgresAuditStore:
+    return _POSTGRES_AUDIT
 
 
-def get_ip_geo_store() -> MongoIpGeoStore | PostgresIpGeoStore:
-    return _POSTGRES_GEO if settings.DATABASE_BACKEND == "postgresql" else _MONGO_GEO
+def get_ip_geo_store() -> PostgresIpGeoStore:
+    return _POSTGRES_GEO
 
 
-def get_clinical_info_store() -> MongoClinicalInfoStore | PostgresClinicalInfoStore:
-    return _POSTGRES_CLINICAL if settings.DATABASE_BACKEND == "postgresql" else _MONGO_CLINICAL
+def get_clinical_info_store() -> PostgresClinicalInfoStore:
+    return _POSTGRES_CLINICAL
 
 
-def get_audit_integrity_seal_store() -> MongoAuditIntegritySealStore | PostgresAuditIntegritySealStore:
-    return _POSTGRES_AUDIT_SEALS if settings.DATABASE_BACKEND == "postgresql" else _MONGO_AUDIT_SEALS
+def get_audit_integrity_seal_store() -> PostgresAuditIntegritySealStore:
+    return _POSTGRES_AUDIT_SEALS
 
 
 def is_operational_store_connected() -> bool:
-    return is_postgres_connected() if settings.DATABASE_BACKEND == "postgresql" else is_db_connected()
+    return is_postgres_connected()

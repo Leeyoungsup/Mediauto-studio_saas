@@ -2,12 +2,11 @@
 # ============================================================
 #  MeDIAuto Studio SaaS - Dependency Install Script (Linux)
 #  - Detect distro
-#  - Verify/install residual MongoDB + configure PostgreSQL
+#  - Install/configure PostgreSQL
 #  - Create/update conda env
 #  - Install PyTorch with CUDA
 #  - Install backend/requirements.txt
-#  - Apply PostgreSQL schema and migrate legacy operational data when empty
-#  - Optional: restore mongo_dump if present (migration)
+#  - Apply PostgreSQL schema
 #  - Prepare runtime directories/secrets and validate models/native libraries
 # ============================================================
 set -uo pipefail
@@ -58,23 +57,6 @@ is_debian_family() { [[ "$DISTRO_ID" == "debian" || "$DISTRO_ID" == "ubuntu" || 
 is_rhel_family()   { [[ "$DISTRO_ID" == "rhel" || "$DISTRO_ID" == "centos" || "$DISTRO_ID" == "fedora" || "$DISTRO_ID" == "rocky" || "$DISTRO_ID" == "almalinux" || "$DISTRO_LIKE" == *"rhel"* || "$DISTRO_LIKE" == *"fedora"* ]]; }
 is_arch_family()   { [[ "$DISTRO_ID" == "arch" || "$DISTRO_LIKE" == *"arch"* ]]; }
 
-install_mongodb_ubuntu_7() {
-    local codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
-    if [[ "$codename" != "jammy" && "$codename" != "focal" ]]; then
-        log_error "MongoDB 7 apt automation supports Ubuntu 22.04 (jammy) and 20.04 (focal); found '$codename'."
-        return 1
-    fi
-    log_info "Installing MongoDB 7 Community from the official MongoDB repository (sudo required) ..."
-    sudo apt-get update || return 1
-    sudo apt-get install -y gnupg curl || return 1
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
-        sudo gpg --batch --yes -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor || return 1
-    echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg] https://repo.mongodb.org/apt/ubuntu ${codename}/mongodb-org/7.0 multiverse" | \
-        sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null || return 1
-    sudo apt-get update || return 1
-    sudo apt-get install -y mongodb-org || return 1
-}
-
 # ── Pre-checks ──
 if ! command -v conda >/dev/null 2>&1; then
     log_error "conda not found. Install Miniconda/Anaconda first:"
@@ -82,92 +64,8 @@ if ! command -v conda >/dev/null 2>&1; then
     exit 1
 fi
 
-# ── STEP 1: MongoDB ──
-section "[STEP 1/11] Residual MongoDB setup"
-if command -v mongod >/dev/null 2>&1; then
-    log_info "mongod found: $(command -v mongod)"
-else
-    log_warn "mongod not found in PATH."
-    MONGO_URI_CHECK="${MONGO_URI:-mongodb://localhost:27017}"
-    if [[ "$MONGO_URI_CHECK" != *"localhost"* && "$MONGO_URI_CHECK" != *"127.0.0.1"* && "$MONGO_URI_CHECK" != *"[::1]"* ]]; then
-        log_info "Remote MONGO_URI is configured; local MongoDB installation is skipped."
-    elif [[ "$DISTRO_ID" == "ubuntu" ]] && { [[ "${MEDIAUTO_AUTO_INSTALL_DB:-0}" == "1" ]] || confirm "Install MongoDB 7 Community automatically now"; }; then
-        if ! install_mongodb_ubuntu_7; then
-            log_error "MongoDB automatic installation failed."
-            exit 1
-        fi
-        log_ok "MongoDB installed."
-    else
-    echo
-    echo "  Install commands (community edition — copy-paste, then rerun this script):"
-    if is_debian_family; then
-        cat <<'EOF'
-    # Ubuntu/Debian — official MongoDB 7.0 repo:
-    sudo apt update && sudo apt install -y gnupg curl
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
-        sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-    echo "deb [signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg] \
-        https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/7.0 multiverse" | \
-        sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-    sudo apt update && sudo apt install -y mongodb-org
-    sudo systemctl enable --now mongod
-EOF
-    elif is_rhel_family; then
-        cat <<'EOF'
-    # RHEL/Fedora/Rocky — official MongoDB 7.0 repo:
-    sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo >/dev/null <<'REPO'
-[mongodb-org-7.0]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/7.0/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
-REPO
-    sudo dnf install -y mongodb-org
-    sudo systemctl enable --now mongod
-EOF
-    elif is_arch_family; then
-        cat <<'EOF'
-    # Arch (AUR) — community edition:
-    yay -S mongodb-bin    # or: paru -S mongodb-bin
-    sudo systemctl enable --now mongodb
-EOF
-    else
-        echo "    Distro '$DISTRO_ID' not recognized. See:"
-        echo "    https://www.mongodb.com/docs/manual/administration/install-on-linux/"
-    fi
-    echo
-    echo "  Or use a remote/managed MongoDB and export MONGO_URI=mongodb://host:port"
-    if confirm "Continue without local MongoDB"; then
-        log_warn "Continuing — backend won't start until a MongoDB is reachable."
-    else
-        exit 1
-    fi
-    fi
-fi
-
-# Try to ensure mongod service is running (if systemd available).
-if command -v systemctl >/dev/null 2>&1; then
-    # Service name varies: 'mongod' (official repo) or 'mongodb' (Arch / older Debian).
-    for svc in mongod mongodb; do
-        if systemctl list-unit-files --type=service 2>/dev/null | awk '{print $1}' | grep -Fxq "${svc}.service"; then
-            if systemctl is-active --quiet "$svc"; then
-                log_ok "service $svc already active."
-            else
-                log_info "Starting $svc (sudo) ..."
-                if sudo systemctl start "$svc"; then
-                    log_ok "$svc started."
-                else
-                    log_warn "Could not start $svc. Check 'journalctl -u $svc -n 50'."
-                fi
-            fi
-            break
-        fi
-    done
-fi
-
-# ── STEP 2: OpenSlide system library ──
-section "[STEP 2/11] OpenSlide and libvips system libraries"
+# ── STEP 1: OpenSlide system library ──
+section "[STEP 1/8] OpenSlide and libvips system libraries"
 # openslide-python wraps libopenslide.so.0. Wheel doesn't bundle it on Linux.
 if ldconfig -p 2>/dev/null | grep -q "libopenslide\.so"; then
     log_ok "libopenslide already installed."
@@ -204,8 +102,8 @@ else
     exit 1
 fi
 
-# ── STEP 3: Conda env ──
-section "[STEP 3/11] Conda environment \"$ENV_NAME\""
+# ── STEP 2: Conda env ──
+section "[STEP 2/8] Conda environment \"$ENV_NAME\""
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
     log_info "env \"$ENV_NAME\" already exists."
 else
@@ -216,8 +114,8 @@ else
     fi
 fi
 
-# ── STEP 4: PyTorch ──
-section "[STEP 4/11] PyTorch (CUDA $CUDA_TAG)"
+# ── STEP 3: PyTorch ──
+section "[STEP 3/8] PyTorch (CUDA $CUDA_TAG)"
 conda run -n "$ENV_NAME" pip install --upgrade pip
 if ! conda run -n "$ENV_NAME" pip install torch torchvision \
         --index-url "https://download.pytorch.org/whl/$CUDA_TAG"; then
@@ -225,15 +123,17 @@ if ! conda run -n "$ENV_NAME" pip install torch torchvision \
     conda run -n "$ENV_NAME" pip install torch torchvision
 fi
 
-# ── STEP 5: backend requirements ──
-section "[STEP 5/11] Backend requirements"
+# ── STEP 4: backend requirements ──
+section "[STEP 4/8] Backend requirements"
 if ! conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/backend/requirements.txt"; then
     log_error "pip install failed."
     exit 1
 fi
+# Reused environments may still contain the retired database drivers.
+conda run -n "$ENV_NAME" python -m pip uninstall -y motor pymongo >/dev/null 2>&1 || true
 
-# ── STEP 6: PostgreSQL environment and service ──
-section "[STEP 6/11] PostgreSQL environment and service"
+# ── STEP 5: PostgreSQL environment and service ──
+section "[STEP 5/8] PostgreSQL environment and service"
 POSTGRES_ENV_FILE="${MEDIAUTO_POSTGRES_ENV_FILE:-$SCRIPT_DIR/.env.postgres}"
 POSTGRES_EXISTING_MODE=""
 if [[ -f "$POSTGRES_ENV_FILE" ]]; then
@@ -321,8 +221,8 @@ else
     log_info "External PostgreSQL deployment selected; Docker startup skipped."
 fi
 
-# ── STEP 7: optional Philips SDK environment ──
-section "[STEP 7/11] Optional Philips iSyntax environment"
+# ── STEP 6: optional Philips SDK environment ──
+section "[STEP 6/8] Optional Philips iSyntax environment"
 if [[ "${MEDIAUTO_ENABLE_PHILIPS:-0}" == "1" || -n "${MEDIAUTO_PHILIPS_SDK_SOURCE:-}" ]]; then
     if [[ "${MEDIAUTO_ACCEPT_PHILIPS_EULA:-0}" != "1" ]]; then
         log_error "Review the licensed Philips SDK EULA, then set MEDIAUTO_ACCEPT_PHILIPS_EULA=1."
@@ -346,26 +246,8 @@ else
     log_info "Philips setup skipped. Set MEDIAUTO_ENABLE_PHILIPS=1 and MEDIAUTO_PHILIPS_SDK_SOURCE to enable it."
 fi
 
-# ── STEP 8: connectivity test ──
-section "[STEP 8/11] MongoDB and PostgreSQL connectivity"
-MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
-if conda run -n "$ENV_NAME" python -c "
-import os
-from pymongo import MongoClient
-uri = os.environ.get('MONGO_URI', 'mongodb://localhost:27017')
-MongoClient(uri, serverSelectionTimeoutMS=3000).admin.command('ping')
-print(f'[OK] MongoDB ping succeeded @ {uri}')
-"; then
-    :
-else
-    log_warn "MongoDB ping failed."
-    echo "        Causes:"
-    echo "          - service not running          (sudo systemctl start mongod)"
-    echo "          - wrong URI                    (export MONGO_URI=mongodb://host:port)"
-    echo "          - firewall / auth required     (check journalctl -u mongod)"
-    echo "        Backend will still install but won't start without a reachable MongoDB."
-fi
-
+# ── STEP 7: connectivity test ──
+section "[STEP 7/8] PostgreSQL connectivity and schema"
 if ! conda run -n "$ENV_NAME" python \
     "$SCRIPT_DIR/backend/scripts/configure_postgres_env.py" \
     --env-file "$POSTGRES_ENV_FILE" --mode "$POSTGRES_MODE" --check-connection; then
@@ -373,130 +255,13 @@ if ! conda run -n "$ENV_NAME" python \
     exit 1
 fi
 
-# ── STEP 9: optional dump restore (migration) ──
-section "[STEP 9/11] Optional: restore MongoDB dump"
-DUMP_DB_NAME="${MONGO_DB_NAME:-medicus_studio}"
-DUMP_FOLDER="$SCRIPT_DIR/mongo_dump/$DUMP_DB_NAME"
-DUMP_ARCHIVE_GZ="$SCRIPT_DIR/mongo_dump.archive.gz"
-DUMP_ARCHIVE="$SCRIPT_DIR/mongo_dump.archive"
-DUMP_TYPE=""
-DUMP_PATH=""
-if [[ -d "$DUMP_FOLDER" ]]; then
-    DUMP_TYPE="folder"; DUMP_PATH="$DUMP_FOLDER"
-elif [[ -f "$DUMP_ARCHIVE_GZ" ]]; then
-    DUMP_TYPE="archive_gz"; DUMP_PATH="$DUMP_ARCHIVE_GZ"
-elif [[ -f "$DUMP_ARCHIVE" ]]; then
-    DUMP_TYPE="archive"; DUMP_PATH="$DUMP_ARCHIVE"
-fi
-
-if [[ -n "$DUMP_PATH" && ! -f "$SCRIPT_DIR/backend/.secrets.json" ]]; then
-    if [[ -z "${JWT_SECRET_KEY:-}" || -z "${FIELD_ENCRYPTION_KEY:-}" || -z "${AUTH_PEPPER:-}" ]]; then
-        log_error "A MongoDB dump was found, but its matching application secrets are missing."
-        echo "        Restore backend/.secrets.json from the source server, or export"
-        echo "        JWT_SECRET_KEY, FIELD_ENCRYPTION_KEY, and AUTH_PEPPER before retrying."
-        echo "        Continuing with new keys would break existing passwords/MFA data."
-        exit 1
-    fi
-fi
-
-if [[ -z "$DUMP_PATH" ]]; then
-    log_info "No dump found at expected locations — skipping restore."
-    echo "        Looked for:"
-    echo "          $DUMP_FOLDER/         (mongodump --out=./mongo_dump)"
-    echo "          $DUMP_ARCHIVE_GZ      (mongodump --archive=... --gzip)"
-    echo "          $DUMP_ARCHIVE         (mongodump --archive=...)"
-elif ! command -v mongorestore >/dev/null 2>&1; then
-    log_warn "Found dump at $DUMP_PATH but mongorestore is not installed."
-    echo "        Install MongoDB Database Tools:"
-    if is_debian_family; then
-        echo "          sudo apt install -y mongodb-database-tools"
-    elif is_rhel_family; then
-        echo "          sudo dnf install -y mongodb-database-tools"
-    elif is_arch_family; then
-        echo "          yay -S mongodb-tools-bin"
-    else
-        echo "          https://www.mongodb.com/try/download/database-tools"
-    fi
-    echo "        Then re-run this script, or restore manually."
-else
-    # 대상 DB 에 컬렉션이 이미 있는지 확인 — --drop 은 파괴적이라 명시적 확인 필요.
-    EXISTING_COLLECTIONS=$(conda run -n "$ENV_NAME" python - <<PYEOF 2>/dev/null || echo "0"
-import os
-from pymongo import MongoClient
-uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-db_name = os.environ.get("MONGO_DB_NAME", "$DUMP_DB_NAME")
-try:
-    cli = MongoClient(uri, serverSelectionTimeoutMS=3000)
-    print(len(cli[db_name].list_collection_names()))
-except Exception:
-    print(0)
-PYEOF
-)
-    EXISTING_COLLECTIONS="${EXISTING_COLLECTIONS//[!0-9]/}"
-    EXISTING_COLLECTIONS="${EXISTING_COLLECTIONS:-0}"
-
-    log_info "Found dump: $DUMP_PATH ($DUMP_TYPE)"
-    if [[ "$EXISTING_COLLECTIONS" -gt 0 ]]; then
-        log_warn "Target DB '$DUMP_DB_NAME' already has $EXISTING_COLLECTIONS collections."
-        echo "        Restoring with --drop will WIPE existing data."
-        if ! confirm "Drop existing '$DUMP_DB_NAME' and restore from dump"; then
-            log_info "Restore skipped. Existing data preserved."
-            DUMP_PATH=""
-        fi
-    else
-        if ! confirm "Restore '$DUMP_DB_NAME' from $DUMP_PATH"; then
-            log_info "Restore skipped."
-            DUMP_PATH=""
-        fi
-    fi
-
-    if [[ -n "$DUMP_PATH" ]]; then
-        MONGO_URI_USE="${MONGO_URI:-mongodb://localhost:27017}"
-        case "$DUMP_TYPE" in
-            folder)
-                mongorestore --uri="$MONGO_URI_USE" --db="$DUMP_DB_NAME" --drop "$DUMP_PATH"
-                ;;
-            archive_gz)
-                mongorestore --uri="$MONGO_URI_USE" --archive="$DUMP_PATH" --gzip --drop \
-                    --nsInclude="$DUMP_DB_NAME.*"
-                ;;
-            archive)
-                mongorestore --uri="$MONGO_URI_USE" --archive="$DUMP_PATH" --drop \
-                    --nsInclude="$DUMP_DB_NAME.*"
-                ;;
-        esac
-        if [[ $? -eq 0 ]]; then
-            log_ok "Restore complete."
-        else
-            log_warn "mongorestore exited with non-zero status — check output above."
-        fi
-    fi
-fi
-
-# ── STEP 10: PostgreSQL schema and one-time legacy migration ──
-section "[STEP 10/11] PostgreSQL schema and legacy data migration"
 if ! (cd "$SCRIPT_DIR/backend" && conda run -n "$ENV_NAME" python -m alembic upgrade head); then
     log_error "PostgreSQL schema migration failed."
     exit 1
 fi
-if ! conda run -n "$ENV_NAME" python \
-    "$SCRIPT_DIR/backend/scripts/migrate_auth_to_postgres.py" --if-empty; then
-    log_error "Authentication data migration failed. Existing PostgreSQL data was preserved."
-    exit 1
-fi
-if ! conda run -n "$ENV_NAME" python \
-    "$SCRIPT_DIR/backend/scripts/migrate_operational_to_postgres.py" --if-empty; then
-    log_error "Operational data migration failed. Existing PostgreSQL data was preserved."
-    exit 1
-fi
-if ! conda run -n "$ENV_NAME" python \
-    "$SCRIPT_DIR/backend/scripts/migrate_application_to_postgres.py" --if-empty; then
-    log_error "Project/slide/AI/annotation migration failed. Existing PostgreSQL data was preserved."
-    exit 1
-fi
 
-# ── STEP 11: runtime bootstrap ──
-section "[STEP 11/11] Runtime bootstrap and preflight"
+# ── STEP 8: runtime bootstrap ──
+section "[STEP 8/8] Runtime bootstrap and preflight"
 BOOTSTRAP_ARGS=()
 if [[ "${MEDIAUTO_STRICT_MODELS:-0}" == "1" ]]; then
     BOOTSTRAP_ARGS+=(--strict-models)
@@ -523,16 +288,8 @@ echo "   Copy these from the original install:"
 echo "     - backend/.secrets.json   (password pepper, AES key — CRITICAL)"
 echo "     - backend/uploads/        (WSI files, tile cache)"
 echo "     - backend/model/          (AI weights)"
-echo "     - MongoDB dump            (legacy import or rollback only)"
 echo "     - PostgreSQL backup       (all application database data)"
 echo "   Losing .secrets.json breaks all existing user passwords."
-echo
-echo "   Dump on the OLD machine (any of these formats):"
-echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --out=./mongo_dump"
-echo "     mongodump --uri=mongodb://localhost:27017 --db=medicus_studio --archive=./mongo_dump.archive --gzip"
-echo
-echo "   Then on the NEW machine, drop the dump folder/archive at the project root"
-echo "   and re-run this script — STEP 9 will auto-restore."
 echo
 echo " PostgreSQL runtime:"
 echo "   Environment = $POSTGRES_ENV_FILE"
@@ -542,8 +299,4 @@ if [[ "${POSTGRES_DEPLOYMENT:-}" == "native" ]]; then
     echo "   Data dir    = $POSTGRES_DATA_DIR"
     echo "   Service     = mediauto-postgresql.service"
 fi
-echo
-echo " MongoDB defaults:"
-echo "   URI    = mongodb://localhost:27017   (override: export MONGO_URI=...)"
-echo "   DB     = medicus_studio              (override: export MONGO_DB_NAME=...)"
 echo "${C_BOLD}============================================================${C_RESET}"

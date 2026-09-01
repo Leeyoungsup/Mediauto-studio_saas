@@ -28,7 +28,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 - **Backend**: Python 3.12, FastAPI, Uvicorn (ASGI)
 - **Frontend**: Vanilla JS (ES Modules), HTML5 Canvas — 빌드 도구 없음
-- **Database**: PostgreSQL 18(인증·감사·임상정보·프로젝트·슬라이드·AI 상태·annotation). MongoDB는 기존 데이터 이관/롤백에만 사용
+- **Database**: PostgreSQL 18(인증·감사·임상정보·프로젝트·슬라이드·AI 상태·annotation)
 - **인증**: JWT HS256 + bcrypt(cost=12) + pepper, RFC 6238 TOTP, AES-256-GCM, HMAC-SHA256 미디어 티켓
 - **슬라이드**: OpenSlide, Pillow, ICC profile 지원, Hamamatsu NDP.view2 색 매칭
 - **AI**: PyTorch (CUDA AMP), YOLOv11-M (Quanti HE / Quanti PD-L1 / Quanti IHC), pix2pix U-Net (VS IHC)
@@ -42,7 +42,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │   ├── .secrets.json              # 0600, JWT/암호화/pepper 영속화 (gitignore)
 │   ├── app/
 │   │   ├── config.py              # 시크릿 로딩, 디렉토리, JWT, 업로드 한계
-│   │   ├── database.py            # MongoDB 연결 + 인덱스/마이그레이션
+│   │   ├── database.py            # PostgreSQL 연결 상태와 document API 제공
 │   │   ├── models.py              # User 모델, bcrypt + pepper, UserRole / ApprovalStatus
 │   │   ├── auth.py                # JWT 생성/검증, get_current_user, RBAC, 30s 캐시
 │   │   ├── totp.py                # RFC 6238 TOTP MFA (의존성 0)
@@ -54,7 +54,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │   │   ├── rate_limit.py          # Pure ASGI Rate Limiting (고정 윈도우)
 │   │   ├── cpu_layout.py          # viewer/bg/ai 코어 파티셔닝 (Linux affinity)
 │   │   ├── slide_manager.py       # OpenSlide 핸들 캐시 + generation counter
-│   │   ├── slide_store.py         # slides/user_ai_edits 컬렉션 helper + 대시보드 집계
+│   │   ├── slide_store.py         # slides/user_ai_edits 저장 helper + 대시보드 집계
 │   │   ├── tile_generator.py      # 3-stage 타일 프리젠 (69 tile / 1 read)
 │   │   ├── tile_worker.py         # 백그라운드 타일 워커 + startup 마커 검증
 │   │   ├── tile_janitor.py        # LRU 디스크 쿼터 eviction
@@ -105,7 +105,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 │   ├── README.md                 # 문서 목차와 읽는 순서
 │   ├── PRODUCT_BROCHURE.md       # 제품 소개서
 │   ├── USER_GUIDE.md             # 사용자 가이드 + IFU 초안
-│   ├── DATABASE.md                # MongoDB 스키마 (7 컬렉션 + 인덱스 일람)
+│   ├── DATABASE.md                # PostgreSQL 테이블·인덱스·저장 범위
 │   ├── SECURITY.md                # 인증·인가·암호화·감사 로그·운영 가이드
 │   ├── FEATURES.md                # 사용자/내부 동작 관점 전체 기능 명세
 │   ├── COMPLIANCE_STATUS.md       # IEC 62304 / ISO 14971 / 21 CFR Part 11 충족 현황
@@ -117,17 +117,16 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 
 ## 데이터베이스
 
-전체 스키마·인덱스·관계는 [docs/DATABASE.md](docs/DATABASE.md) 참조. 7개 컬렉션:
+전체 스키마·인덱스·관계는 [docs/DATABASE.md](docs/DATABASE.md) 참조. 주요 테이블:
 
-| 컬렉션 | 목적 |
+| 테이블 | 목적 |
 | ----- | ---- |
 | `users` | 인증 계정·권한·승인 상태·MFA 시드(암호화) |
 | `sessions` | Refresh Token 세션 (rotation + reuse 탐지, TTL 자동 삭제) |
 | `audit_logs` | 모든 보안·행위 이벤트 + HMAC 체인 + IP 위치 |
 | `ip_geo_cache` | IP → 국가/도시 (TTL 30일) |
-| `slides` | WSI 메타·AI 결과 플래그·SHA-256 체크섬·리뷰 상태 |
-| `folder_ai_configs` | 폴더별 자동 AI 추론 작업 |
-| `user_ai_edits` | 사용자별 셀 편집본 메타 (원본 캐시 분리) |
+| `case_clinical_info` | 케이스별 임상정보 |
+| `application_documents` | 프로젝트·슬라이드·AI 상태·annotation JSONB 문서 |
 
 ## 설치 및 실행
 
@@ -136,7 +135,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 소스 코드와 프론트엔드는 저장소에 포함되지만 아래 항목은 보안·용량 문제로 Git에 포함되지 않는다.
 
 - `backend/model/`의 AI 가중치(현재 전체 약 3.4 GB)
-- PostgreSQL 운영 데이터와 전환 기간의 MongoDB 롤백 스냅샷
+- PostgreSQL 운영 데이터
 - `backend/.secrets.json`의 영구 암호화 키
 - 업로드 WSI, 타일 캐시, AI 결과
 - 선택 기능인 Philips SDK
@@ -146,8 +145,7 @@ PyQt5 기반 데스크톱 앱(MeDICus Studio)의 코어 로직을 FastAPI 백엔
 ### 사전 요구사항
 
 - Miniconda/Anaconda
-- PostgreSQL 배포 방식에 따라 Docker Engine + Compose 또는 Linux 사용자 systemd
-- MongoDB 7.0+(기존 설치 데이터 이관 시에만 필요)
+- PostgreSQL 배포 방식에 따라 Docker Engine + Compose 또는 Linux native 설치
 - OpenSlide와 libvips 시스템 라이브러리
 - (선택) NVIDIA GPU + CUDA 11.8+ — AI 추론 가속
 
@@ -159,7 +157,6 @@ Linux:
 
 ```bash
 export MEDIAUTO_MODEL_SOURCE=/secure/mediauto-models.tar.gz
-export MEDIAUTO_AUTO_INSTALL_DB=1
 ./install.sh
 ```
 
@@ -176,12 +173,10 @@ $env:MEDIAUTO_MODEL_SOURCE = "D:\deploy\mediauto-models.zip"
 - CUDA PyTorch 설치 실패 시 CPU 빌드 fallback
 - 런타임 디렉터리와 신규 `.secrets.json` 생성
 - 선택적으로 모델 번들 배치
-- OpenSlide/libvips/DICOM/PyTorch, MongoDB, 필수 모델 사전 점검
+- OpenSlide/libvips/DICOM/PyTorch 및 필수 모델 사전 점검
 - 소유자 전용 `.env.postgres`와 임의 DB 비밀번호 자동 생성
 - 선택한 PostgreSQL 영구 서비스 시작, Alembic 스키마 적용 및 연결 점검
-- 초기 PostgreSQL에 기존 MongoDB 인증·감사·IP·임상정보·프로젝트·슬라이드·AI·annotation을 이관하고 중단된 첫 이관은 안전하게 재개
-- 기존 `mongo_dump` 발견 시 확인 후 복원
-- 지원 OS에서 로컬 MongoDB 설치 및 서비스 시작
+- 기존 환경에 남아 있는 Motor/PyMongo 제거
 - 요청 시 Philips 전용 Conda 환경 생성과 SDK smoke test
 
 Linux에서 Docker 없이 PostgreSQL 18을 직접 설치하려면 다음처럼 native 모드를 선택한다.
@@ -228,7 +223,6 @@ export MEDIAUTO_BOOTSTRAP_ADMIN_NAME='Administrator'
 ### 2. 데이터베이스 수동 시작이 필요한 경우
 
 ```bash
-mongod --dbpath /data/db
 docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 ```
 
@@ -236,9 +230,6 @@ docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 
 | 변수 | 기본값 | 설명 |
 | ---- | ------ | ---- |
-| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB 연결 문자열 |
-| `MONGO_DB_NAME` | `medicus_studio` | 데이터베이스 이름 |
-| `DATABASE_BACKEND` | 설치 시 `postgresql` | 운영 저장소 선택. `.env.postgres`에서 설정 |
 | `POSTGRES_DEPLOYMENT` | `docker` | 실제 구성 결과: `docker`, Linux `native`, 또는 `external` |
 | `POSTGRES_URI` | 설치 시 자동 생성 | PostgreSQL 연결 문자열 |
 | `POSTGRES_POOL_SIZE` / `POSTGRES_MAX_OVERFLOW` | 10 / 20 | PostgreSQL 기본 연결 수와 추가 연결 상한 |
@@ -257,7 +248,6 @@ docker compose --env-file .env.postgres -f compose.postgres.yml up -d
 | `MEDIAUTO_404_RATE_LIMIT_MAX` | 30 | 비-API 경로에서 1분 동안 허용할 404 응답 수 |
 | `MEDIAUTO_404_RATE_LIMIT_WINDOW_SECONDS` | 60 | 반복 404 제한 윈도우(초) |
 | `MEDIAUTO_CONDA_ENV` | `medicus-saas` | 설치·실행에 사용할 Conda 환경 이름 |
-| `MEDIAUTO_AUTO_INSTALL_DB` | 0 | 지원 OS에서 로컬 MongoDB 자동 설치(Windows winget, Ubuntu 20.04/22.04 apt) |
 | `MEDIAUTO_POSTGRES_MODE` | `docker` | PostgreSQL 설치 방식: `docker`, Linux `native`, `external` |
 | `MEDIAUTO_POSTGRES_CONDA_ENV` | `mediauto-postgres` | native PostgreSQL 18 전용 Conda 환경 |
 | `MEDIAUTO_POSTGRES_DATA_DIR` | `postgres_data` | native PostgreSQL 영구 데이터 디렉터리 |
@@ -329,20 +319,20 @@ Windows에서는 `start.bat`를 실행한다. 기본 주소는 `http://localhost
 
 ### 보안 체크리스트 (배포 전)
 
-- [ ] `MONGO_URI` 에 인증 + TLS
+- [ ] 원격 `POSTGRES_URI`에 전용 계정과 TLS 적용
 - [ ] `JWT_SECRET_KEY` / `FIELD_ENCRYPTION_KEY` / `AUTH_PEPPER` 를 secret manager 에서 환경변수로 주입
 - [ ] `.secrets.json` 권한 0600 + 백업 (단, 일반 백업과 분리 보관)
 - [ ] CORS `CORS_ORIGINS` 화이트리스트
 - [ ] 리버스 프록시 TLS + HSTS + CSP 헤더
 - [ ] `TRUSTED_PROXIES` 에 실제 프록시 IP 등록 (외부 노출 시 빈 값 유지)
 - [ ] 첫 admin 생성 직후 `/register` 접근을 리버스 프록시에서 차단하거나 신중히 운영
-- [ ] MongoDB 자동 백업 스케줄, audit_logs 는 append-only 권한 분리
+- [ ] PostgreSQL 자동 백업과 정기 복구 훈련
 
 자세한 내용은 [docs/SECURITY.md](docs/SECURITY.md) 의 11/13장 참조.
 
 ### 알려진 한계
 
-- **DB 미연결 시 anonymous admin** — 개발용 fallback. 운영 배포에서 MongoDB 가 잠시라도 끊기면 인증이 우회됨. orchestrator 헬스체크 필수.
+- **DB 미연결 시 서비스 제한** — PostgreSQL 연결 실패 시 영구 데이터 기능이 정상 동작하지 않는다. 서비스 헬스체크와 재시작 정책이 필요하다.
 - **Rate Limit 인메모리** — 단일 프로세스 전제. 멀티 프로세스 배포 시 Redis 등 외부 store 필요.
 - **CPU 파티셔닝은 Linux 전용** — `os.sched_setaffinity` 미지원 OS 에선 noop fallback.
 - **AES-GCM 필드 암호화는 검색 불가** — 인덱스 검색이 필요한 필드는 별도 HMAC 컬럼 필요.
@@ -363,8 +353,8 @@ Windows에서는 `start.bat`를 실행한다. 기본 주소는 `http://localhost
 - [docs/PRODUCT_BROCHURE.md](docs/PRODUCT_BROCHURE.md) — 제품 소개서
 - [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — 사용자 가이드 + IFU 초안
 - [docs/FEATURES.md](docs/FEATURES.md) — 전체 기능 명세 (사용자/내부 동작)
-- [docs/DATABASE.md](docs/DATABASE.md) — MongoDB 스키마 + 인덱스
-- [docs/POSTGRESQL_MIGRATION.md](docs/POSTGRESQL_MIGRATION.md) — PostgreSQL 단계적 전환 현황과 실행 절차
+- [docs/DATABASE.md](docs/DATABASE.md) — PostgreSQL 테이블·인덱스·저장 범위
+- [docs/POSTGRESQL_MIGRATION.md](docs/POSTGRESQL_MIGRATION.md) — PostgreSQL 단독 운영과 백업 절차
 - [docs/SECURITY.md](docs/SECURITY.md) — 인증·인가·암호화·감사 로그·운영
 - [docs/COMPLIANCE_STATUS.md](docs/COMPLIANCE_STATUS.md) — 의료기기 SW 규격 충족 현황
 - [docs/color_match_analysis.md](docs/color_match_analysis.md) — Hamamatsu NDP 색 매칭 분석

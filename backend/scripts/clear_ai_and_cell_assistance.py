@@ -1,6 +1,6 @@
 """Clear AI result caches and Cell Annotation AI assistance files.
 
-Default mode is dry-run. Add --apply to delete files and update MongoDB.
+Default mode is dry-run. Add --apply to delete files and update PostgreSQL.
 
 Examples:
     python backend/scripts/clear_ai_and_cell_assistance.py --all
@@ -11,6 +11,7 @@ Examples:
 """
 
 import argparse
+import asyncio
 import re
 import shutil
 import sys
@@ -129,26 +130,7 @@ def _slide_filter(args) -> dict:
     return {"$or": list_or}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Clear AI result caches and Cell Annotation AI assistance files.",
-    )
-    parser.add_argument("--apply", action="store_true", help="Actually delete files and update DB.")
-    parser.add_argument("--all", action="store_true", help="Process every slide in MongoDB.")
-    parser.add_argument("--slide-stem", action="append", help="Slide stem to process. Can be repeated or comma-separated.")
-    parser.add_argument("--rel-path", action="append", help="Slide folder/project relative path. Can be repeated or comma-separated.")
-    parser.add_argument(
-        "--models",
-        default=",".join(LIST_AI_MODEL_KEYS),
-        help="Comma-separated AI models to reset. Defaults to all AI models.",
-    )
-    parser.add_argument("--quanti-only", action="store_true", help="Reset Quanti HE, Quanti PD-L1, and Quanti IHC only.")
-    parser.add_argument("--ai-only", action="store_true", help="Clear AI results only.")
-    parser.add_argument("--assistance-only", action="store_true", help="Clear Cell Annotation AI assistance only.")
-    parser.add_argument("--include-user-edits", action="store_true", help="Also delete saved user AI edit records/files.")
-    parser.add_argument("--include-patch-cells", action="store_true", help="Also delete patch_cell_annotations docs for selected slides.")
-    args = parser.parse_args()
-
+async def _run(args) -> int:
     if args.ai_only and args.assistance_only:
         print("[clear_ai_and_cell_assistance] choose only one of --ai-only or --assistance-only")
         return 2
@@ -171,26 +153,21 @@ def main() -> int:
     bool_clear_assistance = not args.ai_only
     bool_all_models = set(list_models) == set(LIST_AI_MODEL_KEYS)
 
-    try:
-        from pymongo import MongoClient
-        from app.config import settings
-    except ModuleNotFoundError as exc:
-        print(f"[clear_ai_and_cell_assistance] missing dependency: {exc.name}")
-        print("  Run this script with the backend Python environment.")
-        return 2
+    from app.config import settings
+    from app.database import get_db, initialize_main_loop
+    from app.postgres.database import connect_postgres, disconnect_postgres
 
     print(f"[clear_ai_and_cell_assistance] {'LIVE' if bool_apply else 'DRY-RUN'} mode")
-    print(f"[clear_ai_and_cell_assistance] MongoDB   : {settings.MONGO_URI}")
-    print(f"[clear_ai_and_cell_assistance] DB name   : {settings.MONGO_DB_NAME}")
+    print("[clear_ai_and_cell_assistance] Database  : PostgreSQL")
     print(f"[clear_ai_and_cell_assistance] AI dir    : {settings.AI_RESULTS_DIR}")
     print(f"[clear_ai_and_cell_assistance] Cell dir  : {PATH_CELL_ANNOTATION_ROOT}")
     print(f"[clear_ai_and_cell_assistance] models    : {list_models}")
     print(f"[clear_ai_and_cell_assistance] filter    : {dict_filter or '<all>'}")
 
-    client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.admin.command("ping")
-    db = client[settings.MONGO_DB_NAME]
-    list_slides = list(db.slides.find(dict_filter))
+    initialize_main_loop()
+    await connect_postgres()
+    db = get_db()
+    list_slides = await db.slides.find(dict_filter).to_list(length=None)
     print(f"\n[clear_ai_and_cell_assistance] slides matched: {len(list_slides)}")
 
     path_ai_root = Path(settings.AI_RESULTS_DIR)
@@ -229,7 +206,7 @@ def main() -> int:
                     for model in list_models
                 }
                 dict_set["dt_updated_at"] = datetime.now(timezone.utc)
-                db.slides.update_one({"_id": dict_slide["_id"]}, {"$set": dict_set})
+                await db.slides.update_one({"_id": dict_slide["_id"]}, {"$set": dict_set})
             int_slide_db_updates += 1
 
         if bool_clear_assistance:
@@ -244,9 +221,9 @@ def main() -> int:
             if not bool_all_models:
                 query["str_ai_mode"] = {"$in": list_models}
             if bool_apply:
-                int_deleted = db.user_ai_edits.delete_many(query).deleted_count
+                int_deleted = (await db.user_ai_edits.delete_many(query)).deleted_count
             else:
-                int_deleted = db.user_ai_edits.count_documents(query)
+                int_deleted = await db.user_ai_edits.count_documents(query)
             int_user_edits += int_deleted
             print(f"      - user_ai_edits: {int_deleted} doc(s)")
             list_removed_user_files = _cleanup_user_edit_files(
@@ -258,9 +235,9 @@ def main() -> int:
         if args.include_patch_cells and str_slide_id:
             query = {"str_slide_id": str_slide_id}
             if bool_apply:
-                int_deleted = db.patch_cell_annotations.delete_many(query).deleted_count
+                int_deleted = (await db.patch_cell_annotations.delete_many(query)).deleted_count
             else:
-                int_deleted = db.patch_cell_annotations.count_documents(query)
+                int_deleted = await db.patch_cell_annotations.count_documents(query)
             int_patch_cells += int_deleted
             print(f"      - patch_cell_annotations: {int_deleted} doc(s)")
 
@@ -274,7 +251,29 @@ def main() -> int:
     print(f"  patch cell docs removed  : {int_patch_cells}")
     if not bool_apply:
         print("  DRY-RUN only. Re-run with --apply to delete/update.")
+    await disconnect_postgres()
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Clear AI result caches and Cell Annotation AI assistance files.",
+    )
+    parser.add_argument("--apply", action="store_true", help="Actually delete files and update DB.")
+    parser.add_argument("--all", action="store_true", help="Process every slide in PostgreSQL.")
+    parser.add_argument("--slide-stem", action="append", help="Slide stem to process. Can be repeated or comma-separated.")
+    parser.add_argument("--rel-path", action="append", help="Slide folder/project relative path. Can be repeated or comma-separated.")
+    parser.add_argument(
+        "--models",
+        default=",".join(LIST_AI_MODEL_KEYS),
+        help="Comma-separated AI models to reset. Defaults to all AI models.",
+    )
+    parser.add_argument("--quanti-only", action="store_true", help="Reset Quanti HE, Quanti PD-L1, and Quanti IHC only.")
+    parser.add_argument("--ai-only", action="store_true", help="Clear AI results only.")
+    parser.add_argument("--assistance-only", action="store_true", help="Clear Cell Annotation AI assistance only.")
+    parser.add_argument("--include-user-edits", action="store_true", help="Also delete saved user AI edit records/files.")
+    parser.add_argument("--include-patch-cells", action="store_true", help="Also delete patch_cell_annotations docs for selected slides.")
+    return asyncio.run(_run(parser.parse_args()))
 
 
 if __name__ == "__main__":

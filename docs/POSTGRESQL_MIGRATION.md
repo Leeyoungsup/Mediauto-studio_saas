@@ -1,59 +1,51 @@
-# PostgreSQL 단계적 전환
+# PostgreSQL 전환 완료 상태
 
-이 브랜치는 기능군별로 PostgreSQL 이전을 수행한다. 현재 운영 환경은
-`DATABASE_BACKEND=postgresql`로 인증·감사·IP 캐시·임상정보뿐 아니라 프로젝트,
-슬라이드, AI 상태와 annotation까지 처리한다. MongoDB는 기존 데이터 이관과 검증된
-롤백 스냅샷 용도로만 남아 있으며 PostgreSQL 모드의 런타임은 MongoDB에 연결하지 않는다.
+MeDIAuto Studio SaaS의 기준 저장소는 PostgreSQL 하나다. 인증, 세션, 감사 로그,
+IP 위치 캐시, 임상정보, 프로젝트, 슬라이드, AI 상태 및 annotation을 모두 PostgreSQL에
+저장한다. 애플리케이션은 별도의 데이터베이스 백엔드 선택 변수를 사용하지 않는다.
 
-## 원칙
+## 현재 구성
 
-- WSI 원본, 타일, AI 이미지와 대용량 산출물은 DB에 넣지 않는다.
-- 기존 MongoDB ObjectId 문자열을 PostgreSQL `VARCHAR(36)` ID에 그대로 보존한다.
-- 기능 단위로 Repository를 만들고 MongoDB/PostgreSQL 동작의 동등성 테스트를 통과시킨다.
-- 테이블 변경은 Alembic revision으로만 수행한다.
-- MongoDB 제거 전 전체 데이터 건수, 참조 관계와 핵심 필드를 교차 검증한다.
+- `users`, `sessions`: 계정, MFA, 잠금, Refresh Token 회전
+- `audit_logs`, `audit_integrity_seals`: 행위 기록과 HMAC 무결성 검증
+- `ip_geo_cache`: IP 위치 캐시
+- `case_clinical_info`: 케이스별 임상정보
+- `application_documents`: 프로젝트·슬라이드·AI·annotation JSONB 문서
+- `application_data_migrations`: 과거 전환 완료 검증 마커
 
-## 진행 단계
+대용량 WSI 원본, 타일 및 AI 이미지 산출물은 파일 저장소에 두며 PostgreSQL에는
+경로, 상태, 체크섬과 사용자 편집 메타데이터를 저장한다.
 
-1. PostgreSQL 연결, Alembic, Docker Compose 기반 구성
-2. `users`, `sessions`와 인증 API 전환 — **Repository 구현 완료**
-3. `audit_logs`, `ip_geo_cache`, 임상정보 전환 — **Repository 및 이관 도구 구현 완료**
-4. 프로젝트, 슬라이드, AI 상태와 annotation 전환 — **완료**
-5. MongoDB → PostgreSQL 이관 도구, 검증 마커와 롤백 스냅샷 — **완료**
-6. 운영 안정화 후 Motor/PyMongo/MongoDB 제거
+## 설치 방식
 
-## 로컬 PostgreSQL 준비
+기본 Docker 모드:
 
-기본 설치는 아래 작업을 `install.sh`/`install.bat`에서 자동 수행한다.
+```bash
+./install.sh
+```
 
-- `.env.postgres`가 없으면 임의 48자리 hexadecimal 비밀번호로 소유자 전용 파일 생성
-- Docker Compose 영구 PostgreSQL 컨테이너 시작 및 health check
-- `alembic upgrade head`
-- 최초 MongoDB 데이터 이관 및 중단된 첫 이관 재개; 완료 봉인 이후에는 자동 재이관 금지
-- 기준 저장소가 비어 있으면 최초 PostgreSQL 관리자 생성
-
-Linux는 Docker 없이 native PostgreSQL 18 설치도 지원한다.
+Linux에서 Docker 없이 프로젝트 전용 PostgreSQL 18을 설치하려면:
 
 ```bash
 export MEDIAUTO_POSTGRES_MODE=native
 ./install.sh
 ```
 
-native 모드는 `mediauto-postgres` Conda 환경에 서버 바이너리를 설치하고 프로젝트의
-`postgres_data/`에 클러스터를 초기화한다. 서버는 localhost에만 바인딩되고
-`mediauto-postgresql.service` 사용자 systemd 서비스로 자동 시작된다. 이 방식은
-Docker 데몬이나 root 권한을 요구하지 않는다.
-
-실제 비밀번호가 들어가는 `.env.postgres`는 Git에 커밋하지 않는다. 수동 구성은 다음과
-같으며, 템플릿의 `POSTGRES_PASSWORD`와 `POSTGRES_URI` 비밀번호를 함께 변경해야 한다.
+외부 PostgreSQL을 사용하려면:
 
 ```bash
-cp .env.postgres.example .env.postgres
-# .env.postgres의 비밀번호와 POSTGRES_URI를 같은 값으로 수정
-docker compose --env-file .env.postgres -f compose.postgres.yml up -d
+export MEDIAUTO_POSTGRES_MODE=external
+export POSTGRES_URI='postgresql+asyncpg://user:encoded-password@db-host:5432/medicus_studio'
+./install.sh
 ```
 
-스키마를 수동 적용하려면 다음을 실행한다.
+설치기는 `.env.postgres`를 소유자 전용 권한으로 만들고, 서비스를 준비한 뒤
+`alembic upgrade head`와 런타임 bootstrap을 실행한다. 기존 Conda 환경에 남은
+Motor/PyMongo는 설치 과정에서 제거된다.
+
+## 스키마 관리
+
+스키마 변경은 Alembic revision으로만 수행한다.
 
 ```bash
 set -a
@@ -63,110 +55,42 @@ cd backend
 alembic upgrade head
 ```
 
-현재 Alembic revision은 `users`, `sessions`, `audit_logs`, `ip_geo_cache`,
-`case_clinical_info`, `audit_integrity_seals`, `application_documents`,
-`application_data_migrations`를 생성한다. PostgreSQL Repository는
-로그인, 계정 잠금, 토큰 회전 CAS, 로그아웃, 비밀번호 변경, MFA와 관리자 사용자
-관리 및 프로젝트·슬라이드·AI 상태·annotation 저장을 지원한다.
-
-외부 PostgreSQL을 사용하면 설치 전에 URL 인코딩된 연결 문자열을 지정한다.
-
-```bash
-export MEDIAUTO_POSTGRES_EXTERNAL=1
-export POSTGRES_URI='postgresql+asyncpg://user:encoded-password@db-host:5432/medicus_studio'
-./install.sh
-```
-
-## 인증 데이터 이관 및 전환
-
-데이터 이관 직전에는 회원가입과 사용자 관리 작업을 잠시 중지한다. 현재 단계는
-dual-write가 아니므로 이관 중 변경된 계정은 자동 동기화되지 않는다.
+현재 head는 `20260901_0004`다. 배포 전 다음 명령으로 확인한다.
 
 ```bash
 cd backend
-
-# 충돌과 예상 이관 건수 확인
-python scripts/migrate_auth_to_postgres.py --dry-run
-
-# 사용자와 활성/기존 Refresh Session 이관
-python scripts/migrate_auth_to_postgres.py
+alembic current
+alembic heads
 ```
 
-사용자만 옮기고 모든 클라이언트를 다시 로그인시키려면 다음 옵션을 사용한다.
+## 백업
+
+데이터베이스와 애플리케이션 영구 키를 같은 복구 시점으로 보존한다.
 
 ```bash
-python scripts/migrate_auth_to_postgres.py --skip-sessions
+pg_dump --format=custom --file=medicus_studio.dump "$POSTGRES_URI_FOR_PG_TOOLS"
+pg_restore --list medicus_studio.dump
 ```
 
-검증을 통과한 후 애플리케이션의 인증 저장소를 전환한다.
+SQLAlchemy의 `postgresql+asyncpg` URI는 `pg_dump`가 직접 받지 않으므로 pg 도구에는
+`postgresql://` 형식의 URI를 사용한다. `.secrets.json` 또는 동일한 환경변수 키가
+없으면 기존 비밀번호, MFA 암호문 및 감사 무결성 검증을 정상 복구할 수 없다.
+
+## 전환 후 호환 데이터
+
+과거 데이터에서 가져온 문자열 ID와 감사 로그 서명 시각은 PostgreSQL에 그대로
+보존된다. 감사 검증 코드에 남아 있는 과거 정밀도 보정과 전환 봉인 이름은 기존
+감사 기록을 검증하기 위한 데이터 호환 규칙이며 외부 데이터베이스 연결이 아니다.
+
+과거 전환 스크립트와 롤백 덤프는 제거됐다. 새 설치와 현재 런타임에는 Motor,
+PyMongo 또는 별도 MongoDB 서비스가 필요하지 않다.
+
+## 운영 확인
 
 ```bash
-export DATABASE_BACKEND=postgresql
-export POSTGRES_URI='postgresql+asyncpg://mediauto:<url-encoded-password>@localhost:5432/medicus_studio'
-./start.sh
+conda run -n medicus-saas python -m pip check
+curl --fail http://127.0.0.1:8092/api/health
 ```
 
-비밀번호 해시는 재해시하지 않고 그대로 복사한다. MFA 암호문을 해독하려면 MongoDB
-운영 당시의 `backend/.secrets.json` 또는 같은 `FIELD_ENCRYPTION_KEY`와
-`AUTH_PEPPER`가 반드시 유지되어야 한다.
-
-PostgreSQL 전환 후 MongoDB의 사용자 데이터는 더 이상 갱신되지 않는다. 되돌려야 할
-경우 단순히 환경변수만 변경하지 말고, 전환 후 사용자 변경분을 먼저 역이관하거나
-점검 시간 동안 PostgreSQL 쓰기를 중단해야 한다.
-
-## 감사·IP 캐시·임상정보 이관
-
-이 세 기능도 dual-write가 아니므로 전환 직전에는 로그인 및 임상정보 편집을 잠시
-중지한다. 먼저 충돌과 예상 건수를 확인한 뒤 이관한다.
-
-```bash
-cd backend
-python scripts/migrate_operational_to_postgres.py --dry-run
-python scripts/migrate_operational_to_postgres.py
-```
-
-스크립트는 MongoDB ObjectId와 감사 로그 HMAC/이전 HMAC, IP 캐시 만료 시각,
-임상정보 생성·수정 시각을 보존한다. 여러 번 실행해도 같은 ID 또는 자연키(IP,
-case name)는 건너뛰며, 내용 충돌은 오류로 중단한다.
-
-이관은 과거 감사 서명을 재생성하거나 덮어쓰지 않는다. 과거 MongoDB 구현은 Python
-`datetime`을 HMAC에 사용한 뒤 BSON의 밀리초 정밀도로 저장하여 마지막
-0~999마이크로초가 유실됐다. 이관 도구는 가능한 1,000개 값만 역검증해 원본 HMAC과
-일치하는 정확한 서명 시각을 복원하고 `dt_hmac_created_at`에 보관한다. HMAC 값 자체는
-변경하지 않는다. 앞으로 생성되는 로그는 저장 가능한 밀리초 값으로 먼저 정규화한 뒤
-서명한다.
-
-서명 기능 도입 전 로그와 과거 동시 요청으로 분기된 체인은 원래 서명이 있었다고
-소급해서 만들지 않는다. 대신 이관된 MongoDB 감사 로그 전체를 정규 직렬화한 SHA-256
-스냅샷과 HMAC 봉인을 `audit_integrity_seals`에 기록한다. 따라서 과거의 서명 유무를
-정직하게 구분하면서도 이관 시점 이후의 수정·삭제·순서 변경은 탐지할 수 있다.
-`/api/users/audit-logs/verify-chain`은 원본 HMAC, 복원된 서명 시각, 이관 봉인과 봉인
-이후 신규 체인을 함께 검사해 `bool_integrity_intact`를 반환한다.
-
-## 프로젝트·슬라이드·AI·annotation 이관
-
-전환 직전 웹 서버와 백그라운드 워커를 중지한 상태에서 실행한다.
-
-```bash
-cd backend
-python scripts/migrate_application_to_postgres.py --dry-run
-python scripts/migrate_application_to_postgres.py --if-empty
-```
-
-대상은 `slides`, `folder_ai_configs`, `project_infos`,
-`annotation_required_regions`, `patch_annotation_status`,
-`patch_cell_annotations`, `user_ai_edits`, `app_settings`이다. BSON ObjectId와 datetime을
-손실 없이 JSONB로 보존하고, 슬라이드·프로젝트·patch 복합키는 별도 자연키 열과
-PostgreSQL 인덱스로 강제한다. 모든 문서의 정규 직렬화 SHA-256과 컬렉션별 건수가
-일치해야 `application_data_migrations` 완료 마커가 기록된다.
-
-전환 후 PostgreSQL 모드의 앱은 MongoDB에 연결하지 않는다. 기존 MongoDB 데이터와
-전환 직전 `mongodump`는 안정화 기간 동안 롤백용으로 보존한다.
-
-## 운영 전환 조건
-
-- 모든 Repository parity 테스트 통과
-- MongoDB와 PostgreSQL의 컬렉션/테이블별 레코드 수 일치
-- 사용자 비밀번호 해시, MFA 암호문과 영구 `.secrets.json` 보존
-- 로그인, 토큰 회전, 계정 잠금, 감사 로그 체인 회귀 테스트 통과
-- 백업 복구 연습 및 롤백 테스트 통과
+추가로 로그인, 토큰 회전, 계정 잠금, 임상정보, 슬라이드 목록, AI 결과,
+annotation 저장 및 감사 로그 검증을 릴리스 회귀 테스트에 포함한다.

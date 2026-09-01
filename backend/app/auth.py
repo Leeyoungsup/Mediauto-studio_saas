@@ -139,7 +139,7 @@ def _extract_bearer_token(request: Request) -> str:
 async def get_current_user(request: Request) -> dict:
     """Access Tokentext text text text text text
 
-    MongoDB text text text text text text text (text/text text text)
+    PostgreSQL text text text text text text text (text/text text text)
     """
     if not is_auth_store_connected():
         return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}

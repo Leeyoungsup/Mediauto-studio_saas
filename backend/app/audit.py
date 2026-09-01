@@ -246,7 +246,7 @@ async def log_audit_event(
             "str_ip_address": str_ip_address,
             "str_user_agent": str_user_agent,
             # BSON datetimes are millisecond precision. Sign the value that can
-            # actually be persisted so MongoDB rollback mode remains verifiable.
+            # actually be persisted so historical imported records remain verifiable.
             "dt_created_at": dt_created_at,
             "dt_hmac_created_at": dt_created_at,
             "str_hmac_verification_status": "valid",

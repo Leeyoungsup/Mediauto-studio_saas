@@ -55,7 +55,7 @@ MeDIAuto Studio는 병리의의 진단을 보조하기 위한 디지털 병리 W
 | --- | --- |
 | 서버 OS | Linux 또는 Windows 11 |
 | Python | 3.12+ |
-| DB | MongoDB 7.0+ |
+| DB | PostgreSQL 18 |
 | GPU | NVIDIA CUDA 11.8+ 권장 |
 | RAM | 64 GB+ 권장 |
 | 디스크 | NVMe SSD, 슬라이드 원본 + 타일 캐시 50 GB+ |
@@ -371,9 +371,9 @@ PDF Export는 슬라이드명, 모델, variant, score, 프리뷰, 카운트 표�
 
 백업 권장 대상:
 
-- MongoDB `users`
-- MongoDB `audit_logs`
-- MongoDB `slides`
+- PostgreSQL `users`
+- PostgreSQL `audit_logs`
+- PostgreSQL `application_documents`의 `slides` 문서
 - `backend/.secrets.json` 별도 안전 보관
 - 필요한 경우 `uploads`, `ai_results`
 

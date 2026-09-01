@@ -17,7 +17,6 @@ class ConfigurePostgresEnvTests(unittest.TestCase):
             self.assertTrue(bool_created)
             self.assertFalse(bool_created_again)
             self.assertEqual(dict_first, dict_second)
-            self.assertEqual(dict_first["DATABASE_BACKEND"], "postgresql")
             self.assertEqual(dict_first["POSTGRES_DEPLOYMENT"], "docker")
             self.assertNotIn("replace-with", dict_first["POSTGRES_PASSWORD"])
             if os.name != "nt":

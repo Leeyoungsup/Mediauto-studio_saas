@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-from bson import ObjectId
-
 from app.repositories.application_store import (
     apply_projection,
     decode_document_value,
@@ -10,8 +8,8 @@ from app.repositories.application_store import (
 )
 
 
-def test_document_codec_preserves_datetime_and_object_id():
-    obj_id = ObjectId()
+def test_document_codec_preserves_datetime_and_string_id():
+    obj_id = "64f000000000000000000001"
     dt_value = datetime(2026, 9, 1, 1, 2, 3, 456789, tzinfo=timezone.utc)
     dict_round_trip = decode_document_value(encode_document_value({
         "_id": obj_id,

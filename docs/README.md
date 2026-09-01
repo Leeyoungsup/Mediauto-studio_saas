@@ -13,10 +13,10 @@ when the intended content is clear.
 1. [PRODUCT_BROCHURE.md](PRODUCT_BROCHURE.md): product positioning and feature overview.
 2. [USER_GUIDE.md](USER_GUIDE.md): user workflow and screen-level guidance.
 3. [FEATURES.md](FEATURES.md): implemented behavior and API-level feature notes.
-4. [DATABASE.md](DATABASE.md): MongoDB collections, indexes, and relationships.
+4. [DATABASE.md](DATABASE.md): PostgreSQL tables, indexes, and storage boundaries.
 5. [SECURITY.md](SECURITY.md): authentication, authorization, audit, and security controls.
 6. [COMPLIANCE_STATUS.md](COMPLIANCE_STATUS.md): regulatory control implementation status.
-7. [DEPLOYMENT.md](DEPLOYMENT.md): production MongoDB TLS/auth, secrets, environment variables, reverse proxy, Philips bridge, and backup/restore checklist.
+7. [DEPLOYMENT.md](DEPLOYMENT.md): PostgreSQL security, secrets, reverse proxy, Philips bridge, and backup/restore checklist.
 8. [color_match_analysis.md](color_match_analysis.md): Hamamatsu/NDP color matching notes.
 
 ## Documentation Rules

@@ -119,7 +119,7 @@ hashed = bcrypt(plain + pepper, cost=12)
 - **bcrypt** — work factor 12 (~250 ms/해시). 병렬 brute-force 비용이 충분히 높음.
 - **pepper** — bcrypt 입력 전 사전 연결. DB만 탈취되고 서버 파일(`.secrets.json`)은 안전한 경우 rainbow table 공격 무력화.
 - **저장** — `users.str_hashed_password` 필드. 서버에선 평문을 일절 로깅하지 않음.
-- **응답 차단** — MongoDB 프로젝션에서 `{"str_hashed_password": 0}`으로 기본 제외. 사용자 API 응답에 해시가 섞여 나갈 수 없음.
+- **응답 차단** — 사용자 Repository 조회와 응답 직렬화에서 비밀번호 해시를 제외한다.
 
 ### 비밀번호 정책
 
@@ -162,7 +162,7 @@ hashed = bcrypt(plain + pepper, cost=12)
 
 ### 세션 TTL
 
-`sessions.dt_expires_at`에 MongoDB TTL 인덱스(`expireAfterSeconds=0`) → 만료된 세션 자동 삭제.
+`sessions.dt_expires_at` 인덱스를 사용해 만료 세션을 조회·정리한다.
 
 ---
 
@@ -219,7 +219,7 @@ hashed = bcrypt(plain + pepper, cost=12)
 
 ### DB 미연결 Fallback
 
-MongoDB가 연결되지 않은 상태(개발/뷰어 모드)에서는 인증 의존성이 익명 admin을 반환한다. **운영 배포에서는 절대 이 경로가 활성화되면 안 된다** — 반드시 Mongo가 연결되어 있어야 인증이 강제된다.
+PostgreSQL 연결이 끊기면 영구 인증·세션 기능이 정상 동작하지 않는다. 운영에서는 `/api/health`를 감시하고 데이터베이스 장애 시 트래픽을 차단하는 fail-closed 구성을 사용한다.
 
 ---
 
@@ -297,7 +297,7 @@ RFC 6238 TOTP — 외부 라이브러리 의존 없이 자체 구현 (HMAC-SHA1,
 ### 기록 원칙
 
 - 병원 환경 기준 **최소 5년 보존** (규정 준수).
-- **불변** — 앱 로직에 update/delete가 존재하지 않음. MongoDB 권한 수준에서도 append-only 롤을 쓰는 것을 권장.
+- **불변** — 앱 로직에 update/delete가 존재하지 않음. PostgreSQL 권한 수준에서도 감사 기록의 update/delete를 제한하는 역할 분리를 권장.
 - **보안 이벤트 + 행위 이벤트 모두 기록**.
 
 ### 기록 대상 actions
@@ -471,12 +471,12 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 
 ### 반드시 운영 배포 전 조치할 것
 
-- [ ] `MONGO_URI`에 실제 인증 + TLS 설정
+- [ ] 원격 `POSTGRES_URI`에 전용 계정 + TLS 설정
 - [ ] `JWT_SECRET_KEY` / `FIELD_ENCRYPTION_KEY` / `AUTH_PEPPER`를 secret manager에서 환경변수로 주입
 - [ ] CORS `allow_origins`를 실제 프론트엔드 도메인으로 제한
 - [ ] 리버스 프록시에서 TLS 종료 + HSTS + CSP 헤더 추가
 - [ ] `X-Forwarded-For` 신뢰 범위 확정 (내부망 프록시만)
-- [ ] `MONGO_URI`에서 `audit_logs` 컬렉션은 append-only 권한의 별도 유저로 쓰도록 분리
+- [ ] PostgreSQL `audit_logs` 테이블은 append-only 권한의 별도 역할로 분리
 - [ ] 첫 번째 가입자가 admin이 되는 부트스트랩 규칙을 악용당하지 않도록, 첫 배포 직후 즉시 관리자 계정을 만들고 회원가입 엔드포인트를 보호
 - [ ] 정기 백업: `users` + `audit_logs` + `.secrets.json`
 
@@ -550,7 +550,7 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 ## 부록 B — 체크리스트 (배포 직전)
 
 ```
-[ ] MONGO_URI 에 인증 + TLS
+[ ] 원격 POSTGRES_URI 에 전용 계정 + TLS
 [ ] JWT_SECRET_KEY / FIELD_ENCRYPTION_KEY / AUTH_PEPPER 환경변수 주입
 [ ] .secrets.json 권한 0600 + 백업
 [ ] CORS allow_origins 화이트리스트
@@ -558,7 +558,7 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 [ ] X-Forwarded-For 신뢰 범위 확정
 [ ] audit_logs 전용 append-only DB 유저
 [ ] 첫 admin 생성 직후 /register 접근 제한
-[ ] MongoDB 자동 백업 스케줄
+[ ] PostgreSQL 자동 백업 및 복구 검증 스케줄
 [ ] 정기 보안 패치 (FastAPI / bcrypt / cryptography / python-jose)
 ```
 

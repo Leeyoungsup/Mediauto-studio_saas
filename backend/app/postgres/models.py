@@ -1,4 +1,4 @@
-"""PostgreSQL schema for the staged MongoDB migration."""
+"""PostgreSQL schema for authentication, operations, and application state."""
 
 from datetime import datetime, timezone
 
@@ -161,10 +161,9 @@ class AuditIntegritySeal(Base):
 class ApplicationDocument(Base):
     """PostgreSQL document row for slide/project/AI/annotation application state.
 
-    The original documents are retained as JSONB so staged migrations do not
-    discard fields introduced by older deployments.  Natural-key columns keep
-    the high-traffic slide and patch lookups indexed and enforce the same
-    uniqueness guarantees as the former MongoDB collections.
+    Flexible documents are retained as JSONB so fields introduced by older
+    deployments remain readable. Natural-key columns keep high-traffic slide
+    and patch lookups indexed and enforce application-level uniqueness.
     """
 
     __tablename__ = "application_documents"

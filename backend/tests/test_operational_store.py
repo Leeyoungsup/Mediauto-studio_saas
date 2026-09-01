@@ -1,12 +1,9 @@
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
 
-from bson import ObjectId
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
-from app.config import settings
 from app.audit import (
     _compute_log_hmac,
     compute_audit_seal_hmac,
@@ -15,19 +12,13 @@ from app.audit import (
 )
 from app.postgres.models import AuditLog
 from app.repositories import operational_store
-from scripts.migrate_operational_to_postgres import _with_string_id
 
 
 class OperationalStoreTests(unittest.TestCase):
-    def test_backend_switch_selects_all_operational_repositories(self):
-        with patch.object(settings, "DATABASE_BACKEND", "mongodb"):
-            self.assertIsInstance(operational_store.get_audit_store(), operational_store.MongoAuditStore)
-            self.assertIsInstance(operational_store.get_ip_geo_store(), operational_store.MongoIpGeoStore)
-            self.assertIsInstance(operational_store.get_clinical_info_store(), operational_store.MongoClinicalInfoStore)
-        with patch.object(settings, "DATABASE_BACKEND", "postgresql"):
-            self.assertIsInstance(operational_store.get_audit_store(), operational_store.PostgresAuditStore)
-            self.assertIsInstance(operational_store.get_ip_geo_store(), operational_store.PostgresIpGeoStore)
-            self.assertIsInstance(operational_store.get_clinical_info_store(), operational_store.PostgresClinicalInfoStore)
+    def test_postgres_repositories_are_the_only_backend(self):
+        self.assertIsInstance(operational_store.get_audit_store(), operational_store.PostgresAuditStore)
+        self.assertIsInstance(operational_store.get_ip_geo_store(), operational_store.PostgresIpGeoStore)
+        self.assertIsInstance(operational_store.get_clinical_info_store(), operational_store.PostgresClinicalInfoStore)
 
     def test_audit_extra_fields_round_trip_as_top_level_values(self):
         obj_log = AuditLog(
@@ -52,20 +43,13 @@ class OperationalStoreTests(unittest.TestCase):
         self.assertIn("ESCAPE", str_sql)
         self.assertEqual(obj_query.whereclause.right.value, "%slide\\_\\%%")
 
-    def test_migration_preserves_object_id(self):
-        obj_id = ObjectId()
-        dt_naive = datetime(2026, 9, 1, 0, 0)
-        dict_copy = _with_string_id({"_id": obj_id, "dt_created_at": dt_naive})
-        self.assertEqual(dict_copy["_id"], str(obj_id))
-        self.assertEqual(dict_copy["dt_created_at"].tzinfo, timezone.utc)
-
     def test_json_extra_converts_bson_values(self):
-        obj_id = ObjectId()
+        obj_id = "64f000000000000000000001"
         _, dict_values = operational_store._audit_values({
             "str_action": "test",
             "nested": {"id": obj_id},
         })
-        self.assertEqual(dict_values["dict_extra"]["nested"]["id"], str(obj_id))
+        self.assertEqual(dict_values["dict_extra"]["nested"]["id"], obj_id)
 
     def test_mongodb_millisecond_loss_is_recovered_without_resigning(self):
         dt_exact = datetime(2026, 9, 1, 1, 2, 3, 456789, tzinfo=timezone.utc)

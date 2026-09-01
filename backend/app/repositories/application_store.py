@@ -1,9 +1,8 @@
 """PostgreSQL-backed document API for application state.
 
-This adapter intentionally implements only the MongoDB operations used by the
-slide, project, AI-state, runtime-setting, and cell-annotation code.  It lets us
-cut over those callers atomically while retaining their established document
-shape and dotted-field update behaviour.
+This adapter implements the document operations used by slide, project,
+AI-state, runtime-setting, and cell-annotation code while retaining their
+established document shape and dotted-field update behaviour.
 """
 
 from __future__ import annotations
@@ -11,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
-from bson import ObjectId
 from sqlalchemy import cast, delete, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -47,8 +46,6 @@ def encode_document_value(obj_value: Any) -> Any:
         if obj_dt.tzinfo is None:
             obj_dt = obj_dt.replace(tzinfo=timezone.utc)
         return {_TYPE_KEY: "datetime", _VALUE_KEY: obj_dt.isoformat()}
-    if isinstance(obj_value, ObjectId):
-        return {_TYPE_KEY: "object_id", _VALUE_KEY: str(obj_value)}
     if isinstance(obj_value, dict):
         return {str(k): encode_document_value(v) for k, v in obj_value.items()}
     if isinstance(obj_value, (list, tuple)):
@@ -57,15 +54,14 @@ def encode_document_value(obj_value: Any) -> Any:
 
 
 def decode_document_value(obj_value: Any) -> Any:
-    """Restore datetimes and ObjectIds read from JSONB."""
+    """Restore datetimes and legacy tagged identifiers read from JSONB."""
     if isinstance(obj_value, dict):
         if obj_value.get(_TYPE_KEY) == "datetime" and _VALUE_KEY in obj_value:
             return datetime.fromisoformat(str(obj_value[_VALUE_KEY]))
         if obj_value.get(_TYPE_KEY) == "object_id" and _VALUE_KEY in obj_value:
-            try:
-                return ObjectId(str(obj_value[_VALUE_KEY]))
-            except Exception:
-                return str(obj_value[_VALUE_KEY])
+            # Compatibility with documents imported from BSON. PostgreSQL IDs
+            # are plain strings after the one-time migration.
+            return str(obj_value[_VALUE_KEY])
         return {k: decode_document_value(v) for k, v in obj_value.items()}
     if isinstance(obj_value, list):
         return [decode_document_value(v) for v in obj_value]
@@ -234,13 +230,13 @@ def _new_document_from_upsert(dict_filter: dict, dict_update: dict) -> dict:
     for str_key, obj_value in dict_update.get("$setOnInsert", {}).items():
         _set_path(dict_doc, str_key, obj_value)
     _apply_update(dict_doc, dict_update)
-    dict_doc.setdefault("_id", ObjectId())
+    dict_doc.setdefault("_id", secrets.token_hex(12))
     return dict_doc
 
 
 def _apply_update(dict_doc: dict, dict_update: dict) -> None:
     if not any(str(k).startswith("$") for k in dict_update):
-        obj_id = dict_doc.get("_id", ObjectId())
+        obj_id = dict_doc.get("_id") or secrets.token_hex(12)
         dict_doc.clear()
         dict_doc.update(copy.deepcopy(dict_update))
         dict_doc.setdefault("_id", obj_id)
@@ -396,7 +392,7 @@ class PostgresDocumentCollection:
 
     async def insert_one(self, dict_document: dict) -> DocumentWriteResult:
         dict_doc = copy.deepcopy(dict_document)
-        dict_doc.setdefault("_id", ObjectId())
+        dict_doc.setdefault("_id", secrets.token_hex(12))
         str_id = str(dict_doc["_id"])
         str_natural, str_secondary = _natural_keys(self.name, dict_doc)
         dt_now = datetime.now(timezone.utc)

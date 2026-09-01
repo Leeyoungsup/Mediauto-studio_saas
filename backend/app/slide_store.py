@@ -1,4 +1,4 @@
-"""text DB text — MongoDB `slides` text helper
+"""text DB text — PostgreSQL `slides` text helper
 
 Claude.md text text (str_/int_/bool_/dict_/list_/dt_ text).
 
@@ -204,7 +204,7 @@ async def mark_ai_result(
             dict_update,
         )
     except Exception as e:
-        # MongoDB write error (text: dict_ai_results.Quanti HE text array text text text text)
+        # Database write error (text: dict_ai_results.Quanti HE text array text text text text)
         # text text text main loop text unhandled exception text text.
         # text text text text → auto_ai text text text text text text
         # text text text text text text.
@@ -933,7 +933,7 @@ async def get_user_ai_edit(
 
 
 def serialize_slide_doc(dict_doc: dict) -> dict:
-    """MongoDB text → JSON-friendly dict (ObjectId/datetime text)."""
+    """text text → JSON-friendly dict (identifier/datetime text)."""
     if not dict_doc:
         return {}
     dict_out = {}

@@ -372,48 +372,9 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
         _log("ERROR", str_error)
         return False, str_error
 
-    if settings.DATABASE_BACKEND == "postgresql":
-        return asyncio.run(_check_postgres_and_admin(
-            settings, bool_explicit, str_login_id, str_password, str_name, str_department,
-        ))
-    if settings.DATABASE_BACKEND != "mongodb":
-        str_error = "DATABASE_BACKEND must be either 'mongodb' or 'postgresql'."
-        _log("ERROR", str_error)
-        return False, str_error
-
-    try:
-        from pymongo import MongoClient
-
-        obj_client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
-        obj_client.admin.command("ping")
-        obj_mongo_db = obj_client[settings.MONGO_DB_NAME]
-        _log("OK", f"MongoDB is reachable: {settings.MONGO_DB_NAME}")
-    except Exception as obj_error:
-        _log("WARN", f"MongoDB is unavailable: {obj_error}")
-        return False, str(obj_error)
-
-    try:
-        int_user_count = obj_mongo_db.users.count_documents({})
-        if int_user_count > 0 and not bool_explicit:
-            _log("INFO", "Existing users found; default administrator bootstrap was skipped.")
-            return True, ""
-        if int_user_count > 0:
-            if obj_mongo_db.users.find_one({"str_login_id": str_login_id}):
-                _log("OK", f"Bootstrap admin already exists: {str_login_id}")
-                return True, ""
-            str_error = "Database already contains users; automatic admin creation was refused."
-            _log("ERROR", str_error)
-            return False, str_error
-
-        dict_user = _bootstrap_admin_document(
-            str_login_id, str_password, str_name, str_department,
-        )
-        obj_mongo_db.users.create_index("str_login_id", unique=True)
-        obj_mongo_db.users.insert_one(dict_user)
-        _log("OK", f"Created the first administrator: {str_login_id}")
-        return True, ""
-    finally:
-        obj_client.close()
+    return asyncio.run(_check_postgres_and_admin(
+        settings, bool_explicit, str_login_id, str_password, str_name, str_department,
+    ))
 
 
 def main() -> int:

@@ -353,7 +353,7 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | --- | --- |
 | Backend | Python 3.12, FastAPI, Uvicorn |
 | Frontend | Vanilla JavaScript, HTML, CSS |
-| Database | MongoDB 7.x, motor async driver |
+| Database | PostgreSQL 18, SQLAlchemy async, asyncpg, Alembic |
 | WSI | OpenSlide, Pillow, ICC profile, Hamamatsu NDP fit |
 | AI | PyTorch, YOLOv11-M, pix2pix U-Net |
 | Auth | JWT HS256, bcrypt, pepper, Refresh Token |
@@ -366,7 +366,7 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | 경로 | 역할 |
 | --- | --- |
 | `backend/main.py` | FastAPI 진입점, 정적 페이지 라우팅, `/api/version` |
-| `backend/app/database.py` | MongoDB 연결 및 인덱스 |
+| `backend/app/database.py` | PostgreSQL 연결 상태와 application document API |
 | `backend/app/auth.py` | JWT, RBAC, 사용자 인증 |
 | `backend/app/audit.py` | HMAC chain audit log |
 | `backend/app/slide_store.py` | slides collection helper |
@@ -466,7 +466,7 @@ GET /api/version
 - Project dashboard export 기능
 - 자동 테스트 및 CI/CD 구성
 - 운영 배포용 HTTP security headers 강화
-- MongoDB audit_logs append-only 권한 분리
+- PostgreSQL audit_logs append-only 역할 분리
 
 ## 19. 노션 DB로 분리하면 좋은 항목
 

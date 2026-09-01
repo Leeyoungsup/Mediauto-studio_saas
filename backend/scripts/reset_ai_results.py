@@ -20,6 +20,7 @@ text:
     python backend/scripts/reset_ai_results.py --models Quanti HE,Quanti PD-L1
 """
 import argparse
+import asyncio
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -29,9 +30,9 @@ PATH_BACKEND = Path(__file__).resolve().parent.parent
 if str(PATH_BACKEND) not in sys.path:
     sys.path.insert(0, str(PATH_BACKEND))
 
-from pymongo import MongoClient
-
 from app.config import settings
+from app.database import get_db, initialize_main_loop
+from app.postgres.database import connect_postgres, disconnect_postgres
 from app.slide_store import LIST_AI_MODEL_KEYS
 
 
@@ -80,15 +81,7 @@ def _cleanup_ai_caches_for_stem(path_ai_root: Path, str_stem: str,
     return int_removed
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--models", default=None,
-        help=("text text text text (Quanti HE,Quanti PD-L1,Quanti IHC,VS IHC). "
-              "text text text text."),
-    )
-    args = parser.parse_args()
+async def _run(args) -> int:
     bool_dry = args.dry_run
 
     # text text text text.
@@ -104,17 +97,15 @@ def main() -> int:
     bool_full_reset = (set(list_models) == set(LIST_AI_MODEL_KEYS))
 
     print(f"[reset_ai_results] {'DRY-RUN' if bool_dry else 'LIVE'} mode")
-    print(f"[reset_ai_results] MongoDB : {settings.MONGO_URI}")
-    print(f"[reset_ai_results] DB name : {settings.MONGO_DB_NAME}")
+    print("[reset_ai_results] Database: PostgreSQL")
     print(f"[reset_ai_results] AI_DIR  : {settings.AI_RESULTS_DIR}")
     print(f"[reset_ai_results] models  : {list_models}"
           f" {'(text)' if bool_full_reset else '(text)'}")
 
-    client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.admin.command("ping")
-    db = client[settings.MONGO_DB_NAME]
-
-    list_slides = list(db.slides.find({}))
+    initialize_main_loop()
+    await connect_postgres()
+    db = get_db()
+    list_slides = await db.slides.find({}).to_list(length=None)
     print(f"\n[reset_ai_results] text text DB text: {len(list_slides)}text")
 
     path_ai_root = Path(settings.AI_RESULTS_DIR)
@@ -144,7 +135,7 @@ def main() -> int:
 
         if not bool_dry:
             if bool_full_reset:
-                db.slides.update_one(
+                await db.slides.update_one(
                     {"_id": dict_doc["_id"]},
                     {"$set": {
                         "dict_ai_results": _empty_ai_results_for(LIST_AI_MODEL_KEYS),
@@ -153,7 +144,7 @@ def main() -> int:
                 )
             else:
                 # text text: text text text text, text text text text.
-                db.slides.update_one(
+                await db.slides.update_one(
                     {"_id": dict_doc["_id"]},
                     {"$set": {**dict_set_partial,
                               "dt_updated_at": datetime.now(timezone.utc)}},
@@ -163,9 +154,9 @@ def main() -> int:
     # user_ai_edits — text text text ai_mode text text, text text text text.
     if bool_full_reset:
         if bool_dry:
-            int_edits = db.user_ai_edits.count_documents({})
+            int_edits = await db.user_ai_edits.count_documents({})
         else:
-            int_edits = db.user_ai_edits.delete_many({}).deleted_count
+            int_edits = (await db.user_ai_edits.delete_many({})).deleted_count
 
         path_user_edits_fs = path_ai_root / "user_edits"
         if path_user_edits_fs.exists():
@@ -175,13 +166,13 @@ def main() -> int:
                 shutil.rmtree(path_user_edits_fs, ignore_errors=True)
     else:
         if bool_dry:
-            int_edits = db.user_ai_edits.count_documents(
+            int_edits = await db.user_ai_edits.count_documents(
                 {"str_ai_mode": {"$in": list_models}}
             )
         else:
-            int_edits = db.user_ai_edits.delete_many(
+            int_edits = (await db.user_ai_edits.delete_many(
                 {"str_ai_mode": {"$in": list_models}}
-            ).deleted_count
+            )).deleted_count
 
         # text text text user_edits/{user_id}/{ai_mode}/ text — text text text.
         path_user_edits_fs = path_ai_root / "user_edits"
@@ -206,7 +197,19 @@ def main() -> int:
     print(f"  user_ai_edits removed    : {int_edits}")
     if bool_dry:
         print("  (DRY-RUN — text text/DB text text text)")
+    await disconnect_postgres()
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--models", default=None,
+        help=("text text text text (Quanti HE,Quanti PD-L1,Quanti IHC,VS IHC). "
+              "text text text text."),
+    )
+    return asyncio.run(_run(parser.parse_args()))
 
 
 if __name__ == "__main__":

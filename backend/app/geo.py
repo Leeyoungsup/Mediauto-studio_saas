@@ -1,4 +1,4 @@
-"""IP text → text/text text (ip-api.com text API + MongoDB text).
+"""IP text → text/text text (ip-api.com text API + PostgreSQL text).
 
 - text API: http://ip-api.com/json/{ip}  (text text, rate limit 45 req/min)
 - text: ip_geo_cache text (30 text TTL)

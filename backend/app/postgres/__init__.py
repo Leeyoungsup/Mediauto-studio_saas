@@ -1,4 +1,4 @@
-"""PostgreSQL persistence layer used during the MongoDB migration."""
+"""PostgreSQL persistence layer for all application data."""
 
 from app.postgres.database import (
     connect_postgres,

@@ -65,7 +65,7 @@ def create_user_document(
     bool_is_active: bool = False,
     str_approved_by: str = "",
 ) -> dict:
-    """MongoDBtext text text text text
+    """PostgreSQLtext text text text text
 
     text `pending` + `is_active=False` — text text text text.
     text admin text admin text text text text text text

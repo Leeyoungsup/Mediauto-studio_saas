@@ -2,7 +2,7 @@
 
 > 분석 기준: 2026-08-21 현재 저장소 코드  
 > 버전 메타데이터: `1.1.233` / production / 2026-06-09  
-> 분석 대상: 프론트엔드 화면·이벤트, FastAPI 라우트, AI 파이프라인, MongoDB 스키마, 운영 스크립트
+> 분석 대상: 프론트엔드 화면·이벤트, FastAPI 라우트, AI 파이프라인, PostgreSQL 스키마, 운영 스크립트
 
 이 문서는 기존 README나 사용자 가이드를 요약한 문서가 아니라, 현재 소스 코드에서 실제 동작을 교차 확인해 정리한 기능 인벤토리다. 사용자에게 노출되는 기능뿐 아니라 단축키, 마우스 조작, 역할별 제한, 조건부 기능, 백엔드 전용 기능, 자동화 및 현재 코드의 주의점까지 포함한다.
 
@@ -49,7 +49,7 @@ MeDIAuto Studio SaaS는 병원 온프레미스 환경을 대상으로 하는 디
 | --- | --- |
 | 백엔드 | Python 3.12, FastAPI 0.115, Uvicorn 0.30 |
 | 프론트엔드 | Vanilla JavaScript ES Modules, HTML, CSS, Canvas; 별도 빌드 도구 없음 |
-| 데이터베이스 | MongoDB, Motor 비동기 드라이버 |
+| 데이터베이스 | PostgreSQL 18, SQLAlchemy async, asyncpg, Alembic |
 | WSI | OpenSlide, Pillow, OpenCV, ICC 색상 프로파일 |
 | Philips | 별도 Python 3.7 SDK 브리지, persistent/CLI 모드, shared memory 지원 |
 | AI | PyTorch, torchvision, YOLO 계열 검출, segmentation-models-pytorch, CUDA AMP |
@@ -739,12 +739,12 @@ macOS에서는 대부분의 `Ctrl` 조합을 `Cmd`로 사용할 수 있다.
 
 환경변수로 Upload/Tiles/AI Results/Annotations 경로 일부를 재지정할 수 있다.
 
-### 17.2 MongoDB 컬렉션
+### 17.2 PostgreSQL 저장 구조
 
-| 컬렉션 | 목적 |
+| 테이블/논리 문서 | 목적 |
 | --- | --- |
 | `users` | 계정, 역할, 승인, 잠금, MFA, preference |
-| `sessions` | Refresh Token 세션과 TTL |
+| `sessions` | Refresh Token 세션과 만료 시각 |
 | `audit_logs` | 행위·보안 이벤트와 HMAC chain |
 | `ip_geo_cache` | IP 위치 TTL cache |
 | `slides` | 슬라이드 경로·메타·checksum·상태·AI flag |
@@ -757,7 +757,8 @@ macOS에서는 대부분의 `Ctrl` 조합을 `Cmd`로 사용할 수 있다.
 | `user_ai_edits` | 사용자별 AI 편집본 metadata |
 | `app_settings` | AI/Tile worker runtime 설정 |
 
-기존 README의 “7개 컬렉션” 설명은 현재 코드보다 오래됐다.
+`slides`부터 `app_settings`까지의 유연한 문서는 `application_documents` JSONB
+테이블에 논리 collection 이름으로 구분해 저장한다.
 
 ## 18. API 기능군
 
@@ -804,7 +805,7 @@ FastAPI의 `/docs`가 배포 설정에서 차단되지 않았다면 자동 OpenA
 우선순위가 높은 순서로 정리하면 다음과 같다.
 
 1. **DB 장애 시 인증 우회**  
-   MongoDB 미연결 시 `get_current_user`와 미디어 인증이 anonymous admin을 반환한다. 개발 fallback으로 보이지만 운영에서는 DB 장애가 즉시 관리자 권한 우회로 이어질 수 있다. fail-closed로 바꿔야 한다.
+   PostgreSQL 미연결 시 `get_current_user`와 미디어 인증이 anonymous admin을 반환하는 개발 fallback이 남아 있다. 운영에서는 DB 장애가 권한 우회로 이어지지 않도록 fail-closed 전환이 필요하다.
 
 2. **서버 측 역할 검사 누락**  
    UI에서 숨긴 일부 폴더·파일·업로드·임상정보 변경 기능이 API에서는 로그인만 검사한다. UI 권한은 보안 경계가 아니므로 endpoint별 RBAC를 통일해야 한다.
@@ -830,8 +831,8 @@ FastAPI의 `/docs`가 배포 설정에서 차단되지 않았다면 자동 OpenA
 9. **인메모리 rate limit**  
    단일 프로세스에서는 유효하지만 multi-worker/multi-instance에서는 카운터가 공유되지 않는다.
 
-10. **CORS/TLS 기본값**  
-    MongoDB 연결은 코드 기본값상 `tls=False`이며 CORS는 선택 설정이다. 실제 병원 배포에서는 MongoDB 인증·TLS, reverse proxy TLS, 보안 헤더가 필수다.
+10. **CORS/TLS 운영 설정**
+    CORS와 원격 PostgreSQL TLS는 배포 환경에서 명시해야 한다. 실제 병원 배포에서는 전용 DB 계정, PostgreSQL TLS, reverse proxy TLS와 보안 헤더가 필수다.
 
 ## 22. 검증 결과
 
@@ -844,7 +845,7 @@ FastAPI의 `/docs`가 배포 설정에서 차단되지 않았다면 자동 OpenA
 - 역할별 프론트 제한과 백엔드 dependency 교차 확인
 - 현재 작업 트리는 분석 시작 시 clean 상태
 
-실제 MongoDB, OpenSlide, Philips SDK, GPU 모델을 띄운 end-to-end 실행 검증은 이번 정적 분석 범위에는 포함하지 않았다. 특히 업로드·AI 결과 정확도·Philips bridge·동시 사용자 성능은 배포 환경에서 별도 시나리오 테스트가 필요하다.
+실제 OpenSlide, Philips SDK, GPU 모델을 모두 사용한 end-to-end 실행 검증은 이번 정적 분석 범위에는 포함하지 않았다. 특히 업로드·AI 결과 정확도·Philips bridge·동시 사용자 성능은 배포 환경에서 별도 시나리오 테스트가 필요하다.
 
 ## 23. 다음 문서화 작업 권장 순서
 

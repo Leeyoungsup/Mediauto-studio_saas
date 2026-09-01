@@ -145,18 +145,7 @@ class Settings:
         ".isyntax", ".i2syntax", ".zip",
     }
 
-    # Database migration switch. MongoDB remains the default until each
-    # repository has a PostgreSQL implementation and its parity tests pass.
-    DATABASE_BACKEND: str = os.environ.get("DATABASE_BACKEND", "mongodb").strip().lower()
-
-    # ── MongoDB text (On-Premise) ──
-    MONGO_URI: str = os.environ.get(
-        "MONGO_URI",
-        "mongodb://localhost:27017"
-    )
-    MONGO_DB_NAME: str = os.environ.get("MONGO_DB_NAME", "medicus_studio")
-
-    # PostgreSQL is opt-in during the staged migration. A URL is deliberately
+    # PostgreSQL is the sole application datastore. A URL is deliberately
     # not hard-coded so production credentials never need to live in Git.
     POSTGRES_URI: str = os.environ.get("POSTGRES_URI", "").strip()
     POSTGRES_POOL_SIZE: int = int(os.environ.get("POSTGRES_POOL_SIZE", "10"))

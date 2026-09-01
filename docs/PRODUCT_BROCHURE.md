@@ -184,7 +184,7 @@
 ## 17. 기술 스택 — Backend
 
 - **언어/런타임**: Python 3.12, FastAPI (ASGI)
-- **DB**: MongoDB 7+ (motor async driver), TTL 인덱스 자동 정리
+- **DB**: PostgreSQL 18, SQLAlchemy async/asyncpg, Alembic 스키마 관리
 - **AI**: PyTorch + CUDA AMP, Point Detection, pix2pix
 - **WSI**: OpenSlide, Pillow, ICC profile, Hamamatsu NDP fit
 - **보안**: bcrypt, AES-256-GCM, HMAC-SHA256, RFC 6238 TOTP

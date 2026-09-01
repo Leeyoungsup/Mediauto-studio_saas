@@ -134,7 +134,7 @@ bias: [ 2.0654  19.8732  24.7427 ]
 ## 6. 재현 방법
 
 ```bash
-# 환경: conda env yslee (pymongo, scipy, numpy, PIL, matplotlib 필요)
+# 환경: conda env medicus-saas (scipy, numpy, PIL, matplotlib 필요)
 # 노트북 실행
 cd c:/Users/liive/OneDrive/Desktop/project/Mediauto-studio_saas
 jupyter lab color_match_analysis.ipynb
