@@ -2,6 +2,22 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [2.0.1] - 2026-09-02
+
+### Changed
+
+- Isolate viewer tiles, thumbnails, and specimen labels from unrelated backend work so obsolete media requests stop competing with the active slide.
+- Make backend slide reads cooperatively cancellable when users switch folders, slides, or pages.
+- Persist the DICOM file index beside the immutable extraction cache and reuse cached DICOM metadata and the shared slide proxy across viewer workers.
+- Open slow DICOM and Philips slides outside the global slide-manager lock and outside the ASGI event loop.
+- Let background tile generation yield to interactive viewer work while preserving in-progress generation after an HTTP response timeout.
+
+### Fixed
+
+- Fix intermittent viewer stalls caused by stale thumbnail, label, and tile reads continuing after browser-side cancellation.
+- Fix repeated DICOM index construction and per-worker proxy initialization that delayed slide opening and multiplied memory use.
+- Fix a DICOM slide open temporarily blocking unrelated API requests and access to already-open slides.
+
 ## [2.0.0] - 2026-09-01
 
 ### Highlights

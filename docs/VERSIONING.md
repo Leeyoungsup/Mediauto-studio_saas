@@ -15,11 +15,11 @@ list; updating the changelog automatically updates the page after restart.
 ## Current Version
 
 ```text
-2.0.0
+2.0.1
 ```
 
 - Release channel: `production`
-- Release date: `2026-09-01`
+- Release date: `2026-09-02`
 
 ## Version Policy
 
@@ -43,8 +43,8 @@ removed.
 6. Create an annotated Git tag after the merge:
 
 ```bash
-git tag -a v2.0.0 -m "MeDIAuto Studio 2.0.0"
-git push origin v2.0.0
+git tag -a v2.0.1 -m "MeDIAuto Studio 2.0.1"
+git push origin v2.0.1
 ```
 
 Do not tag before the target commit is present on `main`. A version bump does
@@ -73,10 +73,10 @@ the release automatically:
 ```
 
 Before writing the entry, review the full commit range rather than relying on
-memory. For example, after tagging 2.0.0:
+memory. For example, after tagging 2.0.1:
 
 ```bash
-git log --format='%h %ad %s' --date=short v2.0.0..HEAD
+git log --format='%h %ad %s' --date=short v2.0.1..HEAD
 ```
 
 Summarize internal commits into user- or operator-meaningful bullets. Keep

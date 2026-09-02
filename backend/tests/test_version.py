@@ -36,7 +36,7 @@ def test_parse_changelog_builds_release_sections_and_counts():
 def test_repository_changelog_contains_current_release():
     dict_history = get_version_history()
 
-    assert dict_history["current"]["version"] == "2.0.0"
+    assert dict_history["current"]["version"] == "2.0.1"
     assert dict_history["total_releases"] >= 235
-    assert dict_history["releases"][0]["version"] == "2.0.0"
+    assert dict_history["releases"][0]["version"] == "2.0.1"
     assert dict_history["releases"][0]["change_count"] > 0

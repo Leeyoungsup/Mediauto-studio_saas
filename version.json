@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "channel": "production",
-  "release_date": "2026-09-01",
-  "description": "Completes the PostgreSQL-only datastore transition and removes the legacy MongoDB runtime, dependencies, installer, and rollback data."
+  "release_date": "2026-09-02",
+  "description": "Improves viewer responsiveness by cancelling stale slide reads and removing DICOM slide-open bottlenecks."
 }
