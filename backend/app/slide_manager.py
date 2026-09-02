@@ -236,6 +236,15 @@ class SlideManager:
         self._slides: Dict[str, SlideInfo] = {}
         self._generations: Dict[str, int] = {}
         self._lock = threading.Lock()
+        self._open_locks: Dict[str, threading.Lock] = {}
+
+    def _open_lock(self, slide_id: str) -> threading.Lock:
+        with self._lock:
+            obj_lock = self._open_locks.get(slide_id)
+            if obj_lock is None:
+                obj_lock = threading.Lock()
+                self._open_locks[slide_id] = obj_lock
+            return obj_lock
 
     def _close_info_locked(self, slide_id: str, info: SlideInfo) -> None:
         self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
@@ -268,23 +277,40 @@ class SlideManager:
 
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
         """text text (text text text text)"""
-        with self._lock:
-            if slide_id in self._slides:
-                info = self._slides[slide_id]
-                info.touch()
+        # Opening DICOM/Philips metadata may take seconds.  A global manager
+        # lock around that I/O blocked every get()/get_generation() call and,
+        # consequently, all viewer tiles.  Serialize only duplicate opens of
+        # the same slide while keeping unrelated slides accessible.
+        obj_open_lock = self._open_lock(slide_id)
+        with obj_open_lock:
+            with self._lock:
+                if slide_id in self._slides:
+                    info = self._slides[slide_id]
+                    info.touch()
+                    self._evict_idle_locked(exclude_slide_id=slide_id)
+                    return info
+
+            slide = None
+            try:
+                if is_philips_isyntax(file_path):
+                    slide = PhilipsSlideProxy(file_path)
+                else:
+                    slide = open_slide_silently(file_path)
+                info = SlideInfo(slide, file_path)
+            except Exception:
+                if slide is not None:
+                    try:
+                        slide.close()
+                    except Exception:
+                        pass
+                raise
+
+            with self._lock:
+                self._slides[slide_id] = info
+                # text open text generation 0 text (text text text)
+                self._generations.setdefault(slide_id, 0)
                 self._evict_idle_locked(exclude_slide_id=slide_id)
                 return info
-
-            if is_philips_isyntax(file_path):
-                slide = PhilipsSlideProxy(file_path)
-            else:
-                slide = open_slide_silently(file_path)
-            info = SlideInfo(slide, file_path)
-            self._slides[slide_id] = info
-            # text open text generation 0 text (text text text)
-            self._generations.setdefault(slide_id, 0)
-            self._evict_idle_locked(exclude_slide_id=slide_id)
-            return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
         """text text text"""

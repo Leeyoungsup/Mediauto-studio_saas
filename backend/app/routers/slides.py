@@ -53,7 +53,7 @@ from app.slide_manager import slide_manager
 from app import tile_generator
 from app import slide_store
 from app import auto_ai
-from app.cpu_layout import bg_executor, upload_executor
+from app.cpu_layout import bg_executor, upload_executor, viewer_executor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -135,7 +135,16 @@ async def _open_and_generate(
         return resp
 
     try:
-        info = slide_manager.open(slide_id, file_path)
+        # DICOM/Philips initialization performs blocking metadata and index
+        # reads. Keep it off the ASGI event loop so health/auth/other slide
+        # requests remain responsive while a slide is opening.
+        loop = asyncio.get_running_loop()
+        info = await loop.run_in_executor(
+            viewer_executor,
+            slide_manager.open,
+            slide_id,
+            file_path,
+        )
     except Exception as e:
         raise HTTPException(400, f"?????? ??? ???: {e}")
 

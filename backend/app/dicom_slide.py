@@ -14,8 +14,10 @@ import json
 import logging
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
+import time
 import warnings
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -28,6 +30,8 @@ from app.slide_identity import slide_cache_key
 DICOM_WSI_SOP_CLASS_UID = "1.2.840.10008.5.1.4.1.1.77.1.6"
 _extract_locks_guard = threading.Lock()
 _extract_locks: dict[str, threading.Lock] = {}
+_metadata_cache_lock = threading.Lock()
+_metadata_cache: dict[str, tuple[tuple[Any, ...], tuple[str, str]]] = {}
 _expected_unprofiled_associated_uids: set[str] = set()
 
 
@@ -216,18 +220,55 @@ def _strip_dicom_frame_padding(bytes_frame: bytes) -> bytes:
 
 
 class _CompatibleDICOMFileClient:
-    """Create a local client with Leica-compatible frame padding handling."""
+    """Create a reusable local index with Leica frame compatibility.
+
+    ``in_memory=True`` forces dicomweb-client to rescan every extracted DICOM
+    instance for every proxy.  A source-signature extraction directory is
+    immutable, so its SQLite index can safely be persisted and reused.
+    """
 
     @staticmethod
     def create(path_root: Path):
         from dicomweb_client import DICOMfileClient
 
         class _Client(DICOMfileClient):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+
+                # A DicomSlideProxy serializes access with its own RLock but is
+                # intentionally shared by viewer/AI threads.  Reopen the
+                # persistent index with SQLite's cross-thread guard disabled;
+                # serialization remains enforced by the proxy.
+                obj_manager = self._db_manager
+                obj_cursor = getattr(obj_manager, "_db_cursor_handle", None)
+                obj_connection = getattr(obj_manager, "_db_connection_handle", None)
+                if obj_cursor is not None:
+                    obj_cursor.close()
+                if obj_connection is not None:
+                    obj_connection.commit()
+                    obj_connection.close()
+                obj_connection = sqlite3.connect(
+                    str(obj_manager._db_file_identifier),
+                    detect_types=sqlite3.PARSE_DECLTYPES,
+                    check_same_thread=False,
+                )
+                obj_connection.row_factory = sqlite3.Row
+                obj_manager._db_connection_handle = obj_connection
+                obj_manager._db_cursor_handle = None
+
             def retrieve_instance_frames(self, *args, **kwargs):
                 list_frames = super().retrieve_instance_frames(*args, **kwargs)
                 return [_strip_dicom_frame_padding(value) for value in list_frames]
 
-        return _Client(url=path_root.as_uri(), in_memory=True)
+        # Only the first open creates the index. Concurrent first opens must
+        # not race while dicomweb-client creates the SQLite schema.
+        with _archive_lock(path_root):
+            return _Client(
+                url=path_root.as_uri(),
+                in_memory=False,
+                db_dir=path_root,
+                readonly=True,
+            )
 
 
 def _image_flavor(dataset) -> str:
@@ -243,12 +284,16 @@ def _slide_group_key(dataset) -> tuple[str, str]:
     return str_container, str_frame
 
 
-def _load_wsi_metadata(path_root: Path) -> tuple[list, tuple[str, str]]:
+def _load_wsi_metadata_uncached(path_root: Path) -> tuple[list, tuple[str, str]]:
     import pydicom
 
     dict_groups: dict[tuple[str, str], list] = {}
     for path_file in path_root.rglob("*"):
-        if not path_file.is_file() or path_file.name == ".complete.json":
+        if (
+            not path_file.is_file()
+            or path_file.name == ".complete.json"
+            or path_file.name.startswith(".dicom-file-client.db")
+        ):
             continue
         try:
             with warnings.catch_warnings():
@@ -290,6 +335,30 @@ def _load_wsi_metadata(path_root: Path) -> tuple[list, tuple[str, str]]:
     return list_usable, tuple_key
 
 
+def _load_wsi_metadata(path_root: Path) -> tuple[list, tuple[str, str]]:
+    """Load header-only WSI metadata once per immutable extraction version."""
+
+    str_key = str(path_root.resolve())
+    with _metadata_cache_lock:
+        tuple_cached = _metadata_cache.get(str_key)
+    if tuple_cached is not None:
+        tuple_metadata, tuple_group = tuple_cached
+        return list(tuple_metadata), tuple_group
+
+    # Avoid duplicate multi-frame header scans when several initial tile
+    # requests reach a newly opened DICOM slide at the same time.
+    with _archive_lock(path_root):
+        with _metadata_cache_lock:
+            tuple_cached = _metadata_cache.get(str_key)
+        if tuple_cached is None:
+            list_metadata, tuple_group = _load_wsi_metadata_uncached(path_root)
+            tuple_cached = (tuple(list_metadata), tuple_group)
+            with _metadata_cache_lock:
+                _metadata_cache[str_key] = tuple_cached
+        tuple_existing = tuple_cached
+    return list(tuple_existing[0]), tuple_existing[1]
+
+
 class DicomSlideProxy:
     """OpenSlide-compatible proxy for one DICOM WSI ZIP archive."""
 
@@ -302,12 +371,16 @@ class DicomSlideProxy:
         except ImportError as exc:
             raise RuntimeError("DICOM slides require the dicomslide package") from exc
 
+        float_started = time.perf_counter()
         self.file_path = str(Path(file_path).resolve())
         self._lock = threading.RLock()
         self._closed = False
         self._extracted_path = _extract_archive(self.file_path)
+        float_extracted = time.perf_counter()
         self._client = _CompatibleDICOMFileClient.create(self._extracted_path)
+        float_indexed = time.perf_counter()
         list_metadata, tuple_group = _load_wsi_metadata(self._extracted_path)
+        float_metadata = time.perf_counter()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Invalid value for VR DT:.*")
             self._slide = dicomslide.Slide(
@@ -317,6 +390,7 @@ class DicomSlideProxy:
                 pyramid_tolerance=float(settings.DICOM_PYRAMID_TOLERANCE_MM),
             )
         self._wrapped = dicomslide.OpenSlide(self._slide)
+        float_pyramid = time.perf_counter()
 
         self.dimensions = tuple(int(v) for v in self._wrapped.dimensions)
         self.level_dimensions = [
@@ -340,6 +414,14 @@ class DicomSlideProxy:
             self.mpp = 0.0
         self.color_profile = None  # dicomslide already applies the DICOM ICC profile
         self.data_envelope_rectangles: list[tuple[int, int, int, int]] = []
+        print(
+            f"[dicom] opened {Path(self.file_path).name} "
+            f"total={float_pyramid - float_started:.3f}s "
+            f"extract={float_extracted - float_started:.3f}s "
+            f"index={float_indexed - float_extracted:.3f}s "
+            f"metadata={float_metadata - float_indexed:.3f}s "
+            f"pyramid={float_pyramid - float_metadata:.3f}s"
+        )
 
     def _ensure_open(self) -> None:
         if self._closed:

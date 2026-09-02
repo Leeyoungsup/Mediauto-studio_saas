@@ -69,6 +69,17 @@ def get_thread_slide(str_slide_id: str, str_file_path: str) -> openslide.OpenSli
     - text text + generation text (stale): text text close, text.
     - text text: text text LRU text text (text text text text text eviction).
     """
+    # DicomSlideProxy owns a cross-thread SQLite connection and serializes
+    # frame access with an RLock. Reuse the manager's proxy instead of paying
+    # the multi-second metadata/index initialization once per worker thread.
+    obj_shared_info = slide_manager.get(str_slide_id)
+    if (
+        obj_shared_info is not None
+        and str(obj_shared_info.file_path) == str(str_file_path)
+        and bool(getattr(obj_shared_info.slide, "is_dicom", False))
+    ):
+        return obj_shared_info.slide
+
     obj_pool = _get_thread_pool()
     int_current_gen = slide_manager.get_generation(str_slide_id)
 
