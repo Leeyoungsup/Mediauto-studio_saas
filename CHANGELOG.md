@@ -2,6 +2,13 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [2.0.2] - 2026-09-09
+
+### Fixed
+
+- Prefer `WSI_Technical.source_vendor` over the compatibility container's `openslide.vendor` so anonymized pyramidal TIFF slides display their original scanner vendor.
+- Fall back to the standard OpenSlide vendor and then `Unknown` when preserved source-vendor metadata is absent or invalid.
+
 ## [2.0.1] - 2026-09-02
 
 ### Changed

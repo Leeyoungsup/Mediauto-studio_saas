@@ -3,6 +3,7 @@ SlideManager — text text text text (text text)
 OpenSlide text text text text text text text text text
 """
 
+import json
 import math
 import os
 import threading
@@ -26,6 +27,65 @@ IDLE_SLIDE_TTL_SECONDS = max(30, int(os.environ.get("IDLE_SLIDE_TTL_SECONDS", "3
 # Target.White.Intensity text text header text text text — .npy text text text text.
 FLOAT_NDP_GAMMA = 1.8
 FLOAT_NDP_DEFAULT_WHITE = 235.0
+
+
+def _usable_vendor(value) -> str:
+    """Return a normalized non-placeholder vendor value."""
+    str_vendor = str(value or "").strip()
+    if str_vendor.casefold() in {"", "unknown", "none", "null", "n/a"}:
+        return ""
+    return str_vendor
+
+
+def _wsi_technical_metadata(dict_properties) -> dict:
+    """Read anonymizer-preserved WSI technical metadata from TIFF properties."""
+    try:
+        list_items = list(dict_properties.items())
+    except Exception:
+        list_items = []
+
+    for key, value in list_items:
+        if str(key).rsplit(".", 1)[-1].casefold() != "wsi_technical":
+            continue
+        if isinstance(value, dict):
+            return value
+        try:
+            dict_metadata = json.loads(str(value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(dict_metadata, dict):
+            return dict_metadata
+
+    # OpenSlide exposes Aperio pipe-delimited fields as individual properties,
+    # but keep a TIFF ImageDescription fallback for compatible anonymizers that
+    # do not promote WSI_Technical into the property mapping.
+    try:
+        str_description = str(dict_properties.get("tiff.ImageDescription") or "")
+    except Exception:
+        str_description = ""
+    str_marker = "WSI_Technical="
+    int_marker = str_description.casefold().find(str_marker.casefold())
+    if int_marker < 0:
+        return {}
+    str_payload = str_description[int_marker + len(str_marker):].lstrip()
+    try:
+        dict_metadata, _ = json.JSONDecoder().raw_decode(str_payload)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict_metadata if isinstance(dict_metadata, dict) else {}
+
+
+def resolve_slide_vendor(dict_properties) -> str:
+    """Resolve source vendor, preferring anonymizer-preserved metadata."""
+    dict_technical = _wsi_technical_metadata(dict_properties)
+    str_vendor = _usable_vendor(dict_technical.get("source_vendor"))
+    if str_vendor:
+        return str_vendor
+    try:
+        str_vendor = _usable_vendor(dict_properties.get("openslide.vendor"))
+    except Exception:
+        str_vendor = ""
+    return str_vendor or "Unknown"
 
 
 def _build_ndp_lut(float_raw_white: float) -> np.ndarray:
@@ -166,7 +226,7 @@ class SlideInfo:
         ):
             self.objective_power = "20"
 
-        self.vendor = slide.properties.get("openslide.vendor", "Unknown")
+        self.vendor = resolve_slide_vendor(slide.properties)
 
         # text text text — ICC → NDP LUT → raw text.
         # AI text text text `icc_transform` text text text text text text

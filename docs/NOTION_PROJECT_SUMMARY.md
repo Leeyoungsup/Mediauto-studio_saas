@@ -7,9 +7,9 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | MeDIAuto Studio SaaS |
-| 현재 버전 | 2.0.1 |
+| 현재 버전 | 2.0.2 |
 | 릴리스 채널 | production |
-| 최신 릴리스 | 2026-09-02 |
+| 최신 릴리스 | 2026-09-09 |
 | 배포 형태 | 병원 내부망 On-Premise |
 | 주요 사용자 | 병리과 의사, 연구자, 관리자, viewer 계정 |
 | 핵심 목적 | WSI 조회, Annotation, AI 분석, 프로젝트 단위 운영, 감사 추적 |
@@ -41,6 +41,11 @@ MeDIAuto Studio SaaS는 대용량 병리 WSI를 웹에서 빠르게 열람하고
 | Profile | `/profile` | 사용자 프로필 및 계정 설정 |
 
 ## 5. 최근 변경 사항
+
+### v2.0.2
+
+- 익명화 피라미드 TIFF에 보존된 `WSI_Technical.source_vendor`를 우선 사용해 원본 스캐너 벤더를 표시합니다.
+- 보존된 원본 벤더가 없을 때는 OpenSlide 벤더, 마지막으로 `Unknown`을 사용합니다.
 
 ### v2.0.1
 

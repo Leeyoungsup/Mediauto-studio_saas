@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "channel": "production",
-  "release_date": "2026-09-02",
-  "description": "Improves viewer responsiveness by cancelling stale slide reads and removing DICOM slide-open bottlenecks."
+  "release_date": "2026-09-09",
+  "description": "Preserves the original scanner vendor when opening anonymized pyramidal TIFF slides."
 }
