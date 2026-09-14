@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: medicus_studio
+      POSTGRES_USER: mediauto
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run setup first}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mediauto -d medicus_studio']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  app:
+    build:
+      context: ../..
+      dockerfile: deployment/local/Dockerfile
+      args:
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '${MEDIAUTO_BIND:-127.0.0.1}:${MEDIAUTO_PORT:-8092}:8092'
+    environment:
+      POSTGRES_URI: postgresql+asyncpg://mediauto:${POSTGRES_PASSWORD}@postgres:5432/medicus_studio
+      MODEL_DIR: /models
+      UPLOAD_DIR: /data/uploads
+      TILES_DIR: /data/tiles
+      AI_RESULTS_DIR: /data/ai_results
+      ANNOTATIONS_DIR: /data/annotations
+      DICOM_CACHE_DIR: /data/dicom_cache
+      MEDIAUTO_BOOTSTRAP_ADMIN_ID: admin
+      MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run setup first}
+      MEDIAUTO_BOOTSTRAP_ADMIN_NAME: Administrator
+      TILE_CACHE_QUOTA_BYTES: ${TILE_CACHE_QUOTA_BYTES:-107374182400}
+    volumes:
+      - ../../models:/models:ro
+      - app-data:/data
+      - app-secrets:/state
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8092/api/health", timeout=5)']
+      interval: 10s
+      timeout: 6s
+      retries: 60
+      start_period: 120s
+volumes:
+  postgres-data:
+  app-data:
+  app-secrets:
