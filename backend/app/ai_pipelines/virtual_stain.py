@@ -17,6 +17,7 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
+from app.ai_pipelines.model_identity import model_identity
 from app.ai_pipelines.cache_paths import get_vs_cache_paths, get_vs_tile_dir
 from app.ai_pipelines.task_state import (
     TaskCancelled,
@@ -363,6 +364,12 @@ def run_virtual_stain(task_id: str, slide_id: str,
             update_task(task_id, status="error", error="text text text text")
             return
 
+        model_filename = VS_MODEL_FILES.get(stain_type)
+        if not model_filename:
+            raise ValueError(f"Unknown stain type: {stain_type}")
+        model_path = Path(settings.MODEL_DIR) / model_filename
+        model_revision = model_identity(model_path)
+
         # ── ROI text text (text text; text text text text) ──
         # text/text ROI text text text text text.
         # text, text ROItext text text text text text text text text
@@ -388,6 +395,8 @@ def run_virtual_stain(task_id: str, slide_id: str,
                             status_msg="Loading cached virtual stain")
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     cached_meta = json.load(f)
+                if cached_meta.get("model_identity") != model_revision or cached_meta.get("stain_type") != stain_type:
+                    raise ValueError("stale VS cache model mismatch")
                 if not source_signature_matches(cached_meta, info.slide, info.file_path):
                     raise ValueError("stale VS cache source mismatch")
 
@@ -727,6 +736,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
             meta = {
                 "stain_type": stain_type,
+                "model_identity": model_revision,
                 "roi_origin": [int(x_min), int(y_min)],
                 "canvas_l0_w": int(canvas_l0_w),
                 "canvas_l0_h": int(canvas_l0_h),
@@ -752,6 +762,7 @@ def run_virtual_stain(task_id: str, slide_id: str,
 
         result_payload = {
             "stain_type": stain_type,
+            "model_identity": model_revision,
             "image_filename": png_path.name,
             "roi_origin": [int(x_min), int(y_min)],
             "canvas_l0_w": int(canvas_l0_w),

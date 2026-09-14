@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
 from app import slide_store, tile_generator
-from app.auth import get_current_user
+from app.auth import get_current_user, require_not_viewer
 from app.config import settings
 from app.dicom_slide import cleanup_dicom_archive_cache
 from app.path_utils import safe_filename, safe_subpath
@@ -15,7 +15,7 @@ from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_not_viewer)])
 
 
 def _cleanup_ai_caches_for_prefixes(list_prefixes: list[str]) -> list:

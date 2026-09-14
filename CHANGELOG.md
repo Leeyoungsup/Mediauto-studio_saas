@@ -2,6 +2,52 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [3.1.0] - 2026-09-14
+
+### Added
+
+- Default fixed-area rectangle and circle tools to 2 mm² in AI and Tissue Annotation viewers, with a click menu for 1, 2, 4, and 8 mm².
+- Show physical annotation area at the upper-left of visible polygons and rectangles, keeping labels inside the viewport when shapes are partly clipped.
+- Show the same area in Region and Annotation lists and recalculate it when geometry is edited or loaded.
+
+### Changed
+
+- Use slide pixel spacing, including separate X/Y spacing when available, for physical area calculation. Keep Cell Annotation tools and labels unchanged.
+- Apply fixed-area choices to the active pane in Multi View and refresh the affected frontend asset versions.
+
+## [3.0.0] - 2026-09-14
+
+### Breaking Changes
+
+- Require the ETag from annotation loading as an `If-Match` header when saving tissue annotations. Requests without a revision return HTTP 428; stale saves return HTTP 409 instead of overwriting another user's work. Update custom clients and deploy the backend and frontend together.
+- Require authentication for project, folder-tree, and tissue-annotation reads. Reject viewer requests that delete, move, or change files, modify folders, upload slides, or update clinical information.
+
+### Changed
+
+- Apply SQL pagination and field projection to eligible document reads, and stop streaming complex unsorted queries once the requested page is filled.
+- Aggregate project status and AI completion counts in PostgreSQL, extracting small dashboard fields once to avoid repeatedly decompressing large JSON documents.
+- Move folder-tree and project-file scans off the API event loop.
+- Record model SHA-256 provenance in VS IHC results and reject outdated caches during manual and automatic analysis. Existing caches without provenance are recalculated on their next analysis.
+- Sign new audit events with HMAC v2, including before/after values and additional event details, while preserving verification of historical signatures.
+
+### Fixed
+
+- Reject authentication when the account store is unavailable instead of returning an anonymous administrator.
+- Apply the same active/locked account checks to media tickets and regular API authentication.
+- Write tissue annotation snapshots atomically and keep local browser edits available when a conflicting save is rejected.
+- Refresh affected frontend asset URLs and expose ETag to configured cross-origin clients.
+
+### Validation
+
+- Add regression coverage for access boundaries, concurrent annotation saves, failed file replacement, audit tampering, and model cache invalidation.
+- Verify document-query and project-count compatibility in a disposable PostgreSQL database and test annotation revision handling in the JavaScript client.
+
+### Upgrade Notes
+
+- Restart the backend and reload browser pages after exporting unsaved annotations. No database schema or existing annotation-data migration is required.
+- Older audit-verification code cannot verify new HMAC v2 events; retain the updated verifier when examining logs written by this release.
+- Query benchmarks use synthetic data; they do not represent end-to-end browser or GPU inference performance. See `reports/improvements_2026-09-14.md` for measurements and limitations.
+
 ## [2.0.2] - 2026-09-09
 
 ### Fixed

@@ -15,11 +15,11 @@ list; updating the changelog automatically updates the page after restart.
 ## Current Version
 
 ```text
-2.0.2
+3.1.0
 ```
 
 - Release channel: `production`
-- Release date: `2026-09-09`
+- Release date: `2026-09-14`
 
 ## Version Policy
 
@@ -28,6 +28,12 @@ The project follows Semantic Versioning:
 - **MAJOR**: incompatible datastore, configuration, API, or deployment changes.
 - **MINOR**: backward-compatible user or operator features.
 - **PATCH**: backward-compatible fixes and internal improvements.
+
+Version 3.0.0 requires annotation clients to load the current ETag and send it
+as `If-Match` when saving. Missing revisions return HTTP 428 and stale revisions
+return HTTP 409. This incompatible API contract requires a major version.
+Deploy the backend and frontend together and reload open browser pages after
+exporting any unsaved edits. Existing annotation data requires no migration.
 
 Version 2.0.0 is a major release because PostgreSQL becomes the only supported
 datastore and the previous database configuration and runtime dependencies are
@@ -43,8 +49,8 @@ removed.
 6. Create an annotated Git tag after the merge:
 
 ```bash
-git tag -a v2.0.2 -m "MeDIAuto Studio 2.0.2"
-git push origin v2.0.2
+git tag -a v3.1.0 -m "MeDIAuto Studio 3.1.0"
+git push origin v3.1.0
 ```
 
 Do not tag before the target commit is present on `main`. A version bump does
@@ -73,10 +79,10 @@ the release automatically:
 ```
 
 Before writing the entry, review the full commit range rather than relying on
-memory. For example, after tagging 2.0.2:
+memory. For example, after tagging 3.0.0:
 
 ```bash
-git log --format='%h %ad %s' --date=short v2.0.2..HEAD
+git log --format='%h %ad %s' --date=short v3.0.0..HEAD
 ```
 
 Summarize internal commits into user- or operator-meaningful bullets. Keep

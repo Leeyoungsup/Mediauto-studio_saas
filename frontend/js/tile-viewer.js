@@ -10,7 +10,8 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20260526-01';
+import { api } from './api.js?v=20260914-01';
+import { fixedAreaCoordinates, annotationAreaLabel } from './annotation-area.js?v=20260914-02';
 
 const TILE_SIZE = 1024;
 const VIEWER_FAST_THUMBNAIL_SIZE = 300;
@@ -3695,6 +3696,9 @@ export class TileViewer {
 
     /** text(cx,cy) text 1mm × 1mm text 4 text (scene text). */
     _makeRect1mm2Coords(cx, cy) {
+        if (this.viewerKind !== 'cell-annotation') {
+            return fixedAreaCoordinates('rectangle', cx, cy, this.fixedAreaMm2 ?? 2, this.slideInfo);
+        }
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
         const half = ppm / 2;  // 1mm text text
@@ -3708,6 +3712,9 @@ export class TileViewer {
 
     /** text(cx,cy) text text 1mm² text text 64text text (scene text). */
     _makeCircle1mm2Coords(cx, cy) {
+        if (this.viewerKind !== 'cell-annotation') {
+            return fixedAreaCoordinates('circle', cx, cy, this.fixedAreaMm2 ?? 2, this.slideInfo);
+        }
         const ppm = this._pixelsPerMM();
         if (ppm == null) return null;
         // text = π r² = 1mm²  →  r = √(1/π) mm  →  px text text
@@ -4281,6 +4288,35 @@ export class TileViewer {
         return bounds;
     }
 
+    getAnnotationAreaLabel(annotation) {
+        return this.viewerKind === 'cell-annotation' ? '' : annotationAreaLabel(annotation, this.slideInfo);
+    }
+
+    _drawAnnotationArea(octx, annotation) {
+        const label = this.getAnnotationAreaLabel(annotation);
+        if (!label) return;
+        const bounds = this._annotationBounds(annotation);
+        if (!bounds) return;
+        const corners = [[bounds.x0, bounds.y0], [bounds.x1, bounds.y0],
+            [bounds.x1, bounds.y1], [bounds.x0, bounds.y1]].map(p => this.sceneToCanvas(...p));
+        const left = Math.min(...corners.map(p => p[0]));
+        const top = Math.min(...corners.map(p => p[1]));
+        const right = Math.max(...corners.map(p => p[0]));
+        const bottom = Math.max(...corners.map(p => p[1]));
+        if (right < 0 || bottom < 0 || left > this._viewW || top > this._viewH) return;
+        octx.save();
+        octx.font = '600 12px sans-serif';
+        const width = octx.measureText(label).width + 12;
+        const x = Math.max(4, Math.min(left, this._viewW - width - 4));
+        const y = Math.max(4, Math.min(top - 24, this._viewH - 24));
+        octx.fillStyle = 'rgba(20, 25, 35, 0.88)';
+        octx.fillRect(x, y, width, 22);
+        octx.fillStyle = '#fff';
+        octx.textBaseline = 'middle';
+        octx.fillText(label, x + 6, y + 11);
+        octx.restore();
+    }
+
     _renderAnnotations(octx) {
         const halfVW = this._viewW / Math.max(this.zoom, 0.0001) / 2;
         const halfVH = this._viewH / Math.max(this.zoom, 0.0001) / 2;
@@ -4353,6 +4389,14 @@ export class TileViewer {
                     octx.strokeStyle = '#fff';
                     octx.lineWidth = 2;
                     octx.stroke();
+                }
+            }
+        }
+
+        if (this.viewerKind !== 'cell-annotation') {
+            for (const annotation of this.annotations) {
+                if (annotation.visible && !this._isAnnotationClassHidden(annotation) && intersectsView(annotation)) {
+                    this._drawAnnotationArea(octx, annotation);
                 }
             }
         }

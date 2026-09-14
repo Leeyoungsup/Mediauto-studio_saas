@@ -1,10 +1,11 @@
+import { bindFixedAreaTools } from './annotation-area.js?v=20260914-02';
 /**
  * Main AI viewer module for MeDIAuto Studio.
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260831-03';
-import { AiViewer } from './ai-viewer.js?v=20260824-04';
+import { api } from './api.js?v=20260914-01';
+import { AiViewer } from './ai-viewer.js?v=20260914-02';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -937,8 +938,7 @@ function setDrawMode(mode) {
 $btnDrawPolygon.addEventListener('click', () => setDrawMode('polygon'));
 if ($btnDrawBrush) $btnDrawBrush.addEventListener('click', () => setDrawMode('brush'));
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
-if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
-if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
+bindFixedAreaTools(() => viewer, $btnDrawRect1mm2, $btnDrawCircle1mm2, setDrawMode);
 if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
 const $btnUxHelp = $('#btn-ux-help');
@@ -1118,6 +1118,13 @@ function renderAnnotationPanel() {
             <button class="ann-btn-vis" title="Toggle visibility">${ann.visible ? 'Hide' : 'Show'}</button>
             <button class="ann-btn-del" title="Delete">Del</button>
         `;
+        const areaLabel = viewer.getAnnotationAreaLabel(ann);
+        if (areaLabel) {
+            const area = document.createElement('span');
+            area.className = 'ann-area';
+            area.textContent = areaLabel;
+            el.append(area);
+        }
         if (ann._aiRegion) {
             el.classList.add('region-ai-item');
             el.style.gridTemplateColumns = '34px minmax(82px, 1fr) 42px 42px 34px';

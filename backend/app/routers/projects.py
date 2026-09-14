@@ -1,5 +1,6 @@
 """Project and folder management endpoints."""
 
+import asyncio
 import os
 import shutil
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from app.auth import get_current_user, require_not_viewer, require_role
 from app.config import settings
 from app.database import get_db, is_db_connected
 from app.models import UserRole
+from app.repositories.project_store import get_project_metrics
 from app.path_utils import safe_filename, safe_subpath
 from app.project_utils import (
     list_project_dirs,
@@ -22,7 +24,7 @@ from app.project_utils import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def _annotation_slide_dirname(filename: str) -> str:
@@ -40,8 +42,7 @@ async def _log_event(*args, **kwargs):
     await _log_management_event(*args, **kwargs)
 
 
-@router.get("/folder-tree")
-async def folder_tree():
+def _folder_tree():
     upload_root = Path(settings.UPLOAD_DIR)
     list_folders: list[str] = []
     for dirpath, dirnames, _ in os.walk(upload_root):
@@ -52,6 +53,23 @@ async def folder_tree():
     return {"folders": sorted(list_folders)}
 
 
+@router.get("/folder-tree")
+async def folder_tree():
+    return await asyncio.to_thread(_folder_tree)
+
+
+def _project_inventory():
+    inventory = []
+    for project_dir in list_project_dirs():
+        slides = folders = 0
+        for _root, dirs, files in os.walk(project_dir):
+            dirs[:] = [d for d in dirs if not d.startswith((".", "_chunks_"))]
+            folders += len(dirs)
+            slides += sum(Path(name).suffix.lower() in settings.SUPPORTED_EXTENSIONS for name in files)
+        inventory.append((project_dir.name, slides, folders))
+    return inventory
+
+
 @router.get("/projects")
 async def list_projects():
     dict_infos = {}
@@ -60,68 +78,25 @@ async def list_projects():
         db = get_db()
         async for dict_doc in db.project_infos.find({}):
             dict_infos[dict_doc.get("str_project_path", "")] = dict_doc
-        async for dict_doc in db.slides.find(
-            {},
-            {"str_rel_path": 1, "str_status": 1, "str_annotation_status": 1, "dict_ai_results": 1},
-        ):
-            str_rel = (dict_doc.get("str_rel_path") or "").replace("\\", "/").strip("/")
-            str_project = str_rel.split("/", 1)[0] if str_rel else ""
-            if not str_project:
-                continue
-            dict_project = dict_metrics.setdefault(
-                str_project,
-                {
-                    "annotation_count": 0,
-                    "review_count": 0,
-                    "termination_count": 0,
-                    "reviewed_count": 0,
-                    "in_progress_count": 0,
-                    "ai_analyzed_count": 0,
-                },
-            )
-            str_status = dict_doc.get("str_status") or ""
-            str_annotation_status = dict_doc.get("str_annotation_status") or str_status
-            if str_annotation_status in {"review", "done", "termination_in_progress", "termination", "flagged"}:
-                dict_project["annotation_count"] += 1
-            if str_annotation_status in {"termination_in_progress", "termination", "flagged"}:
-                dict_project["review_count"] += 1
-            if str_annotation_status == "termination":
-                dict_project["termination_count"] += 1
-            if str_status == "done":
-                dict_project["reviewed_count"] += 1
-            if str_status in {"pending", "in_progress"}:
-                dict_project["in_progress_count"] += 1
-            dict_ai = dict_doc.get("dict_ai_results") or {}
-            bool_has_ai = False
-            for str_model in slide_store.LIST_AI_MODEL_KEYS:
-                dict_cur = dict_ai.get(str_model) or {}
-                dict_legacy = dict_ai.get(slide_store._legacy_ai_model_key(str_model)) or {}
-                if dict_cur.get("bool_has_result") or dict_legacy.get("bool_has_result"):
-                    bool_has_ai = True
-                    break
-            if bool_has_ai:
-                dict_project["ai_analyzed_count"] += 1
+        model_names = [name for model in slide_store.LIST_AI_MODEL_KEYS
+                       for name in (model, slide_store._legacy_ai_model_key(model))]
+        dict_metrics = await get_project_metrics(model_names)
 
     list_projects_out = []
-    for project_dir in list_project_dirs():
-        int_slide_count = 0
-        int_folder_count = 0
-        for _root, dirs, files in os.walk(project_dir):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("_chunks_")]
-            int_folder_count += len(dirs)
-            int_slide_count += sum(1 for file_name in files if Path(file_name).suffix.lower() in settings.SUPPORTED_EXTENSIONS)
+    inventory = await asyncio.to_thread(_project_inventory)
+    for project_name, int_slide_count, int_folder_count in inventory:
         list_projects_out.append({
-            "name": project_dir.name,
-            "path": project_dir.name,
+            "name": project_name,
+            "path": project_name,
             "slide_count": int_slide_count,
             "folder_count": int_folder_count,
-            "annotation_count": dict_metrics.get(project_dir.name, {}).get("annotation_count", 0),
-            "review_count": dict_metrics.get(project_dir.name, {}).get("review_count", 0),
-            "termination_count": dict_metrics.get(project_dir.name, {}).get("termination_count", 0),
-            "reviewed_count": dict_metrics.get(project_dir.name, {}).get("reviewed_count", 0),
-            "in_progress_count": dict_metrics.get(project_dir.name, {}).get("in_progress_count", 0),
-            "ai_analyzed_count": dict_metrics.get(project_dir.name, {}).get("ai_analyzed_count", 0),
-            "info": project_public_info(dict_infos.get(project_dir.name)),
+            "annotation_count": dict_metrics.get(project_name, {}).get("annotation_count", 0),
+            "review_count": dict_metrics.get(project_name, {}).get("review_count", 0),
+            "termination_count": dict_metrics.get(project_name, {}).get("termination_count", 0),
+            "reviewed_count": dict_metrics.get(project_name, {}).get("reviewed_count", 0),
+            "in_progress_count": dict_metrics.get(project_name, {}).get("in_progress_count", 0),
+            "ai_analyzed_count": dict_metrics.get(project_name, {}).get("ai_analyzed_count", 0),
+            "info": project_public_info(dict_infos.get(project_name)),
         })
     return {"projects": list_projects_out}
 
@@ -378,7 +353,7 @@ async def delete_project(
     return {"status": "deleted", "name": name}
 
 
-@router.post("/folder/create")
+@router.post("/folder/create", dependencies=[Depends(require_not_viewer)])
 async def create_folder(
     request: Request,
     path: str = Form(""),
@@ -404,7 +379,7 @@ async def create_folder(
     return {"status": "created", "path": str_new_rel}
 
 
-@router.post("/folder/rename")
+@router.post("/folder/rename", dependencies=[Depends(require_not_viewer)])
 async def rename_folder(
     request: Request,
     path: str = Form(...),
@@ -437,7 +412,7 @@ async def rename_folder(
     return {"status": "renamed"}
 
 
-@router.post("/folder/delete")
+@router.post("/folder/delete", dependencies=[Depends(require_not_viewer)])
 async def delete_folder(
     request: Request,
     path: str = Form(...),

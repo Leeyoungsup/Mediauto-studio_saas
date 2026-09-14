@@ -293,7 +293,21 @@ class PostgresDocumentCursor:
         self._limit = max(0, int(int_count))
         return self
 
-    async def _load(self) -> list[dict]:
+    async def _load(self, length: int | None = None) -> list[dict]:
+        limit = self._limit
+        if length is not None:
+            limit = min(limit, max(0, length)) if limit is not None else max(0, length)
+        if limit == 0:
+            return []
+        # Empty filters and ID lookups are exact SQL predicates. Push their
+        # projection/pagination down without changing document matcher semantics.
+        if not self._sort and (not self._filter or set(self._filter) == {"_id"}
+                               and isinstance(self._filter["_id"], str)):
+            return await self._collection._read_page(
+                self._filter, self._projection, self._skip, limit)
+        if not self._sort:
+            return await self._collection._read_matching_page(
+                self._filter, self._projection, self._skip, limit)
         list_docs = await self._collection._find_documents(self._filter)
         for str_key, int_direction in reversed(self._sort):
             list_docs.sort(
@@ -301,13 +315,12 @@ class PostgresDocumentCursor:
                 reverse=int_direction < 0,
             )
         list_docs = list_docs[self._skip:]
-        if self._limit is not None:
-            list_docs = list_docs[:self._limit]
+        if limit is not None:
+            list_docs = list_docs[:limit]
         return [apply_projection(d, self._projection) for d in list_docs]
 
     async def to_list(self, length: int | None = None) -> list[dict]:
-        list_docs = await self._load()
-        return list_docs if length is None else list_docs[:max(0, int(length))]
+        return await self._load(None if length is None else int(length))
 
     def __aiter__(self) -> AsyncIterator[dict]:
         async def _iterate():
@@ -321,6 +334,56 @@ class PostgresDocumentCollection:
         if str_name not in APPLICATION_COLLECTIONS:
             raise AttributeError(f"Unsupported PostgreSQL application collection: {str_name}")
         self.name = str_name
+
+    def _page_statement(self, dict_filter, projection, skip, limit):
+        document = ApplicationDocument.dict_document
+        # Top-level inclusion is common for dashboards. Select only requested
+        # keys, preserving missing keys and explicit JSON null values.
+        if projection and all("." not in key for key in projection):
+            keys = [key for key, enabled in projection.items() if enabled and key != "_id"]
+            if keys:
+                if projection.get("_id", 1):
+                    keys.append("_id")
+                fields = func.jsonb_each(document).table_valued("key", "value")
+                document = func.coalesce(
+                    select(func.jsonb_object_agg(fields.c.key, fields.c.value))
+                    .select_from(fields).where(fields.c.key.in_(keys))
+                    .correlate(ApplicationDocument).scalar_subquery(), cast({}, JSONB))
+        statement = self._candidate_statement(dict_filter).with_only_columns(document)
+        if skip:
+            statement = statement.offset(skip)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return statement
+
+    async def _read_page(self, dict_filter, projection, skip, limit):
+        async with get_postgres_session() as session:
+            rows = await session.scalars(self._page_statement(dict_filter, projection, skip, limit))
+            return [apply_projection(decode_document_value(row), projection) for row in rows]
+
+    async def _read_matching_page(self, dict_filter, projection, skip, limit):
+        # Complex predicates still use the exact Python matcher, but a small
+        # page no longer materializes every candidate document in memory.
+        result = []
+        async with get_postgres_session() as session:
+            rows = await session.stream_scalars(
+                self._candidate_statement(dict_filter)
+                .with_only_columns(ApplicationDocument.dict_document)
+                .execution_options(yield_per=128))
+            try:
+                async for row in rows:
+                    document = decode_document_value(row)
+                    if not document_matches(document, dict_filter):
+                        continue
+                    if skip:
+                        skip -= 1
+                        continue
+                    result.append(apply_projection(document, projection))
+                    if limit is not None and len(result) >= limit:
+                        break
+            finally:
+                await rows.close()
+        return result
 
     def _candidate_statement(self, dict_filter: dict | None):
         """Build a narrow indexed candidate query before exact Python matching."""

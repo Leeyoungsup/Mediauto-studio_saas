@@ -43,7 +43,26 @@ def _compute_log_hmac(dict_log: dict, str_prev_hmac: str = "") -> str:
     text text: text HMAC text text text HMAC text text
     text text text/text text text text.
     """
-    # text text text text (text text)
+    if dict_log.get("int_hmac_version") == 2:
+        from app.repositories.operational_store import _json_safe
+
+        fields = ("str_action", "str_user_id", "str_user_email", "str_resource_type",
+                  "str_resource_id", "str_detail", "str_ip_address", "str_user_agent",
+                  "dt_created_at", "dict_before", "dict_after")
+        payload = {key: _json_safe(dict_log.get(key)) for key in fields}
+        excluded = set(fields) | {
+            "_id", "str_hmac", "str_prev_hmac", "dt_hmac_created_at",
+            "str_hmac_verification_status", "str_country", "str_country_name",
+            "str_city", "str_region",
+        }
+        payload["extra"] = {key: _json_safe(value) for key, value in dict_log.items()
+                            if key not in excluded}
+        payload["previous"] = str_prev_hmac
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False,
+                             separators=(",", ":")).encode("utf-8")
+        return hmac.new(_get_hmac_key(), encoded, hashlib.sha256).hexdigest()
+
+    # Preserve the original signature format for historical records.
     list_fields = [
         str(dict_log.get("str_action", "")),
         str(dict_log.get("str_user_id", "")),
@@ -237,6 +256,7 @@ async def log_audit_event(
         )
 
         dict_log = {
+            "int_hmac_version": 2,
             "str_action": str_action,
             "str_user_id": str_user_id,
             "str_user_email": str_user_email,

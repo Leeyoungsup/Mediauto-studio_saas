@@ -1,11 +1,13 @@
 """Annotation class and annotation JSON storage endpoints."""
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request, Response
 
+from app.annotation_files import read_snapshot, save_snapshot
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.config import settings
 from app.models import UserRole
@@ -14,7 +16,7 @@ from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 _INT_ANNOTATIONS_MAX_BYTES = 8 * 1024 * 1024
 _INT_ANNOTATION_CLASSES_MAX_BYTES = 256 * 1024
@@ -143,7 +145,10 @@ async def save_annotation_classes(
 
 
 @router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
-async def save_annotations(slide_id: str, data: str = Form(...)):
+async def save_annotations(slide_id: str, data: str = Form(...),
+                           if_match: str | None = Header(None)):
+    if not if_match:
+        raise HTTPException(428, "Load annotations before saving; If-Match is required")
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "Slide not found")
@@ -168,10 +173,8 @@ async def save_annotations(slide_id: str, data: str = Form(...)):
         raise HTTPException(400, "annotation data must be a list or an object with annotations")
 
     ann_path = _annotation_path_for_slide_path(info.file_path)
-    ann_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(ann_path, "w", encoding="utf-8") as file_obj:
-        json.dump(payload_to_save, file_obj, ensure_ascii=False, indent=2)
-    return {"status": "saved", "count": len(list_parsed), "path": str(ann_path)}
+    revision = await asyncio.to_thread(save_snapshot, ann_path, payload_to_save, if_match)
+    return {"status": "saved", "count": len(list_parsed), "revision": revision}
 
 
 @router.get("/{slide_id}/annotations/load")
@@ -180,7 +183,6 @@ async def load_annotations(slide_id: str):
     if not info:
         raise HTTPException(404, "Slide not found")
     ann_path = _annotation_path_for_slide_path(info.file_path)
-    if not ann_path.exists():
-        return []
-    with open(ann_path, "r", encoding="utf-8") as file_obj:
-        return json.loads(file_obj.read())
+    data, revision = await asyncio.to_thread(read_snapshot, ann_path)
+    return Response(content=data, media_type="application/json",
+                    headers={"ETag": revision, "Cache-Control": "no-store"})

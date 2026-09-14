@@ -181,6 +181,7 @@ if _cors_origins:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["ETag"],
     )
 
 # CSRF text — text text text X-Requested-With text text

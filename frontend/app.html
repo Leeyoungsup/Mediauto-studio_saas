@@ -14,7 +14,7 @@
         })();
     </script>
     <link rel="stylesheet" href="css/shared-header.css?v=20260901-01">
-    <link rel="stylesheet" href="css/style.css?v=20260831-03">
+    <link rel="stylesheet" href="css/style.css?v=20260914-02">
 </head>
 <body>
     <!-- ═══ text ═══ -->
@@ -130,22 +130,22 @@
             </button>
         </div>
         <div class="toolbar-separator"></div>
-        <!-- text text text (1mm²) -->
+        <!-- text text text (2mm²) -->
         <div class="toolbar-group">
             <button id="btn-draw-rect-1mm2" class="toolbar-btn toggle-btn fixed-area-btn"
-                    title="Draw 1mm² Rectangle (1mm × 1mm)" aria-label="Draw 1mm² Rectangle" disabled>
+                    title="Draw 2mm² Rectangle (area = 2mm²)" aria-label="Draw 2mm² Rectangle" disabled>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
                     <rect x="2.5" y="3.5" width="15" height="11" rx="0.5"/>
                     <text x="10" y="12.5" font-size="6.5" font-weight="700" text-anchor="middle"
-                          fill="currentColor" stroke="none">1mm²</text>
+                          fill="currentColor" stroke="none">2mm²</text>
                 </svg>
             </button>
             <button id="btn-draw-circle-1mm2" class="toolbar-btn toggle-btn fixed-area-btn"
-                    title="Draw 1mm² Circle (area = 1mm²)" aria-label="Draw 1mm² Circle" disabled>
+                    title="Draw 2mm² Circle (area = 2mm²)" aria-label="Draw 2mm² Circle" disabled>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
                     <circle cx="10" cy="10" r="8"/>
                     <text x="10" y="12.5" font-size="6.5" font-weight="700" text-anchor="middle"
-                          fill="currentColor" stroke="none">1mm²</text>
+                          fill="currentColor" stroke="none">2mm²</text>
                 </svg>
             </button>
             <button id="btn-ruler" class="toolbar-btn toggle-btn"
@@ -672,7 +672,7 @@
 
             <div class="ux-help-section">Annotation Drawing</div>
             <ul>
-                <li>Use the toolbar buttons to enter Polygon, Brush, Rectangle, Point, fixed 1mm shape, Cut, or Ruler mode.</li>
+                <li>Use the toolbar buttons to enter Polygon, Brush, Rectangle, Point, fixed-area shape, Cut, or Ruler mode.</li>
                 <li>Polygon Brush: drag to paint a free path, then release to complete it.</li>
                 <li>Rectangle: drag to create a box and release to complete it.</li>
                 <li>Point: click once to place a point annotation.</li>
@@ -722,7 +722,7 @@
                 <div class="shortcut-row" data-preview="zoom-slide"><span class="shortcut-keys"><span class="mouse-icon mouse-wheel" aria-label="mouse wheel"></span></span><span>Zoom around the viewport center.</span></div>
                 <div class="shortcut-row"><span class="shortcut-keys"><kbd>Double click</kbd></span><span>Center the selected annotation in the viewer.</span></div>
                 <div class="ux-help-section">Annotation Tools</div>
-                <div class="shortcut-row" data-preview="draw-active-tool"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Draw with the active tool: Polygon, Brush, Rectangle, Point, Cut, fixed 1mm shape, or Ruler.</span></div>
+                <div class="shortcut-row" data-preview="draw-active-tool"><span class="shortcut-keys"><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Draw with the active tool: Polygon, Brush, Rectangle, Point, Cut, fixed-area shape, or Ruler.</span></div>
                 <div class="shortcut-row" data-preview="pan-over-annotation"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Pan over annotations or while drawing mode is active.</span></div>
                 <div class="shortcut-row" data-preview="move-selected-annotation"><span class="shortcut-keys"><kbd>Shift</kbd><span>+</span><span class="mouse-icon mouse-drag" aria-label="mouse drag"><span class="drag-arrow"></span></span></span><span>Move the selected annotation.</span></div>
                 <div class="shortcut-row" data-preview="select-annotation"><span class="shortcut-keys"><kbd>Ctrl</kbd><span>+</span><span class="mouse-icon mouse-click" aria-label="mouse click"><span class="click-mark"></span></span></span><span>Select an annotation, including while drawing mode is active.</span></div>
@@ -754,6 +754,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20260901-01"></script>
-    <script type="module" src="js/app.js?v=20260831-07"></script>
+    <script type="module" src="js/app.js?v=20260914-02"></script>
 </body>
 </html>

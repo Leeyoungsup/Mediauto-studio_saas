@@ -136,13 +136,24 @@ def _extract_bearer_token(request: Request) -> str:
 
 
 # ── FastAPI text: text text ──
+def _check_user_state(user: dict) -> None:
+    if not user.get("bool_is_active", False):
+        raise HTTPException(403, "Account is deactivated")
+    if user.get("bool_is_locked", False):
+        until = user.get("dt_locked_until")
+        if until is not None and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        if until is None or until > datetime.now(timezone.utc):
+            raise HTTPException(403, "Account is locked")
+
+
 async def get_current_user(request: Request) -> dict:
     """Access Tokentext text text text text text
 
     PostgreSQL text text text text text text text (text/text text text)
     """
     if not is_auth_store_connected():
-        return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
+        raise HTTPException(503, "Authentication service unavailable")
 
     str_token = _extract_bearer_token(request)
     dict_payload = decode_token(str_token)
@@ -164,6 +175,7 @@ async def get_current_user(request: Request) -> dict:
     # text text — text text text text text DB text text
     dict_cached = _get_cached_user(str_user_id)
     if dict_cached is not None:
+        _check_user_state(dict_cached)
         return dict_cached
 
     dict_user = await get_user_store().find_by_id(str_user_id, bool_include_secrets=False)
@@ -174,19 +186,7 @@ async def get_current_user(request: Request) -> dict:
             detail="User not found",
         )
 
-    if not dict_user.get("bool_is_active", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated",
-        )
-
-    if dict_user.get("bool_is_locked", False):
-        dt_locked_until = dict_user.get("dt_locked_until")
-        if dt_locked_until and dt_locked_until > datetime.now(timezone.utc):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account is locked due to too many failed login attempts",
-            )
+    _check_user_state(dict_user)
 
     # _idtext text text
     dict_user["_id"] = str(dict_user["_id"])
@@ -225,11 +225,12 @@ async def get_media_user(request: Request) -> dict:
 
     # DB text text text text
     if not is_auth_store_connected():
-        return {"_id": "anonymous", "str_name": "Anonymous", "str_role": "admin"}
+        raise HTTPException(503, "Authentication service unavailable")
 
     # text text — text text text text DB text text
     dict_cached = _get_cached_user(str_user_id)
     if dict_cached is not None:
+        _check_user_state(dict_cached)
         return dict_cached
 
     try:
@@ -246,6 +247,7 @@ async def get_media_user(request: Request) -> dict:
             detail="User not found or inactive",
         )
 
+    _check_user_state(dict_user)
     dict_user["_id"] = str(dict_user["_id"])
     dict_user = _normalize_user_role(dict_user)
     _set_cached_user(str_user_id, dict_user)

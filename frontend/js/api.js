@@ -4,6 +4,7 @@
  */
 
 const API_BASE = '/api';
+const _annotationRevisions = new Map();
 
 // Auth token helpers.
 function _getAccessToken() {
@@ -756,18 +757,29 @@ export const api = {
 
     /** annotation  */
     async saveAnnotations(slideId, annotations) {
+        const revision = _annotationRevisions.get(slideId);
+        if (!revision) throw new Error('Load annotations successfully before saving. Export your edits before reloading.');
         const form = new FormData();
         form.append('data', JSON.stringify(annotations));
-        const res = await _authFetch(`${API_BASE}/slides/${slideId}/annotations/save`, { method: 'POST', body: form });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        const res = await _authFetch(`${API_BASE}/slides/${slideId}/annotations/save`, {
+            method: 'POST', body: form, headers: { 'If-Match': revision },
+        });
+        if (!res.ok) {
+            if (res.status === 409) throw new Error('Annotations changed in another window. Your edits are still here: export them before reloading and merging the latest annotations.');
+            throw new Error(await res.text());
+        }
+        const result = await res.json();
+        _annotationRevisions.set(slideId, result.revision);
+        return result;
     },
 
-    /** annotation  */
     async loadAnnotations(slideId) {
+        _annotationRevisions.delete(slideId);
         const res = await _authFetch(`${API_BASE}/slides/${slideId}/annotations/load`);
         if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        const payload = await res.json();
+        _annotationRevisions.set(slideId, res.headers.get('ETag'));
+        return payload;
     },
 
     async getCellGridConfig(slideId, options = {}) {

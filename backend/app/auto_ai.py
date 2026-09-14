@@ -266,9 +266,21 @@ def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
     auto_ai text text text text text text text text text hit text text
     "inferring/done" text text text text text text text text.
     """
-    from app.routers.ai import _get_vs_cache_paths, _get_vs_tile_dir
+    from app.ai_pipelines.cache_paths import get_vs_cache_paths as _get_vs_cache_paths, get_vs_tile_dir as _get_vs_tile_dir
+    from app.config import settings
     png_path, meta_path = _get_vs_cache_paths(str_full_path, float_target_mpp)
     if not meta_path.exists():
+        return False
+    from app.ai_pipelines.model_identity import model_identity
+    from app.ai_pipelines.virtual_stain import VS_MODEL_FILES
+    try:
+        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            return False
+        model_file = VS_MODEL_FILES.get(metadata.get("stain_type"))
+        if not model_file or metadata.get("model_identity") != model_identity(Path(settings.MODEL_DIR) / model_file):
+            return False
+    except (OSError, ValueError, TypeError):
         return False
     path_lvl0 = _get_vs_tile_dir(str_full_path, float_target_mpp) / '0'
     bool_tiles_ok = path_lvl0.exists() and any(path_lvl0.glob('*.jpeg'))
@@ -640,7 +652,7 @@ async def _scan_and_infer_once() -> None:
                     if not str_full_path or not Path(str_full_path).exists():
                         int_missing_file += 1
                         continue
-                    if _vs_cache_exists(str_full_path, float_target_mpp):
+                    if await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp):
                         int_vs_cache_hits += 1
                         continue
                     list_candidates.append(dict_slide)
@@ -671,7 +683,7 @@ async def _scan_and_infer_once() -> None:
                 else:
                     int_marker_candidates += 1
 
-                if str_model in ("VS IHC", "VS-IHC") and _vs_cache_exists(str_full_path, float_target_mpp):
+                if str_model in ("VS IHC", "VS-IHC") and await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp):
                     # text text → text text (text X)
                     int_vs_cache_hits += 1
                     continue

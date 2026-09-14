@@ -1,10 +1,11 @@
+import { bindFixedAreaTools } from './annotation-area.js?v=20260914-02';
 /**
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260807-02';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260715-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260814-01';
+import { api } from './api.js?v=20260914-01';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260914-02';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260914-02';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -1450,8 +1451,12 @@ if ($btnDrawBrush) $btnDrawBrush.addEventListener('click', () => setDrawMode('br
 $btnDrawRect.addEventListener('click', () => setDrawMode('rectangle'));
 if ($btnDrawPoint) $btnDrawPoint.addEventListener('click', () => setDrawMode('point'));
 if ($btnCutPolygon) $btnCutPolygon.addEventListener('click', () => setDrawMode('cut'));
-if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
+if (ANNOTATION_PAGE_KIND !== 'cell') {
+    bindFixedAreaTools(viewer, $btnDrawRect1mm2, $btnDrawCircle1mm2, setDrawMode);
+} else {
+    if ($btnDrawRect1mm2) $btnDrawRect1mm2.addEventListener('click', () => setDrawMode('rect-1mm2'));
 if ($btnDrawCircle1mm2) $btnDrawCircle1mm2.addEventListener('click', () => setDrawMode('circle-1mm2'));
+}
 if ($btnRuler) $btnRuler.addEventListener('click', () => setDrawMode('ruler'));
 
 const $btnUxHelp = $('#btn-ux-help');
@@ -3124,6 +3129,13 @@ function renderAnnotationPanel() {
             <button class="ann-btn-vis" title="${ann.visible ? 'Hide annotation' : 'Show annotation'}">${_visibilityIcon(ann.visible !== false)}</button>
             <button class="ann-btn-del" title="Delete">Del</button>
         `;
+        const areaLabel = viewer.getAnnotationAreaLabel(ann);
+        if (areaLabel) {
+            const area = document.createElement('span');
+            area.className = 'ann-area';
+            area.textContent = areaLabel;
+            el.append(area);
+        }
         const annDeleteButton = el.querySelector('.ann-btn-del');
         if (_isViewerRole()) {
             const readOnlyTitle = 'Viewer role can view annotations only';

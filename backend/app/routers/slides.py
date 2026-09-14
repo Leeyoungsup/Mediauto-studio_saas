@@ -671,7 +671,7 @@ async def list_cases(
     }
 
 
-@router.patch("/cases/{case_name}/clinical-info")
+@router.patch("/cases/{case_name}/clinical-info", dependencies=[Depends(require_not_viewer)])
 async def update_case_clinical_info(case_name: str, payload: dict = Body(...)):
     if not is_db_connected():
         raise HTTPException(503, "Database is not connected")
@@ -749,7 +749,7 @@ async def open_slide(
 
 # ?? ??? ???????
 
-@router.post("/upload/start")
+@router.post("/upload/start", dependencies=[Depends(require_not_viewer)])
 async def upload_start(filename: str = Form(...)):
     """???????? ??upload_id ???"""
     filename = _safe_filename(filename)
@@ -768,7 +768,7 @@ async def upload_start(filename: str = Form(...)):
     }
 
 
-@router.post("/upload/chunk")
+@router.post("/upload/chunk", dependencies=[Depends(require_not_viewer)])
 async def upload_chunk(
     upload_id: str = Form(...),
     chunk_index: int = Form(...),
@@ -791,7 +791,7 @@ async def upload_chunk(
         auto_ai.upload_exit()
 
 
-@router.post("/upload/complete")
+@router.post("/upload/complete", dependencies=[Depends(require_not_viewer)])
 async def upload_complete(
     request: Request,
     upload_id: str = Form(...),
@@ -1081,7 +1081,7 @@ async def get_slide_clinical_info(slide_id: str):
     }
 
 
-@router.patch("/{slide_id}/clinical-info")
+@router.patch("/{slide_id}/clinical-info", dependencies=[Depends(require_not_viewer)])
 async def update_slide_clinical_info(slide_id: str, payload: dict = Body(...)):
     """Store per-case clinical score metadata shared by AI and annotation viewers."""
     info = slide_manager.get(slide_id)
