@@ -7,6 +7,10 @@
 
 ## 준비
 
+CPU 설치는 Docker Hub의 `haribo1/mediautoai:3.3.2`를 받아 실행합니다.
+GPU 설치는 CUDA용 이미지를 로컬에서 빌드합니다.
+`docker run`으로 앱만 실행하면 DB와 모델 연결이 빠지므로 아래 설치 스크립트를 사용하세요.
+
 - Linux x86-64: Docker Engine + Docker Compose 플러그인.
 - Windows x86-64: Docker Desktop을 설치하고 WSL2 기반 Linux 컨테이너로 실행.
 - 최초 설치 시 인터넷 연결 필수. Python 패키지, 컨테이너 이미지는 번들에 포함되지 않습니다.

@@ -1,5 +1,11 @@
 services:
   app:
+    image: ${COMPOSE_PROJECT_NAME}-gpu:3.3.2
+    build:
+      context: ../..
+      dockerfile: deployment/local/Dockerfile
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
     deploy:
       resources:
         reservations:

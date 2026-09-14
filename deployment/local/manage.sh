@@ -16,7 +16,15 @@ fi
 compose=(docker compose --env-file "$bundle_dir/.deploy.env" -f "$bundle_dir/deployment/local/compose.yml")
 if grep -q '^MEDIAUTO_DEVICE=gpu$' .deploy.env; then compose+=(-f "$bundle_dir/deployment/local/compose.gpu.yml"); fi
 case "$action" in
- setup) "${compose[@]}" up -d --build --wait --wait-timeout 900; echo 'Ready: http://localhost:8092 — initial login is in ADMIN_LOGIN.txt';;
+ setup)
+   if [[ "$mode" == gpu ]]; then
+     "${compose[@]}" up -d --build --wait --wait-timeout 900
+   else
+     "${compose[@]}" pull
+     "${compose[@]}" up -d --no-build --wait --wait-timeout 900
+   fi
+   port=$(sed -n 's/^MEDIAUTO_PORT=//p' .deploy.env | tr -d '\r')
+   echo "Ready: http://localhost:${port:-8092} — initial login is in ADMIN_LOGIN.txt";;
  start) "${compose[@]}" up -d --wait --wait-timeout 900;;
  stop) "${compose[@]}" stop;;
  logs) "${compose[@]}" logs --tail 100 -f app;;

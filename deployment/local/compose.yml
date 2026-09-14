@@ -14,11 +14,7 @@ services:
       timeout: 5s
       retries: 30
   app:
-    build:
-      context: ../..
-      dockerfile: deployment/local/Dockerfile
-      args:
-        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    image: haribo1/mediautoai:3.3.2
     restart: unless-stopped
     init: true
     shm_size: 1gb

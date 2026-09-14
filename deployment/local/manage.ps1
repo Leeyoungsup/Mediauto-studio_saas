@@ -22,7 +22,17 @@ if (Select-String -Path $envFile -Pattern '^MEDIAUTO_DEVICE=gpu$' -Quiet) {
     $composeArgs += @('-f', (Join-Path $bundleDir 'deployment/local/compose.gpu.yml'))
 }
 switch ($Action) {
-    'setup' { Invoke-Docker @composeArgs up -d --build --wait --wait-timeout 900; Write-Host 'Ready: http://localhost:8092 - initial login is in ADMIN_LOGIN.txt' }
+    'setup' {
+        if ($Device -eq 'gpu') {
+            Invoke-Docker @composeArgs up -d --build --wait --wait-timeout 900
+        } else {
+            Invoke-Docker @composeArgs pull
+            Invoke-Docker @composeArgs up -d --no-build --wait --wait-timeout 900
+        }
+        $portLine = Select-String -Path $envFile -Pattern '^MEDIAUTO_PORT=' | Select-Object -First 1
+        $appPort = if ($portLine) { ($portLine.Line -split '=', 2)[1].Trim() } else { '8092' }
+        Write-Host "Ready: http://localhost:$appPort - initial login is in ADMIN_LOGIN.txt"
+    }
     'start' { Invoke-Docker @composeArgs up -d --wait --wait-timeout 900 }
     'stop' { Invoke-Docker @composeArgs stop }
     'logs' { Invoke-Docker @composeArgs logs --tail 100 -f app }
