@@ -2,6 +2,69 @@
 
 All notable changes to MeDIAuto Studio are tracked here.
 
+## [3.3.2] - 2026-09-14
+
+### Fixed
+
+- Require two clicks within 250 ms on the same target and within 8 pixels for Multi View enlargement, preventing slow clicks from enlarging a pane under permissive OS double-click settings.
+
+## [3.3.1] - 2026-09-14
+
+### Changed
+
+- Allow double-clicking a slide in the Multi View grid to activate and enlarge it in place. Preserve drawing gestures and existing double-click annotation navigation once enlarged.
+- Show the double-click shortcut in the Multi View header.
+
+## [3.3.0] - 2026-09-14
+
+### Added
+
+- Enlarge the active Multi View pane or use a pane's Enlarge button, then return with Back to Multi View while keeping the Multi View header, slide selection, viewer instances, annotations and AI results.
+- Preserve zoom and view center during layout changes. Keep Exit Multi View as a separate action that closes the multi-view session.
+
+## [3.2.3] - 2026-09-14
+
+### Fixed
+
+- Restore toggle behavior for fixed-area rectangle and circle buttons: clicking the active shape again exits drawing mode. Changing the area does not activate or deactivate drawing.
+
+## [3.2.2] - 2026-09-14
+
+### Fixed
+
+- Split AI and Tissue fixed-area controls into a shape button that starts drawing with the selected area and a size dropdown that only changes the area.
+- Add outlined groups, dividers, dropdown indicators, and distinct active states so drawing and size selection are easy to distinguish. Keep disabled states synchronized.
+
+## [3.2.1] - 2026-09-14
+
+### Fixed
+
+- Display fixed-area tool values beside the rectangle and circle icons instead of inside their outlines, keeping the selected area readable in active and inactive states.
+- Apply the readable labels to AI, Tissue and Cell Annotation toolbars while preserving each tool's area behavior. Refresh the affected frontend assets.
+
+## [3.2.0] - 2026-09-14
+
+### Added
+
+- Record tissue annotation saves and conflicts, cell annotation saves and workflow changes, required-region saves, patch clearing/recomputation, and AI user-edit saves/deletions in the existing signed audit log.
+- Record upload starts and handler failures, and link them to completion events using upload IDs. Successful chunks do not generate individual audit events.
+- Add Annotation and Uploads filters to user activity in Admin, with saved counts, annotation revisions, patch workflow transitions, and failure status details.
+
+### Changed
+
+- Group historical upload completion events under Uploads and calculate the All activity count from all matching audit events.
+- Allow activity filter tabs to wrap on smaller screens and refresh the Admin asset versions.
+
+### Validation
+
+- Add HTTP-level tests for annotation and upload events, failure handling, audit-store outages, AI edits, and activity category queries.
+- Add frontend tests for escaped activity details and workflow/revision display.
+
+### Upgrade Notes
+
+- Restart the backend and reload Admin to activate the new logging and filters. No database migration is required.
+- Logs describe saved operations rather than unsaved edits or individual shape changes. Existing historical activity is not reconstructed. See `docs/ACTIVITY_LOGS.md` for coverage and limitations.
+
 ## [3.1.0] - 2026-09-14
 
 ### Added

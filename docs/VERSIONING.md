@@ -15,7 +15,7 @@ list; updating the changelog automatically updates the page after restart.
 ## Current Version
 
 ```text
-3.1.0
+3.3.2
 ```
 
 - Release channel: `production`
@@ -49,8 +49,8 @@ removed.
 6. Create an annotated Git tag after the merge:
 
 ```bash
-git tag -a v3.1.0 -m "MeDIAuto Studio 3.1.0"
-git push origin v3.1.0
+git tag -a v3.3.2 -m "MeDIAuto Studio 3.3.2"
+git push origin v3.3.2
 ```
 
 Do not tag before the target commit is present on `main`. A version bump does

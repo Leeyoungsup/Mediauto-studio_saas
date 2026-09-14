@@ -1,7 +1,7 @@
 {
   "name": "MeDIAuto Studio",
-  "version": "3.1.0",
+  "version": "3.3.2",
   "channel": "production",
   "release_date": "2026-09-14",
-  "description": "Adds selectable 1, 2, 4 and 8 mm² annotation tools and physical area labels in AI and Tissue viewers."
+  "description": "Requires clicks within 250 ms for Multi View double-click enlargement."
 }

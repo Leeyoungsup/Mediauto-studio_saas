@@ -405,7 +405,7 @@ html, body {
     color: var(--admin-text);
 }
 .activity-tabs {
-    display: flex; gap: 2px;
+    display: flex; flex-wrap: wrap; gap: 2px;
     padding: 0 20px;
     border-bottom: 1px solid var(--admin-border, #e5e7eb);
     background: #fff;

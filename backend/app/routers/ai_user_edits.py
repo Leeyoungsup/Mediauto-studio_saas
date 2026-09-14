@@ -13,8 +13,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
+from app.activity_audit import audit_activity
 from app.auth import get_current_user
 from app.config import settings
 from app.models import UserRole
@@ -52,7 +53,9 @@ def _get_user_edit_path(slide_path: str, ai_mode: str, variant: str, user_id: st
 
 
 @router.post("/save-result")
+@audit_activity("ai.annotation_save")
 async def save_detection_result(
+    request: Request,
     slide_id: str = Form(...),
     tissue_type: str = Form("Stomach"),
     result: str = Form(...),
@@ -156,7 +159,9 @@ async def list_user_edits(
 
 
 @router.delete("/user-edits")
+@audit_activity("ai.annotation_delete")
 async def delete_user_edit(
+    request: Request,
     slide_id: str,
     ai_mode: str,
     variant: str = "",

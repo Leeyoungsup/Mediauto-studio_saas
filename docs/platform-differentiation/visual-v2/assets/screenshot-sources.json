@@ -1,0 +1,8 @@
+{
+  "screen-multiview.png": "figure/manual-redacted/05-ai-viewer/10-analysis-result-multi-view.png",
+  "screen-virtual-stain.png": "figure/manual-redacted/06-ai-analysis/07-virtual-stain-split-view.png",
+  "screen-cell-edit.png": "figure/manual-redacted/06-ai-analysis/12-quanti-ihc-her2-single-cell-edit.png",
+  "screen-heatmap.png": "figure/manual-redacted/06-ai-analysis/09-quanti-he-spatial-heatmap.png",
+  "screen-patch-review.png": "figure/manual-redacted/08-cell-annotation/02-patch-list.png",
+  "screen-cell-annotation.png": "figure/manual-redacted/08-cell-annotation/03-bounding-box-display.png"
+}

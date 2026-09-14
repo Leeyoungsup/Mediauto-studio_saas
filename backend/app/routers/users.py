@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from app.audit import get_client_ip, log_audit_event
+from app.activity_audit import ANNOTATION_LOG_ACTIONS
 from app.auth import get_current_user, invalidate_user_cache, require_role
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 from app.repositories.auth_store import get_session_store, get_user_store
@@ -753,7 +754,7 @@ async def get_user_activity(
     str_end_date: str = Query("", description="End date YYYY-MM-DD"),
     str_category: str = Query(
         "all",
-        pattern="^(all|login|slide|ai|project|file)$",
+        pattern="^(all|login|slide|ai|project|file|annotation|upload)$",
         description="text text text",
     ),
     dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
@@ -789,7 +790,7 @@ async def get_user_activity(
     list_file_actions = [
         "folder.create", "folder.rename", "folder.delete",
         "folder.ai_config_update", "folder.ai_config_delete",
-        "file.delete", "file.move", "slide.upload", "slide.status_update",
+        "file.delete", "file.move", "slide.status_update",
     ]
 
     def _category_filter(str_value: str) -> dict:
@@ -802,6 +803,10 @@ async def get_user_activity(
             dict_result["str_action_exact"] = "ai.analyze"
         elif str_value == "project":
             dict_result["str_action_prefix"] = "project."
+        elif str_value == "annotation":
+            dict_result["list_actions"] = ANNOTATION_LOG_ACTIONS
+        elif str_value == "upload":
+            dict_result["str_action_prefix"] = "slide.upload"
         elif str_value == "file":
             dict_result["list_actions"] = list_file_actions
         return dict_result
@@ -814,6 +819,9 @@ async def get_user_activity(
 
     # text text text — text text
     dict_counts = {
+        "all": await obj_audit_store.count(**dict_base_filter),
+        "annotation": await obj_audit_store.count(**_category_filter("annotation")),
+        "upload": await obj_audit_store.count(**_category_filter("upload")),
         "login": await obj_audit_store.count(**_category_filter("login")),
         "slide": await obj_audit_store.count(**_category_filter("slide")),
         "ai": await obj_audit_store.count(**_category_filter("ai")),

@@ -18,6 +18,7 @@ when the intended content is clear.
 6. [COMPLIANCE_STATUS.md](COMPLIANCE_STATUS.md): regulatory control implementation status.
 7. [DEPLOYMENT.md](DEPLOYMENT.md): PostgreSQL security, secrets, reverse proxy, Philips bridge, and backup/restore checklist.
 8. [color_match_analysis.md](color_match_analysis.md): Hamamatsu/NDP color matching notes.
+9. [ACTIVITY_LOGS.md](ACTIVITY_LOGS.md): annotation and upload event coverage, Admin filters, and logging limits.
 
 ## Documentation Rules
 

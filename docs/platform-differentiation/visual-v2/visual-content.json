@@ -1,0 +1,278 @@
+{
+  "pages": [
+    {
+      "kicker": "VISUAL BRIEF  /  2026.09.14  /  v2.0",
+      "title": "분석 결과를, 사람이 검토하는 작업으로",
+      "subtitle": "MeDIAuto Studio  |  특허 기술 후보와 실제 화면으로 보는 플랫폼 차별성",
+      "image": "screen-multiview.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "같이 보기",
+          "다중 화면에서 서로 다른 슬라이드와 분석 결과를 함께 확인합니다."
+        ],
+        [
+          "위치에서 검토",
+          "원본 위의 세포 표시와 가상염색 비교를 통해 결과의 위치를 살펴봅니다."
+        ],
+        [
+          "작업으로 연결",
+          "조직·세포 주석과 패치 검수 기능을 같은 플랫폼에서 제공합니다."
+        ]
+      ],
+      "takeaway": "핵심 제안  ·  정량 AI → 가상염색 비교 → 주석·검수로 이어지는 구체적인 작업 경험",
+      "caption": "실제 화면 S1 · 저장소의 기존 비식별 스크린샷. 화면 명칭·모델 표시는 촬영 당시 기준이며 현재 UI와 다를 수 있습니다."
+    },
+    {
+      "kicker": "01  /  PLATFORM WORKFLOW",
+      "title": "차별성은 기능 사이의 연결에서 드러납니다",
+      "subtitle": "원본을 열고, 결과를 살피고, 필요한 작업을 사람이 검수하는 흐름",
+      "image": "infographic-workflow.png",
+      "kind": "infographic",
+      "notes": [
+        [
+          "공통 기반",
+          "슬라이드 좌표를 기준으로 원본·결과·주석의 위치를 연결합니다."
+        ],
+        [
+          "선택적 작업",
+          "분석·가상염색·주석은 목적에 따라 선택합니다. 필수 순서를 뜻하지 않습니다."
+        ],
+        [
+          "사람의 검수",
+          "수정·검수 데이터를 보관합니다. 자동 재학습까지 완료된 구조는 아닙니다."
+        ]
+      ],
+      "takeaway": "제품 포지션  ·  기관별 병리 AI 검토·라벨링 업무를 연결하는 웹 기반 작업 플랫폼",
+      "caption": "생성 인포그래픽 G1 · 코드와 특허 초안을 설명하는 개념도. 실제 제품 화면이나 성능 측정 자료가 아닙니다."
+    },
+    {
+      "kicker": "02  /  VIRTUAL STAIN  /  특허 기술 후보 ③",
+      "title": "가상염색 결과를 원본 위치에서 비교합니다",
+      "subtitle": "생성 결과를 별도 파일로만 보관하지 않고, 정렬된 비교 화면으로 전달",
+      "image": "screen-virtual-stain.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "중앙 분할선",
+          "원본과 생성 영상을 나누는 경계를 이동하며 같은 위치를 비교합니다."
+        ],
+        [
+          "오른쪽 제어",
+          "Overlay와 Split View를 켜고 끄는 조작을 확인할 수 있습니다."
+        ],
+        [
+          "처리 구조",
+          "패치 추론·겹침 혼합·타일 피라미드·정렬 표시가 연결됩니다."
+        ]
+      ],
+      "takeaway": "차별화 제안  ·  가상염색 생성과 탐색·비교를 하나의 작업 흐름으로 제공",
+      "caption": "실제 화면 S2 · 화면 예시는 IHC → Virtual H&E. 변환 방향을 반대로 해석하지 않습니다. 실제 검사 대체·진단 성능의 근거가 아닙니다."
+    },
+    {
+      "kicker": "03  /  QUANTITATIVE AI  /  특허 기술 후보 ②·④",
+      "title": "숫자의 근거가 된 세포를 직접 확인하고 수정합니다",
+      "subtitle": "원본 영상 위에서 세포별 분류와 신뢰도를 확인하는 검토 화면",
+      "image": "screen-cell-edit.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "중앙 편집 메뉴",
+          "선택한 세포의 클래스와 신뢰도를 확인하고 클래스 변경·삭제를 수행합니다."
+        ],
+        [
+          "오른쪽 결과",
+          "세포 분류와 집계가 영상 검토와 함께 제공됩니다."
+        ],
+        [
+          "저장 방식",
+          "정량 AI 원본과 사용자별 수정 결과를 분리해 보관하는 코드가 있습니다."
+        ]
+      ],
+      "takeaway": "차별화 제안  ·  결과 요약에서 세포 단위 근거 확인과 사람의 수정으로 연결",
+      "caption": "실제 화면 S3 · 스크린샷의 HER2 점수·세포 수는 예시 결과이며 정확도 검증 자료가 아닙니다. 타사에도 AI 결과 수정 기능이 있습니다."
+    },
+    {
+      "kicker": "04  /  SPATIAL CONTEXT  /  특허 기술 후보 ②",
+      "title": "세포의 개수와 공간 분포를 함께 살펴봅니다",
+      "subtitle": "세포 단위 표시와 공간 요약을 목적에 맞게 전환하는 검토 경험",
+      "image": "screen-heatmap.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "왼쪽 시각화",
+          "Spatial Heatmap 화면에서 조직 내 분포를 확인합니다."
+        ],
+        [
+          "원본의 위치",
+          "배경 뷰어의 세포 표시와 위치 정보를 바탕으로 결과를 검토합니다."
+        ],
+        [
+          "표시 최적화",
+          "현재 코드는 화면 내 결과를 선별하고 확대 수준·결과 수에 따라 표현을 조절합니다."
+        ]
+      ],
+      "takeaway": "차별화 제안  ·  많은 결과를 표시하는 것에서, 검토 대상을 찾고 좁히는 경험으로 연결",
+      "caption": "실제 화면 S4 · 공간 격자·표현 전환의 구현 근거는 tile-viewer.js. 정지 화면만으로 처리 속도나 수백만 결과의 실시간 성능을 증명하지 않습니다."
+    },
+    {
+      "kicker": "05  /  PATCH WORKFLOW  /  특허 기술 후보 ④",
+      "title": "슬라이드의 필요한 영역을 검수 가능한 작업으로 나눕니다",
+      "subtitle": "필요 영역과 패치 목록, 주석·검수·종결 상태의 연결",
+      "image": "screen-patch-review.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "중앙 패치 격자",
+          "선택된 패치 위치를 전체 슬라이드 맥락에서 확인합니다."
+        ],
+        [
+          "오른쪽 목록",
+          "각 패치의 Annotation·Review·Termination 상태를 함께 표시합니다."
+        ],
+        [
+          "상단 진행 상태",
+          "현재 작업 진행 상황을 확인하고 다음 검토 대상을 선택합니다."
+        ]
+      ],
+      "takeaway": "차별화 제안  ·  주석을 그리는 기능에 작업 단위와 검수 상태를 결합",
+      "caption": "실제 화면 S5 · 표시된 완료율은 촬영 당시 작업 상태의 예시입니다. 업무 효율 향상률이나 자동 검수 정확도를 의미하지 않습니다."
+    },
+    {
+      "kicker": "06  /  CELL ANNOTATION  /  특허 기술 후보 ④",
+      "title": "AI 보조 결과를 사람이 편집할 수 있는 주석으로 다룹니다",
+      "subtitle": "패치 내 세포, 클래스 목록, 작업 상태를 한 화면에서 확인",
+      "image": "screen-cell-annotation.png",
+      "kind": "screen",
+      "notes": [
+        [
+          "중앙 세포 박스",
+          "세포별 위치와 분류를 보며 검토합니다."
+        ],
+        [
+          "오른쪽 편집",
+          "클래스 관리, BBox·Point 표시와 세포 주석 목록을 제공합니다."
+        ],
+        [
+          "검수와 연결",
+          "저장과 재열람, 패치 상태 및 내보내기 경로가 구현되어 있습니다."
+        ]
+      ],
+      "takeaway": "차별화 제안  ·  AI 보조 → 사람의 수정 → 패치 검수 상태로 연결되는 업무 구성",
+      "caption": "실제 화면 S6 · 현재 확인 범위는 주석·수정·상태 관리입니다. 수정 데이터의 자동 재학습·모델 배포는 구현 완료로 설명하지 않습니다."
+    },
+    {
+      "kicker": "07  /  RESPONSIVE VIEWING  /  특허 기술 후보 ①",
+      "title": "화면 뒤에서는 현재 요청을 먼저 처리하도록 조정합니다",
+      "subtitle": "스크린샷에 드러나지 않는 차별화 요소: 화면 요청과 서버 생성 우선순위의 연결",
+      "image": "infographic-tiles.png",
+      "kind": "infographic",
+      "notes": [
+        [
+          "캐시 재사용",
+          "생성된 타일이 있으면 이를 반환합니다."
+        ],
+        [
+          "부하에 맞는 생성",
+          "캐시가 없으면 우선 요청을 등록하고 실행 수·대기열에 따라 즉시 생성 가능 여부를 판단합니다."
+        ],
+        [
+          "작업 양보",
+          "뷰어 활동을 고려해 일부 백그라운드 작업의 실행을 조정합니다."
+        ]
+      ],
+      "takeaway": "검증할 효과  ·  첫 유효 화면 시간 / 이동 후 목표 해상도 시간 / AI 병행 시 p95 응답시간",
+      "caption": "생성 인포그래픽 G2 · 흐름을 단순화한 개념도. 즉시 생성 경로에서도 우선 요청을 등록합니다. 타사 대비 속도·사용자별 공정성 보장을 뜻하지 않습니다."
+    }
+  ],
+  "competitors": [
+    [
+      "HALO 계열",
+      "AI 학습·정량 분석·공동 데이터 작업",
+      "가상염색 비교와 패치 검수를 연결하는 실제 작업으로 설명",
+      "H1, H2"
+    ],
+    [
+      "Aiforia Create",
+      "클라우드 모델 개발·검증·AI 보조 주석",
+      "기관 서버 중심 운영과 구체적인 검수 절차를 제시",
+      "A1"
+    ],
+    [
+      "Visiopharm",
+      "예제 기반 AI 학습·조직/세포 표현형 분석",
+      "브라우저에서 결과 비교와 주석 작업을 연결하는 흐름을 제시",
+      "V1, V2"
+    ],
+    [
+      "Proscia Concentriq LS",
+      "이미지·연관 데이터 관리·AI 실행 연결",
+      "사용자 수정 저장과 패치 상태 관리를 구체적으로 시연",
+      "P1, P2"
+    ],
+    [
+      "PathPresenter",
+      "기업용 이미지 관리·협업·외부 시스템 연동",
+      "자체 분석 파이프라인과 세포·패치 검수의 연결을 제시",
+      "R1"
+    ],
+    [
+      "QuPath",
+      "설치형 공개 소스 분석·주석·스크립트",
+      "계정·서버 작업·패치 검수를 포함한 웹 업무 제공 범위를 설명",
+      "Q1, Q2"
+    ]
+  ],
+  "sources": [
+    [
+      "H1",
+      "HALO AI",
+      "https://indicalab.com/halo-ai/"
+    ],
+    [
+      "H2",
+      "HALO Link",
+      "https://indicalab.com/halo-link/"
+    ],
+    [
+      "A1",
+      "Aiforia Create",
+      "https://www.aiforia.com/aiforia-create"
+    ],
+    [
+      "V1",
+      "Visiopharm · Phenotyping",
+      "https://visiopharm.com/resources/advanced-phenotyping-of-the-tumor-immune-microenvironment/"
+    ],
+    [
+      "V2",
+      "Visiopharm · AI Author 활용",
+      "https://visiopharm.com/blog/alimentivs-digital-pathology-innovation-with-visiopharm-an-interview-with-dr-pavine-lefevre/"
+    ],
+    [
+      "P1",
+      "Proscia · Concentriq",
+      "https://proscia.com/platform/concentriq-digital-pathology-platform"
+    ],
+    [
+      "P2",
+      "Concentriq LS 브로슈어",
+      "https://info.proscia.com/hubfs/Life-sciences/Proscia_ConcentriqLS_Brochure.pdf"
+    ],
+    [
+      "R1",
+      "PathPresenter",
+      "https://www.pathpresenter.com/about-pathpresenter/"
+    ],
+    [
+      "Q1",
+      "QuPath",
+      "https://qupath.github.io/"
+    ],
+    [
+      "Q2",
+      "QuPath · Scripting",
+      "https://qupath.github.io/workshop-intro/chapters/extras/how_do_i_write_scripts.html"
+    ]
+  ]
+}

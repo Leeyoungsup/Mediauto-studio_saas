@@ -36,10 +36,10 @@ def test_parse_changelog_builds_release_sections_and_counts():
 def test_repository_changelog_contains_current_release():
     dict_history = get_version_history()
 
-    assert dict_history["current"]["version"] == "3.1.0"
+    assert dict_history["current"]["version"] == "3.3.2"
     assert dict_history["current"]["release_date"] == "2026-09-14"
     assert dict_history["releases"][0]["date"] == "2026-09-14"
-    assert "Added" in {section["title"] for section in dict_history["releases"][0]["sections"]}
+    assert "Fixed" in {section["title"] for section in dict_history["releases"][0]["sections"]}
     assert dict_history["total_releases"] >= 237
-    assert dict_history["releases"][0]["version"] == "3.1.0"
+    assert dict_history["releases"][0]["version"] == "3.3.2"
     assert dict_history["releases"][0]["change_count"] > 0

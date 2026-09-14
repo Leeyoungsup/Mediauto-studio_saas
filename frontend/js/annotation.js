@@ -1,4 +1,4 @@
-import { bindFixedAreaTools } from './annotation-area.js?v=20260914-02';
+import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
  * MeDIAuto Studio SaaS annotation entry point.
  */

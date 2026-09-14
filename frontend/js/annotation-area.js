@@ -61,23 +61,56 @@ export function bindFixedAreaTools(viewer, rectangle, circle, activate) {
         menu.hidden = true;
         owner?.setAttribute('aria-expanded', 'false');
     };
+    const controls = [];
     const update = () => {
-        for (const [button, shape] of [[rectangle, 'Rectangle'], [circle, 'Circle']]) {
-            if (!button) continue;
-            button.querySelector('text').textContent = `${selectedArea}mm²`;
-            button.title = `${shape}: ${selectedArea} mm² — choose 1, 2, 4 or 8 mm²`;
+        for (const { button, sizeButton, shape } of controls) {
+            sizeButton.querySelector('.fixed-area-label').textContent = `${selectedArea} mm²`;
+            button.title = `Draw ${shape.toLowerCase()}: ${selectedArea} mm²`;
             button.setAttribute('aria-label', button.title);
+            sizeButton.title = `Change ${shape.toLowerCase()} area: ${selectedArea} mm²`;
+            sizeButton.setAttribute('aria-label', sizeButton.title);
         }
     };
-    update();
-    for (const [button, mode] of [[rectangle, 'rect-1mm2'], [circle, 'circle-1mm2']]) {
+    for (const [button, mode, shape] of [[rectangle, 'rect-1mm2', 'Rectangle'], [circle, 'circle-1mm2', 'Circle']]) {
         if (!button) continue;
-        button.setAttribute('aria-haspopup', 'menu');
-        button.setAttribute('aria-expanded', 'false');
+        const group = document.createElement('div');
+        group.className = 'fixed-area-control';
+        group.setAttribute('role', 'group');
+        group.setAttribute('aria-label', `${shape} fixed area tool`);
+        button.before(group);
+        group.append(button);
+        const sizeButton = document.createElement('button');
+        sizeButton.type = 'button';
+        sizeButton.className = 'fixed-area-size';
+        sizeButton.append(button.querySelector('.fixed-area-label'));
+        const arrow = document.createElement('span');
+        arrow.className = 'fixed-area-chevron';
+        arrow.textContent = '▾';
+        arrow.setAttribute('aria-hidden', 'true');
+        sizeButton.append(arrow);
+        group.append(sizeButton);
+        sizeButton.setAttribute('aria-haspopup', 'menu');
+        sizeButton.setAttribute('aria-expanded', 'false');
+        controls.push({ button, sizeButton, shape });
+        const syncDisabled = () => {
+            sizeButton.disabled = button.disabled;
+            if (button.disabled && owner === sizeButton) close();
+        };
+        syncDisabled();
+        new MutationObserver(syncDisabled).observe(button, { attributes: true, attributeFilter: ['disabled'] });
         button.addEventListener('click', () => {
-            if (owner === button && !menu.hidden) { close(); return; }
+            if (button.disabled) return;
             close();
-            owner = button;
+            const activeViewer = getViewer();
+            activeViewer.fixedAreaMm2 = selectedArea;
+            activate(mode);
+            activeViewer.requestRender();
+        });
+        sizeButton.addEventListener('click', () => {
+            if (button.disabled) return;
+            if (owner === sizeButton && !menu.hidden) { close(); return; }
+            close();
+            owner = sizeButton;
             menu.replaceChildren();
             for (const area of FIXED_AREAS) {
                 const option = document.createElement('button');
@@ -91,21 +124,21 @@ export function bindFixedAreaTools(viewer, rectangle, circle, activate) {
                     const activeViewer = getViewer();
                     activeViewer.fixedAreaMm2 = area;
                     update();
-                    if (activeViewer.drawMode !== mode) activate(mode);
                     activeViewer.requestRender();
                     close();
-                    button.focus();
+                    sizeButton.focus();
                 });
                 menu.append(option);
             }
-            const rect = button.getBoundingClientRect();
+            const rect = sizeButton.getBoundingClientRect();
             menu.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 180))}px`;
             menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 190)}px`;
             menu.hidden = false;
-            button.setAttribute('aria-expanded', 'true');
+            sizeButton.setAttribute('aria-expanded', 'true');
             menu.querySelector('[aria-checked="true"]').focus();
         });
     }
+    update();
     document.addEventListener('pointerdown', event => {
         if (!menu.contains(event.target) && !owner?.contains(event.target)) close();
     });

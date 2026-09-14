@@ -2,9 +2,9 @@
 <meta charset="utf-8">
 <title>Fixed area control browser regression</title>
 <link rel="stylesheet" href="../css/style.css">
-<button id="rectangle"><svg><text>1mm²</text></svg></button>
-<button id="circle"><svg><text>1mm²</text></svg></button>
-<output id="result">Pending</output>
+<div style="display:flex; gap:8px; padding:24px; background:#f0edff"><button class="toolbar-btn toggle-btn fixed-area-btn" id="rectangle"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="12"/></svg><span class="fixed-area-label">1 mm²</span></button>
+<button class="toolbar-btn toggle-btn fixed-area-btn" id="circle"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="8"/></svg><span class="fixed-area-label">1 mm²</span></button>
+</div><output id="result">Pending</output>
 <script type="module">
 import { bindFixedAreaTools } from '../js/annotation-area.js';
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -12,19 +12,40 @@ try {
     const rectangle = document.getElementById('rectangle');
     const circle = document.getElementById('circle');
     let viewer = { drawMode: null, requestRender() {} };
-    bindFixedAreaTools(() => viewer, rectangle, circle, mode => { viewer.drawMode = mode; });
-    assert(rectangle.querySelector('text').textContent === '2mm²', 'Default area');
-    rectangle.click();
+    bindFixedAreaTools(() => viewer, rectangle, circle, mode => {
+        viewer.drawMode = viewer.drawMode === mode ? null : mode;
+        rectangle.classList.toggle('active', viewer.drawMode === 'rect-1mm2');
+        circle.classList.toggle('active', viewer.drawMode === 'circle-1mm2');
+    });
+    const rectangleSize = rectangle.parentElement.querySelector('.fixed-area-size');
+    const circleSize = circle.parentElement.querySelector('.fixed-area-size');
     const menu = document.querySelector('.fixed-area-menu');
-    assert(!menu.hidden && menu.children.length === 4, 'Four visible options');
+    assert(rectangleSize.textContent.includes('2 mm²'), 'Default area');
+    rectangle.click();
+    assert(menu.hidden && viewer.drawMode === 'rect-1mm2' && viewer.fixedAreaMm2 === 2, 'Shape immediately activates drawing');
+    rectangle.click();
+    assert(viewer.drawMode === null && !rectangle.classList.contains('active') && menu.hidden, 'Second rectangle click deactivates drawing');
+    rectangle.click();
+    assert(viewer.drawMode === 'rect-1mm2', 'Rectangle reactivates');
+    rectangleSize.click();
+    assert(!menu.hidden && menu.children.length === 4, 'Size opens four options');
     assert(document.activeElement.textContent === '2 mm²', 'Default keyboard focus');
     menu.children[2].click();
-    assert(viewer.fixedAreaMm2 === 4 && viewer.drawMode === 'rect-1mm2', 'Rectangle selection');
-    assert(menu.hidden && document.activeElement === rectangle, 'Close and restore focus');
-    circle.click();
+    assert(viewer.fixedAreaMm2 === 4 && viewer.drawMode === 'rect-1mm2', 'Size changes current drawing area');
+    assert(menu.hidden && document.activeElement === rectangleSize, 'Close and restore size focus');
+    circleSize.click();
     menu.children[3].click();
-    assert(viewer.fixedAreaMm2 === 8 && viewer.drawMode === 'circle-1mm2', 'Circle selection');
+    assert(viewer.fixedAreaMm2 === 8 && viewer.drawMode === 'rect-1mm2', 'Changing size does not switch shape');
     circle.click();
+    assert(menu.hidden && viewer.drawMode === 'circle-1mm2', 'Circle starts drawing without menu');
+    circle.click();
+    assert(viewer.drawMode === null && !circle.classList.contains('active') && menu.hidden, 'Second circle click deactivates drawing');
+    circleSize.click();
+    menu.children[2].click();
+    assert(viewer.drawMode === null && viewer.fixedAreaMm2 === 4, 'Size change while inactive does not activate drawing');
+    circleSize.click();
+    menu.children[3].click();
+    circleSize.click();
     menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     assert(document.activeElement.textContent === '1 mm²', 'Arrow navigation wraps');
     menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -32,8 +53,21 @@ try {
     const previousViewer = viewer;
     viewer = { drawMode: null, requestRender() {} };
     rectangle.click();
+    assert(viewer.fixedAreaMm2 === 8 && viewer.drawMode === 'rect-1mm2', 'Shape uses selected size in active pane');
+    rectangleSize.click();
     menu.children[0].click();
     assert(viewer.fixedAreaMm2 === 1 && previousViewer.fixedAreaMm2 === 8, 'Selection follows active pane');
+    rectangleSize.click();
+    rectangle.disabled = true;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert(rectangleSize.disabled && menu.hidden, 'Disabling drawing also disables size and closes menu');
+    rectangle.disabled = false;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert(!rectangleSize.disabled, 'Enabling drawing restores size button');
+    rectangle.classList.add('active');
+    const iconBounds = rectangle.getBoundingClientRect();
+    const sizeBounds = rectangleSize.getBoundingClientRect();
+    assert(iconBounds.right <= sizeBounds.left + 1, 'Shape and size have separate non-overlapping hit targets');
     document.body.dataset.testResult = 'passed';
     document.getElementById('result').textContent = 'PASS';
 } catch (error) {

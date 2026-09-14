@@ -440,8 +440,65 @@ html.project-gate-boot #toolbar {
     background: rgba(255,255,255,0.18);
     box-shadow: 0 0 0 1px rgba(255,255,255,0.7);
 }
-/* 1mm² text text text SVG text text text text text text text */
-.toolbar-btn.fixed-area-btn svg { width: 22px; height: 22px; }
+/* Keep physical area readable outside the shape outline. */
+.toolbar-btn.fixed-area-btn {
+    width: auto;
+    min-width: 76px;
+    flex-shrink: 0;
+    gap: 5px;
+    padding: 0 8px;
+}
+.toolbar-btn.fixed-area-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+.fixed-area-label {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+/* Split action: shape starts drawing; the separate size button opens its menu. */
+.fixed-area-control {
+    display: inline-flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    height: 34px;
+    margin: 0 4px;
+    border: 1px solid #b6b0ce;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(35, 25, 65, 0.08);
+}
+.fixed-area-control .toolbar-btn.fixed-area-btn {
+    width: 34px;
+    min-width: 34px;
+    height: 32px;
+    padding: 0;
+    border-radius: 7px 0 0 7px;
+}
+.fixed-area-size {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 64px;
+    padding: 0 8px;
+    border: 0;
+    border-left: 1px solid #b6b0ce;
+    border-radius: 0 7px 7px 0;
+    background: #f7f5ff;
+    color: var(--text);
+    cursor: pointer;
+}
+.fixed-area-chevron { font-size: 11px; }
+.fixed-area-size:hover:not(:disabled), .fixed-area-size[aria-expanded="true"] {
+    background: #e7e1ff;
+    color: #4930a0;
+}
+.fixed-area-size:disabled { opacity: 0.3; cursor: not-allowed; }
+.fixed-area-control button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; z-index: 1; }
+.fixed-area-control .toolbar-btn.toggle-btn.active { box-shadow: none; }
+.fixed-area-control .toolbar-btn.toggle-btn.active::after { display: none; }
+.fixed-area-control .toolbar-btn.active + .fixed-area-size { background: #eee8ff; border-left-color: var(--accent); }
 .toolbar-btn.toggle-btn.active::after {
     content: ''; position: absolute;
     left: 50%; bottom: -6px; transform: translateX(-50%);
@@ -1581,6 +1638,7 @@ body.viewer-alt-held #wsi-canvas {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.multi-view-header .multi-view-actions { flex-shrink: 0; align-items: center; }
 .multi-view-header .small-btn { flex: 0 0 auto; padding: 6px 12px; }
 .multi-view-grid {
     flex: 1;
@@ -1596,6 +1654,11 @@ body.viewer-alt-held #wsi-canvas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: repeat(2, minmax(0, 1fr));
 }
+.multi-view-grid.pane-focused {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+}
+.multi-view-grid.pane-focused > .multi-view-pane:not(.focused-pane) { display: none; }
 .multi-view-pane {
     position: relative;
     min-width: 0;
@@ -1660,7 +1723,8 @@ body.viewer-alt-held #wsi-canvas {
     white-space: nowrap;
     box-shadow: 0 2px 7px rgba(0,0,0,.18);
 }
-.multi-view-pane-fit {
+.multi-view-pane-fit,
+.multi-view-pane-focus {
     flex: 0 0 auto;
     margin-left: auto;
     padding: 4px 7px;
@@ -1672,6 +1736,9 @@ body.viewer-alt-held #wsi-canvas {
     cursor: pointer;
     pointer-events: auto;
 }
+.multi-view-pane-focus { margin-left: 0; background: #5543b8; }
+.multi-view-pane-focus:disabled { opacity: .4; cursor: not-allowed; }
+.multi-view-pane-focus:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .multi-view-pane-error {
     position: absolute;
     inset: 0;

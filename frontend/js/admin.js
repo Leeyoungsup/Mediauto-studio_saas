@@ -655,14 +655,15 @@ async function loadUserActivity() {
         userActivityTitle.textContent =
             `${user.str_name || '-'} (${user.str_login_id || '-'}) - ${user.str_role || '-'}`;
         const counts = data.dict_counts || {};
-        const allCount = (counts.login || 0) + (counts.slide || 0) +
-            (counts.ai || 0) + (counts.project || 0) + (counts.file || 0);
+        const allCount = counts.all ?? data.int_total ?? 0;
         setBadge('all', allCount);
         setBadge('login', counts.login || 0);
         setBadge('slide', counts.slide || 0);
         setBadge('ai', counts.ai || 0);
         setBadge('project', counts.project || 0);
         setBadge('file', counts.file || 0);
+        setBadge('annotation', counts.annotation || 0);
+        setBadge('upload', counts.upload || 0);
 
         const list = data.list_logs || [];
         userActivityTotal = data.int_total || 0;
@@ -707,6 +708,20 @@ function fmtActionPill(action) {
         'file.delete': ['File deleted', 'error'],
         'file.move': ['File moved', 'accent'],
         'slide.upload': ['Slide uploaded', 'success'],
+        'slide.upload_started': ['Upload started', 'info'],
+        'slide.upload_started.failed': ['Upload start failed', 'error'],
+        'slide.upload.failed': ['Upload failed', 'error'],
+        'slide.upload_chunk.failed': ['Upload chunk failed', 'error'],
+        'annotation.save': ['Annotations saved', 'success'],
+        'annotation_classes.update': ['Annotation classes updated', 'info'],
+        'cell_annotation_classes.update': ['Cell classes updated', 'info'],
+        'cell_annotation.regions_save': ['Required regions saved', 'success'],
+        'cell_annotation.cells_save': ['Cell annotations saved', 'success'],
+        'cell_annotation.status_update': ['Patch status updated', 'info'],
+        'cell_annotation.patches_clear': ['Patches cleared', 'error'],
+        'cell_annotation.patches_recompute': ['Patches recomputed', 'info'],
+        'ai.annotation_save': ['AI edits saved', 'success'],
+        'ai.annotation_delete': ['AI edits deleted', 'info'],
         'slide.status_update': ['Slide status', 'info'],
         'user.login_success': ['Sign in', 'success'],
         'user.login_failed': ['Login failed', 'error'],
@@ -714,11 +729,39 @@ function fmtActionPill(action) {
         'slide.view': ['Slide viewed', 'info'],
         'ai.analyze': ['AI analysis', 'accent'],
     };
-    const pair = labels[action] || [action || '-', 'neutral'];
+    const baseAction = action?.endsWith('.failed') ? action.slice(0, -7) : '';
+    const pair = labels[action] || (labels[baseAction]
+        ? [`${labels[baseAction][0]} (failed)`, 'error'] : [action || '-', 'neutral']);
     return `<span class="action-pill ${pair[1]}">${esc(pair[0])}</span>`;
 }
 
 function fmtActivityDetail(log) {
+    if (log.dict_context) {
+        const context = log.dict_context;
+        const after = log.dict_after || {};
+        const bits = [];
+        for (const key of ['filename', 'path', 'slide_id', 'patch_id', 'upload_id', 'chunk_index', 'total_chunks', 'ai_mode', 'tissue_type', 'variant', 'http_status', 'error_type']) {
+            if (context[key] !== undefined && context[key] !== '') bits.push(`${key}: ${context[key]}`);
+        }
+        for (const key of ['count', 'cell_count', 'total_cells', 'patch_count', 'cell_annotation_count', 'required_count', 'added_count', 'excluded_count', 'patch_status', 'status', 'str_annotation_status', 'str_review_status', 'str_termination_status']) {
+            if (after[key] !== undefined) bits.push(`${key}: ${after[key]}`);
+        }
+        if (log.dict_before?.revision && after.revision) {
+            bits.push(`revision: ${log.dict_before.revision} → ${after.revision}`);
+        }
+        for (const key of ['str_status', 'str_annotation_status', 'str_review_status', 'str_termination_status']) {
+            const previous = log.dict_before?.[key];
+            const current = after[key] ?? (key === 'str_status' ? after.patch_status ?? after.status : undefined);
+            if (previous !== undefined && current !== undefined && previous !== current) {
+                bits.push(`${key}: ${previous ?? '-'} → ${current}`);
+            }
+        }
+        if (context.http_status && context.requested_state) {
+            bits.push(`requested: ${JSON.stringify(context.requested_state)}`);
+        }
+        return `<strong>${esc(log.str_detail || '-')}</strong>` +
+            (bits.length ? `<br><small>${esc(bits.join(' / '))}</small>` : '');
+    }
     if (log.str_action === 'slide.view') {
         const path = log.str_rel_path ? `${log.str_rel_path}/` : '';
         return `<strong>${esc(log.str_detail || '-')}</strong>` +
@@ -735,6 +778,8 @@ function fmtActivityDetail(log) {
         || log.str_action === 'slide.status_update') {
         const bits = [];
         if (log.str_rel_path) bits.push(log.str_rel_path);
+        if (log.str_upload_id) bits.push(`upload_id: ${log.str_upload_id}`);
+        if (log.int_size_bytes !== undefined) bits.push(`${log.int_size_bytes} bytes`);
         if (log.str_src_path || log.str_dst_path) {
             bits.push(`${log.str_src_path || '-'} -> ${log.str_dst_path || '-'}`);
         }

@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Multi View enlargement browser regression</title>
+<link rel="stylesheet" href="../css/style.css">
+<section id="container" class="multi-view-container" style="position:relative; height:600px">
+  <header class="multi-view-header"><div><strong>Multi View · 4 slides</strong></div><div class="multi-view-actions"><button id="focus" class="small-btn primary">Enlarge Active</button><button class="small-btn">Exit Multi View</button></div></header>
+  <div id="grid" class="multi-view-grid count-4"></div>
+</section>
+<output id="result">Pending</output>
+<script type="module">
+import { MultiViewFocus } from '../js/multi-view-focus.js';
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+// Deterministic frame scheduling for headless virtual-time execution.
+window.requestAnimationFrame = callback => setTimeout(callback, 0);
+const frame = () => new Promise(resolve => setTimeout(resolve, 10));
+try {
+    const container = document.getElementById('container');
+    const grid = document.getElementById('grid');
+    const button = document.getElementById('focus');
+    const panes = Array.from({length: 4}, (_, i) => {
+        const element = document.createElement('section');
+        element.className = 'multi-view-pane';
+        element.style.background = ['#f0dbe2','#e1dce9','#eddde6','#eadfeb'][i];
+        element.innerHTML = `<div class="multi-view-pane-header"><span class="multi-view-pane-label">Slide ${i + 1}</span><button class="multi-view-pane-focus">Enlarge</button></div>`;
+        grid.append(element);
+        return {element, focusButton: element.querySelector('button'), slideInfo: {slide_id: String(i)}, error: {hidden: true},
+            viewer: {zoom: 2, viewCenterX: 100 + i, viewCenterY: 200, annotations: [{id: i}], detectionCells: [{id: i}],
+                _resizeCanvas() { this.zoom = 99; this.viewCenterX = 0; }, requestRender() {}}};
+    });
+    let active = panes[1];
+    active.element.classList.add('active');
+    const focus = new MultiViewFocus({container, grid, button, getPanes: () => panes, getActivePane: () => active});
+    assert(button.disabled, 'No enlargement during slide loading');
+    focus.ready = true;
+    focus.refresh();
+    const initialWidth = active.element.getBoundingClientRect().width;
+    const annotations = active.viewer.annotations;
+    const cells = active.viewer.detectionCells;
+    for (let repeat = 0; repeat < 3; repeat++) {
+        button.click();
+        await frame();
+        assert(!container.hidden && button.textContent === 'Back to Multi View', 'Header and return action stay visible');
+        assert(active.element.getBoundingClientRect().width > initialWidth * 1.8, 'Active pane fills the grid');
+        assert(getComputedStyle(panes[0].element).display === 'none', 'Other panes temporarily hidden');
+        assert(active.viewer.zoom === 2 && active.viewer.viewCenterX === 101, 'Resize preserves zoom and center');
+        button.click();
+        await frame();
+        assert(Math.abs(active.element.getBoundingClientRect().width - initialWidth) < 1, 'Original grid restored');
+        assert(active.viewer.annotations === annotations && active.viewer.detectionCells === cells, 'Unsaved annotations and AI data preserve identity');
+        assert(panes[0].viewer.viewCenterX === 100, 'Other pane location preserved');
+    }
+    active = panes[3];
+    focus.toggle(active);
+    await frame();
+    assert(focus.focusedPane === panes[3], 'Another pane can be enlarged');
+    focus.reset();
+    assert(!grid.classList.contains('pane-focused') && button.disabled, 'Exit/reset removes enlarged state');
+    focus.ready = true;
+    panes[3].error.hidden = false;
+    focus.refresh();
+    button.click();
+    assert(!focus.focusedPane && button.disabled, 'Failed slide cannot be enlarged');
+    panes[3].error.hidden = true;
+    for (const count of [2, 3]) {
+        panes.forEach((pane, index) => { pane.element.hidden = index >= count; });
+        grid.className = `multi-view-grid count-${count}`;
+        active = panes[0];
+        focus.refresh();
+        button.click();
+        await frame();
+        button.click();
+        await frame();
+        assert(grid.classList.contains(`count-${count}`), 'Two/three pane grid retained');
+        assert(panes[3].element.hidden, 'Unused panes remain hidden');
+    }
+    panes.forEach(pane => focus.bindPaneDoubleClick(pane, selected => { active = selected; }));
+    const target = panes[1];
+    const canvas = document.createElement('canvas');
+    target.element.append(canvas);
+    const doubleClick = (element, gap = 100) => {
+        const time = performance.now();
+        for (const [detail, stamp] of [[1, time], [2, time + gap]]) {
+            const click = new MouseEvent('click', {bubbles: true, detail});
+            Object.defineProperty(click, 'timeStamp', {value: stamp});
+            element.dispatchEvent(click);
+        }
+        element.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+    };
+    let viewerDoubleClicks = 0;
+    canvas.addEventListener('dblclick', () => viewerDoubleClicks++);
+    doubleClick(canvas);
+    await frame();
+    assert(focus.focusedPane === target && active === target, 'Double click activates and enlarges the clicked pane');
+    assert(viewerDoubleClicks === 0, 'Split double click does not also center an annotation');
+    doubleClick(canvas);
+    assert(focus.focusedPane === target && viewerDoubleClicks === 1, 'Enlarged double click retains viewer navigation');
+    button.click();
+    await frame();
+    target.focusButton.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+    assert(!focus.focusedPane, 'Header button double clicks do not trigger pane enlargement');
+    doubleClick(canvas, 400);
+    assert(!focus.focusedPane, 'Slow clicks do not enlarge even when the OS emits dblclick');
+    doubleClick(canvas, 251);
+    assert(!focus.focusedPane, 'Clicks outside 250ms window do not enlarge');
+    doubleClick(canvas, 250);
+    assert(focus.focusedPane === target, '250ms double click is accepted');
+    button.click();
+    await frame();
+    target.viewer.drawMode = 'polygon';
+    doubleClick(canvas);
+    assert(!focus.focusedPane, 'Annotation drawing gestures do not change layout');
+    target.viewer.drawMode = null;
+    document.body.dataset.testResult = 'passed';
+    document.getElementById('result').textContent = 'PASS';
+} catch (error) {
+    document.body.dataset.testResult = 'failed';
+    document.getElementById('result').textContent = error.stack;
+}
+</script>

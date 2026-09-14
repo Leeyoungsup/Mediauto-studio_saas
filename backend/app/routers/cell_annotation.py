@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Reques
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.activity_audit import audit_activity
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.database import get_db, is_db_connected
 from app.models import UserRole
@@ -1352,6 +1353,7 @@ async def load_cell_annotation_classes(path: str = Query(..., description="proje
 
 
 @router.post("/classes", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@audit_activity("cell_annotation_classes.update", resource_type="project", resource_key="path", success=False)
 async def save_cell_annotation_classes(
     request: Request,
     path: str = Form(...),
@@ -1408,7 +1410,9 @@ async def get_grid_config(slide_id: str):
 
 
 @router.post("/{slide_id}/required-regions", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@audit_activity("cell_annotation.regions_save")
 async def save_required_regions(
+    request: Request,
     slide_id: str,
     payload: dict = Body(...),
     user: dict = Depends(get_current_user),
@@ -1444,7 +1448,8 @@ async def get_required_regions(slide_id: str):
 
 
 @router.post("/{slide_id}/patches/recompute-status", dependencies=[Depends(require_not_viewer)])
-async def recompute_patch_status(slide_id: str, user: dict = Depends(get_current_user)):
+@audit_activity("cell_annotation.patches_recompute")
+async def recompute_patch_status(request: Request, slide_id: str, user: dict = Depends(get_current_user)):
     if user.get("str_role") == UserRole.LABELER.value:
         raise HTTPException(403, "Labeler role cannot change WSI-level required regions")
     info = _slide_info(slide_id)
@@ -1611,7 +1616,8 @@ async def get_patches(slide_id: str, status: str = Query("")):
 
 
 @router.delete("/{slide_id}/patches", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
-async def clear_all_patches(slide_id: str):
+@audit_activity("cell_annotation.patches_clear")
+async def clear_all_patches(request: Request, slide_id: str, dict_user: dict = Depends(get_current_user)):
     info = _slide_info(slide_id)
     db = _require_db()
     patch_count = await db.patch_annotation_status.count_documents({"str_slide_id": slide_id})
@@ -1788,7 +1794,9 @@ async def get_patch_cells(slide_id: str, patch_id: str):
 
 
 @router.post("/{slide_id}/patches/{patch_id}/cells", dependencies=[Depends(require_not_viewer)])
+@audit_activity("cell_annotation.cells_save")
 async def save_patch_cells(
+    request: Request,
     slide_id: str,
     patch_id: str,
     payload: dict = Body(...),
@@ -1802,6 +1810,9 @@ async def save_patch_cells(
     )
     if not patch:
         raise HTTPException(404, "Patch not found")
+    request.state.activity_before = {key: patch.get(key) for key in (
+        "str_status", "str_annotation_status", "str_review_status", "str_termination_status"
+    )}
     if user.get("str_role") == UserRole.LABELER.value:
         if not _labeler_can_edit_patch_cells(patch):
             raise HTTPException(403, "Patch annotations are locked except during annotation or review rejection")
@@ -1865,7 +1876,9 @@ async def save_patch_cells(
 
 
 @router.put("/{slide_id}/patches/{patch_id}/status", dependencies=[Depends(require_not_viewer)])
+@audit_activity("cell_annotation.status_update")
 async def update_patch_status(
+    request: Request,
     slide_id: str,
     patch_id: str,
     payload: dict = Body(...),
@@ -1877,6 +1890,9 @@ async def update_patch_status(
     if status not in PATCH_STATUSES:
         raise HTTPException(400, f"Invalid patch status: {status}")
     existing = await db.patch_annotation_status.find_one({"str_slide_id": slide_id, "str_patch_id": patch_id})
+    request.state.activity_before = {key: (existing or {}).get(key) for key in (
+        "str_status", "str_annotation_status", "str_review_status", "str_termination_status"
+    )}
     bool_labeler = user.get("str_role") == UserRole.LABELER.value
     if bool_labeler:
         if status == "not_required" or payload.get("manual_excluded") or payload.get("excluded"):

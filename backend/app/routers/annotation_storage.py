@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query, Request, Response
 
 from app.annotation_files import read_snapshot, save_snapshot
+from app.activity_audit import audit_activity
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.config import settings
 from app.models import UserRole
@@ -111,6 +112,7 @@ async def load_annotation_classes(path: str = Query(..., description="project pa
 
 
 @router.post("/annotation-classes", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@audit_activity("annotation_classes.update", resource_type="project", resource_key="path", success=False)
 async def save_annotation_classes(
     request: Request,
     path: str = Form(...),
@@ -145,8 +147,9 @@ async def save_annotation_classes(
 
 
 @router.post("/{slide_id}/annotations/save", dependencies=[Depends(require_not_viewer)])
-async def save_annotations(slide_id: str, data: str = Form(...),
-                           if_match: str | None = Header(None)):
+@audit_activity("annotation.save")
+async def save_annotations(request: Request, slide_id: str, data: str = Form(...),
+                           if_match: str | None = Header(None), dict_user: dict = Depends(get_current_user)):
     if not if_match:
         raise HTTPException(428, "Load annotations before saving; If-Match is required")
     info = slide_manager.get(slide_id)

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Body, Depends, UploadFile, File, Form, HTTPExcept
 from fastapi.responses import JSONResponse
 
 from app.audit import get_client_ip, log_audit_event
+from app.activity_audit import audit_activity
 from app.auth import get_current_user, require_not_viewer, require_role
 from app.config import settings
 from app.clinical_info import (
@@ -750,7 +751,8 @@ async def open_slide(
 # ?? ??? ???????
 
 @router.post("/upload/start", dependencies=[Depends(require_not_viewer)])
-async def upload_start(filename: str = Form(...)):
+@audit_activity("slide.upload_started", resource_type="upload", resource_key="upload_id")
+async def upload_start(request: Request, filename: str = Form(...), dict_user: dict = Depends(get_current_user)):
     """???????? ??upload_id ???"""
     filename = _safe_filename(filename)
     ext = Path(filename).suffix.lower()
@@ -769,10 +771,13 @@ async def upload_start(filename: str = Form(...)):
 
 
 @router.post("/upload/chunk", dependencies=[Depends(require_not_viewer)])
+@audit_activity("slide.upload_chunk", resource_type="upload", resource_key="upload_id", success=False)
 async def upload_chunk(
+    request: Request,
     upload_id: str = Form(...),
     chunk_index: int = Form(...),
     chunk: UploadFile = File(...),
+    dict_user: dict = Depends(get_current_user),
 ):
     """??? ?????????? ??? ??? ??????????? auto_ai ??????."""
     auto_ai.upload_enter()
@@ -792,6 +797,7 @@ async def upload_chunk(
 
 
 @router.post("/upload/complete", dependencies=[Depends(require_not_viewer)])
+@audit_activity("slide.upload", resource_type="upload", resource_key="upload_id", success=False)
 async def upload_complete(
     request: Request,
     upload_id: str = Form(...),
@@ -929,6 +935,8 @@ async def upload_complete(
                 str_resource_id=slide_id,
                 str_detail=f"Uploaded slide {filename} to {str_norm_upload_path}",
                 dict_extra={
+                    "str_upload_id": upload_id,
+                    "int_total_chunks": total_chunks,
                     "str_filename": filename,
                     "str_rel_path": str_norm_upload_path,
                     "str_project": str_project,

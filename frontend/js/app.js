@@ -1,4 +1,5 @@
-import { bindFixedAreaTools } from './annotation-area.js?v=20260914-02';
+import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
+import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
  * Main AI viewer module for MeDIAuto Studio.
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
@@ -73,6 +74,13 @@ let _multiViewPanes = [];
 let _multiViewOpenSeq = 0;
 let _activeMultiViewPane = null;
 let _multiViewOriginalContext = null;
+const _multiViewFocus = new MultiViewFocus({
+    container: $multiViewContainer,
+    grid: $multiViewGrid,
+    button: $('#focus-multi-view'),
+    getPanes: () => _multiViewPanes,
+    getActivePane: () => _activeMultiViewPane,
+});
 
 const $userName = $('#user-name');
 const $btnLogout = $('#btn-logout');
@@ -2899,6 +2907,7 @@ function _activateMultiViewPane(pane, announce = true) {
     if (typeof viewer.onZoomChange === 'function') {
         viewer.onZoomChange(viewer.zoom, viewer.getMagnification(), viewer.getEffectiveMpp());
     }
+    _multiViewFocus.refresh();
     if (announce) setStatus(`Active slide: ${currentSlideInfo.filename}`);
 }
 
@@ -2975,7 +2984,12 @@ function _ensureMultiViewPanes() {
         fitButton.type = 'button';
         fitButton.className = 'multi-view-pane-fit';
         fitButton.textContent = 'Fit';
-        header.append(label, fitButton);
+        const focusButton = document.createElement('button');
+        focusButton.type = 'button';
+        focusButton.className = 'multi-view-pane-focus';
+        focusButton.textContent = 'Enlarge';
+        focusButton.disabled = true;
+        header.append(label, fitButton, focusButton);
 
         const error = document.createElement('div');
         error.className = 'multi-view-pane-error';
@@ -2989,15 +3003,20 @@ function _ensureMultiViewPanes() {
         // Keep total decoded-tile memory bounded when four WSIs are open.
         paneViewer._maxCacheTiles = 160;
         const pane = {
-            element, canvas, overlay, label, error, viewer: paneViewer,
+            element, canvas, overlay, label, error, focusButton, viewer: paneViewer,
             slide: null, slideInfo: null, analysis: _emptyAnalysisContext(),
         };
         _bindMultiViewViewerCallbacks(paneViewer);
         element.addEventListener('pointerdown', () => _activateMultiViewPane(pane), true);
         element.addEventListener('focus', () => _activateMultiViewPane(pane));
+        _multiViewFocus.bindPaneDoubleClick(pane, _activateMultiViewPane);
         fitButton.addEventListener('click', () => {
             _activateMultiViewPane(pane);
             paneViewer.fitToWindow();
+        });
+        focusButton.addEventListener('click', () => {
+            _activateMultiViewPane(pane);
+            _multiViewFocus.toggle(pane);
         });
         _multiViewPanes.push(pane);
     }
@@ -3027,9 +3046,11 @@ function _resetMultiViewPane(pane) {
     pane.element.classList.remove('active');
     pane.element.setAttribute('aria-selected', 'false');
     pane.error.hidden = true;
+    pane.focusButton.disabled = true;
 }
 
 function _exitMultiView(updateStatus = true) {
+    _multiViewFocus.reset();
     _multiViewOpenSeq += 1;
     _abortLatestRead('multi-view-open');
     document.body.classList.remove('ai-multi-view-active');
@@ -3093,6 +3114,7 @@ async function _openMultiView(slides = []) {
     const openSeq = ++_multiViewOpenSeq;
     const controller = _beginLatestRead('multi-view-open');
     _ensureMultiViewPanes();
+    _multiViewFocus.reset();
     if ($sameCaseOpenChoice?.open) $sameCaseOpenChoice.close();
     _closeSameCaseDialog();
     $viewerContainer?.classList.add('multi-view-active');
@@ -3111,6 +3133,7 @@ async function _openMultiView(slides = []) {
         pane.error.hidden = true;
         pane.slide = slide;
         pane.slideInfo = null;
+        pane.focusButton.disabled = true;
         pane.analysis = _emptyAnalysisContext();
         pane.label.textContent = `Loading · ${slide.filename}`;
     });
@@ -3134,6 +3157,7 @@ async function _openMultiView(slides = []) {
             pane.slideInfo = slideInfo;
             pane.viewer.setColorCorrectionEnabled(!!api.shouldUseNdpMatch?.(slideInfo));
             pane.viewer.loadSlide(info.slide_id, slideInfo);
+            _multiViewFocus.refresh();
             pane.label.textContent = `${_sameCaseProjectLabel(slide.path)} · ${slide.filename}`;
             pane.label.title = pane.label.textContent;
             requestAnimationFrame(() => {
@@ -3150,10 +3174,12 @@ async function _openMultiView(slides = []) {
     }));
     _finishLatestRead('multi-view-open', controller);
     if (openSeq === _multiViewOpenSeq) {
+        _multiViewFocus.ready = true;
         const firstAvailablePane = _multiViewPanes
             .slice(0, uniqueSlides.length)
             .find((pane) => pane.slideInfo && pane.error.hidden);
         if (firstAvailablePane) _activateMultiViewPane(firstAvailablePane, false);
+        _multiViewFocus.refresh();
         setStatus(`Multi View: ${uniqueSlides.length} slides · click a pane to activate tools`);
     }
 }
