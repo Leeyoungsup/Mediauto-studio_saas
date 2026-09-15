@@ -1,4 +1,9 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "DockerRun.DisableDockerrc": true,
+    "DockerRun.Containers": [
+        "b45d4f6c205f",
+        "7a74adf7d5a9"
+    ]
 }
