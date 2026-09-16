@@ -1,0 +1,5 @@
+FROM haribo1/mediautoai:3.3.2@sha256:d940813b3fc46763e5722517c5bd2b568279bf3e68741adad0f25280c89aac05
+RUN python -m pip install --upgrade torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128 && python -m pip check
+ENV XDG_CACHE_HOME=/cache XDG_CONFIG_HOME=/app-config TMPDIR=/tmp
+COPY container_runner.py /installer/container_runner.py
+ENTRYPOINT ["python", "/installer/container_runner.py"]

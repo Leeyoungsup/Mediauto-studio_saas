@@ -6,9 +6,10 @@ if [[ "$(uname -m)" != x86_64 ]]; then echo 'This release requires x86-64.'; exi
 source /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) echo 'Automatic Linux installation supports Ubuntu/Debian with systemd.'; exit 1;; esac
 [[ -d /run/systemd/system ]] || { echo 'A systemd host is required.'; exit 1; }
+bash "$PWD/setup-nvidia-runtime.sh" --prepare-repositories
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl python3 postgresql acl
+apt-get install -y ca-certificates curl gnupg python3 postgresql acl
 # Preserve an existing Docker installation; do not remove packages or change daemon configuration.
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings
@@ -19,4 +20,8 @@ if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; t
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 systemctl enable --now docker
+nvidia-smi -L || { echo 'Install/fix the NVIDIA host driver first. CPU fallback is disabled.'; exit 1; }
+if ! docker info --format '{{json .Runtimes}}' | grep -q nvidia; then
+  bash "$PWD/setup-nvidia-runtime.sh"
+fi
 python3 install.py "$@"

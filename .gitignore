@@ -26,3 +26,10 @@ Philips_SDK/
 /deployment/host/.runtime/
 /deployment/host/programs/
 /deployment/host/models/
+/deployment/native/.runtime/
+/deployment/native/application/
+/deployment/native/programs/
+/deployment/native/models/
+/deployment/native/venv/
+/deployment/host/.install-location.json
+/deployment/native/.install-location.json

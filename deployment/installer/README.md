@@ -101,3 +101,20 @@ Windows 전체 설치 및 드라이버별 호환성은 대상 PC에서 검증해
 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
 - https://pytorch.org/get-started/previous-versions/
 - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+
+## Windows Python 감지 수정 (2026-09-16)
+
+시스템/현재 사용자 레지스트리와 기본 설치 경로에서 Python 3.12를 찾고,
+64비트 및 SSL·SQLite·venv·ensurepip 모듈을 실행 검증한 뒤 재사용합니다.
+사용자용 Python이 있는데 전체 사용자용으로 다시 설치하는 동작을 방지합니다.
+기존 Python이 손상된 경우 자동 재설치/설치 범위 변경 대신 복구 안내 후 중단합니다.
+이 변경은 Windows Installer 서비스 자체를 복구하는 기능은 아닙니다.
+
+초기 `admin/admin`은 빈 DB의 최초 계정 생성에만 적용됩니다. 기존 설정과 이미 생성된 계정의 비밀번호는 설치기를 재실행해도 변경하지 않습니다.
+
+## Windows PostgreSQL 서비스 누락 복구 (2026-09-16)
+
+DB 초기화는 됐지만 전용 서비스가 없는 경우, 같은 설치기의 재실행으로 서비스 등록을 복구합니다.
+설치 소유 정보·DB 경로·PostgreSQL 실행 파일이 일치하는 기존 서비스는 이름이 달라도 재사용합니다.
+같은 DB를 가리키는 서비스가 여러 개이거나 실행 파일이 다르면 중단합니다. 서비스 없이 DB만 실행 중인 경우에도 자동 등록하지 않습니다.
+기존 DB를 삭제하거나 초기화하지 않으며, 서비스 등록 후 기존 설정으로 시작합니다.

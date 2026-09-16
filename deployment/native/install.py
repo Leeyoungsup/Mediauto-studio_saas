@@ -1,6 +1,7 @@
-"""Host PostgreSQL + Docker app installer. Only this installation's files/services are managed."""
+"""Native PostgreSQL and Python application installer. Only this installation's files/services are managed."""
 import argparse
 import hashlib
+import getpass
 import ipaddress
 import json
 import os
@@ -18,7 +19,6 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent
 WINDOWS = os.name == 'nt'
-IMAGE = 'haribo1/mediautoai:3.3.2-gpu@sha256:0826b31f2a3fce2933d1994a0b10b90148d7fa991a792763ee4a44047c2de364'
 PG_URL = 'https://get.enterprisedb.com/postgresql/postgresql-18.6-3-windows-x64.exe'
 PG_SHA = '3bb55a421849fa5749fe807e45b05a9a7758a16389591ee0a41b7fcabf724b90'
 PATHS = {'models': '/models', 'slides': '/data/uploads', 'patches': '/data/cell_annotation',
@@ -66,7 +66,9 @@ def port(value):
 
 
 def validate(config):
-    if not re.fullmatch(r'mediauto_host_[a-z0-9_]+', config['project']): raise ValueError('Invalid installation project name.')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', config['repository']): raise ValueError('Use a GitHub owner/repository name.')
+    if not re.fullmatch(r'[a-zA-Z0-9_]{4,30}', config['admin_id']): raise ValueError('Invalid app administrator ID.')
+    if not re.fullmatch(r'mediauto_native_[a-z0-9_]+', config['project']): raise ValueError('Invalid installation project name.')
     for key in ('db_password', 'pg_password'):
         if not re.fullmatch(r'[0-9a-f]{48}', config[key]): raise ValueError('Keep the generated DB passwords unchanged.')
     if len(config['admin_password'].encode()) + 43 > 72: raise ValueError('Admin password is too long for this app version.')
@@ -117,12 +119,15 @@ def configure():
     model_path = input('Model folder (existing weights): ').strip().strip('"')
     if not model_path: raise ValueError('A separate model folder is required.')
     slide_path = input(f'Slide folder (Enter = {base / "slides"}): ').strip().strip('"')
-    config = {'project': 'mediauto_host_' + secrets.token_hex(5), 'data_root': str(base),
+    config = {'project': 'mediauto_native_' + secrets.token_hex(5), 'data_root': str(base),
               'paths': storage_paths(base, model_path, slide_path)}
     config['app_port'] = port(ask('Web port', 18093))
     config['db_port'] = port(ask('Dedicated PostgreSQL port', 55432))
     config['bind'] = ask('Web bind (0.0.0.0 = LAN, 127.0.0.1 = this PC)', '0.0.0.0')
+    config['admin_id'] = 'admin'
     config['admin_password'] = 'admin'
+    config['repository'] = ask('GitHub repository', 'Leeyoungsup/Mediauto-studio_saas')
+    config['ref'] = ask('GitHub branch/tag/commit', 'main')
     config['db_password'] = secrets.token_hex(24)
     config['pg_password'] = secrets.token_hex(24)
     validate(config)
@@ -163,17 +168,6 @@ def models(config):
         if not path.is_file() or sha(path) != model['sha256']:
             raise ValueError('Missing or damaged model in the selected model folder: '+str(path))
     print('All 11 model files verified in the selected folder.')
-
-
-def network(config):
-    name = config['project'] + '_network'
-    r = subprocess.run(['docker','network','inspect',name], capture_output=True,text=True)
-    if r.returncode:
-        run(['docker','network','create','--label','mediauto.installer='+config['project'],name])
-    info = json.loads(output(['docker','network','inspect',name]))[0]
-    if info.get('Labels',{}).get('mediauto.installer') != config['project']:
-        raise ValueError('Network belongs to another installation.')
-    return name, info['IPAM']['Config'][0]['Subnet']
 
 
 def psql(config, binary, sql, database='postgres'):
@@ -235,7 +229,7 @@ def ensure_windows_postgres_service(config, prefix):
     return service
 
 
-def database(config, subnet):
+def database(config):
     data = Path(config['paths']['database'])
     service = config['project'].replace('_','-')
     claim_database(config)
@@ -292,21 +286,16 @@ def database(config, subnet):
     # This is a dedicated cluster, so its access policy is owned entirely by this installer.
     hba = ['local all postgres peer'] if not WINDOWS else []
     hba += ['host all all 127.0.0.1/32 scram-sha-256','host all all ::1/128 scram-sha-256',
-            f'host mediauto mediauto {"samenet" if WINDOWS else subnet} scram-sha-256']
+            'host mediauto mediauto 127.0.0.1/32 scram-sha-256']
     (data/'pg_hba.conf').write_text('\n'.join(hba)+'\n',encoding='utf-8')
-    extra = f"\n# MeDIAuto managed settings\nlisten_addresses = '*'\nport = {config['db_port']}\npassword_encryption = 'scram-sha-256'\nlogging_collector = on\nlog_directory = 'log'\nlog_filename = 'postgresql-%Y-%m-%d.log'\n"
+    extra = f"\n# MeDIAuto managed settings\nlisten_addresses = '127.0.0.1'\nport = {config['db_port']}\npassword_encryption = 'scram-sha-256'\nlogging_collector = on\nlog_directory = 'log'\nlog_filename = 'postgresql-%Y-%m-%d.log'\n"
     configfile = data/'postgresql.conf'
     original = configfile.read_text(encoding='utf-8').split('\n# MeDIAuto managed settings')[0]
     configfile.write_text(original+extra,encoding='utf-8')
     if WINDOWS:
         run(['powershell','-NoProfile','-Command',f"Restart-Service -Name '{service}' -ErrorAction Stop"])
-        # Scope host DB access to local interfaces/subnets, never an Internet-wide DB rule.
-        firewall = f"Get-NetFirewallRule -Name '{service}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{service}' -DisplayName 'MeDIAuto PostgreSQL' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['db_port']} -RemoteAddress LocalSubnet | Out-Null"
-        run(['powershell','-NoProfile','-Command',firewall])
     else:
         run(['systemctl','daemon-reload']); run(['systemctl','enable',service]); run(['systemctl','restart',service])
-        if shutil.which('ufw') and 'Status: active' in output(['ufw','status']):
-            run(['ufw','allow','from',subnet,'to','any','port',config['db_port'],'proto','tcp'])
     for _ in range(30):
         try: psql(config,binary,'SELECT 1;'); break
         except RuntimeError: time.sleep(2)
@@ -333,71 +322,104 @@ def claim_database(config):
         write_private(marker,json.dumps(identity))
 
 
-def compose(config, name):
-    env = {'POSTGRES_URI':f"postgresql+asyncpg://mediauto:{config['db_password']}@host.docker.internal:{config['db_port']}/mediauto",
-           'MODEL_DIR':'/models','UPLOAD_DIR':'/data/uploads','TILES_DIR':'/data/tiles',
-           'AI_RESULTS_DIR':'/data/ai_results','ANNOTATIONS_DIR':'/data/annotations','DICOM_CACHE_DIR':'/data/dicom_cache',
-           'TMPDIR':'/tmp','YOLO_CONFIG_DIR':'/app-config/ultralytics','MPLCONFIGDIR':'/cache/matplotlib','TORCH_HOME':'/cache/torch','HF_HOME':'/cache/huggingface','XDG_CACHE_HOME':'/cache','XDG_CONFIG_HOME':'/app-config','MEDIAUTO_BOOTSTRAP_ADMIN_ID':'admin',
-           'MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD':config['admin_password'],'MEDIAUTO_BOOTSTRAP_ADMIN_NAME':'Administrator',
-           'TILE_CACHE_QUOTA_BYTES':'107374182400'}
-    write_private(RUNTIME/'app.env',''.join(f'{k}={v}\n' for k,v in env.items()))
-    volumes = [{'type':'bind','source':str(Path(config['paths'][k])).replace('\\','/'),'target':v,
-                'read_only':k=='models','bind':{'create_host_path':False}} for k,v in PATHS.items()]
-    volumes.append({'type':'bind','source':str((ROOT/'container_runner.py').resolve()).replace('\\','/'), 'target':'/installer/container_runner.py','read_only':True,'bind':{'create_host_path':False}})
-    volumes.append({'type':'bind','source':str((ROOT/'bootstrap_admin.py').resolve()).replace('\\','/'), 'target':'/installer/bootstrap_admin.py','read_only':True,'bind':{'create_host_path':False}})
-    doc = {'name':config['project'],'services':{'app':{'image':IMAGE,'restart':'unless-stopped','init':True,'shm_size':'1gb',
-           'env_file':['app.env'],'entrypoint':['python','/installer/container_runner.py'],
-           'deploy':{'resources':{'reservations':{'devices':[{'driver':'nvidia','count':'all','capabilities':['gpu']}]}}},
-           'logging':{'driver':'none'},
-           'ports':[{'target':8092,'published':str(config['app_port']),'host_ip':config['bind'],'protocol':'tcp'}],
-           'volumes':volumes,'networks':['hostdb'],
-           'healthcheck':{'test':['CMD','python','-c',"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/api/health', timeout=5)"],
-                          'interval':'10s','timeout':'6s','retries':60,'start_period':'120s'}}},
-           'networks':{'hostdb':{'external':True,'name':name}}}
-    if not WINDOWS: doc['services']['app']['extra_hosts'] = ['host.docker.internal:host-gateway']
-    # JSON is valid Compose YAML. Escape literal dollars to prevent Compose interpolation in paths.
-    write_private(RUNTIME/'compose.json',json.dumps(doc,ensure_ascii=False,indent=2).replace('$','$$'))
-    return ['docker','compose','-f',RUNTIME/'compose.json']
+def prepare_application(config, source):
+    RUNTIME.mkdir(parents=True,exist_ok=True)
+    envdir=ROOT/'venv'
+    python=envdir/('Scripts/python.exe' if WINDOWS else 'bin/python')
+    if not python.exists():run([sys.executable,'-m','venv',envdir])
+    run([python,'-m','pip','install','--upgrade','pip'])
+    requirements=(source/'backend/requirements.txt').read_text(encoding='utf-8')
+    if WINDOWS:
+        # Modern bindings locate the bundled Windows DLLs without machine-wide PATH changes.
+        requirements='\n'.join(line for line in requirements.splitlines() if not line.startswith(('openslide-python','pyvips')))
+        requirements+='\nopenslide-python>=1.4.3,<2\nopenslide-bin\npyvips[binary]>=3.1,<4\n'
+    native_requirements=RUNTIME/'requirements-native.txt'
+    native_requirements.write_text(requirements,encoding='utf-8')
+    run([python,'-m','pip','install','--upgrade','torch==2.11.0+cu128','torchvision==0.26.0+cu128','--index-url','https://download.pytorch.org/whl/cu128'])
+    run([python,'-m','pip','install','-r',native_requirements])
+    run([python,'-m','pip','check'])
+    run([python,'-c','import openslide, pyvips, torch; assert pyvips.type_find("VipsOperation", "tiffsave"); print("Native OpenSlide/libvips/PyTorch imports passed")'])
+    backend=source/'backend'
+    for link,dest,isdir in [(backend/'.secrets.json',Path(config['paths']['secrets'])/'.secrets.json',False),
+                             (backend/'cell_annotation',Path(config['paths']['patches']),True)]:
+        if link.is_symlink():
+            if link.resolve()!=dest.resolve():raise ValueError('Existing storage link points elsewhere: '+str(link))
+        elif link.exists():raise ValueError('Refusing to replace existing application data: '+str(link))
+        else:link.symlink_to(dest,target_is_directory=isdir)
+    env={'POSTGRES_URI':f"postgresql+asyncpg://mediauto:{config['db_password']}@127.0.0.1:{config['db_port']}/mediauto",
+         'MODEL_DIR':config['paths']['models'],'UPLOAD_DIR':config['paths']['slides'],'TILES_DIR':config['paths']['tiles'],
+         'AI_RESULTS_DIR':config['paths']['results'],'ANNOTATIONS_DIR':config['paths']['annotations'],'DICOM_CACHE_DIR':config['paths']['dicom'],
+         'YOLO_CONFIG_DIR':str(Path(config['paths']['app_config'])/'ultralytics'),'MPLCONFIGDIR':str(Path(config['paths']['cache'])/'matplotlib'),'TORCH_HOME':str(Path(config['paths']['cache'])/'torch'),'HF_HOME':str(Path(config['paths']['cache'])/'huggingface'),
+         'XDG_CACHE_HOME':config['paths']['cache'],'XDG_CONFIG_HOME':config['paths']['app_config'],
+         'TMPDIR':config['paths']['temp'],'TEMP':config['paths']['temp'],'TMP':config['paths']['temp'],
+         'MEDIAUTO_BOOTSTRAP_ADMIN_ID':config['admin_id'],'MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD':config['admin_password'],
+         'MEDIAUTO_BOOTSTRAP_ADMIN_NAME':'Administrator','TILE_CACHE_QUOTA_BYTES':'107374182400','PYTHONUNBUFFERED':'1'}
+    app={'backend':str(backend),'env':env,'bind':config['bind'],'port':config['app_port'],'db_port':config['db_port'],
+         'log':str(Path(config['paths']['logs'])/'app.log')}
+    write_private(RUNTIME/'app.json',json.dumps(app,ensure_ascii=False,indent=2))
+    Path(config['paths']['logs']).mkdir(parents=True,exist_ok=True)
+    return python
+
+
+def register_application(config, python):
+    service=config['project'].replace('_','-')
+    if WINDOWS:
+        run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',ROOT/'register-task.ps1',
+             '-PythonExe',python,'-Runner',ROOT/'runner.py','-Settings',RUNTIME/'app.json',
+             '-TaskName',service+'-app','-Port',config['app_port'],'-Bind',config['bind']])
+    else:
+        import pwd
+        account=os.environ.get('SUDO_USER') or 'mediauto-app'
+        if account=='root':account='mediauto-app'
+        try:entry=pwd.getpwnam(account)
+        except KeyError:
+            run(['useradd','--system','--no-create-home','--shell','/usr/sbin/nologin',account]);entry=pwd.getpwnam(account)
+        for key in PATHS:
+            directory=Path(config['paths'][key])
+            for parent in (directory,*directory.parents):
+                if parent!=Path('/'):run(['setfacl','-m',f'u:{account}:r-x',parent])
+            if key!='models':os.chown(directory,entry.pw_uid,entry.pw_gid);directory.chmod(0o700)
+        for parent in (ROOT,*ROOT.parents,RUNTIME):
+            if parent!=Path('/'):run(['setfacl','-m',f'u:{account}:r-x',parent])
+        run(['setfacl','-m',f'u:{account}:r--',RUNTIME/'app.json'])
+        keyfile=Path(config['paths']['secrets'])/'.secrets.json'
+        if keyfile.exists():os.chown(keyfile,entry.pw_uid,entry.pw_gid);keyfile.chmod(0o600)
+        os.chown(config['paths']['logs'],entry.pw_uid,entry.pw_gid)
+        text=(f'[Unit]\nDescription=MeDIAuto native app\nAfter=network.target {service}.service\nRequires={service}.service\n\n'
+              f'[Service]\nType=simple\nUser={account}\nUMask=0077\n'
+              f'ExecStart="{python}" "{ROOT}/runner.py" "{RUNTIME}/app.json"\n'
+              'Restart=on-failure\nRestartSec=10\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n')
+        Path('/etc/systemd/system',service+'-app.service').write_text(text.replace('%','%%'))
+        run(['systemctl','daemon-reload']);run(['systemctl','enable',service+'-app']);run(['systemctl','restart',service+'-app'])
 
 
 def main():
-    parser=argparse.ArgumentParser()
-    parser.add_argument('--action',choices=['install','start','stop','status'],default='install')
-    args=parser.parse_args()
-    restore_runtime()
-    if args.action != 'install':
-        run(['docker','compose','-f',RUNTIME/'compose.json', *({'start':['up','-d','--wait','--wait-timeout','900'], 'stop':['stop'],'status':['ps']}[args.action])]);return
-    if not WINDOWS and os.geteuid() != 0: raise ValueError('Run bash install.sh; native service installation requires sudo.')
-    if platform.machine().lower() not in ('amd64','x86_64'): raise ValueError('This release requires an x86-64 PC.')
-    manifest = ROOT/'bundle-manifest.json'
-    if manifest.exists():
-        for entry in json.loads(manifest.read_text()):
-            path = ROOT/entry['path']
-            if path.is_symlink() or not path.resolve().is_relative_to(ROOT.resolve()) or sha(path) != entry['sha256']:
-                raise ValueError('Installer bundle checksum mismatch: '+entry['path'])
+    if sys.version_info<(3,10):raise ValueError('Python 3.10 or newer is required.')
+    if not WINDOWS and os.geteuid()!=0:raise ValueError('Run bash install.sh (sudo is required).')
+    if platform.machine().lower() not in ('amd64','x86_64'):raise ValueError('x86-64 required.')
     config=configure();check_ports(config)
-    try:
-        run(['nvidia-smi','--query-gpu=name,driver_version','--format=csv,noheader'])
-    except (RuntimeError,OSError):
-        raise RuntimeError('NVIDIA GPU/driver is not ready. Resolve nvidia-smi errors before installing; CPU fallback is disabled.')
+    try: run(['nvidia-smi','--query-gpu=name,driver_version','--format=csv,noheader'])
+    except (RuntimeError,OSError): raise RuntimeError('NVIDIA GPU/driver is not ready. Resolve nvidia-smi errors; CPU fallback is disabled.')
+    from github_source import download
+    source=download(config,RUNTIME,ROOT)
     models(config)
-    for key in PATHS:
-        Path(config['paths'][key]).mkdir(parents=True,exist_ok=True)
-    run(['docker','info'],stdout=subprocess.DEVNULL)
-    if output(['docker','info','--format','{{.OSType}}']) != 'linux': raise ValueError('Switch Docker Desktop to Linux containers.')
-    name,subnet=network(config)
-    database(config,subnet)
-    cmd=compose(config,name)
-    run(cmd+['config','--quiet']);run(cmd+['pull']);run(cmd+['up','-d','--no-build','--wait','--wait-timeout','900'])
-    if WINDOWS and config['bind']=='0.0.0.0':
-        rule=config['project']+'-web'
-        run(['powershell','-NoProfile','-Command',f"Get-NetFirewallRule -Name '{rule}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{rule}' -DisplayName 'MeDIAuto Web' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet | Out-Null"])
-    write_private(RUNTIME/'ADMIN_LOGIN.txt',f"URL: http://localhost:{config['app_port']}\nID: admin\nPassword: {config['admin_password']}\n")
-    write_private(RUNTIME/'installed.json',json.dumps({'image':IMAGE,'version':'3.3.2'}))
-    print(f"Ready: http://localhost:{config['app_port']}\nLogin: {RUNTIME}/ADMIN_LOGIN.txt\nLAN access: use this server's IP address instead of localhost.")
+    for key in PATHS:Path(config['paths'][key]).mkdir(parents=True,exist_ok=True)
+    database(config)
+    python=prepare_application(config,source)
+    run([python,ROOT/'runner.py',RUNTIME/'app.json','--check'])
+    register_application(config,python)
+    for _ in range(90):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{config['app_port']}/api/health",timeout=3) as r:
+                if r.status==200:break
+        except OSError:pass
+        time.sleep(2)
+    else:raise RuntimeError('App did not become healthy. Check the external logs/app.log file.')
+    write_private(RUNTIME/'ADMIN_LOGIN.txt',f"URL: http://localhost:{config['app_port']}\nID: {config['admin_id']}\nPassword: {config['admin_password']}\n")
+    print(f"Ready: http://localhost:{config['app_port']}\nCredentials: {RUNTIME}/ADMIN_LOGIN.txt\nSource commit: "+source.name)
 
 
 if __name__=='__main__':
-    try: main()
+    try:main()
     except (ValueError,RuntimeError,OSError) as e:
         print('INSTALL FAILED:',e,file=sys.stderr);sys.exit(1)

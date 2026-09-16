@@ -1,0 +1,46 @@
+[
+  {
+    "filename": "HnE_detection.pt",
+    "sha256": "0211f146e0b7ee8790d6a0a08fe062e0e39fe0a3612def0df9668974e9b4f2aa"
+  },
+  {
+    "filename": "HnE_BR_segmentation.pt",
+    "sha256": "403b3b9037e92c36e515b7c63cc518da0e03887a89e7ae6a7ddaa6ef2b33b524"
+  },
+  {
+    "filename": "HnE_ST_segmentation.pt",
+    "sha256": "8508fb9a1542f2458d748ad0c64a95bdc30328cf75fd1717e153bf8be0368049"
+  },
+  {
+    "filename": "PDL1_ST_CPS_detection.pt",
+    "sha256": "d3798d11b434814362f75baab62c1d0ae2633f79dbaaac7b28618be0af751cb3"
+  },
+  {
+    "filename": "PDL1_TPS_detection.pt",
+    "sha256": "b0af7334329361b7bfba743c2049718d7feb5dee546cb34f57d9152b456c3835"
+  },
+  {
+    "filename": "Precise_IHC_HER2_detection.pt",
+    "sha256": "144229ffa874d261afdca52ef91e2c0d64812ff9e3db2bab29a4b6db01dd75f9"
+  },
+  {
+    "filename": "Precise_IHC_ER_PR_detection.pt",
+    "sha256": "ee59a257c0023b1042493a9367c4e4f4e2ac30adc6fee821d912bc15c7df4efa"
+  },
+  {
+    "filename": "IHC_Membrane(Breast).pt",
+    "sha256": "cc375029adcd7a195a58edab2f51e50303c9a78fa310a1d68cc327151de69e5c"
+  },
+  {
+    "filename": "IHC_Nucleus(Breast).pt",
+    "sha256": "1da89e026a2f5cf0605affc2ceaa9be22107d2ebe5e7e89a3eced1a7a7452e18"
+  },
+  {
+    "filename": "IHC_HnE_virtual_stain_membrane.pth",
+    "sha256": "95385d50025904d4eff69e1347475c28a2e7fc1778ee1c1a30ab7e4f2df8a7e8"
+  },
+  {
+    "filename": "IHC_HnE_virtual_stain_nucleus.pth",
+    "sha256": "07dc97722bee82c991572ce812d4d2ec705df357cb9e66b5990200e64d587f1e"
+  }
+]

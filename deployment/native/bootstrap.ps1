@@ -48,49 +48,16 @@ function Find-CompatiblePython {
 }
 try {
     if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { throw 'An x86-64 Windows PC is required.' }
-    if ([Environment]::OSVersion.Version.Build -lt 19045) { throw 'Update Windows to a supported Docker Desktop version first (Windows 10 22H2 / Windows 11 or newer supported build).' }
+    if ([Environment]::OSVersion.Version.Build -lt 19045) { throw 'Update to Windows 10 22H2 / Windows 11 or newer supported build.' }
     $runtime = Join-Path $PSScriptRoot '.runtime'
     New-Item -ItemType Directory -Force $runtime | Out-Null
     # Generated DB/admin credentials are accessible only to this user, Administrators and SYSTEM.
     $sid = $identity.User.Value
     Invoke-Checked icacls @($runtime,'/inheritance:r','/grant:r',('*' + $sid + ':(OI)(CI)F'),'*S-1-5-18:(OI)(CI)F','*S-1-5-32-544:(OI)(CI)F')
-    $needsReboot = $false
-    foreach ($name in @('Microsoft-Windows-Subsystem-Linux','VirtualMachinePlatform')) {
-        $feature = Get-WindowsOptionalFeature -Online -FeatureName $name
-        if ($feature.State -ne 'Enabled') {
-            Enable-WindowsOptionalFeature -Online -FeatureName $name -All -NoRestart | Out-Null
-            $needsReboot = $true
-        }
-    }
-    if ($needsReboot) {
-        Write-Host 'WSL features enabled. Restart Windows, then run this same install.bat again to continue.'
-        Read-Host 'Press Enter to close (restart Windows manually)' | Out-Null
-        exit 3010
-    }
-    Invoke-Checked wsl @('--update')
-    Invoke-Checked wsl @('--set-default-version','2')
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Start-Process 'ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1'
-        throw 'Install/update Microsoft App Installer in the Store window, then run install.bat again.'
+        throw 'Install Microsoft App Installer, then run install.bat again.'
     }
-    $dockerDesktop = @(
-        (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe')
-    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $dockerDesktop) {
-        Invoke-Checked winget @('install','--id','Docker.DockerDesktop','--exact','--source','winget','--scope','machine','--accept-source-agreements','--accept-package-agreements')
-        $dockerDesktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
-    }
-    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User') + ';' + (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin')
-    Start-Process $dockerDesktop
-    Write-Host 'Starting Docker Desktop. Complete its first-run screen if shown.'
-    $ready = $false
-    for ($i=0; $i -lt 120; $i++) {
-        & docker info --format '{{.OSType}}' 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { $ready = $true; break }
-        Start-Sleep -Seconds 5
-    }
-    if (-not $ready) { throw 'Docker is not ready. Check virtualization/WSL and Docker Desktop, then run install.bat again.' }
     $python = Find-CompatiblePython
     if (-not $python) {
         Invoke-Checked winget @('install','--id','Python.Python.3.12','--exact','--source','winget','--scope','machine','--silent','--accept-source-agreements','--accept-package-agreements')

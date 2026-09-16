@@ -10,7 +10,7 @@ h=importlib.util.module_from_spec(s);s.loader.exec_module(h)
 
 class HostTests(unittest.TestCase):
     def config(self,root):
-        return {'project':'mediauto_host_test','app_port':18099,'db_port':55439,'bind':'127.0.0.1',
+        return {'data_root':str(root),'project':'mediauto_host_test','app_port':18099,'db_port':55439,'bind':'127.0.0.1',
                 'admin_password':'a'*24+'Aa!','db_password':'b'*48,'pg_password':'c'*48,
                 'paths':{k:str(root/k) for k in (*h.PATHS,'database')}}
 
@@ -23,12 +23,28 @@ class HostTests(unittest.TestCase):
             doc=json.loads((root/'.runtime/compose.json').read_text())
             self.assertEqual(set(doc['services']),{'app'})
             mounts=doc['services']['app']['volumes']
-            self.assertEqual({m['target'] for m in mounts},set(h.PATHS.values()))
+            self.assertEqual({m['target'] for m in mounts},set(h.PATHS.values()) | {'/installer/container_runner.py', '/installer/bootstrap_admin.py'})
             self.assertTrue(all(m['type']=='bind' for m in mounts))
             self.assertTrue(next(m for m in mounts if m['target']=='/models')['read_only'])
             self.assertIn('host.docker.internal:55439', (root/'.runtime/app.env').read_text())
             self.assertNotIn(c['db_password'],(root/'.runtime/compose.json').read_text())
             self.assertEqual((root/'.runtime/app.env').stat().st_mode & 0o777,0o600)
+
+    def test_blank_slide_path_uses_root_subfolder(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'data';models=Path(d)/'models'
+            paths=h.storage_paths(root,models,'   ')
+            self.assertEqual(paths['slides'],str(root/'slides'))
+            self.assertEqual(paths['logs'],str(root/'logs'))
+            self.assertEqual(paths['database'],str(root/'database'))
+            self.assertEqual(paths['models'],str(models))
+
+    def test_custom_slide_path_stays_separate(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'data';slides=Path(d)/'wsi'
+            paths=h.storage_paths(root,Path(d)/'models',str(slides))
+            self.assertEqual(paths['slides'],str(slides))
+            self.assertEqual(paths['results'],str(root/'results'))
 
     def test_nested_storage_rejected(self):
         with tempfile.TemporaryDirectory() as d:
