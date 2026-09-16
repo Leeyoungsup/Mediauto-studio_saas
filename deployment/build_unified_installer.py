@@ -4,11 +4,34 @@ from pathlib import Path
 import tarfile
 import zipfile
 import io
+import json
 
 ROOT=Path(__file__).resolve().parents[1]
 TOP=('install.bat','select.ps1','install.sh','setup-nvidia-runtime.sh','README.md')
 DOCKER=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
-NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json')
+NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json')
+
+def sdk_payloads(windows):
+    sdk_name = ('philips-pathologysdk-2.0-L1-windows10-py37-research' if windows
+                else 'philips-pathologysdk-2.0-L1-ubuntu20_04_py38_research')
+    sources = {sdk_name:ROOT/'backend/Philips_SDK'/sdk_name,
+               'support/scripts/openphi-master':ROOT/'backend/scripts/openphi-master',
+               'support/philips_bridge':ROOT/'backend/philips_bridge'}
+    result = {}
+    for destination, source in sources.items():
+        if not source.is_dir():raise ValueError('SDK source missing: '+str(source))
+        for path in sorted(source.rglob('*')):
+            relative=path.relative_to(source)
+            if any(part in ('__pycache__','.git','build','dist') or part.endswith('.egg-info') for part in relative.parts):continue
+            if path.suffix=='.pyc' or not path.is_file():continue
+            if path.is_symlink():raise ValueError('Unexpected SDK symlink: '+str(path))
+            result[destination+'/'+relative.as_posix()]=path.read_bytes()
+    result['support/scripts/bootstrap_philips.py']=(ROOT/'backend/scripts/bootstrap_philips.py').read_bytes()
+    manifest={'platform':'windows' if windows else 'linux','sdk_directory':sdk_name,
+              'files':[{'path':name,'sha256':hashlib.sha256(data).hexdigest()} for name,data in sorted(result.items())]}
+    result['manifest.json']=json.dumps(manifest,indent=2).encode()
+    return {'Philips_SDK/'+name:data for name,data in result.items()}
+
 
 def build():
     out=ROOT/'artifacts/local-deployment/unified';out.mkdir(parents=True,exist_ok=True)
@@ -20,13 +43,14 @@ def build():
         if name.endswith('.bat'):payloads[name]=payloads[name].replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')
     files=[]
     for kind in ('windows-x64.zip','linux-x64.tar.gz'):
+        package = dict(payloads, **sdk_payloads(kind.startswith('windows')))
         path=out/('MeDIAuto-GPU-installer-'+kind)
         if kind.endswith('.zip'):
             with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
-                for name,data in payloads.items():z.writestr('MeDIAuto-GPU-installer/'+name,data)
+                for name,data in package.items():z.writestr('MeDIAuto-GPU-installer/'+name,data)
         else:
             with tarfile.open(path,'w:gz') as z:
-                for name,data in payloads.items():
+                for name,data in package.items():
                     info=tarfile.TarInfo('MeDIAuto-GPU-installer/'+name);info.size=len(data);info.mode=0o755 if name.endswith('.sh') else 0o644
                     z.addfile(info,io.BytesIO(data))
         files.append(path);print(path)

@@ -90,7 +90,7 @@ PostgreSQL은 두 방식 모두 호스트 서비스로 자동 시작합니다.
 
 이 작은 설치 묶음에는 모델이 없습니다. 기존 배포본의 models 폴더 등을 먼저 준비하세요.
 선택한 모델 폴더에서 해시를 검증하며 파일을 다른 경로로 복사하지 않습니다.
-Philips iSyntax SDK/라이선스는 포함하지 않습니다.
+Philips SDK는 배포 폴더의 `Philips_SDK/`에 OS에 맞게 포함됩니다. 네이티브 설치는 SDK 라이선스 동의 확인 후 Conda 환경에 자동 설치하고 브리지 검사를 수행합니다.
 
 경로 기본값·별도 슬라이드 경로·외부 마운트·설정 보존·GitHub 인증 처리 등을 자동 검사했습니다.
 호스트 NVIDIA RTX 6000 Ada 2개에서 CUDA 행렬 연산과 torchvision NMS 검사를 통과했습니다.
@@ -118,3 +118,15 @@ DB 초기화는 됐지만 전용 서비스가 없는 경우, 같은 설치기의
 설치 소유 정보·DB 경로·PostgreSQL 실행 파일이 일치하는 기존 서비스는 이름이 달라도 재사용합니다.
 같은 DB를 가리키는 서비스가 여러 개이거나 실행 파일이 다르면 중단합니다. 서비스 없이 DB만 실행 중인 경우에도 자동 등록하지 않습니다.
 기존 DB를 삭제하거나 초기화하지 않으며, 서비스 등록 후 기존 설정으로 시작합니다.
+
+## 네이티브 두 번째 가상환경 / Conda (2026-09-16)
+
+메인 GPU 앱은 기존 Python venv를 유지합니다. 두 번째 Philips 환경은 Conda로
+Windows Python 3.7 (`philips-sdk-py37`), Linux Python 3.8 (`philips-sdk-py38`)을 생성합니다.
+기존 Conda를 탐색·검증하여 재사용하며, 없으면 SHA-256을 검증한 Miniforge를 자동 설치합니다.
+Miniforge와 환경은 설치 폴더, 다운로드·패키지 캐시는 외부 루트/cache/conda에 저장합니다.
+앱에 PHILIPS_PYTHON을 설정하므로 conda activate는 필요 없습니다.
+배포 폴더의 Philips SDK·OpenPhi를 해시 검증한 뒤 두 번째 환경에 설치합니다. SDK 라이선스는 최초 1회 동의 여부를 입력하며, SDK 모듈 로딩 검사가 실패하면 앱 설치도 중단합니다.
+Docker 모드는 호스트 Conda 환경을 사용하지 않습니다. 이 변경은 네이티브 설치에 적용됩니다.
+
+배포 폴더 구성: `install.bat`, `install.sh`, `docker/`, `native/`, `Philips_SDK/`. 전체 폴더를 유지하세요. Windows 묶음은 py37 SDK, Linux 묶음은 py38 SDK를 포함합니다. 모델 폴더는 별도 지정합니다.

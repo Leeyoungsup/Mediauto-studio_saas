@@ -354,6 +354,9 @@ def prepare_application(config, source):
          'TMPDIR':config['paths']['temp'],'TEMP':config['paths']['temp'],'TMP':config['paths']['temp'],
          'MEDIAUTO_BOOTSTRAP_ADMIN_ID':config['admin_id'],'MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD':config['admin_password'],
          'MEDIAUTO_BOOTSTRAP_ADMIN_NAME':'Administrator','TILE_CACHE_QUOTA_BYTES':'107374182400','PYTHONUNBUFFERED':'1'}
+    from conda_setup import prepare as prepare_philips_environment, install_sdk
+    philips = prepare_philips_environment(ROOT, config, WINDOWS)
+    env.update(install_sdk(ROOT, config, WINDOWS, philips))
     app={'backend':str(backend),'env':env,'bind':config['bind'],'port':config['app_port'],'db_port':config['db_port'],
          'log':str(Path(config['paths']['logs'])/'app.log')}
     write_private(RUNTIME/'app.json',json.dumps(app,ensure_ascii=False,indent=2))

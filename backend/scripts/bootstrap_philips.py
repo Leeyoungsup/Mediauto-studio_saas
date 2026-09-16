@@ -147,6 +147,16 @@ def _pip_install(list_arguments):
 
 
 def _install_windows_modules(path_sdk):
+    # The SDK's 64-bit native modules require the supplied Microsoft runtimes.
+    for relative in ("VC2013Redistributable/vcredist_x64.exe", "VC2017Redistributable/vc_redist.x64.exe"):
+        runtime = path_sdk / "Redistributables" / relative
+        if not runtime.is_file():
+            raise FileNotFoundError("Missing Philips runtime: {}".format(runtime))
+        result = subprocess.run([str(runtime), "/install", "/quiet", "/norestart"])
+        if result.returncode not in (0, 1638, 3010):
+            raise RuntimeError("Philips VC runtime installation failed: {} (exit {})".format(relative, result.returncode))
+        if result.returncode == 3010:
+            raise RuntimeError("Philips VC runtime requires a Windows restart; reboot and run install.bat again.")
     path_modules = path_sdk / "Modules"
     list_modules = sorted(path.parent for path in path_modules.glob("*/setup.py"))
     if not list_modules:
@@ -156,7 +166,7 @@ def _install_windows_modules(path_sdk):
 
 
 def _install_sdk(path_sdk):
-    _pip_install(["numpy<2", "Pillow>=8,<11"])
+    _pip_install(["numpy<2", "Pillow>=8,<11", "setuptools<68", "wheel<0.42"])
     if os.name == "nt":
         _install_windows_modules(path_sdk)
     else:
