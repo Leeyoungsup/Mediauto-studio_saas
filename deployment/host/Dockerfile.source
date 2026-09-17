@@ -1,0 +1,10 @@
+ARG BASE_IMAGE=haribo1/mediautoai:3.3.2-gpu@sha256:0826b31f2a3fce2933d1994a0b10b90148d7fa991a792763ee4a44047c2de364
+FROM ${BASE_IMAGE}
+COPY backend/requirements.txt /tmp/mediauto-source-requirements.txt
+RUN python -m pip install -r /tmp/mediauto-source-requirements.txt && python -m pip check
+RUN rm -rf /app/backend /app/frontend
+COPY backend /app/backend
+COPY frontend /app/frontend
+COPY version.json CHANGELOG.md /app/
+RUN mkdir -p /state /data/cell_annotation && ln -s /state/.secrets.json /app/backend/.secrets.json && ln -s /data/cell_annotation /app/backend/cell_annotation
+WORKDIR /app/backend

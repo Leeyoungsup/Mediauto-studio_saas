@@ -22,6 +22,11 @@ class HostTests(unittest.TestCase):
                 h.compose(c,'external-network')
             doc=json.loads((root/'.runtime/compose.json').read_text())
             self.assertEqual(set(doc['services']),{'app'})
+            app=doc['services']['app']
+            self.assertEqual(app['restart'],'no')
+            self.assertEqual(app['image'],c['project']+':local')
+            self.assertEqual(app['build']['context'],str(h.ROOT/'application'))
+            self.assertTrue(app['build']['dockerfile'].endswith('Dockerfile.source'))
             mounts=doc['services']['app']['volumes']
             self.assertEqual({m['target'] for m in mounts},set(h.PATHS.values()) | {'/installer/container_runner.py', '/installer/bootstrap_admin.py'})
             self.assertTrue(all(m['type']=='bind' for m in mounts))

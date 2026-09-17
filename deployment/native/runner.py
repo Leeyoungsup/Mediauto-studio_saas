@@ -8,20 +8,46 @@ import sys
 import time
 
 
+class ConsoleLog:
+    """Keep manual-run Python output on screen and in the external log."""
+    def __init__(self, console, log):
+        self.console, self.log = console, log
+        self.encoding = 'utf-8'
+
+    def write(self, value):
+        self.log.write(value)
+        if self.console is not None: self.console.write(value)
+        return len(value)
+
+    def flush(self):
+        self.log.flush()
+        if self.console is not None: self.console.flush()
+
+    def isatty(self):
+        return False
+
+    def fileno(self):
+        return self.log.fileno()
+
+
 def main():
     settings=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
     os.environ.update(settings['env'])
     os.chdir(settings['backend'])
     child_output = {}
-    if '--check' not in sys.argv and '--console' not in sys.argv:
+    if '--check' not in sys.argv:
         log=Path(settings['log']);log.parent.mkdir(parents=True,exist_ok=True)
         # Log is on the host and never includes installer GitHub credentials.
         f=log.open('a',encoding='utf-8',buffering=1)
-        os.dup2(f.fileno(),1);os.dup2(f.fileno(),2)
+        if '--console' in sys.argv:
+            sys.stdout = ConsoleLog(sys.stdout, f)
+            sys.stderr = ConsoleLog(sys.stderr, f)
+        else:
+            os.dup2(f.fileno(),1);os.dup2(f.fileno(),2)
         # Windows console streams keep console-specific handles after dup2.
         # Rebind Python streams as well, and pass file handles to child processes.
-        sys.stdout = f
-        sys.stderr = f
+            sys.stdout = f
+            sys.stderr = f
         child_output = {'stdout': f, 'stderr': f}
     print('[START] MeDIAuto runner: '+sys.executable, flush=True)
     from gpu_check import check_gpu

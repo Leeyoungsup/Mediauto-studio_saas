@@ -127,7 +127,7 @@ def configure():
     config['admin_id'] = 'admin'
     config['admin_password'] = 'admin1234!'
     config['repository'] = ask('GitHub repository', 'Leeyoungsup/Mediauto-studio_saas')
-    config['ref'] = ask('GitHub branch/tag/commit', 'main')
+    config['ref'] = ask('GitHub branch/tag', 'main')
     config['db_password'] = secrets.token_hex(24)
     config['pg_password'] = secrets.token_hex(24)
     validate(config)
@@ -505,36 +505,35 @@ def prepare_application(config, source):
     return python
 
 
-def register_application(config, python):
-    service=config['project'].replace('_','-')
+def prepare_manual_launch(config, source):
+    service = config['project'].replace('_','-')+'-app'
     if WINDOWS:
-        run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',ROOT/'register-task.ps1',
-             '-PythonExe',python,'-Runner',ROOT/'runner.py','-Settings',RUNTIME/'app.json',
-             '-TaskName',service+'-app','-Port',config['app_port'],'-Bind',config['bind']])
+        # Remove automatic app execution for this installation only.
+        run(['powershell','-NoProfile','-Command',
+             "$ErrorActionPreference='Stop'; $t=Get-ScheduledTask -TaskName '"+service+"' -ErrorAction SilentlyContinue; if ($t) { Disable-ScheduledTask -InputObject $t | Out-Null; if ($t.State -eq 'Running') { Stop-ScheduledTask -InputObject $t } }"])
+        if config['bind']=='0.0.0.0':
+            run(['powershell','-NoProfile','-Command',f"Get-NetFirewallRule -Name '{service}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{service}' -DisplayName 'MeDIAuto manual app' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet | Out-Null"])
     else:
-        import pwd
-        account=os.environ.get('SUDO_USER') or 'mediauto-app'
-        if account=='root':account='mediauto-app'
-        try:entry=pwd.getpwnam(account)
-        except KeyError:
-            run(['useradd','--system','--no-create-home','--shell','/usr/sbin/nologin',account]);entry=pwd.getpwnam(account)
-        for key in PATHS:
-            directory=Path(config['paths'][key])
-            for parent in (directory,*directory.parents):
-                if parent!=Path('/'):run(['setfacl','-m',f'u:{account}:r-x',parent])
-            if key!='models':os.chown(directory,entry.pw_uid,entry.pw_gid);directory.chmod(0o700)
-        for parent in (ROOT,*ROOT.parents,RUNTIME):
-            if parent!=Path('/'):run(['setfacl','-m',f'u:{account}:r-x',parent])
-        run(['setfacl','-m',f'u:{account}:r--',RUNTIME/'app.json'])
-        keyfile=Path(config['paths']['secrets'])/'.secrets.json'
-        if keyfile.exists():os.chown(keyfile,entry.pw_uid,entry.pw_gid);keyfile.chmod(0o600)
-        os.chown(config['paths']['logs'],entry.pw_uid,entry.pw_gid)
-        text=(f'[Unit]\nDescription=MeDIAuto native app\nAfter=network.target {service}.service\nRequires={service}.service\n\n'
-              f'[Service]\nType=simple\nUser={account}\nUMask=0077\n'
-              f'ExecStart="{python}" "{ROOT}/runner.py" "{RUNTIME}/app.json"\n'
-              'Restart=on-failure\nRestartSec=10\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n')
-        Path('/etc/systemd/system',service+'-app.service').write_text(text.replace('%','%%'))
-        run(['systemctl','daemon-reload']);run(['systemctl','enable',service+'-app']);run(['systemctl','restart',service+'-app'])
+        unit=Path('/etc/systemd/system',service+'.service')
+        if unit.exists():run(['systemctl','disable','--now',service])
+        account=os.environ.get('SUDO_USER')
+        if account and account!='root':
+            import pwd
+            entry=pwd.getpwnam(account)
+            # Newly created checkout/environments must be editable from normal VS Code.
+            for folder in (ROOT,RUNTIME):
+                for directory,dirs,files in os.walk(folder):
+                    os.chown(directory,entry.pw_uid,entry.pw_gid)
+                    for name in files:
+                        path=Path(directory)/name
+                        if not path.is_symlink():os.chown(path,entry.pw_uid,entry.pw_gid)
+            for key in PATHS:
+                if key=='models':continue
+                path=Path(config['paths'][key])
+                os.chown(path,entry.pw_uid,entry.pw_gid)
+            secret=Path(config['paths']['secrets'])/'.secrets.json'
+            if secret.exists():os.chown(secret,entry.pw_uid,entry.pw_gid)
+
 
 
 def main():
@@ -551,16 +550,9 @@ def main():
     database(config)
     python=prepare_application(config,source)
     run([python,ROOT/'runner.py',RUNTIME/'app.json','--check'])
-    register_application(config,python)
-    for _ in range(90):
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{config['app_port']}/api/health",timeout=3) as r:
-                if r.status==200:break
-        except OSError:pass
-        time.sleep(2)
-    else:raise RuntimeError('App did not become healthy. Check the external logs/app.log file.')
+    prepare_manual_launch(config,source)
     write_private(RUNTIME/'ADMIN_LOGIN.txt',f"URL: http://localhost:{config['app_port']}\nID: {config['admin_id']}\nPassword: {config['admin_password']}\n")
-    print(f"Ready: http://localhost:{config['app_port']}\nCredentials: {RUNTIME}/ADMIN_LOGIN.txt\nSource commit: "+source.name)
+    print(f"Installation complete. Server has NOT been started.\nURL after manual start: http://localhost:{config['app_port']}\nCredentials: {RUNTIME}/ADMIN_LOGIN.txt\nSource folder: "+str(source))
 
 
 if __name__=='__main__':

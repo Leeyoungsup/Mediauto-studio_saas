@@ -53,7 +53,7 @@ Docker 로그 드라이버는 none입니다. `docker logs` 대신 호스트의 l
 
 ## GitHub 인증 / 관리자
 
-Docker 방식은 공개 Docker Hub 이미지를 받아 실행하므로 GitHub 인증이 필요하지 않습니다.
+Docker 방식도 GitHub 소스를 clone합니다. 환경은 Docker Hub GPU 이미지를 기반으로 빌드합니다. 비공개 저장소에는 GitHub 인증이 필요합니다.
 초기 관리자 ID는 `admin`, 비밀번호는 `admin1234!`입니다. 최초 로그인 정보는 `<외부 루트>/config/ADMIN_LOGIN.txt`에서 확인합니다.
 
 네이티브 방식은 GitHub 저장소(기본 Leeyoungsup/Mediauto-studio_saas), 브랜치(기본 main),
@@ -101,3 +101,23 @@ Windows 전체 설치 및 드라이버별 호환성은 대상 PC에서 검증해
 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
 - https://pytorch.org/get-started/previous-versions/
 - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+
+## 두 방식 공통 Git + 수동 실행 (2026-09-17-r5)
+
+1번 Docker와 2번 네이티브 모두 Git clone, 브랜치/로컬 수정 보존, 설치 후 앱 자동 실행 없음, 수동 업데이트 원칙을 적용합니다.
+1번은 환경이 준비된 GPU 이미지를 기반으로 Git 작업 폴더의 코드를 빌드합니다. Docker Hub에 코드를 업로드하지 않습니다.
+설치 중에는 build까지만 수행하며 컨테이너를 시작하지 않습니다. restart 정책은 no입니다.
+이 설치의 기존 컨테이너가 있으면 restart=no로 변경하고 중지합니다. PostgreSQL과 Docker 엔진 자체의 서비스는 유지합니다.
+
+| 항목 | 1번 Docker | 2번 네이티브 |
+|---|---|---|
+| VS Code 소스 폴더 | docker/application | native/application |
+| Windows 시작 | docker\start.bat | native\start.bat |
+| Linux 시작 | bash docker/start.sh | bash native/start.sh |
+| 종료 | Ctrl+C 또는 docker/stop.bat (Linux: bash docker/stop.sh) | Ctrl+C |
+
+Docker start는 현재 소스를 다시 build하고 포그라운드로 실행합니다. 코드를 수정하거나 브랜치를 병합한 후 종료·재실행하면 반영됩니다.
+Docker 빌드 입력에서 .git, 모델, .env 및 운영 데이터를 제외합니다. 데이터는 기존 외부 마운트를 사용합니다.
+GitHub PAT는 clone할 때만 프로세스 환경으로 전달하며 Git 설정/원격 URL/빌드 입력에 저장하지 않습니다.
+네이티브의 의존성 변경은 install 재실행, Docker 의존성 변경은 start의 build로 반영합니다.
+두 방식 모두 DB 마이그레이션 전에는 백업하세요. 기존 계정 비밀번호는 자동 변경하지 않습니다.

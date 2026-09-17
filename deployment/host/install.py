@@ -122,6 +122,8 @@ def configure():
     config['app_port'] = port(ask('Web port', 18093))
     config['db_port'] = port(ask('Dedicated PostgreSQL port', 55432))
     config['bind'] = ask('Web bind (0.0.0.0 = LAN, 127.0.0.1 = this PC)', '0.0.0.0')
+    config['repository'] = ask('GitHub repository', 'Leeyoungsup/Mediauto-studio_saas')
+    config['ref'] = ask('GitHub branch/tag', 'main')
     config['admin_password'] = 'admin1234!'
     config['db_password'] = secrets.token_hex(24)
     config['pg_password'] = secrets.token_hex(24)
@@ -474,7 +476,7 @@ def compose(config, name):
                 'read_only':k=='models','bind':{'create_host_path':False}} for k,v in PATHS.items()]
     volumes.append({'type':'bind','source':str((ROOT/'container_runner.py').resolve()).replace('\\','/'), 'target':'/installer/container_runner.py','read_only':True,'bind':{'create_host_path':False}})
     volumes.append({'type':'bind','source':str((ROOT/'bootstrap_admin.py').resolve()).replace('\\','/'), 'target':'/installer/bootstrap_admin.py','read_only':True,'bind':{'create_host_path':False}})
-    doc = {'name':config['project'],'services':{'app':{'image':IMAGE,'restart':'unless-stopped','init':True,'shm_size':'1gb',
+    doc = {'name':config['project'],'services':{'app':{'image':config['project']+':local','build':{'context':str(ROOT/'application'),'dockerfile':str(ROOT/'Dockerfile.source'),'args':{'BASE_IMAGE':IMAGE}},'restart':'no','init':True,'shm_size':'1gb',
            'env_file':['app.env'],'entrypoint':['python','/installer/container_runner.py'],
            'deploy':{'resources':{'reservations':{'devices':[{'driver':'nvidia','count':'all','capabilities':['gpu']}]}}},
            'logging':{'driver':'none'},
@@ -495,7 +497,7 @@ def main():
     args=parser.parse_args()
     restore_runtime()
     if args.action != 'install':
-        run(['docker','compose','-f',RUNTIME/'compose.json', *({'start':['up','-d','--wait','--wait-timeout','900'], 'stop':['stop'],'status':['ps']}[args.action])]);return
+        run(['docker','compose','-f',RUNTIME/'compose.json', *({'start':['up','--build','--abort-on-container-exit'], 'stop':['stop'],'status':['ps']}[args.action])]);return
     if not WINDOWS and os.geteuid() != 0: raise ValueError('Run bash install.sh; native service installation requires sudo.')
     if platform.machine().lower() not in ('amd64','x86_64'): raise ValueError('This release requires an x86-64 PC.')
     manifest = ROOT/'bundle-manifest.json'
@@ -505,6 +507,12 @@ def main():
             if path.is_symlink() or not path.resolve().is_relative_to(ROOT.resolve()) or sha(path) != entry['sha256']:
                 raise ValueError('Installer bundle checksum mismatch: '+entry['path'])
     config=configure();check_ports(config)
+    if 'repository' not in config:
+        config['repository']=ask('GitHub repository','Leeyoungsup/Mediauto-studio_saas')
+        config['ref']=ask('GitHub branch/tag','main')
+        write_private(RUNTIME/'settings.json',json.dumps(config,ensure_ascii=False,indent=2))
+    from github_source import download
+    source=download(config,RUNTIME,ROOT)
     try:
         run(['nvidia-smi','--query-gpu=name,driver_version','--format=csv,noheader'])
     except (RuntimeError,OSError):
@@ -517,16 +525,33 @@ def main():
     name,subnet=network(config)
     database(config,subnet)
     cmd=compose(config,name)
-    run(cmd+['config','--quiet']);run(cmd+['pull']);run(cmd+['up','-d','--no-build','--wait','--wait-timeout','900'])
+    run(cmd+['config','--quiet'])
+    # Existing containers keep their old restart policy until explicitly updated.
+    containers=output(cmd+['ps','-a','-q','app']).splitlines()
+    for container in containers:
+        run(['docker','update','--restart=no',container])
+    if containers:run(cmd+['stop','app'])
+    run(cmd+['build'])
+    (ROOT/'.python-path').write_text(sys.executable,encoding='utf-8')
+    if not WINDOWS and os.environ.get('SUDO_USER'):
+        import pwd
+        account=pwd.getpwnam(os.environ['SUDO_USER'])
+        for directory,dirs,files in os.walk(source):
+            os.chown(directory,account.pw_uid,account.pw_gid)
+            for filename in files:
+                path=Path(directory)/filename
+                if not path.is_symlink():os.chown(path,account.pw_uid,account.pw_gid)
     if WINDOWS and config['bind']=='0.0.0.0':
         rule=config['project']+'-web'
         run(['powershell','-NoProfile','-Command',f"Get-NetFirewallRule -Name '{rule}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{rule}' -DisplayName 'MeDIAuto Web' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet | Out-Null"])
     write_private(RUNTIME/'ADMIN_LOGIN.txt',f"URL: http://localhost:{config['app_port']}\nID: admin\nPassword: {config['admin_password']}\n")
-    write_private(RUNTIME/'installed.json',json.dumps({'image':IMAGE,'version':'3.3.2'}))
-    print(f"Ready: http://localhost:{config['app_port']}\nLogin: {RUNTIME}/ADMIN_LOGIN.txt\nLAN access: use this server's IP address instead of localhost.")
+    write_private(RUNTIME/'installed.json',json.dumps({'image':config['project']+':local','base_image':IMAGE,'source':str(source),'execution':'manual'}))
+    print(f"Installation complete. App has NOT been started. Run start.bat / bash start.sh manually.\nURL after start: http://localhost:{config['app_port']}\nLogin: {RUNTIME}/ADMIN_LOGIN.txt\nLAN access: use this server's IP address instead of localhost.")
 
 
 if __name__=='__main__':
     try: main()
+    except KeyboardInterrupt:
+        print('Stopped by user.');sys.exit(130)
     except (ValueError,RuntimeError,OSError) as e:
         print('INSTALL FAILED:',e,file=sys.stderr);sys.exit(1)

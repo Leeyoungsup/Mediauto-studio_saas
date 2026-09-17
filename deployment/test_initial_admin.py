@@ -20,7 +20,7 @@ class InitialAdminTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 answers = [str(root/'data'), str(root/'models'), '', '', '', '']
-                if mode == 'native': answers += ['', '']
+                answers += ['', '']
                 with patch.object(module, 'ROOT', root), patch.object(module, 'RUNTIME', root/'runtime'), patch.object(module, 'WINDOWS', False):
                     with patch('builtins.input', side_effect=answers):
                         config = module.configure()

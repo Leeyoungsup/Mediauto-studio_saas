@@ -53,7 +53,7 @@ Docker 로그 드라이버는 none입니다. `docker logs` 대신 호스트의 l
 
 ## GitHub 인증 / 관리자
 
-Docker 방식은 공개 Docker Hub 이미지를 받아 실행하므로 GitHub 인증이 필요하지 않습니다.
+Docker 방식도 GitHub 소스를 clone합니다. 환경은 Docker Hub GPU 이미지를 기반으로 빌드합니다. 비공개 저장소에는 GitHub 인증이 필요합니다.
 초기 관리자 ID는 `admin`, 비밀번호는 `admin1234!`입니다. 최초 로그인 정보는 `<외부 루트>/config/ADMIN_LOGIN.txt`에서 확인합니다.
 
 네이티브 방식은 GitHub 저장소(기본 Leeyoungsup/Mediauto-studio_saas), 브랜치(기본 main),
@@ -83,7 +83,7 @@ Docker가 이미 설치됐지만 GPU 연결 도구만 없다면 Ubuntu/Debian에
 
 Docker 실행 관리: `docker compose -f <외부 루트>/config/compose.json up -d --wait --wait-timeout 900` / `stop`.
 Linux에서는 설정 읽기에 sudo가 필요할 수 있습니다.
-네이티브 Windows 앱은 설치 사용자 로그인 시 작업 스케줄러에서 시작하며, Linux 앱은 systemd 서비스입니다.
+네이티브 앱은 자동 시작하지 않습니다. native/start.bat 또는 bash native/start.sh로 실행하고 Ctrl+C로 종료합니다.
 PostgreSQL은 두 방식 모두 호스트 서비스로 자동 시작합니다.
 
 ## 모델 / 검증 범위
@@ -101,3 +101,48 @@ Windows 전체 설치 및 드라이버별 호환성은 대상 PC에서 검증해
 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
 - https://pytorch.org/get-started/previous-versions/
 - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+
+## Git 작업 폴더 + 수동 실행 (2026-09-17-r4, 네이티브 방식)
+
+네이티브 설치는 환경·DB·모델 검사를 마친 뒤 종료합니다. 앱을 실행하거나 로그인 자동 실행 작업을 등록하지 않습니다.
+같은 설치 ID로 남아 있는 앱 작업/서비스는 비활성화하고 중지합니다. 다른 설치 ID의 앱에는 영향을 주지 않습니다.
+PostgreSQL은 DB 서비스로 유지합니다. Docker 방식도 설치 후 자동 실행하지 않습니다.
+
+- Git이 없으면 설치합니다. GitHub 브랜치/태그를 최초 clone하고 `.git`을 보존합니다.
+- VS Code에서 `native/application` 폴더를 엽니다. 네이티브 전용 묶음은 `application` 폴더입니다.
+- 기존 Git 작업 폴더에는 자동 pull/checkout/reset/clean을 하지 않습니다. 선택한 브랜치, 수정 파일과 미추적 파일을 보존합니다.
+- 설치 시 PAT는 명령 인자·원격 URL·설정 파일에 저장하지 않습니다. 이후 수동 Git 작업의 인증은 VS Code/Git에서 별도로 설정합니다.
+- 태그는 detached HEAD이므로 개발에는 브랜치를 선택하세요.
+
+Windows: 설치 폴더에서 `native\start.bat` 실행.
+Linux: 일반 사용자 터미널에서 `bash native/start.sh` 실행.
+종료: 실행 중인 터미널에서 `Ctrl+C`. 터미널을 닫으면 실행을 유지하는 방식이 아닙니다.
+로그인 URL은 설정한 웹 포트이며, 새 DB 최초 계정은 admin / admin1234!입니다.
+
+업데이트: 서버 종료 → native/application을 VS Code로 열기 → 로컬 변경을 커밋하거나 필요 시 직접 stash → git fetch origin → 원하는 브랜치로 switch/merge → 필요하면 install 재실행으로 의존성·마이그레이션 갱신 → start로 직접 실행.
+설치기를 재실행해도 Git 작업 폴더의 브랜치와 로컬 수정은 유지합니다. 마이그레이션이 있는 업데이트 전에는 DB를 백업하세요.
+
+구형 ZIP 소스 설치의 application 폴더는 자동 변환하거나 삭제하지 않습니다.
+처음부터 검증하려면 새 설치 폴더와 새 외부 데이터 루트를 사용하고 모델만 기존 폴더를 지정하세요.
+예: C:\mediautoAI-dev\MeDIAuto-GPU-installer, 외부 루트 C:\mediautoAI-dev\data, 웹 18094, DB 55433.
+기존 앱 자동 실행은 이전 설치 ID에 대해 별도로 중지해야 합니다.
+
+## 두 방식 공통 Git + 수동 실행 (2026-09-17-r5)
+
+1번 Docker와 2번 네이티브 모두 Git clone, 브랜치/로컬 수정 보존, 설치 후 앱 자동 실행 없음, 수동 업데이트 원칙을 적용합니다.
+1번은 환경이 준비된 GPU 이미지를 기반으로 Git 작업 폴더의 코드를 빌드합니다. Docker Hub에 코드를 업로드하지 않습니다.
+설치 중에는 build까지만 수행하며 컨테이너를 시작하지 않습니다. restart 정책은 no입니다.
+이 설치의 기존 컨테이너가 있으면 restart=no로 변경하고 중지합니다. PostgreSQL과 Docker 엔진 자체의 서비스는 유지합니다.
+
+| 항목 | 1번 Docker | 2번 네이티브 |
+|---|---|---|
+| VS Code 소스 폴더 | docker/application | native/application |
+| Windows 시작 | docker\start.bat | native\start.bat |
+| Linux 시작 | bash docker/start.sh | bash native/start.sh |
+| 종료 | Ctrl+C 또는 docker/stop.bat (Linux: bash docker/stop.sh) | Ctrl+C |
+
+Docker start는 현재 소스를 다시 build하고 포그라운드로 실행합니다. 코드를 수정하거나 브랜치를 병합한 후 종료·재실행하면 반영됩니다.
+Docker 빌드 입력에서 .git, 모델, .env 및 운영 데이터를 제외합니다. 데이터는 기존 외부 마운트를 사용합니다.
+GitHub PAT는 clone할 때만 프로세스 환경으로 전달하며 Git 설정/원격 URL/빌드 입력에 저장하지 않습니다.
+네이티브의 의존성 변경은 install 재실행, Docker 의존성 변경은 start의 build로 반영합니다.
+두 방식 모두 DB 마이그레이션 전에는 백업하세요. 기존 계정 비밀번호는 자동 변경하지 않습니다.

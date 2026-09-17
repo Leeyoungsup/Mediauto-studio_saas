@@ -9,7 +9,7 @@ case "$ID" in ubuntu|debian) ;; *) echo 'Automatic Linux installation supports U
 bash "$PWD/setup-nvidia-runtime.sh" --prepare-repositories
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg python3 postgresql acl
+apt-get install -y git ca-certificates curl gnupg python3 postgresql acl
 # Preserve an existing Docker installation; do not remove packages or change daemon configuration.
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings

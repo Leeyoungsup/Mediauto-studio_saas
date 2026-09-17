@@ -8,7 +8,7 @@ import tarfile
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
+FILES=('github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
 
 def digest(path):
     h=hashlib.sha256()

@@ -9,8 +9,8 @@ import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
 TOP=('install.bat','select.ps1','install.sh','setup-nvidia-runtime.sh','README.md')
-DOCKER=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
-NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json')
+DOCKER=('github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
+NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','launch.py','start.bat','start.sh','gpu_check.py','model-checksums.json')
 
 def windows_vendor_payloads():
     manifest_path=ROOT/'deployment/native/openslide-windows.json'

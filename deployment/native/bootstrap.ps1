@@ -65,6 +65,14 @@ try {
     }
     if (-not $python) { throw 'Python installation was not found. Restart install.bat after Python installation finishes.' }
     Write-Host ('Using existing verified Python: ' + $python)
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        $gitPath = Join-Path $env:ProgramFiles 'Git\cmd'
+        if (-not (Test-Path (Join-Path $gitPath 'git.exe'))) {
+            Invoke-Checked winget @('install','--id','Git.Git','--exact','--source','winget','--silent','--accept-source-agreements','--accept-package-agreements')
+        }
+        $env:PATH = $gitPath + ';' + $env:PATH
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git installed but unavailable. Reopen install.bat.' }
+    }
     $env:PYTHONUTF8 = '1'
     Invoke-Checked $python @((Join-Path $PSScriptRoot 'install.py'))
 } catch {

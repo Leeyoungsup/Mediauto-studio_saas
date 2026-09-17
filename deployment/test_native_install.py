@@ -24,43 +24,33 @@ class NativeTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    c=self.config(Path(d));n.validate(c)
    self.assertNotIn('token',json.dumps(c))
- def test_archive_traversal_is_rejected(self):
+ def test_existing_git_checkout_keeps_branch_and_local_changes(self):
+  import subprocess
   with tempfile.TemporaryDirectory() as d:
-   z=Path(d)/'x.zip'
-   with zipfile.ZipFile(z,'w') as f:f.writestr('repo/../../outside.py','bad')
-   with self.assertRaises(ValueError):g.extract(z,Path(d)/'app')
-   self.assertFalse((Path(d)/'outside.py').exists())
- def test_authorization_is_only_sent_to_api(self):
-  captured=[]
-  class Opener:
-   def open(self,req,timeout):captured.append(req);return 'ok'
-  with patch.object(g.urllib.request,'build_opener',return_value=Opener()):
-   self.assertEqual(g.api('/repos/o/r','Basic secret'),'ok')
-  self.assertEqual(captured[0].host,'api.github.com')
-  self.assertEqual(captured[0].get_header('Authorization'),'Basic secret')
-  self.assertIsNone(g.NoRedirect().redirect_request(captured[0],None,302,'',{},'https://other.example'))
- def test_redirect_download_has_no_auth_and_token_not_saved(self):
+   root=Path(d);target=root/'application';runtime=root/'config';runtime.mkdir();target.mkdir()
+   def git(*args):return subprocess.run(['git','-C',str(target),*args],check=True,capture_output=True,text=True).stdout.strip()
+   git('init','-b','custom');git('config','user.name','Test');git('config','user.email','test@example.invalid')
+   (target/'backend').mkdir();file=target/'backend/main.py';file.write_text('original')
+   git('add','.');git('commit','-m','initial');git('remote','add','origin','https://github.com/owner/repo.git')
+   file.write_text('local edit');(target/'untracked.txt').write_text('keep')
+   before=git('status','--porcelain')
+   with patch('builtins.input',side_effect=AssertionError('no authentication on reuse')):
+    self.assertEqual(g.download({'repository':'owner/repo','ref':'main'},runtime,root),target)
+   self.assertEqual(git('branch','--show-current'),'custom');self.assertEqual(git('status','--porcelain'),before)
+   self.assertEqual(file.read_text(),'local edit')
+ def test_archive_install_is_preserved_and_rejected(self):
   with tempfile.TemporaryDirectory() as d:
-   root=Path(d);runtime=root/'.runtime';runtime.mkdir();commit='a'*40
-   blob=io.BytesIO()
-   with zipfile.ZipFile(blob,'w') as z:z.writestr('repo-'+commit+'/backend/main.py','pass')
-   calls=[]
-   def fake_api(path,auth):
-    calls.append(auth)
-    if '/commits/' in path:return io.BytesIO(json.dumps({'sha':commit}).encode())
-    raise urllib.error.HTTPError('https://api.github.com',302,'redirect',{'Location':'https://codeload.github.com/repo/zip/commit'},None)
-   class Opener:
-    def open(self,url,timeout):
-     self_url=url
-     assert isinstance(self_url,str) # No request carrying an Authorization header.
-     return io.BytesIO(blob.getvalue())
-   with patch('builtins.input',return_value='alice'),patch.object(g.sys.stdin,'isatty',return_value=True),patch.object(g.getpass,'getpass',return_value='secret-PAT'),patch.object(g,'api',side_effect=fake_api),patch.object(g.urllib.request,'build_opener',return_value=Opener()):
-    target=g.download({'repository':'owner/repo','ref':'main'},runtime,root)
-   self.assertTrue((target/'backend/main.py').exists())
-   self.assertEqual(len(calls),2)
-   for p in root.rglob('*'):
-    if p.is_file():self.assertNotIn('secret-PAT',p.read_text())
-   self.assertFalse((runtime/'source-download.zip').exists())
+   root=Path(d);(root/'application').mkdir();file=root/'application/custom.py';file.write_text('keep')
+   with self.assertRaisesRegex(ValueError,'without .git'):
+    g.download({'repository':'owner/repo','ref':'main'},root,root)
+   self.assertEqual(file.read_text(),'keep')
+ def test_manual_configuration_does_not_register_or_start_a_task(self):
+  with patch.object(n,'WINDOWS',True),patch.object(n,'run') as run:
+   n.prepare_manual_launch({'project':'mediauto_native_test','bind':'127.0.0.1'},Path('source'))
+  command=str(run.call_args_list)
+  self.assertIn('Disable-ScheduledTask',command)
+  self.assertNotIn('Start-ScheduledTask',command)
+  self.assertNotIn('Register-ScheduledTask',command)
  def test_bundled_openslide_is_verified_before_installation(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);vendor=root/'vendor';vendor.mkdir()

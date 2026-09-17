@@ -39,6 +39,7 @@ class RunnerTests(unittest.TestCase):
       self.assertNotIn('SERVER OUTPUT',output)
      else:
       self.assertEqual(result.returncode,1,output)
-      for text in ('TEST APP FAILURE','CHILD OUTPUT','SERVER OUTPUT'):self.assertIn(text,output)
+      for text in ('TEST APP FAILURE','SERVER OUTPUT'):self.assertIn(text,output)
+      self.assertIn('CHILD OUTPUT',log.read_text())
 
 if __name__=='__main__':unittest.main()
