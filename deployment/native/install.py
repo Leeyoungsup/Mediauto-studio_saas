@@ -27,7 +27,13 @@ PATHS = {'models': '/models', 'slides': '/data/uploads', 'patches': '/data/cell_
 RUNTIME = ROOT / '.runtime'
 
 
+MAIN_PYTHON = None
+MAIN_COMMAND = None
+
+
 def run(args, **kwargs):
+    if MAIN_COMMAND and str(args[0]) == str(MAIN_PYTHON):
+        args = MAIN_COMMAND + list(args[1:])
     # Do not put passwords in command arguments or error messages.
     result = subprocess.run([str(x) for x in args], **kwargs)
     if result.returncode:
@@ -464,9 +470,20 @@ def install_windows_openslide(python):
 
 def prepare_application(config, source):
     RUNTIME.mkdir(parents=True,exist_ok=True)
-    envdir=ROOT/'venv'
-    python=envdir/('Scripts/python.exe' if WINDOWS else 'bin/python')
-    if not python.exists():run([sys.executable,'-m','venv',envdir])
+    if not WINDOWS and os.environ.get('SUDO_USER'):
+        import pwd
+        account=pwd.getpwnam(os.environ['SUDO_USER'])
+        run(['setfacl','-m','u:'+account.pw_name+':rwx',RUNTIME])
+        run(['setfacl','-d','-m','u:'+account.pw_name+':rwx',RUNTIME])
+        for key in ('cache','temp'):
+            directory=Path(config['paths'][key]);directory.mkdir(parents=True,exist_ok=True)
+            os.chown(directory,account.pw_uid,account.pw_gid)
+    global MAIN_PYTHON, MAIN_COMMAND
+    from conda_setup import prepare as prepare_philips_environment, prepare_main, install_sdk
+    philips = prepare_philips_environment(ROOT, config, WINDOWS)
+    python,command = prepare_main(ROOT,config,WINDOWS)
+    MAIN_PYTHON,MAIN_COMMAND = python,command
+    (ROOT/'.python-path').write_text(sys.executable,encoding='utf-8')
     run([python,'-m','pip','install','--upgrade','pip'])
     requirements=(source/'backend/requirements.txt').read_text(encoding='utf-8')
     if WINDOWS:
@@ -495,10 +512,8 @@ def prepare_application(config, source):
          'TMPDIR':config['paths']['temp'],'TEMP':config['paths']['temp'],'TMP':config['paths']['temp'],
          'MEDIAUTO_BOOTSTRAP_ADMIN_ID':config['admin_id'],'MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD':config['admin_password'],
          'MEDIAUTO_BOOTSTRAP_ADMIN_NAME':'Administrator','TILE_CACHE_QUOTA_BYTES':'107374182400','PYTHONUNBUFFERED':'1'}
-    from conda_setup import prepare as prepare_philips_environment, install_sdk
-    philips = prepare_philips_environment(ROOT, config, WINDOWS)
     env.update(install_sdk(ROOT, config, WINDOWS, philips))
-    app={'backend':str(backend),'env':env,'bind':config['bind'],'port':config['app_port'],'db_port':config['db_port'],
+    app={'python':str(python),'command':command,'backend':str(backend),'env':env,'bind':config['bind'],'port':config['app_port'],'db_port':config['db_port'],
          'log':str(Path(config['paths']['logs'])/'app.log')}
     write_private(RUNTIME/'app.json',json.dumps(app,ensure_ascii=False,indent=2))
     Path(config['paths']['logs']).mkdir(parents=True,exist_ok=True)
@@ -508,11 +523,25 @@ def prepare_application(config, source):
 def prepare_manual_launch(config, source):
     service = config['project'].replace('_','-')+'-app'
     if WINDOWS:
-        # Remove automatic app execution for this installation only.
-        run(['powershell','-NoProfile','-Command',
-             "$ErrorActionPreference='Stop'; $t=Get-ScheduledTask -TaskName '"+service+"' -ErrorAction SilentlyContinue; if ($t) { Disable-ScheduledTask -InputObject $t | Out-Null; if ($t.State -eq 'Running') { Stop-ScheduledTask -InputObject $t } }"])
+        # Enumerate and filter: querying an absent name can leave PowerShell's
+        # success flag false even with SilentlyContinue, causing a silent exit 1.
+        print('Checking previous automatic app task...',flush=True)
+        script=("$ErrorActionPreference='Stop'; try { "
+                "$tasks=@(Get-ScheduledTask -ErrorAction Stop | Where-Object {$_.TaskName -eq '"+service+"'}); "
+                "foreach ($t in $tasks) { $wasRunning=($t.State -eq 'Running'); "
+                "Disable-ScheduledTask -InputObject $t -ErrorAction Stop | Out-Null; "
+                "if ($wasRunning) { Stop-ScheduledTask -InputObject $t -ErrorAction Stop } }; "
+                "Write-Host 'Manual app mode ready; no automatic app start.'; exit 0 "
+                "} catch { [Console]::Error.WriteLine('App task configuration failed: '+$_.Exception.Message); exit 1 }")
+        run(['powershell','-NoProfile','-Command',script])
         if config['bind']=='0.0.0.0':
-            run(['powershell','-NoProfile','-Command',f"Get-NetFirewallRule -Name '{service}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{service}' -DisplayName 'MeDIAuto manual app' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet | Out-Null"])
+            print('Configuring LAN web firewall rule...',flush=True)
+            script=("$ErrorActionPreference='Stop'; try { "
+                    "Get-NetFirewallRule -ErrorAction Stop | Where-Object {$_.Name -eq '"+service+"'} | Remove-NetFirewallRule -ErrorAction Stop; "
+                    f"New-NetFirewallRule -Name '{service}' -DisplayName 'MeDIAuto manual app' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet -ErrorAction Stop | Out-Null; exit 0 "
+                    "} catch { [Console]::Error.WriteLine('Web firewall configuration failed: '+$_.Exception.Message); exit 1 }")
+            run(['powershell','-NoProfile','-Command',script])
+
     else:
         unit=Path('/etc/systemd/system',service+'.service')
         if unit.exists():run(['systemctl','disable','--now',service])

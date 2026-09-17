@@ -9,8 +9,10 @@ import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
 TOP=('install.bat','select.ps1','install.sh','setup-nvidia-runtime.sh','README.md')
-DOCKER=('github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
-NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','launch.py','start.bat','start.sh','gpu_check.py','model-checksums.json')
+DOCKER=('local_setup.py','start-local.bat','start-local.sh','github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
+NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','launch.py','run-local.ps1','start.bat','start.sh','gpu_check.py','model-checksums.json')
+
+LOCAL_SHARED={'run-local.ps1':'run-local.ps1','local_environment.py':'install.py','conda_setup.py':'conda_setup.py','runner.py':'runner.py','gpu_check.py':'gpu_check.py','local_launch.py':'launch.py','diagnose_philips.py':'diagnose_philips.py'}
 
 def windows_vendor_payloads():
     manifest_path=ROOT/'deployment/native/openslide-windows.json'
@@ -51,6 +53,7 @@ def build():
     entries={name:ROOT/'deployment/installer'/name for name in TOP}
     entries.update({'docker/'+name:ROOT/'deployment/host'/name for name in DOCKER})
     entries.update({'native/'+name:ROOT/'deployment/native'/name for name in NATIVE})
+    entries.update({'docker/'+target:ROOT/'deployment/native'/source for target,source in LOCAL_SHARED.items()})
     payloads={name:p.read_bytes() for name,p in entries.items()}
     for name in payloads:
         if name.endswith('.bat'):payloads[name]=payloads[name].replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')

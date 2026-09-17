@@ -1,2 +1,2 @@
 @echo off
-"%~dp0venv\Scripts\python.exe" "%~dp0launch.py"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-local.ps1"

@@ -531,6 +531,8 @@ def main():
     for container in containers:
         run(['docker','update','--restart=no',container])
     if containers:run(cmd+['stop','app'])
+    from local_setup import prepare as prepare_local
+    prepare_local(config,source,ROOT,RUNTIME)
     run(cmd+['build'])
     (ROOT/'.python-path').write_text(sys.executable,encoding='utf-8')
     if not WINDOWS and os.environ.get('SUDO_USER'):
@@ -546,12 +548,14 @@ def main():
         run(['powershell','-NoProfile','-Command',f"Get-NetFirewallRule -Name '{rule}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule -Name '{rule}' -DisplayName 'MeDIAuto Web' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {config['app_port']} -RemoteAddress LocalSubnet | Out-Null"])
     write_private(RUNTIME/'ADMIN_LOGIN.txt',f"URL: http://localhost:{config['app_port']}\nID: admin\nPassword: {config['admin_password']}\n")
     write_private(RUNTIME/'installed.json',json.dumps({'image':config['project']+':local','base_image':IMAGE,'source':str(source),'execution':'manual'}))
-    print(f"Installation complete. App has NOT been started. Run start.bat / bash start.sh manually.\nURL after start: http://localhost:{config['app_port']}\nLogin: {RUNTIME}/ADMIN_LOGIN.txt\nLAN access: use this server's IP address instead of localhost.")
+    print(f"Installation complete. App has NOT been started. Docker: start.bat / bash start.sh. Local: start-local.bat / bash start-local.sh.\nURL after start: http://localhost:{config['app_port']}\nLogin: {RUNTIME}/ADMIN_LOGIN.txt\nLAN access: use this server's IP address instead of localhost.")
 
 
 if __name__=='__main__':
     try: main()
     except KeyboardInterrupt:
         print('Stopped by user.');sys.exit(130)
+    except subprocess.CalledProcessError as e:
+        print('INSTALL FAILED: dependency command failed (exit '+str(e.returncode)+'). See output above.',file=sys.stderr);sys.exit(1)
     except (ValueError,RuntimeError,OSError) as e:
         print('INSTALL FAILED:',e,file=sys.stderr);sys.exit(1)

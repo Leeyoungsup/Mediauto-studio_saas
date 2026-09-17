@@ -1,20 +1,24 @@
 """Provide the second, ABI-specific Philips Python environment on native PCs."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import urllib.request
 
-RELEASE = '25.3.1-0'
+RELEASE = 'py312_26.7.1-1'
 INSTALLERS = {
-    'windows': ('Windows-x86_64.exe', 'b7706a307b005fc397b70a244de19129100906928abccd5592580eb8296fb240'),
-    'linux': ('Linux-x86_64.sh', '376b160ed8130820db0ab0f3826ac1fc85923647f75c1b8231166e3d559ab768'),
+    'windows': ('Windows-x86_64.exe', '8ae918681b0830314d85207f7a244352762b543bb83d53e0fcf77fbf270f8331'),
+    'linux': ('Linux-x86_64.sh', 'b27f60ab63e77eeab50a5417c989120f767e863df32400190d4c7262369f8695'),
 }
 
 
 def invoke(args, **kwargs):
-    return subprocess.run([str(a) for a in args], check=True, **kwargs)
+    command=[str(a) for a in args]
+    if os.name!='nt' and os.environ.get('SUDO_USER') and Path(command[0]).name=='conda':
+        command=['runuser','-u',os.environ['SUDO_USER'],'--']+command
+    return subprocess.run(command, check=True, **kwargs)
 
 
 def digest(path):
@@ -26,7 +30,7 @@ def digest(path):
 
 def find_conda(root, windows):
     relative = 'Scripts/conda.exe' if windows else 'bin/conda'
-    candidates = [os.environ.get('CONDA_EXE'), shutil.which('conda.exe' if windows else 'conda'), str(root/'programs/miniforge3'/relative)]
+    candidates = [os.environ.get('CONDA_EXE'), shutil.which('conda.exe' if windows else 'conda'), str(root/'programs/miniconda3'/relative), str(root/'programs/miniforge3'/relative)]
     homes = [Path.home()]
     if os.environ.get('SUDO_USER') and not windows:
         import pwd
@@ -47,6 +51,23 @@ def find_conda(root, windows):
     return None
 
 
+def named_prefix(conda, name):
+    """Resolve only directories Conda searches for `activate NAME`."""
+    info=json.loads(invoke([conda,'info','--json'],capture_output=True,text=True).stdout)
+    directories=[Path(p) for p in info['envs_dirs']]
+    for directory in directories:
+        prefix=directory/name
+        if (prefix/'conda-meta/history').is_file():return prefix
+    return directories[0]/name
+
+
+def initialize_shell(conda, windows):
+    command=[conda,'init','cmd.exe' if windows else 'bash']
+    if not windows and os.environ.get('SUDO_USER'):
+        command=['runuser','-u',os.environ['SUDO_USER'],'--']+command
+    invoke(command)
+
+
 def ensure_linux_compatibility(conda, prefix, env):
     compatibility = prefix/'lib'
     if not all((compatibility/name).exists() for name in ('libcrypto.so.1.1','libtinyxml.so','libjpeg.so.8')):
@@ -62,36 +83,47 @@ def prepare(root, config, windows):
     root = Path(root)
     cache = Path(config['paths']['cache'])/'conda'
     cache.mkdir(parents=True, exist_ok=True)
+    if not windows and os.environ.get('SUDO_USER'):
+        import pwd
+        user=pwd.getpwnam(os.environ['SUDO_USER'])
+        for parent in (cache.parent,cache):os.chown(parent,user.pw_uid,user.pw_gid)
     conda = find_conda(root, windows)
     if conda is None:
         suffix, expected = INSTALLERS['windows' if windows else 'linux']
-        name = 'Miniforge3-' + RELEASE + '-' + suffix
+        name = 'Miniconda3-' + RELEASE + '-' + suffix
         installer = cache/name
         if not installer.exists() or digest(installer) != expected:
-            print('Downloading Conda (Miniforge)...', flush=True)
+            print('Downloading Conda (official Miniconda)...', flush=True)
             temporary = installer.with_suffix(installer.suffix+'.partial')
-            urllib.request.urlretrieve('https://github.com/conda-forge/miniforge/releases/download/'+RELEASE+'/'+name, temporary)
+            urllib.request.urlretrieve('https://repo.anaconda.com/miniconda/'+name, temporary)
             if digest(temporary) != expected:
                 temporary.unlink()
-                raise RuntimeError('Miniforge installer checksum mismatch.')
+                raise RuntimeError('Miniconda installer checksum mismatch.')
             temporary.replace(installer)
-        prefix = root/'programs/miniforge3'
+        prefix = root/'programs/miniconda3'
         if prefix.exists() and any(prefix.iterdir()):
-            raise RuntimeError('Incomplete Miniforge installation: '+str(prefix))
+            raise RuntimeError('Incomplete Miniconda installation: '+str(prefix))
         prefix.parent.mkdir(parents=True, exist_ok=True)
-        print('Installing Conda (Miniforge)...', flush=True)
+        print('Installing Conda (official Miniconda)...', flush=True)
         if windows:
             invoke([installer, '/InstallationType=JustMe', '/RegisterPython=0', '/AddToPath=0', '/S', '/D='+str(prefix)])
         else:
-            invoke(['bash', installer, '-b', '-p', prefix])
+            command=['bash', installer, '-b', '-p', prefix]
+            if os.environ.get('SUDO_USER'):
+                import pwd
+                user=pwd.getpwnam(os.environ['SUDO_USER'])
+                os.chown(prefix.parent,user.pw_uid,user.pw_gid)
+                command=['runuser','-u',os.environ['SUDO_USER'],'--']+command
+            invoke(command)
         conda = find_conda(root, windows)
         if conda is None: raise RuntimeError('Conda installation did not produce a working executable.')
     minor = 7 if windows else 8
     name = 'philips-sdk-py3'+str(minor)
-    prefix = root/'envs'/name
+    initialize_shell(conda, windows)
+    prefix = named_prefix(conda, name)
     python = prefix/('python.exe' if windows else 'bin/python')
     env = os.environ.copy()
-    env.update(CONDA_PKGS_DIRS=str(cache/'pkgs'), CONDA_ENVS_PATH=str(root/'envs'))
+    env.update(CONDA_PKGS_DIRS=str(cache/'pkgs'))
     if not python.is_file():
         if prefix.exists() and any(prefix.iterdir()):
             raise RuntimeError('Incomplete Philips environment: '+str(prefix))
@@ -99,11 +131,13 @@ def prepare(root, config, windows):
         dependencies = ['python=3.'+str(minor), 'pip', 'numpy<2']
         if not windows:
             dependencies += ['pillow>=8,<11', 'openssl=1.1', 'tinyxml=2.6.2', 'libjpeg-turbo', 'libpng', 'libcurl', 'lcms2']
-        invoke([conda, 'create', '--yes', '--prefix', prefix, '--override-channels', '--channel', 'conda-forge']+dependencies, env=env)
+        invoke([conda, 'create', '--yes', '--name', name, '--override-channels', '--channel', 'conda-forge']+dependencies, env=env)
+    prefix = named_prefix(conda, name)
+    python = prefix/('python.exe' if windows else 'bin/python')
     if not windows: ensure_linux_compatibility(conda, prefix, env)
     if windows:
         # Always run pip through Conda so Python 3.7 can find OpenSSL DLLs.
-        command = [conda, 'run', '--no-capture-output', '--prefix', prefix, 'python']
+        command = [conda, 'run', '--no-capture-output', '--name', name, 'python']
         pillow_probe = 'import ssl,PIL; from PIL import Image; assert PIL.__version__ == "9.5.0"; Image.new("RGB", (1, 1)).tobytes()'
         try:
             invoke(command+['-c', pillow_probe], env=env)
@@ -114,7 +148,7 @@ def prepare(root, config, windows):
             invoke(command+['-c', pillow_probe], env=env)
     # Import the compiled imaging extension, not just PIL's package metadata.
     probe = 'import sys,struct,numpy; from PIL import Image; assert sys.version_info[:2] == (3, %d) and struct.calcsize("P") == 8; Image.new("RGB", (1, 1)).tobytes(); print(sys.executable)' % minor
-    invoke([conda, 'run', '--prefix', prefix, 'python', '-c', probe], env=env)
+    invoke([conda, 'run', '--name', name, 'python', '-c', probe], env=env)
     print('Philips Python environment ready: '+str(python), flush=True)
     return {'PHILIPS_PYTHON':str(python), 'PHILIPS_CONDA_ENV':name}
 
@@ -157,7 +191,7 @@ def install_sdk(root, config, windows, settings):
                TMPDIR=config['paths']['temp'], TEMP=config['paths']['temp'], TMP=config['paths']['temp'],
                PIP_CACHE_DIR=str(Path(config['paths']['cache'])/'pip'))
     bootstrap = bundle/'support/scripts/bootstrap_philips.py'
-    command = [conda,'run','--no-capture-output','--prefix',prefix,'python',bootstrap]
+    command = [conda,'run','--no-capture-output','--name',settings['PHILIPS_CONDA_ENV'],'python',bootstrap]
     fingerprint = digest(manifest_path)
     if state.get('installed_manifest_sha256') != fingerprint or state.get('python') != str(python):
         print('Installing bundled Philips SDK into the second environment...', flush=True)
@@ -166,3 +200,23 @@ def install_sdk(root, config, windows, settings):
     state.update(installed_manifest_sha256=fingerprint, python=str(python))
     state_path.write_text(json.dumps(state), encoding='utf-8')
     return dict(settings, MEDIAUTO_ENABLE_PHILIPS='1')
+
+
+def prepare_main(root, config, windows):
+    """Create the GPU application Conda environment after Conda is provisioned."""
+    root=Path(root)
+    conda=find_conda(root,windows)
+    if conda is None:raise RuntimeError('Conda was not provisioned.')
+    name='medicus-saas'
+    prefix=named_prefix(conda,name)
+    python=prefix/('python.exe' if windows else 'bin/python')
+    env=os.environ.copy()
+    env['CONDA_PKGS_DIRS']=str(Path(config['paths']['cache'])/'conda/pkgs')
+    if not python.is_file():
+        if prefix.exists() and any(prefix.iterdir()):raise RuntimeError('Incomplete GPU Conda environment: '+str(prefix))
+        invoke([conda,'create','--yes','--name',name,'--override-channels','--channel','conda-forge','python=3.12','pip'],env=env)
+    prefix=named_prefix(conda,name)
+    python=prefix/('python.exe' if windows else 'bin/python')
+    command=[str(conda),'run','--no-capture-output','--name',name,'python']
+    invoke(command+['-c','import sys,ssl,struct; assert sys.version_info[:2] == (3,12) and struct.calcsize("P")==8'],env=env)
+    return python,command

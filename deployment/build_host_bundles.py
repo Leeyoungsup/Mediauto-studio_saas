@@ -6,9 +6,10 @@ from pathlib import Path
 import shutil
 import tarfile
 import zipfile
+from build_unified_installer import LOCAL_SHARED, sdk_payloads, windows_vendor_payloads
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
+FILES=('local_setup.py','start-local.bat','start-local.sh','github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
 
 def digest(path):
     h=hashlib.sha256()
@@ -24,6 +25,8 @@ def build(output):
         source=ROOT/'deployment/host'/name
         if source.is_symlink():raise ValueError('Installer source must not be a symlink')
         shutil.copy2(source,target/name)
+    for destination,source in LOCAL_SHARED.items():
+        shutil.copy2(ROOT/'deployment/native'/source,target/destination)
     # CMD launchers use CRLF; PowerShell and Python remain UTF-8.
     batch=target/'install.bat';batch.write_bytes(batch.read_bytes().replace(b'\r\n',b'\n').replace(b'\n',b'\r\n'))
     (target/'models').mkdir()
@@ -38,12 +41,18 @@ def build(output):
     archives=[]
     for platform in ('linux-x64','windows-x64'):
         archive=output/(target.name+'-'+platform+('.zip' if platform.startswith('windows') else '.tar.gz'))
+        payloads=sdk_payloads(platform.startswith('windows'))
+        if platform.startswith('windows'):payloads.update(windows_vendor_payloads())
         if platform.startswith('windows'):
             with zipfile.ZipFile(archive,'w',zipfile.ZIP_STORED,allowZip64=True) as z:
                 for path in files:z.write(path,arcname=target.name+'/'+path.relative_to(target).as_posix())
+                for name,data in payloads.items():z.writestr(target.name+'/'+name,data)
         else:
             with tarfile.open(archive,'w:gz',compresslevel=0) as z:
                 for path in files:z.add(path,arcname=target.name+'/'+path.relative_to(target).as_posix(),recursive=False)
+                import io
+                for name,data in payloads.items():
+                    info=tarfile.TarInfo(target.name+'/'+name);info.size=len(data);info.mode=0o644;z.addfile(info,io.BytesIO(data))
         archives.append(archive);print('Created',archive,flush=True)
     (output/'SHA256SUMS.txt').write_text(''.join(f'{digest(p)}  {p.name}\n' for p in archives))
 

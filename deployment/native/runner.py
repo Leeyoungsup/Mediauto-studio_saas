@@ -31,6 +31,14 @@ class ConsoleLog:
 
 
 def main():
+    # Also support VS Code launching the Conda interpreter directly.
+    dll_handles=[]
+    if os.name == 'nt':
+        prefix=Path(sys.prefix)
+        dirs=[prefix,prefix/'Library/bin',prefix/'DLLs']
+        os.environ['PATH']=os.pathsep.join(str(p) for p in dirs)+os.pathsep+os.environ.get('PATH','')
+        if hasattr(os,'add_dll_directory'):
+            dll_handles=[os.add_dll_directory(str(p)) for p in dirs if p.is_dir()]
     settings=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
     os.environ.update(settings['env'])
     os.chdir(settings['backend'])

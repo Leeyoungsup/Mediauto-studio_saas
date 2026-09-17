@@ -69,7 +69,7 @@ class NativeTests(unittest.TestCase):
    (src/'backend/requirements.txt').write_text('openslide-python==1.3.1\npyvips>=2.2,<3\n')
    for key in n.PATHS:Path(c['paths'][key]).mkdir(parents=True)
    calls=[]
-   with patch.object(n,'ROOT',root),patch.object(n,'RUNTIME',root/'.runtime'),patch.object(n,'run',side_effect=lambda args,**kw:calls.append(args)),patch.dict('sys.modules',{'conda_setup':types.SimpleNamespace(prepare=lambda *args:{'PHILIPS_PYTHON':'/test/philips/python','PHILIPS_CONDA_ENV':'philips-sdk-py38'},install_sdk=lambda root,config,windows,settings:dict(settings,MEDIAUTO_ENABLE_PHILIPS='1'))}):
+   with patch.object(n,'ROOT',root),patch.object(n,'RUNTIME',root/'.runtime'),patch.object(n,'run',side_effect=lambda args,**kw:calls.append(args)),patch.dict('sys.modules',{'conda_setup':types.SimpleNamespace(prepare_main=lambda *args:(root/'envs/mediauto-gpu/bin/python',['conda','run','--prefix',str(root/'envs/mediauto-gpu'),'python']),prepare=lambda *args:{'PHILIPS_PYTHON':'/test/philips/python','PHILIPS_CONDA_ENV':'philips-sdk-py38'},install_sdk=lambda root,config,windows,settings:dict(settings,MEDIAUTO_ENABLE_PHILIPS='1'))}):
     n.prepare_application(c,src)
    app=json.loads((root/'.runtime/app.json').read_text())
    self.assertIn('@127.0.0.1:55440/',app['env']['POSTGRES_URI'])

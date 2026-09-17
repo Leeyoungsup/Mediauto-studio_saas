@@ -11,5 +11,6 @@ if not locator.is_file():
 runtime=Path(json.loads(locator.read_text(encoding='utf-8'))['data_root'])/'config'
 if not (runtime/'app.json').is_file():
     raise SystemExit('Application environment is incomplete; run install first.')
-python=root/'venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
-os.execv(str(python),[str(python),str(root/'runner.py'),str(runtime/'app.json'),'--console'])
+settings=json.loads((runtime/'app.json').read_text(encoding='utf-8'))
+command=settings['command']
+os.execv(command[0],command+[str(root/'runner.py'),str(runtime/'app.json'),'--console'])

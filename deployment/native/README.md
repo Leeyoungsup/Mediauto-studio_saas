@@ -127,7 +127,7 @@ Linux: 일반 사용자 터미널에서 `bash native/start.sh` 실행.
 예: C:\mediautoAI-dev\MeDIAuto-GPU-installer, 외부 루트 C:\mediautoAI-dev\data, 웹 18094, DB 55433.
 기존 앱 자동 실행은 이전 설치 ID에 대해 별도로 중지해야 합니다.
 
-## 두 방식 공통 Git + 수동 실행 (2026-09-17-r5)
+## 두 방식 공통 Git + 수동 실행 (2026-09-17-r5, 이후 r6에서 로컬 개발 환경 추가)
 
 1번 Docker와 2번 네이티브 모두 Git clone, 브랜치/로컬 수정 보존, 설치 후 앱 자동 실행 없음, 수동 업데이트 원칙을 적용합니다.
 1번은 환경이 준비된 GPU 이미지를 기반으로 Git 작업 폴더의 코드를 빌드합니다. Docker Hub에 코드를 업로드하지 않습니다.
@@ -146,3 +146,46 @@ Docker 빌드 입력에서 .git, 모델, .env 및 운영 데이터를 제외합�
 GitHub PAT는 clone할 때만 프로세스 환경으로 전달하며 Git 설정/원격 URL/빌드 입력에 저장하지 않습니다.
 네이티브의 의존성 변경은 install 재실행, Docker 의존성 변경은 start의 build로 반영합니다.
 두 방식 모두 DB 마이그레이션 전에는 백업하세요. 기존 계정 비밀번호는 자동 변경하지 않습니다.
+
+## 1번도 로컬 개발 환경 포함 (2026-09-17-r6)
+
+1번 Docker 선택 시 Docker 이미지뿐 아니라 PC의 로컬 GPU 앱 환경(Conda)과 Philips SDK 환경(Conda)을 모두 준비합니다.
+Conda가 없으면 검증된 Miniconda를 설치합니다. Windows Philips 환경은 Python 3.7, Linux는 Python 3.8입니다.
+SDK, OpenSlide/libvips, PyTorch CUDA, DB 마이그레이션 및 모델 검사를 로컬에서도 수행합니다. CPU로 자동 전환하지 않습니다.
+
+통합 설치 폴더 기준:
+- 공통 소스: `docker/application` — Docker와 로컬에서 같은 브랜치와 수정 파일을 사용합니다.
+- 로컬 GPU 앱: `docker/envs/mediauto-gpu`
+- Philips SDK: `docker/envs/philips-sdk-py37` (Windows) 또는 `philips-sdk-py38` (Linux)
+- VS Code: `docker/MeDIAuto-local.code-workspace` 열기. Python 확장과 디버거 확장이 있으면 제공된 실행 구성을 선택할 수 있습니다.
+- 로컬 실행: Windows `docker\start-local.bat`, Linux `bash docker/start-local.sh`
+- Docker 실행: Windows `docker\start.bat`, Linux `bash docker/start.sh`
+- 종료: Ctrl+C (Docker는 stop.bat/stop.sh도 제공)
+
+두 실행 방식은 같은 외부 데이터 루트·모델·DB·웹 포트를 사용합니다. 한 번에 한 방식만 실행하세요.
+설치 후 서버 자동 시작이나 로그인 자동 실행은 없습니다. PostgreSQL과 Docker 엔진은 서비스로 유지됩니다.
+설치 재실행 시 기존 Git 수정과 VS Code 작업 공간 편집을 보존합니다. 소스 변경 후 Docker는 다시 start하면 빌드에 반영됩니다.
+로컬 의존성 변경은 install을 재실행하고, DB 마이그레이션 변경 전에는 DB를 백업하세요.
+기존 r5의 Git 설치에는 새 ZIP 내용을 동일 위치에 덮어쓰고 install.bat → 1번으로 재실행하면 됩니다. 기존 envs/programs/설정 포인터/외부 데이터를 삭제하지 마세요.
+
+## Conda 두 환경으로 통일 (2026-09-17-r7)
+
+1번과 2번 모두 Conda가 없으면 Miniconda를 자동 설치하고, GPU 앱도 venv 대신 Conda로 생성합니다.
+- 메인 앱: envs/mediauto-gpu (Python 3.12, CUDA PyTorch)
+- Philips: envs/philips-sdk-py37 (Windows), envs/philips-sdk-py38 (Linux)
+패키지 설치와 수동 실행은 conda run을 사용합니다. 기존 venv는 삭제하지 않지만 새 실행 경로에서는 사용하지 않습니다.
+기존 정상 Conda가 있으면 재사용합니다. 설치 후 자동 서버 실행은 하지 않습니다.
+
+## 기존 프로젝트와 동일한 이름 기반 Conda 환경 (2026-09-17-r9)
+
+이 개정부터 설치 폴더의 envs 경로에 생성하지 않고 Conda의 이름 기반 환경을 사용합니다.
+- 메인 앱: `conda activate medicus-saas`
+- Windows Philips: `conda activate philips-sdk-py37`
+- Linux Philips: `conda activate philips-sdk-py38`
+
+환경 생성/실행은 `conda create --name` / `conda run --name` 방식입니다.
+기존 이름의 환경이 있으면 검증하고 재사용합니다. 이전 배포본이 만든 경로 기반 환경은 삭제하지 않습니다.
+같은 Conda를 쓰는 설치끼리는 이름 환경을 공유하므로 패키지 변경이 함께 반영됩니다.
+Windows CMD / Linux bash 초기화를 포함합니다. 설치 후 터미널을 완전히 닫고 새로 여세요.
+두 activate 명령은 각각의 환경으로 전환하는 명령이며 동시에 두 환경을 활성화하는 뜻은 아닙니다.
+서버 시작은 기존 start/start-local 스크립트를 사용하면 외부 DB·모델·로그 경로 설정까지 적용됩니다.

@@ -11,6 +11,21 @@ spec=importlib.util.spec_from_file_location('conda_setup',ROOT/'native/conda_set
 c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
 
 class CondaSetupTests(unittest.TestCase):
+    def test_main_gpu_environment_is_conda_and_reused(self):
+        for windows in (True,False):
+            with tempfile.TemporaryDirectory() as directory:
+                root=Path(directory)
+                with patch.object(c,'find_conda',return_value=root/'conda'),patch.object(c,'invoke') as invoke:
+                    python,command=c.prepare_main(root,{'paths':{'cache':str(root/'cache')}},windows)
+                    self.assertIn('create',invoke.call_args_list[0].args[0])
+                    self.assertIn('python=3.12',invoke.call_args_list[0].args[0])
+                    self.assertIn('run',command)
+                    self.assertIn('medicus-saas',str(python))
+                    python.parent.mkdir(parents=True);python.touch();invoke.reset_mock()
+                    c.prepare_main(root,{'paths':{'cache':str(root/'cache')}},windows)
+                    self.assertEqual(invoke.call_count,1)
+                    self.assertIn('run',invoke.call_args.args[0])
+
     def test_windows_broken_pillow_repaired_through_conda_and_rechecked(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);python=root/'envs/philips-sdk-py37/python.exe'
@@ -26,7 +41,7 @@ class CondaSetupTests(unittest.TestCase):
             self.assertIn('--only-binary=:all:',calls[1])
             self.assertIn('--no-deps',calls[1])
             self.assertEqual(calls[0],calls[2])
-            self.assertTrue(all('run' in args and '--prefix' in args for args in calls))
+            self.assertTrue(all('run' in args and '--name' in args for args in calls))
 
     def test_failed_pillow_repair_stops_environment_setup(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -38,6 +53,9 @@ class CondaSetupTests(unittest.TestCase):
             self.assertEqual(invoke.call_count,2)
 
     def setUp(self):
+        lookup=patch.object(c,'named_prefix',side_effect=lambda conda,name:Path(conda).parent/'envs'/name)
+        lookup.start();self.addCleanup(lookup.stop)
+        shell=patch.object(c,'initialize_shell');shell.start();self.addCleanup(shell.stop)
         compatibility=patch.object(c,'ensure_linux_compatibility')
         compatibility.start();self.addCleanup(compatibility.stop)
 
@@ -62,7 +80,9 @@ class CondaSetupTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);config={'paths':{'cache':str(root/'cache')}}
                 expected=c.INSTALLERS['windows' if windows else 'linux'][1]
-                def download(url,destination):Path(destination).write_bytes(b'fixture')
+                def download(url,destination):
+                    self.assertTrue(url.startswith('https://repo.anaconda.com/miniconda/Miniconda3-'))
+                    Path(destination).write_bytes(b'fixture')
                 with patch.object(c,'find_conda',side_effect=[None,root/'conda']),patch.object(c.urllib.request,'urlretrieve',side_effect=download),patch.object(c,'digest',return_value=expected),patch.object(c,'invoke') as invoke:
                     c.prepare(root,config,windows)
                     args=invoke.call_args_list[0].args[0]
@@ -87,7 +107,7 @@ class CondaSetupTests(unittest.TestCase):
             manifest={'platform':'linux','sdk_directory':'sdk','files':[{'path':'sdk/EULA Research.license.txt','sha256':c.digest(license)}]}
             (bundle/'manifest.json').write_text(json.dumps(manifest))
             config={'data_root':str(root.parent/'data'),'paths':{'cache':str(root.parent/'cache'),'temp':str(root.parent/'temp')}}
-            settings={'PHILIPS_PYTHON':str(root/'envs/philips-sdk-py38/bin/python')}
+            settings={'PHILIPS_CONDA_ENV':'philips-sdk-py38','PHILIPS_PYTHON':str(root/'envs/philips-sdk-py38/bin/python')}
             with patch.object(c,'find_conda',return_value=root/'conda'),patch.object(c,'invoke') as invoke,patch('builtins.input',return_value='yes') as answer:
                 result=c.install_sdk(root,config,False,settings)
                 self.assertEqual(result['MEDIAUTO_ENABLE_PHILIPS'],'1')
@@ -101,5 +121,16 @@ class CondaSetupTests(unittest.TestCase):
                 invoke.reset_mock()
                 with self.assertRaisesRegex(RuntimeError,'checksum mismatch'):c.install_sdk(root,config,False,settings)
                 invoke.assert_not_called()
+
+class NamedResolutionTests(unittest.TestCase):
+    def test_only_conda_search_directories_are_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);first=root/'first';second=root/'second'
+            prefix=second/'medicus-saas';(prefix/'conda-meta').mkdir(parents=True)
+            (prefix/'conda-meta/history').touch()
+            response=subprocess.CompletedProcess([],0,stdout=json.dumps({'envs_dirs':[str(first),str(second)]}))
+            with patch.object(c,'invoke',return_value=response):
+                self.assertEqual(c.named_prefix('conda','medicus-saas'),prefix)
+                self.assertEqual(c.named_prefix('conda','philips-sdk-py37'),first/'philips-sdk-py37')
 
 if __name__=='__main__':unittest.main()
