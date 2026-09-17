@@ -11,6 +11,36 @@ spec=importlib.util.spec_from_file_location('conda_setup',ROOT/'native/conda_set
 c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
 
 class CondaSetupTests(unittest.TestCase):
+    def test_windows_broken_pillow_repaired_through_conda_and_rechecked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);python=root/'envs/philips-sdk-py37/python.exe'
+            python.parent.mkdir(parents=True);python.touch()
+            calls=[]
+            def invoke(args, **kwargs):
+                calls.append(args)
+                if len(calls)==1: raise subprocess.CalledProcessError(1,args)
+            with patch.object(c,'find_conda',return_value=root/'conda'),patch.object(c,'invoke',side_effect=invoke):
+                c.prepare(root,{'paths':{'cache':str(root/'cache')}},True)
+            self.assertEqual(len(calls),4)
+            self.assertIn('Pillow==9.5.0',calls[1])
+            self.assertIn('--only-binary=:all:',calls[1])
+            self.assertIn('--no-deps',calls[1])
+            self.assertEqual(calls[0],calls[2])
+            self.assertTrue(all('run' in args and '--prefix' in args for args in calls))
+
+    def test_failed_pillow_repair_stops_environment_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);python=root/'envs/philips-sdk-py37/python.exe'
+            python.parent.mkdir(parents=True);python.touch()
+            with patch.object(c,'find_conda',return_value=root/'conda'),patch.object(c,'invoke',side_effect=subprocess.CalledProcessError(1,['fixture'])) as invoke:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    c.prepare(root,{'paths':{'cache':str(root/'cache')}},True)
+            self.assertEqual(invoke.call_count,2)
+
+    def setUp(self):
+        compatibility=patch.object(c,'ensure_linux_compatibility')
+        compatibility.start();self.addCleanup(compatibility.stop)
+
     def test_platform_environment_selection_and_reuse(self):
         for windows,minor in [(True,7),(False,8)]:
             with tempfile.TemporaryDirectory() as directory:
@@ -24,7 +54,7 @@ class CondaSetupTests(unittest.TestCase):
                     self.assertEqual(result['PHILIPS_CONDA_ENV'],'philips-sdk-py3'+str(minor))
                     python=Path(result['PHILIPS_PYTHON']);python.parent.mkdir(parents=True);python.touch()
                     invoke.reset_mock();c.prepare(root,config,windows)
-                    self.assertEqual(invoke.call_count,1)
+                    self.assertEqual(invoke.call_count,2 if windows else 1)
                     self.assertIn('run',invoke.call_args.args[0])
 
     def test_missing_conda_uses_verified_installer_on_each_platform(self):

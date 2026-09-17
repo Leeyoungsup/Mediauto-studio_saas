@@ -47,6 +47,17 @@ def find_conda(root, windows):
     return None
 
 
+def ensure_linux_compatibility(conda, prefix, env):
+    compatibility = prefix/'lib'
+    if not all((compatibility/name).exists() for name in ('libcrypto.so.1.1','libtinyxml.so','libjpeg.so.8')):
+        invoke([conda, 'install', '--yes', '--prefix', prefix, '--override-channels', '--channel', 'conda-forge',
+                'python=3.8', 'openssl=1.1', 'tinyxml=2.6.2', 'libjpeg-turbo', 'libpng', 'libcurl', 'lcms2'], env=env)
+    alias = compatibility/'libtinyxml.so.2.6.2'
+    if not alias.exists():
+        if not (compatibility/'libtinyxml.so').is_file(): raise RuntimeError('TinyXML compatibility library is missing.')
+        alias.symlink_to('libtinyxml.so')
+
+
 def prepare(root, config, windows):
     root = Path(root)
     cache = Path(config['paths']['cache'])/'conda'
@@ -85,9 +96,24 @@ def prepare(root, config, windows):
         if prefix.exists() and any(prefix.iterdir()):
             raise RuntimeError('Incomplete Philips environment: '+str(prefix))
         print('Creating second environment: '+name, flush=True)
-        invoke([conda, 'create', '--yes', '--prefix', prefix, '--override-channels', '--channel', 'conda-forge',
-                'python=3.'+str(minor), 'pip', 'numpy<2', 'pillow>=8,<11'], env=env)
-    probe = 'import sys,struct,numpy,PIL; assert sys.version_info[:2] == (3, %d) and struct.calcsize("P") == 8; print(sys.executable)' % minor
+        dependencies = ['python=3.'+str(minor), 'pip', 'numpy<2']
+        if not windows:
+            dependencies += ['pillow>=8,<11', 'openssl=1.1', 'tinyxml=2.6.2', 'libjpeg-turbo', 'libpng', 'libcurl', 'lcms2']
+        invoke([conda, 'create', '--yes', '--prefix', prefix, '--override-channels', '--channel', 'conda-forge']+dependencies, env=env)
+    if not windows: ensure_linux_compatibility(conda, prefix, env)
+    if windows:
+        # Always run pip through Conda so Python 3.7 can find OpenSSL DLLs.
+        command = [conda, 'run', '--no-capture-output', '--prefix', prefix, 'python']
+        pillow_probe = 'import ssl,PIL; from PIL import Image; assert PIL.__version__ == "9.5.0"; Image.new("RGB", (1, 1)).tobytes()'
+        try:
+            invoke(command+['-c', pillow_probe], env=env)
+        except subprocess.CalledProcessError:
+            print('Installing verified-compatible Windows Pillow 9.5.0 wheel...', flush=True)
+            invoke(command+['-m','pip','install','--only-binary=:all:','--no-deps',
+                            '--no-cache-dir','--force-reinstall','Pillow==9.5.0'], env=env)
+            invoke(command+['-c', pillow_probe], env=env)
+    # Import the compiled imaging extension, not just PIL's package metadata.
+    probe = 'import sys,struct,numpy; from PIL import Image; assert sys.version_info[:2] == (3, %d) and struct.calcsize("P") == 8; Image.new("RGB", (1, 1)).tobytes(); print(sys.executable)' % minor
     invoke([conda, 'run', '--prefix', prefix, 'python', '-c', probe], env=env)
     print('Philips Python environment ready: '+str(python), flush=True)
     return {'PHILIPS_PYTHON':str(python), 'PHILIPS_CONDA_ENV':name}

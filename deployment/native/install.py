@@ -125,7 +125,7 @@ def configure():
     config['db_port'] = port(ask('Dedicated PostgreSQL port', 55432))
     config['bind'] = ask('Web bind (0.0.0.0 = LAN, 127.0.0.1 = this PC)', '0.0.0.0')
     config['admin_id'] = 'admin'
-    config['admin_password'] = 'admin'
+    config['admin_password'] = 'admin1234!'
     config['repository'] = ask('GitHub repository', 'Leeyoungsup/Mediauto-studio_saas')
     config['ref'] = ask('GitHub branch/tag/commit', 'main')
     config['db_password'] = secrets.token_hex(24)
@@ -146,6 +146,47 @@ def configure():
     return config
 
 
+class PortConflict(RuntimeError):
+    pass
+
+
+def port_available(number):
+    with socket.socket() as probe:
+        if WINDOWS:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            probe.bind(('0.0.0.0', number))
+            return True
+        except OSError:
+            return False
+
+
+def choose_replacement_port(config, key):
+    other = 'app_port' if key == 'db_port' else 'db_port'
+    suggested = config[key] + 1
+    while suggested <= 65535 and (suggested == config[other] or not port_available(suggested)):
+        suggested += 1
+    if suggested > 65535: suggested = 55433 if key == 'db_port' else 18094
+    while True:
+        try:
+            selected = port(ask('New PostgreSQL port' if key == 'db_port' else 'New web port', suggested))
+        except ValueError as error:
+            print(error, flush=True)
+            continue
+        if selected == config[other]:
+            print('Web and PostgreSQL ports must differ.', flush=True)
+            continue
+        if not port_available(selected):
+            print('Port '+str(selected)+' is unavailable. Choose another port.', flush=True)
+            continue
+        config[key] = selected
+        write_private(RUNTIME/'settings.json', json.dumps(config, ensure_ascii=False, indent=2))
+        identity = {k:config[k] for k in ('project','paths','db_port')}
+        write_private(RUNTIME/'identity.json', json.dumps(identity))
+        print('Saved '+key+' = '+str(selected)+'. Continuing installation.', flush=True)
+        return
+
+
 def check_ports(config):
     # A completed installation may already own its ports. The marker binds it to these paths.
     identity = {k: config[k] for k in ('project', 'paths', 'db_port')}
@@ -153,11 +194,11 @@ def check_ports(config):
     if old.exists() and json.loads(old.read_text()) != identity:
         raise ValueError('Existing storage/DB settings changed. Restore settings; migrate with backup/restore first.')
     if not old.exists():
-        for number in (config['app_port'], config['db_port']):
-            with socket.socket() as s:
-                try: s.bind(('0.0.0.0', number))
-                except OSError: raise ValueError(f'Port {number} is already in use. Change settings before retrying.')
-        write_private(old, json.dumps(identity))
+        for key in ('app_port', 'db_port'):
+            if not port_available(config[key]):
+                print('Port '+str(config[key])+' is already in use.', flush=True)
+                choose_replacement_port(config, key)
+        write_private(old, json.dumps({k:config[k] for k in ('project','paths','db_port')}))
 
 
 def models(config):
@@ -214,7 +255,7 @@ def ensure_windows_postgres_service(config, prefix):
             raise ValueError('Unsupported PostgreSQL service name: '+actual_service)
         print('Reusing verified PostgreSQL service: '+actual_service)
         return actual_service
-    status = subprocess.run([str(pg_ctl), 'status', '-D', str(data)], capture_output=True, text=True)
+    status = subprocess.run([str(pg_ctl), 'status', '-D', str(data)], capture_output=True)
     if status.returncode != 3:
         raise RuntimeError('Missing service but DB is running or status is uncertain; inspect PostgreSQL before retrying.')
     print('Registering missing PostgreSQL service: '+service, flush=True)
@@ -229,33 +270,113 @@ def ensure_windows_postgres_service(config, prefix):
     return service
 
 
+def prepare_windows_postgres(config):
+    """Extract binaries and initialize only this install's explicitly owned DB.
+
+    Avoid EDB's machine-wide installer/upgrade discovery of older clusters.
+    """
+    data = Path(config['paths']['database'])
+    prefix = ROOT/'programs'/'postgresql'
+    claim_database(config)
+    required = ('psql.exe', 'pg_ctl.exe', 'postgres.exe', 'initdb.exe')
+    extract_log = RUNTIME/'postgresql-extract.log'
+    if not all((prefix/'bin'/name).is_file() for name in required):
+        installer = RUNTIME/'postgresql-installer.exe'
+        if not installer.exists() or sha(installer) != PG_SHA:
+            print('Downloading PostgreSQL Windows installer...', flush=True)
+            urllib.request.urlretrieve(PG_URL, installer)
+        if sha(installer) != PG_SHA:
+            raise ValueError('PostgreSQL installer checksum mismatch.')
+        print('Extracting PostgreSQL binaries (no existing DB upgrade)...', flush=True)
+        print('PostgreSQL extraction log: '+str(extract_log), flush=True)
+        run([installer, '--mode','unattended','--unattendedmodeui','none',
+             '--extract-only','1','--prefix',prefix,'--debugtrace',extract_log])
+        if not all((prefix/'bin'/name).is_file() for name in required):
+            raise RuntimeError('PostgreSQL binary extraction incomplete. Check '+str(extract_log))
+        # Extract-only does not rely on the installer to configure Windows runtimes.
+        runtime = prefix/'installer'/'vcredist_x64.exe'
+        if runtime.is_file():
+            result = subprocess.run([str(runtime),'/install','/quiet','/norestart'])
+            if result.returncode == 3010:
+                raise RuntimeError('PostgreSQL VC runtime requires a Windows restart; reboot and rerun install.bat.')
+            if result.returncode not in (0, 1638):
+                raise RuntimeError('PostgreSQL VC runtime failed (exit '+str(result.returncode)+').')
+    # Validate binaries even on a retry after an interrupted installer.
+    run([prefix/'bin'/'postgres.exe','--version'])
+    if not (data/'PG_VERSION').is_file():
+        if data.exists() and any(data.iterdir()):
+            raise ValueError('DB initialization is incomplete in a nonempty folder; files were preserved: '+str(data))
+        data.mkdir(parents=True, exist_ok=True)
+        password_file = RUNTIME/'postgresql-init-password.txt'
+        init_log = RUNTIME/'postgresql-initdb.log'
+        write_private(password_file, config['pg_password']+'\n')
+        print('Initializing PostgreSQL database: '+str(data), flush=True)
+        try:
+            # initdb itself obtains a restricted Windows token before creating the DB.
+            with init_log.open('w', encoding='utf-8') as stream:
+                result = subprocess.run([str(prefix/'bin'/'initdb.exe'),'-D',str(data),'-U','postgres',
+                                         '--auth-local=scram-sha-256','--auth-host=scram-sha-256',
+                                         '--encoding=UTF8','--locale=C','--pwfile',str(password_file)],
+                                        stdout=stream, stderr=subprocess.STDOUT)
+            if result.returncode:
+                raise RuntimeError('PostgreSQL DB initialization failed; see '+str(init_log))
+        finally:
+            password_file.unlink(missing_ok=True)
+    for name in ('PG_VERSION','postgresql.conf','pg_hba.conf','global/pg_control'):
+        if not (data/name).is_file():
+            raise RuntimeError('PostgreSQL DB file missing: '+str(data/name)+'; see '+str(RUNTIME/'postgresql-initdb.log'))
+    service = ensure_windows_postgres_service(config, prefix)
+    return prefix/'bin'/'psql.exe', service
+
+
+def check_windows_db_listener(config):
+    """Refuse a foreign listener even when a previous attempt wrote identity.json."""
+    import ntpath
+    number = port(config['db_port'])
+    query = ("$ErrorActionPreference='Stop'; $ids=@(Get-NetTCPConnection -State Listen | "
+             "Where-Object {$_.LocalPort -eq " + str(number) + "} | Select-Object -ExpandProperty OwningProcess -Unique); "
+             "ConvertTo-Json -Compress -InputObject @(foreach ($owner in $ids) { "
+             "Get-CimInstance Win32_Process -Filter ('ProcessId=' + $owner) | Select-Object ProcessId,ExecutablePath,CommandLine })")
+    listeners = json.loads(output(['powershell','-NoProfile','-Command',query]))
+    if isinstance(listeners, dict): listeners = [listeners]
+    norm = lambda value: ntpath.normcase(ntpath.normpath(value))
+    for entry in listeners:
+        command = entry.get('CommandLine') or ''
+        match = re.search(r'(?:^|\s)-D\s+(?:"([^"]+)"|(\S+))', command)
+        data = next((part for part in match.groups() if part), '') if match else ''
+        executable = entry.get('ExecutablePath') or ''
+        if (norm(data) != norm(config['paths']['database']) or
+                norm(executable) != norm(str(ROOT/'programs/postgresql/bin/postgres.exe'))):
+            raise PortConflict('PostgreSQL port '+str(number)+' is occupied by another process: PID '+str(entry.get('ProcessId'))+
+                               ', executable='+executable+', database='+data+
+                               '. Stop the previous DB service if no longer needed, or choose a different DB port. No process was stopped.')
+
+
+def restart_windows_postgres(config, service):
+    check_windows_db_listener(config)
+    try:
+        run(['powershell','-NoProfile','-Command',f"Restart-Service -Name '{service}' -ErrorAction Stop"])
+    except RuntimeError as error:
+        print('PostgreSQL service failed to start. Windows service status:', flush=True)
+        subprocess.run(['sc.exe','query',service])
+        logdir = Path(config['paths']['database'])/'log'
+        logs = sorted(logdir.glob('*.log'), key=lambda p:p.stat().st_mtime, reverse=True) if logdir.exists() else []
+        if logs:
+            print('Latest PostgreSQL log: '+str(logs[0]), flush=True)
+            # Logging may use the Windows locale; never fail diagnostics on decoding.
+            text = logs[0].read_bytes().decode('utf-8', errors='replace')
+            print('\n'.join(text.splitlines()[-30:]), flush=True)
+        else:
+            print('No PostgreSQL server log was created. Check Windows Event Viewer for service '+service, flush=True)
+        raise RuntimeError('PostgreSQL service startup failed; see the service error code and log above.') from error
+
+
 def database(config):
     data = Path(config['paths']['database'])
     service = config['project'].replace('_','-')
     claim_database(config)
     if WINDOWS:
-        prefix = ROOT/'programs'/'postgresql'
-        binary = prefix/'bin'/'psql.exe'
-        if not binary.exists():
-            if data.exists() and any(data.iterdir()):
-                raise ValueError('DB data already exists but PostgreSQL binaries are missing; restore the installation first.')
-            installer = RUNTIME/'postgresql-installer.exe'
-            if not installer.exists() or sha(installer) != PG_SHA:
-                print('Downloading PostgreSQL Windows installer...')
-                urllib.request.urlretrieve(PG_URL, installer)
-            if sha(installer) != PG_SHA: raise ValueError('PostgreSQL installer checksum mismatch.')
-            options = RUNTIME/'postgresql-options.txt'
-            lines = {'mode':'unattended','unattendedmodeui':'none','prefix':str(prefix),
-                     'datadir':str(data),'serverport':config['db_port'],'servicename':service,
-                     'superaccount':'postgres','superpassword':config['pg_password'],
-                     'serviceaccount':r'NT AUTHORITY\NetworkService','servicepassword':'',
-                     'enable-components':'server,commandlinetools','enable_acledit':'1'}
-            write_private(options, ''.join(f'{k}={v}\n' for k,v in lines.items()))
-            print('Installing PostgreSQL (this step may be quiet)...', flush=True)
-            try: run([installer,'--optionfile',options])
-            finally: options.unlink(missing_ok=True)
-        if not (data/'PG_VERSION').exists(): raise ValueError('PostgreSQL installation incomplete; inspect installer logs before retrying.')
-        service = ensure_windows_postgres_service(config, prefix)
+        binary, service = prepare_windows_postgres(config)
     else:
         binaries = sorted(Path('/usr/lib/postgresql').glob('*/bin/initdb'), key=lambda p:int(p.parents[1].name))
         if not binaries: raise ValueError('PostgreSQL server package is missing.')
@@ -283,6 +404,14 @@ def database(config):
                 f'ExecStart="{bindir}/postgres" -D "{data}"\nRestart=on-failure\n'
                 'KillSignal=SIGINT\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n')
         Path('/etc/systemd/system',service+'.service').write_text(unit)
+    if WINDOWS:
+        while True:
+            try:
+                check_windows_db_listener(config)
+                break
+            except PortConflict as error:
+                print(error, flush=True)
+                choose_replacement_port(config, 'db_port')
     # This is a dedicated cluster, so its access policy is owned entirely by this installer.
     hba = ['local all postgres peer'] if not WINDOWS else []
     hba += ['host all all 127.0.0.1/32 scram-sha-256','host all all ::1/128 scram-sha-256',
@@ -293,7 +422,7 @@ def database(config):
     original = configfile.read_text(encoding='utf-8').split('\n# MeDIAuto managed settings')[0]
     configfile.write_text(original+extra,encoding='utf-8')
     if WINDOWS:
-        run(['powershell','-NoProfile','-Command',f"Restart-Service -Name '{service}' -ErrorAction Stop"])
+        restart_windows_postgres(config, service)
     else:
         run(['systemctl','daemon-reload']); run(['systemctl','enable',service]); run(['systemctl','restart',service])
     for _ in range(30):
@@ -322,6 +451,17 @@ def claim_database(config):
         write_private(marker,json.dumps(identity))
 
 
+def install_windows_openslide(python):
+    vendor = ROOT/'vendor' if (ROOT/'vendor').is_dir() else ROOT.parent/'vendor'
+    manifest = json.loads((vendor/'openslide-windows.json').read_text(encoding='utf-8'))
+    wheel = vendor/manifest['filename']
+    if wheel.is_symlink() or not wheel.resolve().is_relative_to(vendor.resolve()) or not wheel.is_file() or sha(wheel) != manifest['sha256']:
+        raise ValueError('Bundled OpenSlide Windows wheel checksum mismatch.')
+    print('Installing bundled OpenSlide DLL...', flush=True)
+    run([python,'-m','pip','install','--no-index','--no-deps',wheel])
+    return manifest['version']
+
+
 def prepare_application(config, source):
     RUNTIME.mkdir(parents=True,exist_ok=True)
     envdir=ROOT/'venv'
@@ -332,7 +472,8 @@ def prepare_application(config, source):
     if WINDOWS:
         # Modern bindings locate the bundled Windows DLLs without machine-wide PATH changes.
         requirements='\n'.join(line for line in requirements.splitlines() if not line.startswith(('openslide-python','pyvips')))
-        requirements+='\nopenslide-python>=1.4.3,<2\nopenslide-bin\npyvips[binary]>=3.1,<4\n'
+        openslide_version = install_windows_openslide(python)
+        requirements+='\nopenslide-python>=1.4.3,<2\nopenslide-bin=='+openslide_version+'\npyvips[binary]>=3.1,<4\n'
     native_requirements=RUNTIME/'requirements-native.txt'
     native_requirements.write_text(requirements,encoding='utf-8')
     run([python,'-m','pip','install','--upgrade','torch==2.11.0+cu128','torchvision==0.26.0+cu128','--index-url','https://download.pytorch.org/whl/cu128'])
@@ -424,5 +565,7 @@ def main():
 
 if __name__=='__main__':
     try:main()
+    except subprocess.CalledProcessError as e:
+        print('INSTALL FAILED: dependency command failed (exit '+str(e.returncode)+'). See the error above; rerun install.bat after resolving it.',file=sys.stderr);sys.exit(1)
     except (ValueError,RuntimeError,OSError) as e:
         print('INSTALL FAILED:',e,file=sys.stderr);sys.exit(1)

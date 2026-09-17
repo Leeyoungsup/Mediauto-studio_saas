@@ -14,5 +14,3 @@ Classifier: Topic :: Software Development :: Build Tools
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Programming Language :: Python :: 3.8
 License-File: LICENSE
-Requires-Dist: numpy>=1.18
-Requires-Dist: pillow>=8.0

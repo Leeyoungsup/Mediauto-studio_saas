@@ -54,10 +54,10 @@ Docker 로그 드라이버는 none입니다. `docker logs` 대신 호스트의 l
 ## GitHub 인증 / 관리자
 
 Docker 방식은 공개 Docker Hub 이미지를 받아 실행하므로 GitHub 인증이 필요하지 않습니다.
-초기 관리자 ID와 비밀번호는 모두 `admin`입니다. 최초 로그인 정보는 `<외부 루트>/config/ADMIN_LOGIN.txt`에서 확인합니다.
+초기 관리자 ID는 `admin`, 비밀번호는 `admin1234!`입니다. 최초 로그인 정보는 `<외부 루트>/config/ADMIN_LOGIN.txt`에서 확인합니다.
 
 네이티브 방식은 GitHub 저장소(기본 Leeyoungsup/Mediauto-studio_saas), 브랜치(기본 main),
-GitHub 아이디와 PAT를 입력합니다. 앱 초기 관리자 ID와 비밀번호는 모두 `admin`입니다.
+GitHub 아이디와 PAT를 입력합니다. 앱 초기 관리자 ID는 `admin`, 비밀번호는 `admin1234!`입니다.
 GitHub 계정 비밀번호는 사용할 수 없습니다. 숨김 입력란에 대상 저장소 Contents: read 권한의 PAT를 넣으세요.
 PAT는 파일·로그·URL·명령줄 인자에 저장하지 않습니다. 공개 저장소는 아이디를 비울 수 있습니다.
 
@@ -110,7 +110,7 @@ Windows 전체 설치 및 드라이버별 호환성은 대상 PC에서 검증해
 기존 Python이 손상된 경우 자동 재설치/설치 범위 변경 대신 복구 안내 후 중단합니다.
 이 변경은 Windows Installer 서비스 자체를 복구하는 기능은 아닙니다.
 
-초기 `admin/admin`은 빈 DB의 최초 계정 생성에만 적용됩니다. 기존 설정과 이미 생성된 계정의 비밀번호는 설치기를 재실행해도 변경하지 않습니다.
+초기 `admin/admin1234!`은 빈 DB의 최초 계정 생성에만 적용됩니다. 기존 설정과 이미 생성된 계정의 비밀번호는 설치기를 재실행해도 변경하지 않습니다.
 
 ## Windows PostgreSQL 서비스 누락 복구 (2026-09-16)
 
@@ -130,3 +130,76 @@ Miniforge와 환경은 설치 폴더, 다운로드·패키지 캐시는 외부 �
 Docker 모드는 호스트 Conda 환경을 사용하지 않습니다. 이 변경은 네이티브 설치에 적용됩니다.
 
 배포 폴더 구성: `install.bat`, `install.sh`, `docker/`, `native/`, `Philips_SDK/`. 전체 폴더를 유지하세요. Windows 묶음은 py37 SDK, Linux 묶음은 py38 SDK를 포함합니다. 모델 폴더는 별도 지정합니다.
+
+Windows 묶음의 `vendor/`에는 공식 OpenSlide DLL이 들어 있는 openslide-bin wheel과 SHA-256 정보가 포함됩니다. 네이티브 설치는 이 파일을 검증해 메인 환경에 설치하고 OpenSlide import를 검사합니다. DLL을 수동 복사할 필요는 없습니다.
+
+## Windows DB 초기화 분리 (2026-09-16)
+
+EDB 설치 프로그램은 명시적인 unattended / extract-only 옵션으로 실행 파일만 추출합니다.
+지정한 새 DB는 initdb로 생성하고 전용 서비스를 등록합니다. 이전 설치의 GUI 업그레이드 흐름에 DB 초기화를 맡기지 않습니다.
+실행 파일만 있고 DB가 없는 재시도도 초기화를 진행하며, 비어 있지 않은 미완성 DB 폴더는 삭제하지 않고 중단합니다.
+추출 로그는 외부 루트/config/postgresql-extract.log, 초기화 로그는 config/postgresql-initdb.log에 남습니다.
+
+## 통합 수정 배포본 2026-09-16-r1
+
+이 표시는 설치기 개정 번호이며 앱 버전과 별개입니다. Docker 이미지 버전은 변경하지 않습니다.
+
+- Windows Philips 환경은 Pillow 9.5.0 바이너리를 사용합니다. 기존 9.2.0 또는 손상된 설치도 검사 후 자동 교체합니다.
+- Pillow 설치는 `conda run`으로 실행해 OpenSSL DLL 검색 환경을 적용합니다. SSL, NumPy, `PIL.Image` 로딩과 실제 이미지 생성을 검사합니다.
+- DB 시작 전 포트 점유 프로세스의 실행 파일과 데이터 경로를 확인합니다. 다른 DB이면 PID와 경로를 표시하고 중단하며 자동 종료하지 않습니다.
+- `native/diagnose_philips.py`를 포함합니다. 이 도구는 반드시 Philips Conda 환경에서 실행하세요.
+
+### 기존 설치를 이어서 진행하는 방법
+
+1. 이 ZIP의 `MeDIAuto-GPU-installer` **내용을 기존 설치 폴더에 덮어씁니다**. 같은 이름의 하위 폴더를 한 겹 더 만들지 마세요.
+2. 기존 `native/.install-location.json`, `native/envs`, `native/programs`, 외부 데이터 폴더와 모델 폴더는 삭제하지 않습니다. ZIP에는 이 런타임 데이터가 포함되지 않습니다.
+3. 기존 위치의 `install.bat` 실행 → 사용하던 방식(현재 네이티브는 2번) 선택. 기존 설정을 재사용하고 검사를 다시 수행합니다.
+4. `Philips bridge smoke test passed`와 최종 `Ready` 출력까지 확인합니다.
+
+새 PC에는 전체 ZIP을 고정된 경로에 풀고 모델 폴더를 준비한 뒤 `install.bat`을 실행하세요.
+GitHub 소스와 의존성은 인터넷에서 내려받으므로 이 ZIP은 오프라인 설치본이 아닙니다.
+Windows 실제 전체 설치 성공은 아직 확인되지 않았습니다. Pillow 교체 후 SSL/이미지 생성 성공은 사용자 PC에서 확인됐으며, 나머지 변경은 자동 회귀 검사 및 패키지 무결성 검사로 검증합니다.
+
+## 최종 정리 2026-09-17-r2
+
+- 새 DB 최초 관리자: `admin` / `admin1234!`. 일반 비밀번호 정책을 그대로 적용합니다.
+- 기존 DB의 계정 비밀번호는 변경하지 않습니다. 예전 admin 비밀번호 계정은 이 배포본을 덮어쓰는 것만으로 갱신되지 않습니다.
+- Windows 실행기는 파일 핸들과 Python stdout/stderr를 함께 설정하고 자식 프로세스 출력도 로그로 연결합니다. 서버 시작 표시와 예외가 logs/app.log에 기록됩니다.
+- Windows 사용자 PC에서 수정 실행기 적용 후 로그인 화면 접속이 확인됐습니다. 새 PC 전체 설치 및 로그인/슬라이드/GPU 추론은 별도 확인이 필요합니다.
+
+### 처음부터 재검증: 기존 설치는 보존하고 새 경로 사용
+
+현재 PC의 기존 작업을 관리자 CMD에서 먼저 비활성화하고 중지합니다.
+
+```bat
+schtasks /Change /TN "mediauto-native-317aee0702-app" /DISABLE
+schtasks /End /TN "mediauto-native-317aee0702-app"
+```
+
+작업이 이미 중지되어 있으면 End가 실행 중이 아니라고 표시할 수 있습니다.
+기존 DB 서비스와 데이터는 삭제하지 않습니다. 다음처럼 경로와 포트를 분리합니다.
+
+| 입력 | 새 검증 설치 예시 |
+|---|---|
+| 압축 해제 위치 | C:\mediautoAI-clean\MeDIAuto-GPU-installer |
+| 설치 방식 | 2 (Native GPU) |
+| 외부 저장 루트 | C:\mediautoAI-clean\MeDIAutoData |
+| 모델 폴더 | 기존 C:\mediautoAI\model (실제 모델 11개 폴더) |
+| 슬라이드 폴더 | 엔터: 새 외부 루트/slides |
+| 웹 포트 | 18094 |
+| DB 포트 | 55433 |
+| 웹 bind | 0.0.0.0 |
+
+새 ZIP에는 설정 포인터나 기존 환경이 없습니다. 예전 native 폴더 전체를 새 경로로 복사하지 마세요.
+새 경로의 install.bat을 실행합니다. 이 과정은 DB, 앱 가상환경, Philips 환경을 새로 만들지만 기존 OS Python/Conda가 정상이라면 재사용할 수 있습니다.
+Ready 출력 후 http://localhost:18094 에서 admin / admin1234!로 로그인하고 슬라이드 업로드·열기·GPU 분석을 확인하세요.
+기존 설정에는 예전 계정 비밀번호가 유지됩니다. 신규 DB에만 새 초기 비밀번호가 적용됩니다.
+새 설치가 확인되기 전에는 예전 database, secrets, models 폴더를 삭제하지 마세요.
+
+## 포트 충돌 입력 개선 2026-09-17-r3
+
+새 설치에서 웹/DB 포트가 사용 중이면 사용 가능한 다음 번호를 제안하고 다시 입력받습니다.
+Windows에서는 중단 후 재실행 시에도 DB 시작 전에 점유 프로세스를 확인합니다. 다른 DB가 사용 중이면
+`New PostgreSQL port [55433]:`처럼 대체 포트를 물어보고, 선택 값을 settings.json과 identity.json에 저장합니다.
+PostgreSQL 설정과 이후 앱 연결 설정은 새 포트를 사용합니다. 기존 DB 프로세스와 데이터는 건드리지 않습니다.
+설치기 코드만 기존 폴더에 덮어쓴 뒤 같은 방식으로 재실행하면 됩니다. 설정 파일을 수동으로 고칠 필요는 없습니다.

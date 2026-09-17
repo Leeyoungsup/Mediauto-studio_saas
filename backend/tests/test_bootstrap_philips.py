@@ -34,6 +34,17 @@ class BootstrapPhilipsTests(unittest.TestCase):
                 bootstrap_philips._safe_extract_archive(path_archive, path_output)
             self.assertFalse((path_root / "escape.txt").exists())
 
+    def test_soname_links_do_not_replace_dependency_with_symlink_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            library = root / 'libtinyxml.so'
+            library.write_bytes(b'library')
+            alias = root / 'libtinyxml.so.2.6.2'
+            alias.symlink_to(library.name)
+            bootstrap_philips._ensure_linux_soname_links(root)
+            self.assertFalse(library.is_symlink())
+            self.assertEqual(alias.read_bytes(), b'library')
+
     def test_eula_flag_requires_explicit_true_value(self):
         with patch.dict(bootstrap_philips.os.environ, {}, clear=True):
             self.assertFalse(bootstrap_philips._env_enabled("MEDIAUTO_ACCEPT_PHILIPS_EULA"))

@@ -103,6 +103,8 @@ def _copy_tree_contents(path_source, path_destination):
 
 def _ensure_linux_soname_links(path_lib):
     for path_versioned in path_lib.glob("lib*.so.*.*"):
+        if path_versioned.is_symlink():
+            continue
         str_name = path_versioned.name
         str_base, str_version = str_name.split(".so.", 1)
         str_major = str_version.split(".", 1)[0]
@@ -166,7 +168,7 @@ def _install_windows_modules(path_sdk):
 
 
 def _install_sdk(path_sdk):
-    _pip_install(["numpy<2", "Pillow>=8,<11", "setuptools<68", "wheel<0.42"])
+    _pip_install(["numpy<2", "Pillow==9.5.0" if os.name == "nt" else "Pillow>=8,<11", "setuptools<68", "wheel<0.42"])
     if os.name == "nt":
         _install_windows_modules(path_sdk)
     else:

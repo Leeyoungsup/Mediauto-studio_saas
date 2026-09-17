@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import types
@@ -60,6 +61,18 @@ class NativeTests(unittest.TestCase):
    for p in root.rglob('*'):
     if p.is_file():self.assertNotIn('secret-PAT',p.read_text())
    self.assertFalse((runtime/'source-download.zip').exists())
+ def test_bundled_openslide_is_verified_before_installation(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);vendor=root/'vendor';vendor.mkdir()
+   wheel=vendor/'openslide-test.whl';wheel.write_bytes(b'fixture')
+   manifest={'filename':wheel.name,'version':'test','sha256':hashlib.sha256(wheel.read_bytes()).hexdigest()}
+   (vendor/'openslide-windows.json').write_text(json.dumps(manifest))
+   with patch.object(n,'ROOT',root),patch.object(n,'run') as run:
+    self.assertEqual(n.install_windows_openslide('python'),'test')
+    self.assertIn('--no-index',run.call_args.args[0])
+    run.reset_mock();wheel.write_bytes(b'bad')
+    with self.assertRaisesRegex(ValueError,'checksum mismatch'):n.install_windows_openslide('python')
+    run.assert_not_called()
  def test_native_environment_and_external_links(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);c=self.config(root/'storage');src=root/'application';(src/'backend').mkdir(parents=True)

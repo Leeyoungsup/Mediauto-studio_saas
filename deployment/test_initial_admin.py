@@ -24,7 +24,7 @@ class InitialAdminTests(unittest.TestCase):
                 with patch.object(module, 'ROOT', root), patch.object(module, 'RUNTIME', root/'runtime'), patch.object(module, 'WINDOWS', False):
                     with patch('builtins.input', side_effect=answers):
                         config = module.configure()
-                    self.assertEqual(config['admin_password'], 'admin')
+                    self.assertEqual(config['admin_password'], 'admin1234!')
                     self.assertEqual(config.get('admin_id', 'admin'), 'admin')
                     self.assertNotEqual(config['db_password'], 'admin')
                     config['admin_password'] = 'ExistingPassword1!'
@@ -32,15 +32,17 @@ class InitialAdminTests(unittest.TestCase):
                     with patch('builtins.input', side_effect=AssertionError('must reuse settings')):
                         self.assertEqual(module.configure()['admin_password'], 'ExistingPassword1!')
 
-    def test_exception_is_limited_to_admin_bootstrap(self):
+    def test_normal_password_policy_and_adapter(self):
         backend = load('bootstrap_runtime_test', ROOT.parent/'backend/scripts/bootstrap_runtime.py')
+        self.assertTrue(backend.STR_PASSWORD_PATTERN.match('admin1234!'))
+        self.assertFalse(backend.STR_PASSWORD_PATTERN.match('admin'))
         for mode in ('host', 'native'):
             adapter = load('adapter_' + mode, ROOT/mode/'bootstrap_admin.py')
+            import types
             original = backend.STR_PASSWORD_PATTERN
-            for login, password, accepted in [('admin','admin',True), ('other','admin',False), ('admin','short',False), ('other','ValidPassword1!',True)]:
-                with patch.object(backend, 'STR_PASSWORD_PATTERN', adapter.InitialAdminPolicy(original, login)), patch.dict('os.environ', {'MEDIAUTO_BOOTSTRAP_ADMIN_ID':login, 'MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD':password}), patch.object(backend, '_check_postgres_and_admin', new_callable=AsyncMock, return_value=(True,'')) as database:
-                    self.assertEqual(backend._check_database_and_admin(None,False)[0], accepted)
-                    self.assertEqual(database.await_count, int(accepted))
-            self.assertFalse(original.match('admin'))
+            with patch.dict('sys.modules', {'scripts': types.SimpleNamespace(bootstrap_runtime=backend)}), patch.object(backend, 'main', return_value=0) as main:
+                self.assertEqual(adapter.main(), 0)
+                main.assert_called_once_with()
+                self.assertIs(backend.STR_PASSWORD_PATTERN, original)
 
 if __name__ == '__main__': unittest.main()

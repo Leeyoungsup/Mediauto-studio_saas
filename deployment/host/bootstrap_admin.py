@@ -1,32 +1,21 @@
-"""Bootstrap the installer-requested initial admin on an empty database.
+"""Create the first administrator using the application's normal password policy.
 
-Compatibility adapter for released application images: allow admin/admin only
-in this bootstrap process. Normal account/password APIs retain their policy,
-and the application's existing-user checks still prevent password resets.
+Existing accounts are preserved by bootstrap_runtime; this never resets passwords.
 """
 import os
 from pathlib import Path
 import sys
 
 
-class InitialAdminPolicy:
-    def __init__(self, original, login_id):
-        self.original = original
-        self.login_id = login_id
-
-    def match(self, password):
-        if self.login_id == 'admin' and password == 'admin':
-            return True
-        return self.original.match(password)
-
-
 def main():
-    # Both runners set the working directory to the application's backend.
+    # Older installer settings may still contain the obsolete short default.
+    # This changes only the creation candidate, never an existing DB account.
+    if (os.environ.get('MEDIAUTO_BOOTSTRAP_ADMIN_ID', '').lower() == 'admin'
+            and os.environ.get('MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD') == 'admin'):
+        os.environ['MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD'] = 'admin1234!'
+        print('[INFO] Using updated initial password policy; existing accounts are not reset.', flush=True)
     sys.path.insert(0, str(Path.cwd()))
     from scripts import bootstrap_runtime
-    login_id = os.environ.get('MEDIAUTO_BOOTSTRAP_ADMIN_ID', '').strip().lower()
-    bootstrap_runtime.STR_PASSWORD_PATTERN = InitialAdminPolicy(
-        bootstrap_runtime.STR_PASSWORD_PATTERN, login_id)
     return bootstrap_runtime.main()
 
 

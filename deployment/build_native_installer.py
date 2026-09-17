@@ -4,10 +4,10 @@ from pathlib import Path
 import tarfile
 import zipfile
 import io
-from build_unified_installer import sdk_payloads
+from build_unified_installer import sdk_payloads, windows_vendor_payloads
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json','README.md')
+FILES=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json','README.md')
 
 def build():
     output=ROOT/'artifacts/local-deployment/native';output.mkdir(parents=True,exist_ok=True)
@@ -15,6 +15,7 @@ def build():
     for platform in ('windows-x64','linux-x64'):
         target=output/('MeDIAuto-native-installer-'+platform+('.zip' if platform.startswith('windows') else '.tar.gz'))
         sdk = sdk_payloads(platform.startswith('windows'))
+        if platform.startswith('windows'):sdk.update(windows_vendor_payloads())
         if platform.startswith('windows'):
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
                 for name in FILES:

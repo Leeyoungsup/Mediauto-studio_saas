@@ -9,6 +9,21 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parent
 
 class WindowsPostgresServiceTests(unittest.TestCase):
+    def test_foreign_port_listener_is_not_restarted(self):
+        for mode in ('host','native'):
+            spec=importlib.util.spec_from_file_location('listener_'+mode,ROOT/mode/'install.py')
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            config={'db_port':55432,'paths':{'database':'C:/new/data'}}
+            own={'ProcessId':448,'ExecutablePath':'C:/new/programs/postgresql/bin/postgres.exe',
+                 'CommandLine':'postgres.exe -D "C:/new/data"'}
+            with patch.object(module,'ROOT',Path('C:/new')),patch.object(module,'output',return_value=json.dumps([own])):
+                module.check_windows_db_listener(config)
+            foreign=dict(own,CommandLine='postgres.exe -D "C:/old/data"')
+            with patch.object(module,'ROOT',Path('C:/new')),patch.object(module,'output',return_value=json.dumps([foreign])),patch.object(module,'run') as run:
+                with self.assertRaisesRegex(RuntimeError,'occupied.*448'):
+                    module.restart_windows_postgres(config,'test-service')
+                run.assert_not_called()
+
     def test_recovery_and_conflicts(self):
         for mode in ('host','native'):
             spec=importlib.util.spec_from_file_location('pg_'+mode,ROOT/mode/'install.py')

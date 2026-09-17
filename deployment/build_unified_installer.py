@@ -5,11 +5,24 @@ import tarfile
 import zipfile
 import io
 import json
+import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
 TOP=('install.bat','select.ps1','install.sh','setup-nvidia-runtime.sh','README.md')
 DOCKER=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','container_runner.py','setup-nvidia-runtime.sh','model-checksums.json')
-NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json')
+NATIVE=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','gpu_check.py','register-task.ps1','model-checksums.json')
+
+def windows_vendor_payloads():
+    manifest_path=ROOT/'deployment/native/openslide-windows.json'
+    manifest=json.loads(manifest_path.read_text())
+    path=ROOT/'artifacts/local-deployment/vendor'/manifest['filename']
+    if not path.exists():
+        path.parent.mkdir(parents=True,exist_ok=True)
+        urllib.request.urlretrieve(manifest['url'],path)
+    if hashlib.sha256(path.read_bytes()).hexdigest()!=manifest['sha256']:
+        raise ValueError('OpenSlide Windows wheel checksum mismatch')
+    return {'vendor/'+path.name:path.read_bytes(),'vendor/openslide-windows.json':manifest_path.read_bytes()}
+
 
 def sdk_payloads(windows):
     sdk_name = ('philips-pathologysdk-2.0-L1-windows10-py37-research' if windows
@@ -44,6 +57,7 @@ def build():
     files=[]
     for kind in ('windows-x64.zip','linux-x64.tar.gz'):
         package = dict(payloads, **sdk_payloads(kind.startswith('windows')))
+        if kind.startswith('windows'):package.update(windows_vendor_payloads())
         path=out/('MeDIAuto-GPU-installer-'+kind)
         if kind.endswith('.zip'):
             with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
