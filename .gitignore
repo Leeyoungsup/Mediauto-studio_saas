@@ -19,7 +19,7 @@ certs/
 annotations/
 /backend/annotations/
 backend/annotations/CODIPAI-BRCA-SS-00194-S-TP-01.svs/annotations.json
-/backend/cell_annotation/*
+/backend/cell_annotation
 Philips_SDK/
 /outputs/manual_ppt/*
 /artifacts/local-deployment/
