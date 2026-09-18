@@ -129,7 +129,7 @@ ANNOTATION_AI_OPTIONS = [
 ]
 
 ANNOTATION_AI_OPTION_BY_KEY = {item["key"]: item for item in ANNOTATION_AI_OPTIONS}
-CELL_ANNOTATION_ROOT = Path(__file__).resolve().parents[1] / "cell_annotation"
+CELL_ANNOTATION_ROOT = Path(settings.CELL_ANNOTATION_DIR)
 OTHER_CELL_CLASS = {"id": "other", "name": "Other", "color": [149, 165, 166]}
 
 

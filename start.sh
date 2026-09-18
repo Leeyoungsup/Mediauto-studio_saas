@@ -37,8 +37,7 @@ if ! conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
   exit 1
 fi
 
-CONDA_BASE="$(conda info --base)"
-ENV_PYTHON="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
+ENV_PYTHON="$(conda run -n "$ENV_NAME" python -c 'import sys; print(sys.executable)')"
 if [[ ! -x "$ENV_PYTHON" ]]; then
   echo "[ERROR] python not found in conda env: $ENV_PYTHON"
   exit 1

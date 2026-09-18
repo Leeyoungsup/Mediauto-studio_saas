@@ -291,3 +291,8 @@ SDK, OpenSlide/libvips, PyTorch CUDA, DB 마이그레이션 및 모델 검사를
 Windows CMD / Linux bash 초기화를 포함합니다. 설치 후 터미널을 완전히 닫고 새로 여세요.
 두 activate 명령은 각각의 환경으로 전환하는 명령이며 동시에 두 환경을 활성화하는 뜻은 아닙니다.
 서버 시작은 기존 start/start-local 스크립트를 사용하면 외부 DB·모델·로그 경로 설정까지 적용됩니다.
+
+
+## Windows / Linux 공통 경로
+
+경로 설정과 브랜치 병합 시 유지할 PC별 설정은 `PATH_CONFIGURATION.ko.md`를 참조하세요. 패치와 비밀키 경로도 환경변수로 전달하며, 기존 프로젝트 기본값은 유지합니다.

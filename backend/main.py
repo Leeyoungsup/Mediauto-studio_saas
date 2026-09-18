@@ -52,9 +52,11 @@ class _SuccessFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuccessFilter())
 
+from app.config import settings
+
 # ── OpenSlide DLL text text (import text text text) ──
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-_dll_paths = [
+_dll_paths = [Path(settings.OPENSLIDE_PATH)] if settings.OPENSLIDE_PATH else [
     PROJECT_ROOT / "libs" / "openslide_lib" / "bin",
     PROJECT_ROOT / "libs",
 ]
@@ -68,10 +70,11 @@ _path_additions = [
 ]
 if _path_additions:
     os.environ['PATH'] = os.pathsep.join(_path_additions) + os.pathsep + os.environ.get('PATH', '')
+_dll_handles = []
 for _dp in _dll_paths:
     if _dp.exists():
         try:
-            os.add_dll_directory(str(_dp))
+            _dll_handles.append(os.add_dll_directory(str(_dp)))
         except (AttributeError, OSError):
             pass
 
@@ -84,7 +87,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app.config import settings
 from app.csrf import CSRFMiddleware
 from app.rate_limit import RateLimitMiddleware
 from app.database import initialize_main_loop

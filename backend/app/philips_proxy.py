@@ -15,6 +15,7 @@ import logging
 import mmap
 import os
 import queue
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -52,22 +53,20 @@ def is_philips_isyntax(file_path: str | Path) -> bool:
 
 
 def _find_conda_env_python() -> str:
-    candidates: list[Path] = []
-    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
-    if conda_prefix:
-        candidates.append(Path(conda_prefix).parent / PHILIPS_CONDA_ENV / "bin" / "python")
-        candidates.append(Path(conda_prefix).parent / PHILIPS_CONDA_ENV / "python.exe")
-    home = Path.home()
-    candidates.append(home / "anaconda3" / "envs" / PHILIPS_CONDA_ENV / "bin" / "python")
-    candidates.append(home / "miniconda3" / "envs" / PHILIPS_CONDA_ENV / "bin" / "python")
-    user_profile = os.environ.get("USERPROFILE", "").strip()
-    if user_profile:
-        candidates.append(Path(user_profile) / ".conda" / "envs" / PHILIPS_CONDA_ENV / "python.exe")
-    candidates.append(Path("C:/ProgramData/anaconda3/envs") / PHILIPS_CONDA_ENV / "python.exe")
-    candidates.append(Path("C:/ProgramData/miniconda3/envs") / PHILIPS_CONDA_ENV / "python.exe")
-    for path_python in candidates:
-        if path_python.exists():
-            return str(path_python)
+    conda = os.environ.get("CONDA_EXE") or shutil.which("conda")
+    if not conda:
+        return ""
+    try:
+        result = subprocess.run([conda, "env", "list", "--json"],
+                                capture_output=True, text=True, check=True, timeout=15)
+        for prefix in json.loads(result.stdout).get("envs", []):
+            root = Path(prefix)
+            if root.name == PHILIPS_CONDA_ENV:
+                python = root / ("python.exe" if os.name == "nt" else "bin/python")
+                if python.is_file():
+                    return str(python)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
     return ""
 
 

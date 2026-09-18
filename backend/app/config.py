@@ -14,7 +14,17 @@ from pathlib import Path
 # text text text text text/text text text text.
 # On-Premise text text text text text text text.
 # ══════════════════════════════════════════════════════════════════
-_SECRETS_FILE = Path(__file__).parent.parent / ".secrets.json"
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def configured_path(name: str, default: Path) -> Path:
+    """Resolve local overrides consistently, independently of the launch directory."""
+    value = os.environ.get(name, "").strip()
+    path = Path(value).expanduser() if value else default
+    return path if path.is_absolute() else BACKEND_DIR / path
+
+
+_SECRETS_FILE = configured_path("MEDIAUTO_SECRETS_FILE", BACKEND_DIR / ".secrets.json")
 
 
 def _load_or_create_secrets() -> dict:
@@ -67,35 +77,25 @@ _dict_persistent_secrets = _load_or_create_secrets()
 
 
 class Settings:
+    CELL_ANNOTATION_DIR: str = str(configured_path("CELL_ANNOTATION_DIR", BACKEND_DIR / "cell_annotation"))
+    SECRETS_FILE: str = str(_SECRETS_FILE)
+    # Empty means use packaged OpenSlide/system discovery, then legacy DLL folders.
+    OPENSLIDE_PATH: str = str(configured_path("OPENSLIDE_PATH", BACKEND_DIR)) if os.environ.get("OPENSLIDE_PATH", "").strip() else ""
+
     # text text (text text text — text WSI text)
-    UPLOAD_DIR: str = os.environ.get(
-        "UPLOAD_DIR",
-        str(Path(__file__).parent.parent / "uploads")
-    )
+    UPLOAD_DIR: str = str(configured_path("UPLOAD_DIR", BACKEND_DIR / "uploads"))
 
     # text text (text JPEG text text)
-    TILES_DIR: str = os.environ.get(
-        "TILES_DIR",
-        str(Path(__file__).parent.parent / "tiles")
-    )
+    TILES_DIR: str = str(configured_path("TILES_DIR", BACKEND_DIR / "tiles"))
 
     # AI text text text (uploadstext text)
-    AI_RESULTS_DIR: str = os.environ.get(
-        "AI_RESULTS_DIR",
-        str(Path(__file__).parent.parent / "ai_results")
-    )
+    AI_RESULTS_DIR: str = str(configured_path("AI_RESULTS_DIR", BACKEND_DIR / "ai_results"))
 
     # text text
-    ANNOTATIONS_DIR: str = os.environ.get(
-        "ANNOTATIONS_DIR",
-        str(Path(__file__).parent.parent / "annotations")
-    )
+    ANNOTATIONS_DIR: str = str(configured_path("ANNOTATIONS_DIR", BACKEND_DIR / "annotations"))
 
     # Extracted source instances for DICOM WSI ZIP archives.
-    DICOM_CACHE_DIR: str = os.environ.get(
-        "DICOM_CACHE_DIR",
-        str(Path(__file__).parent.parent / "dicom_cache")
-    )
+    DICOM_CACHE_DIR: str = str(configured_path("DICOM_CACHE_DIR", BACKEND_DIR / "dicom_cache"))
     DICOM_ZIP_MAX_FILES: int = int(os.environ.get("DICOM_ZIP_MAX_FILES", "10000"))
     DICOM_ZIP_MAX_UNCOMPRESSED_BYTES: int = int(os.environ.get(
         "DICOM_ZIP_MAX_UNCOMPRESSED_BYTES", str(100 * 1024 * 1024 * 1024)
@@ -133,10 +133,7 @@ class Settings:
 
     # AI model weights. Keep the local path as the workstation default while
     # allowing production deployments to mount models outside the Git tree.
-    MODEL_DIR: str = os.environ.get(
-        "MODEL_DIR",
-        str(Path(__file__).parent.parent / "model"),
-    )
+    MODEL_DIR: str = str(configured_path("MODEL_DIR", BACKEND_DIR / "model"))
 
     # text text
     SUPPORTED_EXTENSIONS: set = {

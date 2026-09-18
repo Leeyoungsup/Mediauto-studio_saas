@@ -51,7 +51,7 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 TARGET_MPP = 0.5
 PATCH_PHYSICAL_UM = 512.0
 TARGET_PATCH_SIZE = int(round(PATCH_PHYSICAL_UM / TARGET_MPP))
-CELL_ANNOTATION_ROOT = Path(__file__).resolve().parents[2] / "cell_annotation"
+CELL_ANNOTATION_ROOT = Path(settings.CELL_ANNOTATION_DIR)
 ASSISTANCE_LABEL_SCHEMA = ["x", "y", "width", "height", "center_x", "center_y", "class_id", "confidence"]
 PATCH_STATUSES = {
     "not_required",

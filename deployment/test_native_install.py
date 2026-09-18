@@ -63,9 +63,14 @@ class NativeTests(unittest.TestCase):
     run.reset_mock();wheel.write_bytes(b'bad')
     with self.assertRaisesRegex(ValueError,'checksum mismatch'):n.install_windows_openslide('python')
     run.assert_not_called()
- def test_native_environment_and_external_links(self):
+ def test_current_source_uses_environment_without_links(self):
+  self.test_native_environment_and_external_links(current=True)
+ def test_native_environment_and_external_links(self,current=False):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);c=self.config(root/'storage');src=root/'application';(src/'backend').mkdir(parents=True)
+   if current:
+    (src/'backend/app').mkdir()
+    (src/'backend/app/config.py').write_text('MEDIAUTO_SECRETS_FILE CELL_ANNOTATION_DIR')
    (src/'backend/requirements.txt').write_text('openslide-python==1.3.1\npyvips>=2.2,<3\n')
    for key in n.PATHS:Path(c['paths'][key]).mkdir(parents=True)
    calls=[]
@@ -74,8 +79,14 @@ class NativeTests(unittest.TestCase):
    app=json.loads((root/'.runtime/app.json').read_text())
    self.assertIn('@127.0.0.1:55440/',app['env']['POSTGRES_URI'])
    self.assertEqual(app['env']['PHILIPS_PYTHON'],'/test/philips/python')
-   self.assertEqual((src/'backend/cell_annotation').resolve(),Path(c['paths']['patches']))
-   self.assertEqual((src/'backend/.secrets.json').resolve(),Path(c['paths']['secrets'])/'.secrets.json')
+   self.assertEqual(app['env']['CELL_ANNOTATION_DIR'],c['paths']['patches'])
+   self.assertEqual(app['env']['MEDIAUTO_SECRETS_FILE'],str(Path(c['paths']['secrets'])/'.secrets.json'))
+   if current:
+    self.assertFalse((src/'backend/cell_annotation').exists())
+    self.assertFalse((src/'backend/.secrets.json').is_symlink())
+   else:
+    self.assertEqual((src/'backend/cell_annotation').resolve(),Path(c['paths']['patches']))
+    self.assertEqual((src/'backend/.secrets.json').resolve(),Path(c['paths']['secrets'])/'.secrets.json')
    self.assertFalse(any('docker' in str(x).lower() for x in calls))
 
 if __name__=='__main__':unittest.main()

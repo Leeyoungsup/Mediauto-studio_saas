@@ -498,13 +498,22 @@ def prepare_application(config, source):
     run([python,'-m','pip','check'])
     run([python,'-c','import openslide, pyvips, torch; assert pyvips.type_find("VipsOperation", "tiffsave"); print("Native OpenSlide/libvips/PyTorch imports passed")'])
     backend=source/'backend'
-    for link,dest,isdir in [(backend/'.secrets.json',Path(config['paths']['secrets'])/'.secrets.json',False),
-                             (backend/'cell_annotation',Path(config['paths']['patches']),True)]:
+    # Old Git branches still need links; current branches consume the environment.
+    config_module = backend/'app/config.py'
+    config_text = config_module.read_text(encoding='utf-8') if config_module.is_file() else ''
+    for key,link,dest,isdir in [
+        ('MEDIAUTO_SECRETS_FILE',backend/'.secrets.json',Path(config['paths']['secrets'])/'.secrets.json',False),
+        ('CELL_ANNOTATION_DIR',backend/'cell_annotation',Path(config['paths']['patches']),True),
+    ]:
+        if key in config_text:
+            continue
         if link.is_symlink():
             if link.resolve()!=dest.resolve():raise ValueError('Existing storage link points elsewhere: '+str(link))
         elif link.exists():raise ValueError('Refusing to replace existing application data: '+str(link))
         else:link.symlink_to(dest,target_is_directory=isdir)
     env={'POSTGRES_URI':f"postgresql+asyncpg://mediauto:{config['db_password']}@127.0.0.1:{config['db_port']}/mediauto",
+         'MEDIAUTO_SECRETS_FILE':str(Path(config['paths']['secrets'])/'.secrets.json'),
+         'CELL_ANNOTATION_DIR':config['paths']['patches'],
          'MODEL_DIR':config['paths']['models'],'UPLOAD_DIR':config['paths']['slides'],'TILES_DIR':config['paths']['tiles'],
          'AI_RESULTS_DIR':config['paths']['results'],'ANNOTATIONS_DIR':config['paths']['annotations'],'DICOM_CACHE_DIR':config['paths']['dicom'],
          'YOLO_CONFIG_DIR':str(Path(config['paths']['app_config'])/'ultralytics'),'MPLCONFIGDIR':str(Path(config['paths']['cache'])/'matplotlib'),'TORCH_HOME':str(Path(config['paths']['cache'])/'torch'),'HF_HOME':str(Path(config['paths']['cache'])/'huggingface'),

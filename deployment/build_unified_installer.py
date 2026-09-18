@@ -51,6 +51,7 @@ def sdk_payloads(windows):
 def build():
     out=ROOT/'artifacts/local-deployment/unified';out.mkdir(parents=True,exist_ok=True)
     entries={name:ROOT/'deployment/installer'/name for name in TOP}
+    entries['PATH_CONFIGURATION.ko.md']=ROOT/'deployment/PATH_CONFIGURATION.ko.md'
     entries.update({'docker/'+name:ROOT/'deployment/host'/name for name in DOCKER})
     entries.update({'native/'+name:ROOT/'deployment/native'/name for name in NATIVE})
     entries.update({'docker/'+target:ROOT/'deployment/native'/source for target,source in LOCAL_SHARED.items()})

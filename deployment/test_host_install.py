@@ -20,6 +20,9 @@ class HostTests(unittest.TestCase):
             h.validate(c)
             with patch.object(h,'RUNTIME',root/'.runtime'):
                 h.compose(c,'external-network')
+            env=(root/'.runtime/app.env').read_text()
+            self.assertIn('MEDIAUTO_SECRETS_FILE=/state/.secrets.json',env)
+            self.assertIn('CELL_ANNOTATION_DIR=/data/cell_annotation',env)
             doc=json.loads((root/'.runtime/compose.json').read_text())
             self.assertEqual(set(doc['services']),{'app'})
             app=doc['services']['app']

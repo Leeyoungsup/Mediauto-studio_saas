@@ -466,6 +466,7 @@ def claim_database(config):
 
 def compose(config, name):
     env = {'POSTGRES_URI':f"postgresql+asyncpg://mediauto:{config['db_password']}@host.docker.internal:{config['db_port']}/mediauto",
+           'MEDIAUTO_SECRETS_FILE':'/state/.secrets.json','CELL_ANNOTATION_DIR':'/data/cell_annotation',
            'MODEL_DIR':'/models','UPLOAD_DIR':'/data/uploads','TILES_DIR':'/data/tiles',
            'AI_RESULTS_DIR':'/data/ai_results','ANNOTATIONS_DIR':'/data/annotations','DICOM_CACHE_DIR':'/data/dicom_cache',
            'TMPDIR':'/tmp','YOLO_CONFIG_DIR':'/app-config/ultralytics','MPLCONFIGDIR':'/cache/matplotlib','TORCH_HOME':'/cache/torch','HF_HOME':'/cache/huggingface','XDG_CACHE_HOME':'/cache','XDG_CONFIG_HOME':'/app-config','MEDIAUTO_BOOTSTRAP_ADMIN_ID':'admin',
