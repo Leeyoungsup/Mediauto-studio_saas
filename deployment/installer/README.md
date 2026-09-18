@@ -296,3 +296,7 @@ Windows CMD / Linux bash 초기화를 포함합니다. 설치 후 터미널을 �
 ## Windows / Linux 공통 경로
 
 경로 설정과 브랜치 병합 시 유지할 PC별 설정은 `PATH_CONFIGURATION.ko.md`를 참조하세요. 패치와 비밀키 경로도 환경변수로 전달하며, 기존 프로젝트 기본값은 유지합니다.
+
+### 설치 패키지 2026-09-18-r11
+
+Windows/Linux 및 두 설치 메뉴에 데이터 경로 Git 추적 검사, 소스 내부 데이터 경로 차단, 로컬 Git 제외 규칙을 추가했습니다. 기존 데이터와 로컬 코드 수정은 삭제하지 않습니다. 상세 내용은 `PATH_CONFIGURATION.ko.md`를 확인하세요.

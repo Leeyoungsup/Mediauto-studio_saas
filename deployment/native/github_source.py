@@ -20,6 +20,42 @@ def git(args, target=None, env=None):
     return result.stdout.strip()
 
 
+# Ignore the path itself as well as children: a Windows directory link can be
+# committed as a single Git object even when "directory/*" is ignored.
+RUNTIME_PATHS = (
+    'backend/cell_annotation', 'backend/.secrets.json', 'backend/uploads',
+    'backend/tiles', 'backend/ai_results', 'backend/annotations',
+    'backend/dicom_cache', 'backend/model',
+)
+
+
+def protect_runtime_storage(config, target):
+    checkout = target.resolve()
+    for name, value in config.get('paths', {}).items():
+        path = Path(value).expanduser().resolve()
+        if path == checkout or checkout in path.parents:
+            raise ValueError('Storage path must be outside the Git checkout: '+name+
+                             '. Choose an external folder; existing data was preserved.')
+    tracked = git(['ls-files', '-z', '--', *RUNTIME_PATHS], target)
+    if tracked:
+        paths = tracked.split('\0')
+        raise ValueError('Selected Git checkout tracks runtime data or a machine-specific link: '+
+                         ', '.join(paths[:8])+'. Remove these paths from Git tracking and commit '+
+                         'the fix on the source branch before retrying. The installer did not delete data or change the index.')
+    # Local exclusion also protects old branches whose .gitignore only excludes
+    # directory contents. It does not modify tracked source or the user's index.
+    exclude = Path(git(['rev-parse', '--git-path', 'info/exclude'], target))
+    if not exclude.is_absolute():
+        exclude = target/exclude
+    existing = exclude.read_text(encoding='utf-8') if exclude.exists() else ''
+    rules = ['/'+path for path in RUNTIME_PATHS]
+    missing = [rule for rule in rules if rule not in existing.splitlines()]
+    if missing:
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        with exclude.open('a', encoding='utf-8') as stream:
+            stream.write('\n# MeDIAuto: local runtime data and compatibility links\n'+'\n'.join(missing)+'\n')
+
+
 def download(config, runtime, root):
     if not shutil.which('git'):
         raise RuntimeError('Git is required. Install Git and restart the installer.')
@@ -51,6 +87,7 @@ def download(config, runtime, root):
         finally:
             env.clear()
     if not (target/'backend/main.py').is_file():raise ValueError('Selected checkout has no backend/main.py.')
+    protect_runtime_storage(config, target)
     commit=git(['rev-parse','HEAD'],target)
     branch=git(['rev-parse','--abbrev-ref','HEAD'],target)
     marker.write_text(json.dumps({'repository':repository,'requested_ref':ref,'branch':branch,'commit':commit,'path':str(target),'mode':'git'},indent=2))
