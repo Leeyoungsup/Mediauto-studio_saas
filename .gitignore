@@ -33,3 +33,4 @@ Philips_SDK/
 /deployment/native/venv/
 /deployment/host/.install-location.json
 /deployment/native/.install-location.json
+/backend/annotations/*
