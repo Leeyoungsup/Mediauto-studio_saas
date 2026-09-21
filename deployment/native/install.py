@@ -31,6 +31,36 @@ MAIN_PYTHON = None
 MAIN_COMMAND = None
 
 
+
+def download_with_system_trust(url, destination):
+    """Keep TLS validation; retry certificate failures with Windows trust."""
+    import ssl
+    import urllib.error
+    try:
+        urllib.request.urlretrieve(url, destination)
+        return
+    except (urllib.error.URLError, ssl.SSLCertVerificationError) as exc:
+        reason = getattr(exc, 'reason', exc)
+        if os.name != 'nt' or not isinstance(reason, ssl.SSLCertVerificationError):
+            raise
+    print('Python certificate verification failed; retrying with Windows certificate validation...', flush=True)
+    env = dict(os.environ, MEDIAUTO_DOWNLOAD_URL=url, MEDIAUTO_DOWNLOAD_FILE=str(Path(destination).resolve()))
+    # Values travel as environment variables, never interpolated PowerShell code.
+    script = (
+        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; "
+        "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; "
+        "try { Invoke-WebRequest -UseBasicParsing -Uri $env:MEDIAUTO_DOWNLOAD_URL "
+        "-OutFile $env:MEDIAUTO_DOWNLOAD_FILE -TimeoutSec 600 -ErrorAction Stop; exit 0 } "
+        "catch { [Console]::Error.WriteLine('Windows HTTPS download failed: '+$_.Exception.Message); exit 1 }"
+    )
+    result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
+                            env=env, timeout=660)
+    if result.returncode:
+        raise RuntimeError('HTTPS certificate/download validation failed in Python and Windows. '
+                           'Check Windows date/time, trusted root certificates and any company HTTPS proxy. '
+                           'Certificate verification was not disabled.')
+
+
 def run(args, **kwargs):
     if MAIN_COMMAND and str(args[0]) == str(MAIN_PYTHON):
         args = MAIN_COMMAND + list(args[1:])
@@ -290,7 +320,14 @@ def prepare_windows_postgres(config):
         installer = RUNTIME/'postgresql-installer.exe'
         if not installer.exists() or sha(installer) != PG_SHA:
             print('Downloading PostgreSQL Windows installer...', flush=True)
-            urllib.request.urlretrieve(PG_URL, installer)
+            temporary = installer.with_suffix('.exe.partial')
+            try:
+                download_with_system_trust(PG_URL, temporary)
+                if sha(temporary) != PG_SHA:
+                    raise ValueError('PostgreSQL installer checksum mismatch.')
+                temporary.replace(installer)
+            finally:
+                temporary.unlink(missing_ok=True)
         if sha(installer) != PG_SHA:
             raise ValueError('PostgreSQL installer checksum mismatch.')
         print('Extracting PostgreSQL binaries (no existing DB upgrade)...', flush=True)

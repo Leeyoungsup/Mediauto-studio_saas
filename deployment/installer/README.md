@@ -300,3 +300,7 @@ Windows CMD / Linux bash 초기화를 포함합니다. 설치 후 터미널을 �
 ### 설치 패키지 2026-09-18-r11
 
 Windows/Linux 및 두 설치 메뉴에 데이터 경로 Git 추적 검사, 소스 내부 데이터 경로 차단, 로컬 Git 제외 규칙을 추가했습니다. 기존 데이터와 로컬 코드 수정은 삭제하지 않습니다. 상세 내용은 `PATH_CONFIGURATION.ko.md`를 확인하세요.
+
+### 설치 패키지 2026-09-22-r12
+
+PostgreSQL/Miniconda 다운로드 중 Python의 인증서 검증이 실패하면 Windows PowerShell의 HTTPS 다운로드로 재시도합니다. 인증서 검증을 끄지 않으며 고정 SHA-256 검사도 유지합니다. Windows에서도 실패하면 시스템 시각, 루트 인증서 및 사내 HTTPS 프록시 설정을 확인해야 합니다. PostgreSQL 다운로드는 임시 파일을 검증한 뒤 설치파일로 교체합니다. Linux 다운로드는 기존 인증서 검증 방식을 유지합니다.

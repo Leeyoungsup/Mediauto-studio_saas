@@ -14,6 +14,36 @@ INSTALLERS = {
 }
 
 
+
+def download_with_system_trust(url, destination):
+    """Keep TLS validation; retry certificate failures with Windows trust."""
+    import ssl
+    import urllib.error
+    try:
+        urllib.request.urlretrieve(url, destination)
+        return
+    except (urllib.error.URLError, ssl.SSLCertVerificationError) as exc:
+        reason = getattr(exc, 'reason', exc)
+        if os.name != 'nt' or not isinstance(reason, ssl.SSLCertVerificationError):
+            raise
+    print('Python certificate verification failed; retrying with Windows certificate validation...', flush=True)
+    env = dict(os.environ, MEDIAUTO_DOWNLOAD_URL=url, MEDIAUTO_DOWNLOAD_FILE=str(Path(destination).resolve()))
+    # Values travel as environment variables, never interpolated PowerShell code.
+    script = (
+        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; "
+        "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; "
+        "try { Invoke-WebRequest -UseBasicParsing -Uri $env:MEDIAUTO_DOWNLOAD_URL "
+        "-OutFile $env:MEDIAUTO_DOWNLOAD_FILE -TimeoutSec 600 -ErrorAction Stop; exit 0 } "
+        "catch { [Console]::Error.WriteLine('Windows HTTPS download failed: '+$_.Exception.Message); exit 1 }"
+    )
+    result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',script],
+                            env=env, timeout=660)
+    if result.returncode:
+        raise RuntimeError('HTTPS certificate/download validation failed in Python and Windows. '
+                           'Check Windows date/time, trusted root certificates and any company HTTPS proxy. '
+                           'Certificate verification was not disabled.')
+
+
 def invoke(args, **kwargs):
     command=[str(a) for a in args]
     if os.name!='nt' and os.environ.get('SUDO_USER') and Path(command[0]).name=='conda':
@@ -95,7 +125,7 @@ def prepare(root, config, windows):
         if not installer.exists() or digest(installer) != expected:
             print('Downloading Conda (official Miniconda)...', flush=True)
             temporary = installer.with_suffix(installer.suffix+'.partial')
-            urllib.request.urlretrieve('https://repo.anaconda.com/miniconda/'+name, temporary)
+            download_with_system_trust('https://repo.anaconda.com/miniconda/'+name, temporary)
             if digest(temporary) != expected:
                 temporary.unlink()
                 raise RuntimeError('Miniconda installer checksum mismatch.')
