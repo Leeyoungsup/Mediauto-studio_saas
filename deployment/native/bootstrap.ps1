@@ -1,9 +1,13 @@
+param([switch]$PrepareOnly, [switch]$Gui)
 $ErrorActionPreference = 'Stop'
 $scriptPath = $PSCommandPath
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $admin = ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
-    $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $scriptPath + '"'))
+    $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $scriptPath + '"'))
+    if ($PrepareOnly) { $arguments += '-PrepareOnly' }
+    if ($Gui) { $arguments += '-Gui' }
+    $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList $arguments
     exit $p.ExitCode
 }
 Set-Location $PSScriptRoot
@@ -65,6 +69,13 @@ try {
     }
     if (-not $python) { throw 'Python installation was not found. Restart install.bat after Python installation finishes.' }
     Write-Host ('Using existing verified Python: ' + $python)
+    if ($Gui) {
+        Invoke-Checked $python @((Join-Path (Split-Path $PSScriptRoot -Parent) 'gui.py'))
+        exit 0
+    }
+    & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'setup-nvidia-driver.ps1')
+    if ($LASTEXITCODE -eq 3010) { throw 'REBOOT REQUIRED: GPU driver installed. Restart Windows and run this installer again.' }
+    if ($LASTEXITCODE -ne 0) { throw 'NVIDIA driver setup did not complete. See the message above.' }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         $gitPath = Join-Path $env:ProgramFiles 'Git\cmd'
         if (-not (Test-Path (Join-Path $gitPath 'git.exe'))) {
@@ -74,9 +85,17 @@ try {
         if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git installed but unavailable. Reopen install.bat.' }
     }
     $env:PYTHONUTF8 = '1'
-    Invoke-Checked $python @((Join-Path $PSScriptRoot 'install.py'))
+    if ($PrepareOnly) { exit 0 }
+    if ($Gui) {
+        Invoke-Checked $python @((Join-Path (Split-Path $PSScriptRoot -Parent) 'gui.py'))
+    } else {
+        Invoke-Checked $python @((Join-Path $PSScriptRoot 'install.py'))
+    }
 } catch {
     Write-Host ('Installation stopped: ' + $_.Exception.Message) -ForegroundColor Red
-    Read-Host 'Press Enter to close' | Out-Null
+    if ($Gui) {
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'MeDIAuto installation stopped') | Out-Null
+    } elseif (-not $PrepareOnly) { Read-Host 'Press Enter to close' | Out-Null }
     exit 1
 }

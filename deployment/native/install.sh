@@ -6,9 +6,11 @@ if [[ $EUID -ne 0 ]]; then exec sudo bash "$PWD/install.sh" "$@"; fi
 source /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) echo 'Automatic installation supports Ubuntu/Debian.'; exit 1;; esac
 [[ -d /run/systemd/system ]] || { echo 'systemd required.'; exit 1; }
+bash "$PWD/setup-nvidia-driver.sh"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 vips_package=libvips42
 if apt-cache show libvips42t64 >/dev/null 2>&1; then vips_package=libvips42t64; fi
 apt-get install -y git ca-certificates python3 python3-venv python3-dev build-essential postgresql acl libopenslide0 "$vips_package" libgomp1 libegl1 libgles2
+if [[ "${1:-}" == --prepare-only ]]; then exit 0; fi
 python3 install.py "$@"

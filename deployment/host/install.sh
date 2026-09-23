@@ -7,6 +7,7 @@ source /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) echo 'Automatic Linux installation supports Ubuntu/Debian with systemd.'; exit 1;; esac
 [[ -d /run/systemd/system ]] || { echo 'A systemd host is required.'; exit 1; }
 bash "$PWD/setup-nvidia-runtime.sh" --prepare-repositories
+bash "$PWD/setup-nvidia-driver.sh"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y git ca-certificates curl gnupg python3 python3-venv python3-dev build-essential postgresql acl libopenslide0 libgomp1 libegl1 libgles2
@@ -27,4 +28,5 @@ nvidia-smi -L || { echo 'Install/fix the NVIDIA host driver first. CPU fallback 
 if ! docker info --format '{{json .Runtimes}}' | grep -q nvidia; then
   bash "$PWD/setup-nvidia-runtime.sh"
 fi
+if [[ "${1:-}" == --prepare-only ]]; then exit 0; fi
 python3 install.py "$@"

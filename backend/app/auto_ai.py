@@ -206,6 +206,7 @@ async def _run_auto_inference(
     str_model: str,
     str_variant: str,
     float_target_mpp: float = 2.0,
+    dict_annotation_ai: Optional[dict] = None,
 ) -> None:
     """text text/text/variant text text text text text."""
     from app.slide_manager import slide_manager
@@ -241,7 +242,12 @@ async def _run_auto_inference(
         return
 
     def _dispatch() -> None:
-        if str_model in ("Quanti HE", "HE-Fit"):
+        if dict_annotation_ai:
+            from app.routers.cell_annotation import _run_labeling_assistance_task
+            _run_labeling_assistance_task(
+                str_task_id, str_slide_id, str_full_path, dict_annotation_ai
+            )
+        elif str_model in ("Quanti HE", "HE-Fit"):
             ai_router._run_detection(str_task_id, str_slide_id, None, str_variant)
         elif str_model in ("Quanti PD-L1", "PD-Score"):
             ai_router._run_pd_score(str_task_id, str_slide_id, None, str_variant)
@@ -257,6 +263,10 @@ async def _run_auto_inference(
     from app.cpu_layout import ai_executor
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(ai_executor, _dispatch)
+    with ai_router._tasks_lock:
+        dict_finished = ai_router._tasks.get(str_task_id) or {}
+        if dict_finished.get("status") == "error":
+            raise RuntimeError(dict_finished.get("error") or "AI task failed")
     print(f"[auto_ai] done {str_model}/{str_variant} on {str_filename}")
 
 
@@ -533,6 +543,64 @@ async def _should_yield_for_active_tile_generation() -> bool:
     return tile_generator.any_generation_running()
 
 
+def _annotation_project_configs(dict_project: dict, set_paths: set) -> list:
+    from app.project_utils import normalize_annotation_ai_config
+
+    dict_config = normalize_annotation_ai_config(
+        bool(dict_project.get("bool_annotation_ai_enabled")),
+        dict_project.get("str_annotation_ai_key", ""),
+    )
+    if not dict_config.get("enabled"):
+        return []
+    return [{
+        "str_rel_path": str_path,
+        "bool_enabled": True,
+        "list_tasks": [{
+            "model": dict_config["base_model"],
+            "variant": dict_config["variant"],
+            "annotation_ai": dict_config,
+            "source": "cell_annotation_ai_assistance",
+        }],
+    } for str_path in sorted(set_paths)]
+
+
+_assistance_file_checks: dict = {}
+
+
+def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
+    """Check the assistance artifact without deleting or rewriting user data."""
+    from app.config import settings
+    from app.routers.cell_annotation import _expected_assistance_confidence_threshold
+
+    path = Path(settings.CELL_ANNOTATION_DIR) / slide_cache_key(str_full_path) / "WSI_Labeling_assistance.json"
+    try:
+        stat = path.stat()
+        expected_threshold = _expected_assistance_confidence_threshold(dict_config)
+        state = (stat.st_mtime_ns, stat.st_size, dict_config["key"], expected_threshold,
+                 tuple(sorted(processing_metadata().items())))
+        cached = _assistance_file_checks.get(str(path))
+        if cached and cached[0] == state:
+            missing = cached[1]
+        else:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            missing = (
+                payload.get("annotation_ai", {}).get("key") != dict_config["key"]
+                or not cache_has_current_detection_postprocess(payload.get("source_ai_postprocess"))
+                or not isinstance(payload.get("labels"), list)
+            )
+            if expected_threshold is not None:
+                try:
+                    missing |= abs(float(payload.get("assistance_confidence_threshold")) - expected_threshold) >= 1e-6
+                except (ValueError, TypeError):
+                    missing = True
+            _assistance_file_checks[str(path)] = (state, missing)
+        return missing or _marker_cache_needs_refresh(
+            str_full_path, dict_config["base_model"], dict_config["variant"]
+        )
+    except (OSError, ValueError, TypeError, AttributeError):
+        return True
+
+
 async def _scan_and_infer_once() -> None:
     """1 text — text text folder config text text text text text text.
 
@@ -576,18 +644,6 @@ async def _scan_and_infer_once() -> None:
         list_tasks = []
         if dict_project.get("bool_project_ai_enabled"):
             list_tasks.extend(dict_project.get("list_project_ai_tasks") or [])
-        if dict_project.get("bool_annotation_ai_enabled"):
-            from app.project_utils import normalize_annotation_ai_config
-            dict_annotation_ai = normalize_annotation_ai_config(
-                True,
-                dict_project.get("str_annotation_ai_key", ""),
-            )
-            if dict_annotation_ai.get("enabled"):
-                list_tasks.append({
-                    "model": dict_annotation_ai.get("base_model", ""),
-                    "variant": dict_annotation_ai.get("variant", ""),
-                    "source": "cell_annotation_ai_assistance",
-                })
         dict_unique_tasks = {}
         for dict_task in list_tasks:
             str_model_key = dict_task.get("model") or ""
@@ -595,9 +651,10 @@ async def _scan_and_infer_once() -> None:
             if str_model_key and str_variant_key:
                 dict_unique_tasks[(str_model_key, str_variant_key)] = dict_task
         list_tasks = list(dict_unique_tasks.values())
-        if not str_project_path or not list_tasks:
+        if not str_project_path:
             continue
 
+        set_project_paths = set()
         set_inherited_paths = set()
         str_project_regex = f"^{re.escape(str_project_path)}(/|$)"
         async for dict_slide in db.slides.find(
@@ -605,8 +662,14 @@ async def _scan_and_infer_once() -> None:
             {"str_rel_path": 1},
         ):
             str_slide_path = (dict_slide.get("str_rel_path") or "").replace("\\", "/").strip("/")
-            if str_slide_path and str_slide_path not in set_explicit_paths:
-                set_inherited_paths.add(str_slide_path)
+            if str_slide_path:
+                set_project_paths.add(str_slide_path)
+                if str_slide_path not in set_explicit_paths:
+                    set_inherited_paths.add(str_slide_path)
+
+        # Annotation assistance is a separate project option. Folder scoring
+        # overrides must not discard it, and it needs its own saved output.
+        list_configs.extend(_annotation_project_configs(dict_project, set_project_paths))
 
         for str_rel_path in sorted(set_inherited_paths):
             list_configs.append({
@@ -637,8 +700,21 @@ async def _scan_and_infer_once() -> None:
             if not str_model or not str_variant:
                 continue
 
+            dict_annotation_ai = dict_task.get("annotation_ai")
             float_target_mpp = 2.0
-            if str_model in ("VS IHC", "VS-IHC"):
+            if dict_annotation_ai:
+                dict_slides = await slide_store.list_slides_in_folder(str_rel_path)
+                list_candidates = []
+                for dict_slide in dict_slides.values():
+                    str_full_path = dict_slide.get("str_full_path") or ""
+                    if not str_full_path or not Path(str_full_path).exists():
+                        int_missing_file += 1
+                        continue
+                    if await asyncio.to_thread(
+                        _assistance_needs_refresh, str_full_path, dict_annotation_ai
+                    ):
+                        list_candidates.append(dict_slide)
+            elif str_model in ("VS IHC", "VS-IHC"):
                 try:
                     float_target_mpp = float(dict_task.get("target_mpp", 2.0))
                 except (TypeError, ValueError):
@@ -702,7 +778,13 @@ async def _scan_and_infer_once() -> None:
                     continue
 
                 try:
-                    await _run_auto_inference(str_full_path, str_model, str_variant, float_target_mpp)
+                    if dict_annotation_ai:
+                        await _run_auto_inference(
+                            str_full_path, str_model, str_variant, float_target_mpp,
+                            dict_annotation_ai=dict_annotation_ai,
+                        )
+                    else:
+                        await _run_auto_inference(str_full_path, str_model, str_variant, float_target_mpp)
                     int_inferred += 1
                 except Exception as e:
                     print(f"[auto_ai] inference error: {e}")
@@ -723,7 +805,7 @@ async def _scan_and_infer_once() -> None:
             f"vs_cache_hit={int_vs_cache_hits}, missing_file={int_missing_file})",
             SCAN_SUMMARY_LOG_INTERVAL_SECONDS,
         )
-    elif int_missing_file > 0:
+    else:
         _log_throttled(
             "scan_summary",
             f"[auto_ai] cycle scanned 0 candidate(s) across {len(list_configs)} config(s) "

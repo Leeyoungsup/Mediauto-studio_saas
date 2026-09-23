@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 Write-Host 'MeDIAuto GPU installation'
-Write-Host '1. Docker GPU environment + host PostgreSQL (recommended)'
+Write-Host '1. Docker GPU environment from GitHub + host PostgreSQL (recommended)'
 Write-Host '2. Native GPU environment from GitHub + host PostgreSQL'
 $choice = Read-Host 'Choose installation method [1]'
 if ([string]::IsNullOrWhiteSpace($choice)) { $choice = '1' }

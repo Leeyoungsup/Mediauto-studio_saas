@@ -7,7 +7,7 @@ import io
 from build_unified_installer import sdk_payloads, windows_vendor_payloads
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','launch.py','run-local.ps1','start.bat','start.sh','gpu_check.py','model-checksums.json','README.md')
+FILES=('setup-nvidia-driver.ps1','setup-nvidia-driver.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','github_source.py','conda_setup.py','diagnose_philips.py','runner.py','launch.py','run-local.ps1','start.bat','start.sh','gpu_check.py','model-checksums.json','README.md')
 
 def build():
     output=ROOT/'artifacts/local-deployment/native';output.mkdir(parents=True,exist_ok=True)

@@ -304,3 +304,7 @@ Windows/Linux 및 두 설치 메뉴에 데이터 경로 Git 추적 검사, 소�
 ### 설치 패키지 2026-09-22-r12
 
 PostgreSQL/Miniconda 다운로드 중 Python의 인증서 검증이 실패하면 Windows PowerShell의 HTTPS 다운로드로 재시도합니다. 인증서 검증을 끄지 않으며 고정 SHA-256 검사도 유지합니다. Windows에서도 실패하면 시스템 시각, 루트 인증서 및 사내 HTTPS 프록시 설정을 확인해야 합니다. PostgreSQL 다운로드는 임시 파일을 검증한 뒤 설치파일로 교체합니다. Linux 다운로드는 기존 인증서 검증 방식을 유지합니다.
+
+### 2026-09-22-r15: GPU 드라이버 자동 설치 시도
+
+Windows Update/Ubuntu·Debian 저장소에서 호환 NVIDIA 드라이버 설치를 시도합니다. 호환 드라이버가 없거나 재부팅이 필요하면 안내 후 중단하고, 재실행으로 이어갑니다. 자동 재부팅·CPU 전환은 하지 않습니다. Linux Docker 메뉴의 NVIDIA Container Toolkit 자동 설치는 유지하며 Windows Docker Desktop은 WSL2 GPU 지원을 사용합니다. 자세한 지원 범위는 GUI_GUIDE.ko.md를 참조하세요.

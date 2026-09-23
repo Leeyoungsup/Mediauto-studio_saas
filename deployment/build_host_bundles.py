@@ -9,7 +9,7 @@ import zipfile
 from build_unified_installer import LOCAL_SHARED, sdk_payloads, windows_vendor_payloads
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('local_setup.py','start-local.bat','start-local.sh','github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
+FILES=('setup-nvidia-driver.ps1','setup-nvidia-driver.sh','local_setup.py','start-local.bat','start-local.sh','github_source.py','Dockerfile.source','Dockerfile.source.dockerignore','launch.ps1','start.bat','stop.bat','start.sh','stop.sh','install.bat','bootstrap.ps1','bootstrap_admin.py','install.sh','install.py','model-checksums.json','container_runner.py','setup-nvidia-runtime.sh','Dockerfile.gpu','README.md')
 
 def digest(path):
     h=hashlib.sha256()
