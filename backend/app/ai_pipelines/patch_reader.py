@@ -18,6 +18,7 @@ from app.philips_proxy import is_philips_isyntax
 from app.priority import wait_if_viewer_busy
 from app.tile_generator import generate_priority_tile_block, get_tiles_dir_for_path, image_to_white_rgb
 from app.thread_slide_pool import get_thread_slide
+from app.slide_manager import STAGE_READ_SIZE, TILE_SIZE_OUT
 
 
 class AIPatchReader:
@@ -54,30 +55,47 @@ class AIPatchReader:
     def _read_philips_tile_tensor(self, patch_x: int, patch_y: int):
         if self.level0_tiles is None:
             return None
-        tile_x = int(patch_x) // self.image_size
-        tile_y = int(patch_y) // self.image_size
-        path_tile = self.level0_tiles / f"{tile_x}_{tile_y}.jpeg"
-        if not path_tile.exists():
-            if self.wait_for_viewer:
-                wait_if_viewer_busy()
-            generate_priority_tile_block(
-                Path(self.slide_path).name,
-                self.slide_path,
-                0,
-                tile_x,
-                tile_y,
-            )
-            if not path_tile.exists():
-                return None
+        # Patch origins include overlap and an edge-aligned final patch. They
+        # are not tile-grid coordinates: crop all intersecting tiles exactly.
+        tile_span = STAGE_READ_SIZE[0]
+        if tile_span != TILE_SIZE_OUT or patch_x < 0 or patch_y < 0:
+            return None  # Direct reader handles other coordinate layouts.
         from PIL import Image
 
-        with Image.open(str(path_tile)) as obj_tile:
-            obj_rgb = obj_tile.convert("RGB")
-            try:
-                # Viewer tile cache is already in display RGB, so do not apply ICC again.
-                return self._to_tensor(obj_rgb)
-            finally:
-                obj_rgb.close()
+        left, top = int(patch_x), int(patch_y)
+        right, bottom = left + self.image_size, top + self.image_size
+        canvas = Image.new("RGB", (self.image_size, self.image_size), "white")
+        try:
+            for tile_y in range(top // tile_span, (bottom - 1) // tile_span + 1):
+                for tile_x in range(left // tile_span, (right - 1) // tile_span + 1):
+                    path_tile = self.level0_tiles / f"{tile_x}_{tile_y}.jpeg"
+                    if not path_tile.exists():
+                        if self.wait_for_viewer:
+                            wait_if_viewer_busy()
+                        generate_priority_tile_block(
+                            Path(self.slide_path).name, self.slide_path, 0, tile_x, tile_y
+                        )
+                        if not path_tile.exists():
+                            return None
+                    tx, ty = tile_x * tile_span, tile_y * tile_span
+                    x0, y0 = max(left, tx), max(top, ty)
+                    x1, y1 = min(right, tx + tile_span), min(bottom, ty + tile_span)
+                    with Image.open(str(path_tile)) as tile:
+                        if tile.size != (TILE_SIZE_OUT, TILE_SIZE_OUT):
+                            return None
+                        rgb = tile.convert("RGB")
+                        try:
+                            crop = rgb.crop((x0 - tx, y0 - ty, x1 - tx, y1 - ty))
+                            try:
+                                canvas.paste(crop, (x0 - left, y0 - top))
+                            finally:
+                                crop.close()
+                        finally:
+                            rgb.close()
+            # Cached tiles already have display ICC correction applied.
+            return self._to_tensor(canvas)
+        finally:
+            canvas.close()
 
     def _read_direct_tensor(self, patch_x: int, patch_y: int):
         patch = None

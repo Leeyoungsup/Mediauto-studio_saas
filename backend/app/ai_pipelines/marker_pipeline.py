@@ -30,6 +30,7 @@ from app.ai_pipelines.dedup import (
     suppress_excluded_classes_overlapping_visible,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
+from app.ai_pipelines.patch_coordinates import patch_coordinate_metadata, validate_patch_coordinate_cache
 from ai.quanti_ihc import (
     PRECISE_IHC_CONFIG,
     compute_allred_score,
@@ -171,6 +172,7 @@ def run_marker_detection_pipeline(
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
 
+                validate_patch_coordinate_cache(cached, info.file_path, cache_path)
                 if not source_signature_matches(cached, info.slide, info.file_path):
                     raise ValueError("stale cache source mismatch")
                 if list_exclude and "excluded_cells" not in cached:
@@ -595,6 +597,7 @@ def run_marker_detection_pipeline(
             "model_runtime": dict_model_runtime,
             score_key: score_dict,
             "source": slide_source_signature(info.slide, info.file_path),
+            **patch_coordinate_metadata(info.file_path),
             **processing_metadata(),
             **(extra_fields or {}),
         }

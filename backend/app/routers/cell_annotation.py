@@ -7,12 +7,13 @@ from math import ceil, floor
 from pathlib import Path
 import re
 import tempfile
+import threading
 import uuid
 import zipfile
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from app.activity_audit import audit_activity
@@ -42,7 +43,7 @@ from app.cell_annotation_utils import (
     region_points as _region_points,
 )
 from app.config import settings
-from app.cpu_layout import ai_executor, patch_executor
+from app.cpu_layout import ai_executor, patch_executor, assistance_executor
 from app.slide_identity import slide_cache_key
 
 
@@ -77,9 +78,9 @@ def _consume_future_exception(fut) -> None:
         pass
 
 
-async def _run_cancelable_request(request: Request, fn, *, poll_interval: float = 0.05):
+async def _run_cancelable_request(request: Request, fn, *, poll_interval: float = 0.05, executor=None):
     loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(patch_executor, fn)
+    fut = loop.run_in_executor(executor if executor is not None else patch_executor, fn)
     while True:
         done, _ = await asyncio.wait({fut}, timeout=poll_interval)
         if done:
@@ -1661,16 +1662,19 @@ async def get_wsi_labeling_assistance(
 ):
     info = _slide_info(slide_id)
     await _raise_if_disconnected(request)
-    payload = await _run_cancelable_request(request, lambda: _read_assistance_file(info))
+    def build_response():
+        payload = _read_assistance_file(info)
+        if not payload:
+            return JSONResponse({"slide_id": slide_id, "exists": False, "labels": []})
+        if include_labels:
+            payload = dict(payload, exists=True)
+        else:
+            payload = dict(_assistance_metadata(payload), exists=True)
+        return JSONResponse(payload)
+
+    response = await _run_cancelable_request(request, build_response, executor=assistance_executor)
     await _raise_if_disconnected(request)
-    if not payload:
-        return {"slide_id": slide_id, "exists": False, "labels": []}
-    payload["exists"] = True
-    if include_labels:
-        return payload
-    meta = _assistance_metadata(payload)
-    meta["exists"] = True
-    return meta
+    return response
 
 
 @router.post("/{slide_id}/wsi-labeling-assistance/run", dependencies=[Depends(require_not_viewer)])
@@ -1752,26 +1756,39 @@ async def get_patch_labeling_assistance_cells(request: Request, slide_id: str, p
             "cells": [],
         }
     await _raise_if_disconnected(request)
-    payload = await _run_cancelable_request(request, lambda: _read_assistance_file(info))
-    await _raise_if_disconnected(request)
+    cancelled = threading.Event()
+    try:
+        response = await _run_cancelable_request(
+            request, lambda: _patch_assistance_response(info, slide_id, patch_id, patch, cancelled),
+            executor=assistance_executor,
+        )
+        await _raise_if_disconnected(request)
+        return response
+    finally:
+        cancelled.set()
+
+
+def _patch_assistance_response(info, slide_id: str, patch_id: str, patch: dict, cancelled=None):
+    """Read, filter and encode outside the tile-serving event loop."""
+    payload = _read_assistance_file(info)
     labels = payload.get("labels") if isinstance(payload, dict) else None
     if not isinstance(labels, list):
-        return {
+        return JSONResponse({
             "slide_id": slide_id,
             "patch_id": patch_id,
             "exists": False,
             "reason": "assistance_missing",
             "cells": [],
-        }
+        })
     class_lookup = _assistance_class_lookup(info, payload)
     cells = []
     for idx, label in enumerate(labels, start=1):
-        if idx % 1000 == 0:
-            await _raise_if_disconnected(request)
+        if cancelled is not None and (idx == 1 or idx % 1000 == 0) and cancelled.is_set():
+            raise HTTPException(status_code=499, detail="Client closed request")
         cell = _assistance_label_to_cell(label, patch, idx, class_lookup)
         if cell is not None:
             cells.append(cell)
-    return {
+    return JSONResponse({
         "slide_id": slide_id,
         "patch_id": patch_id,
         "exists": True,
@@ -1779,7 +1796,7 @@ async def get_patch_labeling_assistance_cells(request: Request, slide_id: str, p
         "cell_count": len(cells),
         "classes": _assistance_metadata(payload).get("classes") or _load_cell_classes_for_project(_slide_project_path(info)),
         "cells": cells,
-    }
+    })
 
 
 @router.get("/{slide_id}/patches/{patch_id}/cells")

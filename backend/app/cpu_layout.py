@@ -228,6 +228,13 @@ patch_executor = ThreadPoolExecutor(
     initializer=_make_initializer(frozenset_patch_cpus),
 )
 
+# Reading/filtering assistance must not queue behind patch exports or viewer tiles.
+assistance_executor = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="cell_assistance",
+    initializer=_make_initializer(frozenset_patch_cpus),
+)
+
 upload_executor = ThreadPoolExecutor(
     max_workers=INT_UPLOAD,
     thread_name_prefix="upload",
@@ -245,6 +252,7 @@ def shutdown_executors() -> None:
         tile_executor,
         ai_executor,
         patch_executor,
+        assistance_executor,
         upload_executor,
     ):
         executor.shutdown(wait=False, cancel_futures=True)

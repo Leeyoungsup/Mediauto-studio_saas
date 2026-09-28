@@ -24,6 +24,7 @@ from app.ai_pipelines.dedup import (
     processing_metadata,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
+from app.ai_pipelines.patch_coordinates import patch_coordinate_metadata, validate_patch_coordinate_cache
 from app.ai_pipelines.task_state import (
     TaskCancelled,
     check_cancel,
@@ -170,6 +171,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             status_msg=f"Loading cached AI result: {cache_path.name}")
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
+                validate_patch_coordinate_cache(cached, info.file_path, cache_path)
                 if not source_signature_matches(cached, info.slide, info.file_path):
                     raise ValueError("stale cache source mismatch")
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
@@ -527,6 +529,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             "seg_data": seg_data,
             "stil_score": stil_score,
             "source": slide_source_signature(info.slide, info.file_path),
+            **patch_coordinate_metadata(info.file_path),
             **processing_metadata(),
         }
 
