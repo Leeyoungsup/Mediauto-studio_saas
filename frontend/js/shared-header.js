@@ -115,6 +115,7 @@
                         <a href="/project" class="shared-nav-item ${active === 'project' ? 'active' : ''}">Project</a>
                         <a href="/data-linkage" class="shared-nav-item ${active === 'data-linkage' ? 'active' : ''}">Data Linkage</a>
                         <a href="/ai" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">AI</a>
+                        <a href="/ai-guide.html" class="shared-nav-item">AI 사용 안내</a>
                         <div class="shared-nav-menu">
                             <button type="button" class="shared-nav-item shared-nav-parent ${annotationActive ? 'active' : ''}" aria-haspopup="true" aria-expanded="false">Annotation</button>
                             <div class="shared-nav-submenu" role="menu">

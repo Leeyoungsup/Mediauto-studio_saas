@@ -22,8 +22,8 @@ if [[ -f "$POSTGRES_ENV_FILE" ]]; then
 fi
 
 ENV_NAME="${MEDIAUTO_CONDA_ENV:-medicus-saas}"
-HOST="${MEDIAUTO_HOST:-0.0.0.0}"
-PORT="${MEDIAUTO_PORT:-8092}"
+HOST="${MEDIAUTO_HOST:-127.0.0.1}"
+PORT="${MEDIAUTO_PORT:-8093}"
 export PHILIPS_CONDA_ENV="${PHILIPS_CONDA_ENV:-philips-sdk-py38}"
 
 if ! command -v conda >/dev/null 2>&1; then
