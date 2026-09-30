@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+ <meta charset="utf-8"/>
+ <meta content="width=device-width,initial-scale=1" name="viewport"/>
+ <title>
+  Training Dataset Records | MeDIAuto Studio
+ </title>
+ <link href="css/ai-guide.css" rel="stylesheet"/>
+ <header>
+  <strong>
+   MeDIAuto Studio
+  </strong>
+  <a href="/ai-guide.html#input">
+   Back to Important Information
+  </a>
+ </header>
+ <main>
+  <section>
+   <h3>
+    Training Dataset Records
+   </h3>
+   <p>
+    Source: F02-1 Data Collection, Labeling and Preprocessing Register, revision 01 (September 18, 2026). Counts below describe collection and dataset construction as recorded in the register; they are not evaluation-set sizes or training/validation split counts.
+   </p>
+   <h4>
+    Quanti HE · Breast
+   </h4>
+   <p>
+    AI-Hub 71831 / 20,000 PNG images, 1024×1024. Normal tissue: 6,500; in situ carcinoma: 6,500; invasive carcinoma: 7,000. Training input: 512×512 with cropping/padding and label-coordinate conversion.
+   </p>
+   <h4>
+    Quanti HE · Stomach
+   </h4>
+   <p>
+    AI-Hub 71830 / 10,000 PNG images, 1024×1024. Gastritis, intestinal-type, diffuse-type, and mixed-type groups: 2,500 each. Training input: 512×512. This record does not establish a separate dataset count for HE Other.
+   </p>
+   <h4>
+    VS IHC
+   </h4>
+   <p>
+    CODiPAI / 505 cases, 2,525 WSI. H&amp;E, HER2, ER, PR, and Ki-67: 505 slides each; 505 case pairs per marker. Serial sections are not pixel-aligned ground-truth pairs. Final input: 512×512.
+   </p>
+   <h4>
+    Quanti IHC · HER2
+   </h4>
+   <p>
+    CODiPAI / 505 HER2 WSI. The register records labeling by three specialists. Preprocessing: 0.5 µm/px, 512×512; patches with fewer than 10 annotated cells are excluded.
+   </p>
+   <h4>
+    Quanti IHC · ER/PR
+   </h4>
+   <p>
+    CODiPAI / 505 ER + 505 PR = 1,010 WSI. The register records labeling by three specialists and DAB/overlay quality checks. Preprocessing: 0.5 µm/px, 512×512.
+   </p>
+   <h4>
+    Quanti IHC · Ki-67
+   </h4>
+   <p>
+    CODiPAI / 505 Ki-67 WSI. ER/PR nuclear annotations and a shared detector are also used. Preprocessing: 0.5 µm/px, 512×512. Positive/negative interpretation and the Ki-67 Index are handled separately.
+   </p>
+   <p>
+    This page summarizes the register; it is not a new inspection of the original training data. Consult the model-specific records for augmentation and cleaning details. Do not assume that every ER/PR augmentation setting or independently measured performance applies identically to Ki-67.
+   </p>
+  </section>
+ </main>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+ <meta charset="utf-8"/>
+ <meta content="width=device-width,initial-scale=1" name="viewport"/>
+ <title>
+  Model Quality and Evidence | MeDIAuto Studio
+ </title>
+ <link href="css/ai-guide.css" rel="stylesheet"/>
+ <header>
+  <strong>
+   MeDIAuto Studio
+  </strong>
+  <a href="/ai-guide.html#quality">
+   Back to Important Information
+  </a>
+ </header>
+ <main>
+  <h1>
+   Model Quality and Evidence
+  </h1>
+  <p>
+   Reviewed September 30, 2026. These are summaries of component-level evaluation records in Notion, not new measurements on this server. The identity of evaluation-time weights and currently deployed weights has not been established for every component.
+  </p>
+  <p>
+   Dataset sources, collection counts, and preprocessing follow the
+   <a href="/ai-datasets.html">
+    F02-1 dataset records
+   </a>
+   . Evaluation sample counts from Notion describe the conditions of those metrics only. Dice, mAP, and F1 from different tasks are not averaged into a combined performance score.
+  </p>
+  <section id="her2">
+   <h2>
+    Quanti IHC · HER2
+   </h2>
+   <p>
+    DQ 0.9242 / CQ 0.9465 / PQ as defined in the source 0.8748 / Macro F1 0.8221
+   </p>
+   <p>
+    512×512; validation fraction 0.1 (random_state=242); confidence 0.10; class-agnostic NMS IoU 0.30; Hungarian matching IoU ≥ 0.30.
+   </p>
+   <p>
+    Class 1+ Recall: 0.6975; F1: 0.7187. CQ for matched objects does not represent clinical accuracy across all cases.
+   </p>
+   <p>
+    <a href="https://shrub-beef-ede.notion.site/26142971c02f80b98f34fb6ee0ae865b" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="erpr">
+   <h2>
+    Quanti IHC · ER/PR and the Shared KI-67 Detector
+   </h2>
+   <p>
+    DQ 0.8945 / CQ 0.9521 / PQ as defined in the source 0.8517 / Macro F1 0.8163
+   </p>
+   <p>
+    Hierarchical model. Slide-level split (val_fraction=0.1, seed=242); validation: 2 slides, 2,113 patches, 351,889 ground-truth cells. Input: 512×512; best_model.pt at epoch 64. Confidence: 0.10; tumor gate: 0.50; NMS IoU: 0.30; Hungarian matching IoU ≥ 0.30.
+   </p>
+   <p>
+    Class 2+ F1: 0.7172. These are ER/PR evaluation results. KI-67 currently references the same detection weights, but positive/negative interpretation and Index calculation differ. These values are not an independent KI-67 validation result.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/Mediauto-AI-Quanti-Breast-IHC-ER-PR-KI-67-27f42971c02f80e3ac05c40d376b329a" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="he-breast">
+   <h2>
+    HE-Fit Component · Breast Segmentation
+   </h2>
+   <p>
+    Pixel Accuracy 0.8415 ± 0.1396 / Overall Mean Dice 0.8254 ± 0.1329
+   </p>
+   <p>
+    Pixel-segmentation results recorded under Test Set Performance Evaluation in the task document.
+   </p>
+   <p>
+    Evaluation sample size, splitting method, and weight-version correspondence require confirmation. These metrics do not represent cell detection or overall HE-Fit performance.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/task-28842971c02f80aa948be94819bc2ce6" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="he-stomach">
+   <h2>
+    HE-Fit Component · Stomach Segmentation
+   </h2>
+   <p>
+    Pixel Accuracy 0.8118 ± 0.1191 / Overall Mean Dice 0.8311 ± 0.15
+   </p>
+   <p>
+    Pixel-segmentation results recorded under Test Set Performance Evaluation in the task document.
+   </p>
+   <p>
+    Evaluation sample size, splitting method, and weight-version correspondence require confirmation. These values are not averaged with breast segmentation to produce a combined score.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/task-28842971c02f8056b4e0d5e97b45c274" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="he-detection">
+   <h2>
+    HE-Fit Component · Integrated H&amp;E Cell Detection
+   </h2>
+   <p>
+    Training-curve labels at epoch 1500: mAP@0.5:0.95 = 0.2245; mAP@0.5 = 0.3699; Precision = 0.4735; Recall = 0.2870. Best mAP@0.5:0.95 in the same figure: 0.2387 (epoch 1493).
+   </p>
+   <p>
+    Values were read from the Training Progress image attached to the Notion task. They describe validation during training.
+   </p>
+   <p>
+    These are not established as final test-set results or validation of the currently deployed HnE_detection.pt. The general COCO model comparison chart in the document is not used as pathology-model performance evidence.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/task-29942971c02f80e6bcece4ce2bd91514" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="he-spatial">
+   <h2>
+    HE-Fit Related Research · Breast Spatial Transcriptomics Cell Detection
+   </h2>
+   <p>
+    Detection Recall 0.7403 / Class Accuracy 0.7699 / Macro Recall 0.2144 / Macro Precision 0.3104 / Macro F1 0.2502
+   </p>
+   <p>
+    Values recorded under Test Set Performance Evaluation in the related task.
+   </p>
+   <p>
+    Evidence that this is the same model as the platform’s default HE detector has not been established. These research results are presented separately and are not combined with default-model performance.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/task-2a742971c02f80689daacb327d2dcfc8" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="he-research">
+   <h2>
+    HE-Fit Related Task · Biomarker and Grade Preliminary Research
+   </h2>
+   <p>
+    The reviewed task body contains no quantitative performance table.
+   </p>
+   <p>
+    The task links to preliminary research materials.
+   </p>
+   <p>
+    The existence of literature, planning materials, or a completed task status does not establish validated performance.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/task-26142971c02f805b8133d5f366fff16f" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+   </p>
+  </section>
+  <section id="vs">
+   <h2>
+    VS-IHC · Integrated Project and Base-Model Task
+   </h2>
+   <p>
+    The reviewed text contains no quantitative SSIM, PSNR, or FID values. The base-model task records visual observations of structure preservation, fine-detail loss, and blur.
+   </p>
+   <p>
+    IHC4BC base-model task: CycleGAN; input 512×512; MPP 1.0 µm; 100 epochs. These task conditions differ from the platform’s default target MPP of 2.0 µm.
+   </p>
+   <p>
+    Qualitative observations are not quantitative validation. IoU in the linked registration task measures registration, not virtual-stain generation quality or performance within the present non-PD-L1 scope.
+   </p>
+   <p>
+    <a href="https://app.notion.com/p/Mediauto-AI-VS-integrated-IHC-2de42971c02f80bb82b6f2663bddc3d4" rel="noopener noreferrer" target="_blank">
+     Project or task source
+    </a>
+    ·
+    <a href="https://app.notion.com/p/task-2de42971c02f80a4a072ef17d9906d43" rel="noopener noreferrer" target="_blank">
+     Base-model task source
+    </a>
+   </p>
+  </section>
+ </main>
+</html>
