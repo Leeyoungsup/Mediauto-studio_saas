@@ -30,6 +30,10 @@ from app.ai_pipelines.dedup import (
     suppress_excluded_classes_overlapping_visible,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
+from app.ai_pipelines.resolution import (
+    QUANTI_INPUT_SIZE, quanti_patch_size,
+    preserve_previous_resolution_cache,
+)
 from app.ai_pipelines.patch_coordinates import patch_coordinate_metadata, validate_patch_coordinate_cache
 from ai.quanti_ihc import (
     PRECISE_IHC_CONFIG,
@@ -178,7 +182,7 @@ def run_marker_detection_pipeline(
                 if list_exclude and "excluded_cells" not in cached:
                     raise ValueError("stale cache missing excluded_cells")
                 if not cache_has_current_detection_postprocess(cached):
-                    raise ValueError("stale cache missing 10um overlap/global dedup")
+                    raise ValueError("stale cache resolution or detection post-processing")
                 # HER2 currently opts into a different head. Match the model
                 # architecture and weights so an old flat-model cache cannot
                 # mask a hierarchical-model test.
@@ -234,6 +238,7 @@ def run_marker_detection_pipeline(
                             result=cached)
                 return
             except ValueError as e:
+                preserve_previous_resolution_cache(cache_path)
                 print(f"{log_label} cache skipped: {e}")
             except Exception as e:
                 import traceback
@@ -290,9 +295,7 @@ def run_marker_detection_pipeline(
         slide = info.slide
         slide_path = info.file_path
         width, height = info.dimensions
-        image_size = 1024
-        output_mpp = 0.5
-        origin_mpp = info.mpp
+        image_size = quanti_patch_size(info.mpp)
 
         from app.cpu_layout import INT_AI
         BATCH_SIZE = 8
@@ -325,6 +328,7 @@ def run_marker_detection_pipeline(
         if n_valid == 0:
             empty_score = score_fn(np.empty(0, dtype=np.int32))
             empty_result = {
+                **processing_metadata(),
                 "total_cells": 0, "cells": [],
                 "excluded_cells": [],
                 "class_names": {str(k): v for k, v in dict_class_names.items() if k not in list_exclude},
@@ -346,7 +350,7 @@ def run_marker_detection_pipeline(
             slide_id=slide_id,
             slide_path=slide_path,
             image_size=image_size,
-            output_size=512,
+            output_size=QUANTI_INPUT_SIZE,
             icc_transform=info.icc_transform,
         )
 
@@ -371,7 +375,7 @@ def run_marker_detection_pipeline(
                     nms_priority_classes=list_nms_priority,
                 )
 
-                coord_scale = image_size / 512  # = 2.0
+                coord_scale = image_size / QUANTI_INPUT_SIZE
                 for i, (sx, sy) in enumerate(batch_coords):
                     if i >= len(results) or len(results[i]) == 0:
                         continue

@@ -6,10 +6,12 @@ from typing import Tuple
 
 import numpy as np
 
+from app.ai_pipelines.resolution import QUANTI_INPUT_MPP
+
 
 DETECTION_PATCH_OVERLAP_UM = 10.0
 DETECTION_EDGE_IGNORE_UM = 3.0
-GLOBAL_DEDUP_VERSION = "quanti-overlap-10um-edge3um-spatial-nms-v9"
+GLOBAL_DEDUP_VERSION = "quanti-mpp05-overlap-10um-edge3um-spatial-nms-v10"
 GLOBAL_NMS_IOU_THRESHOLD = 0.3
 EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
 SPATIAL_NMS_MIN_QUERY_RADIUS_PX = 16.0
@@ -18,6 +20,7 @@ SPATIAL_NMS_MAX_QUERY_RADIUS_PX = 128.0
 
 def processing_metadata() -> dict:
     return {
+        "input_mpp": QUANTI_INPUT_MPP,
         "patch_overlap_um": DETECTION_PATCH_OVERLAP_UM,
         "patch_edge_ignore_um": DETECTION_EDGE_IGNORE_UM,
         "global_dedup_version": GLOBAL_DEDUP_VERSION,

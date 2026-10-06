@@ -24,6 +24,10 @@ from app.ai_pipelines.dedup import (
     processing_metadata,
 )
 from app.ai_pipelines.patch_reader import AIPatchReader
+from app.ai_pipelines.resolution import (
+    QUANTI_INPUT_SIZE, quanti_patch_size,
+    preserve_previous_resolution_cache,
+)
 from app.ai_pipelines.patch_coordinates import patch_coordinate_metadata, validate_patch_coordinate_cache
 from app.ai_pipelines.task_state import (
     TaskCancelled,
@@ -176,7 +180,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     raise ValueError("stale cache source mismatch")
                 cached, bool_rewrite_compact_cache = _compact_cached_result(cached)
                 if not cache_has_current_detection_postprocess(cached):
-                    raise ValueError("stale cache missing 10um overlap/global dedup")
+                    raise ValueError("stale cache resolution or detection post-processing")
                 if tissue_type == "Breast":
                     from app.ai_pipelines.stil_scoring import STIL_SCORE_VERSION
                     if (cached.get("stil_score") or {}).get("version") != STIL_SCORE_VERSION:
@@ -200,6 +204,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                             result=cached)
                 return
             except ValueError as e:
+                preserve_previous_resolution_cache(cache_path)
                 print(f"Quanti HE/{tissue_type} cache skipped: {e}")
             except Exception as e:
                 import traceback
@@ -233,10 +238,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         slide = info.slide
         slide_path = info.file_path
         width, height = info.dimensions
-        image_size = 1024
-        output_mpp = 0.5
-        origin_mpp = info.mpp
-        original_size = int(image_size * output_mpp / origin_mpp)
+        image_size = quanti_patch_size(info.mpp)
 
         from app.cpu_layout import INT_AI
         BATCH_SIZE = 8
@@ -271,6 +273,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
 
         if n_valid == 0:
             update_task(task_id, status="completed", progress=100, result={
+                **processing_metadata(),
                 "total_cells": 0, "cells": [],
                 "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
                 "class_colors": {str(k): v for k, v in CLASS_COLORS.items()},
@@ -289,7 +292,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
             slide_id=slide_id,
             slide_path=slide_path,
             image_size=image_size,
-            output_size=512,
+            output_size=QUANTI_INPUT_SIZE,
             icc_transform=icc_tf,
         )
         def _read_patch_tensor(patch_x, patch_y):
@@ -313,7 +316,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
                     iou_threshold=0.3, class_thresholds=class_thresholds,
                 )
 
-                coord_scale = image_size / 512  # = 2.0
+                coord_scale = image_size / QUANTI_INPUT_SIZE
                 for i, (sx, sy) in enumerate(batch_coords):
                     if i >= len(results) or len(results[i]) == 0:
                         continue
@@ -589,7 +592,7 @@ def run_epithelial_classification(task_id, slide, slide_path, info, all_x, all_y
 
         seg_model = WSISegmentationModel(
             model_path=str(seg_model_path),
-            model_mpp=1.0,
+            model_mpp=1.0,  # Tissue segmentation uses a separate input resolution.
             output_mpp=4.0,
             device=device,
         )

@@ -29,6 +29,7 @@ from app.project_utils import (
     normalize_annotation_ai_config,
 )
 from app.slide_manager import slide_manager
+from app.ai_pipelines.resolution import preserve_previous_resolution_cache
 from app.ai_pipelines.dedup import cache_has_current_detection_postprocess, processing_metadata
 from app.ai_pipelines.detection import run_detection as _run_detection
 from app.ai_pipelines.marker_pipeline import (
@@ -917,10 +918,7 @@ def _read_assistance_file(info) -> dict:
     compacted, changed = _compact_assistance_payload(payload)
     source_postprocess = compacted.get("source_ai_postprocess")
     if not cache_has_current_detection_postprocess(source_postprocess):
-        try:
-            path.unlink()
-        except Exception as exc:
-            print(f"[cell_annotation] stale assistance cleanup failed: {exc}")
+        preserve_previous_resolution_cache(path)
         return {}
     config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
     expected_confidence_threshold = _expected_assistance_confidence_threshold(config)
@@ -1268,6 +1266,7 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
         "source_ai_postprocess": {
+            "input_mpp": result.get("input_mpp"),
             "patch_overlap_um": result.get("patch_overlap_um"),
             "global_dedup_version": result.get("global_dedup_version"),
             "global_nms_iou_threshold": result.get("global_nms_iou_threshold"),
@@ -1285,7 +1284,10 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "total_model_bbox_labels": len(compact_labels) if used_model_bbox else 0,
         "labels": compact_labels,
     }
-    _write_compact_json(_assistance_path(info), payload)
+    assistance_path = _assistance_path(info)
+    if assistance_path.exists():
+        preserve_previous_resolution_cache(assistance_path)
+    _write_compact_json(assistance_path, payload)
     return payload
 
 

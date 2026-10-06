@@ -6,6 +6,7 @@ import threading
 
 import openslide
 
+from app.guarded_openslide import GuardedOpenSlide
 from app.dicom_slide import DicomSlideProxy, is_dicom_slide_archive
 from app.raster_slide import RasterSlideProxy, is_fixed_magnification_raster
 
@@ -54,4 +55,4 @@ def open_slide_silently(file_path: str):
     if is_fixed_magnification_raster(file_path):
         return RasterSlideProxy(file_path)
     with suppress_native_stderr():
-        return openslide.OpenSlide(str(file_path))
+        return GuardedOpenSlide(str(file_path))

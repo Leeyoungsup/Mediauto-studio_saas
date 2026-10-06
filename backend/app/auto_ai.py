@@ -473,7 +473,7 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
             return bool_needs_refresh
 
     if not cache_has_current_detection_postprocess(dict_cached_metadata):
-        print(f"[auto_ai] stale cache missing 10um overlap/global dedup queued for refresh: {cache_path.name}")
+        print(f"[auto_ai] stale cache resolution or detection post-processing queued for refresh: {cache_path.name}")
         bool_needs_refresh = True
         if tuple_cache_state and tuple_cache_key:
             _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
