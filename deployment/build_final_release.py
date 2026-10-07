@@ -17,7 +17,7 @@ import zipfile
 from build_gui_installer import build as build_gui
 
 ROOT=Path(__file__).resolve().parents[1]
-REVISION='2026-10-07-r18'
+REVISION='2026-10-07-r19'
 OUT=ROOT/'artifacts/local-deployment/final'/REVISION
 INSTALLERS=('MeDIAuto-Setup-windows-x64.exe','MeDIAuto-Setup-linux-x64.run','MeDIAuto-Setup-linux-x64-cli.tar.gz')
 
@@ -86,7 +86,7 @@ def seal(output, checks):
               'windows_native_e2e_verified':False,'package_checks':checks,
               'files':[{'path':p.relative_to(output).as_posix(),'bytes':p.stat().st_size,'sha256':digest(p)}
                        for p in sorted(output.rglob('*')) if p.is_file() and p.name not in ('release-manifest.json','SHA256SUMS.txt')]}
-    sources=[ROOT/'deployment/build_final_release.py',ROOT/'deployment/build_gui_installer.py',ROOT/'deployment/build_unified_installer.py',ROOT/'deployment/build_installation_guides.py',ROOT/'deployment/installer/gui.py',ROOT/'deployment/installer/install.sh',ROOT/'deployment/native/bootstrap_python.py',ROOT/'deployment/native/conda_setup.py',ROOT/'deployment/native/install.sh',ROOT/'deployment/host/install.sh']
+    sources=[ROOT/'deployment/build_final_release.py',ROOT/'deployment/build_gui_installer.py',ROOT/'deployment/build_unified_installer.py',ROOT/'deployment/build_installation_guides.py',ROOT/'deployment/installer/gui.py',ROOT/'deployment/installer/install.sh',ROOT/'backend/requirements.txt',ROOT/'deployment/native/install.py',ROOT/'deployment/host/Dockerfile.source',ROOT/'deployment/native/bootstrap_python.py',ROOT/'deployment/native/conda_setup.py',ROOT/'deployment/native/install.sh',ROOT/'deployment/host/install.sh']
     manifest['build_source_files']={p.relative_to(ROOT).as_posix():digest(p) for p in sources}
     (output/'release-manifest.json').write_text(json.dumps(manifest,indent=2,ensure_ascii=False)+'\n')
     files=[p for p in sorted(output.rglob('*')) if p.is_file() and p.name!='SHA256SUMS.txt']
@@ -108,7 +108,7 @@ def build(output=OUT):
         for name in INSTALLERS[:2]:shutil.copy2(gui/name,output/name)
         shutil.copy2(packages/'MeDIAuto-GPU-installer-linux-x64.tar.gz',output/INSTALLERS[2])
     (output/'START-HERE.txt').write_bytes(readme)
-    (output/'VALIDATION.txt').write_text('''Build validation — 2026-10-07-r18
+    (output/'VALIDATION.txt').write_text('''Build validation — 2026-10-07-r19
 Three customer-facing installers: Windows GUI EXE, Linux GUI RUN, Linux CLI TAR.GZ.
 No standalone Windows CLI package is shipped.
 Windows: NSIS compilation, source payload whitelist/integrity and PE header checked.

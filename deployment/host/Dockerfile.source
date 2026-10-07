@@ -1,7 +1,8 @@
 ARG BASE_IMAGE=haribo1/mediautoai:3.3.2-gpu@sha256:0826b31f2a3fce2933d1994a0b10b90148d7fa991a792763ee4a44047c2de364
 FROM ${BASE_IMAGE}
 COPY backend/requirements.txt /tmp/mediauto-source-requirements.txt
-RUN python -m pip install -r /tmp/mediauto-source-requirements.txt && python -m pip check
+RUN python -m pip install -r /tmp/mediauto-source-requirements.txt "SQLAlchemy[asyncio]>=2.0,<3.0" && python -m pip check
+RUN python -c 'import asyncio, greenlet; from sqlalchemy.ext.asyncio import AsyncConnection; from sqlalchemy.util.concurrency import greenlet_spawn; assert asyncio.run(greenlet_spawn(lambda: 42)) == 42'
 RUN rm -rf /app/backend /app/frontend
 COPY backend /app/backend
 COPY frontend /app/frontend

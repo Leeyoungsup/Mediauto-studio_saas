@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'deployment/release-guide'
-RELEASE = '2026-10-07-r18'
+RELEASE = '2026-10-07-r19'
 DEFAULT_OUT = ROOT / 'artifacts/local-deployment/final' / RELEASE
 E = html.escape
 CSS = '''
@@ -93,9 +93,9 @@ def pages_for(platform, lang):
             box(t('CLI 패키지는 그래픽 데스크톱이나 Tk가 필요하지 않습니다. 모델·인터넷·NVIDIA·sudo 조건은 GUI와 동일합니다.','The CLI path does not need a graphical desktop or Tk. Model, internet, NVIDIA and sudo requirements are the same as GUI setup.')))
     if not win:
         add(t('Python · Conda 자동 준비 / 재설치','Automatic Python & Conda setup / retry'),
-            p(t('r18은 시스템 Python 3.8에서도 설치 준비를 시작합니다. Python 버전 검사 전에 Conda와 설치기용 Python을 자동 준비하므로 수동 Conda 설치나 base 업그레이드가 필요하지 않습니다.','r18 can bootstrap from system Python 3.8. It prepares Conda and installer Python before the installer version check; no manual Conda installation or base upgrade is required.'))+
+            p(t('r19은 시스템 Python 3.8에서도 설치 준비를 시작합니다. Python 버전 검사 전에 Conda와 설치기용 Python을 자동 준비하므로 수동 Conda 설치나 base 업그레이드가 필요하지 않습니다.','r19 can bootstrap from system Python 3.8. It prepares Conda and installer Python before the installer version check; no manual Conda installation or base upgrade is required.'))+
             listing([t('기존 Conda를 찾아 재사용합니다. 없으면 공식 Miniconda를 다운로드하고 SHA-256 검증 후 설치합니다.','Find and reuse existing Conda, or download official Miniconda and verify its SHA-256 before installation.'),t('별도 mediauto-installer 환경에 Python 3.12를 준비합니다. 정상 환경은 재사용하며 기존 base Python은 변경하지 않습니다.','Prepare Python 3.12 in the separate mediauto-installer environment. Reuse a working environment without changing base Python.'),t('준비된 Python으로 설치를 자동 재개하고 이후 앱 및 Philips 환경을 구성합니다. sudo 인증·GitHub 인증정보·SDK 동의는 직접 입력합니다.','Continue setup automatically using that Python, then configure app and Philips environments. Enter sudo authorization, GitHub credentials and SDK consent yourself.')],True)+
-            p(t('현재 경로 예시: r18 CLI 파일을 /mnt/hdd1/KNUCH에 저장한 뒤 아래 명령을 실행합니다. 기존 설치기 폴더에 설치 코드만 덮어쓰며 별도 모델·데이터 폴더는 유지합니다.','Existing-path example: save the r18 CLI archive in /mnt/hdd1/KNUCH and run the following. It replaces packaged installer code in place and preserves separate model/data folders.'))+
+            p(t('현재 경로 예시: r19 CLI 파일을 /mnt/hdd1/KNUCH에 저장한 뒤 아래 명령을 실행합니다. 기존 설치기 폴더에 설치 코드만 덮어쓰며 별도 모델·데이터 폴더는 유지합니다.','Existing-path example: save the r19 CLI archive in /mnt/hdd1/KNUCH and run the following. It replaces packaged installer code in place and preserves separate model/data folders.'))+
             code('cd /mnt/hdd1/KNUCH\ntar -xzf MeDIAuto-Setup-linux-x64-cli.tar.gz\ncd MeDIAuto-GPU-installer\nbash install.sh')+
             table([('Mode','2 (Native)'),('External data root','/mnt/hdd1/KNUCH/MeDIAutoData'),('Model folder','/mnt/hdd1/KNUCH/model')],[t('입력','Field'),t('예시','Example')])+
             p(t('기존 데이터 루트가 있다면 반드시 기존 값을 사용하세요. 설치 완료 후 같은 폴더에서 bash native/start.sh로 실행합니다.','If a data root already exists, keep its saved value. After setup completes, run bash native/start.sh from the same installer folder.'))+
