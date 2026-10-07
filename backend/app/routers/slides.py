@@ -1411,7 +1411,7 @@ async def close_slide(slide_id: str):
     if not info:
         raise HTTPException(404, "??????????? ????????")
 
-    slide_manager.close(slide_id)
+    await asyncio.to_thread(slide_manager.close, slide_id)
     return {"status": "closed", "slide_id": slide_id}
 
 

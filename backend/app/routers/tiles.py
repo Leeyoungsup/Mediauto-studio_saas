@@ -368,7 +368,9 @@ async def get_tile_ndp(
 
     notify_viewer_activity()
 
-    info = _find_and_open(slide_id)
+    info = await asyncio.get_running_loop().run_in_executor(
+        viewer_executor, _find_and_open, slide_id
+    )
     if not info:
         raise HTTPException(404, "text text text text")
     if level < 0 or level >= STAGE_COUNT:
@@ -480,7 +482,9 @@ async def get_tile(
     # text text text — AI text text text text
     notify_viewer_activity()
 
-    info = _find_and_open(slide_id)
+    info = await asyncio.get_running_loop().run_in_executor(
+        viewer_executor, _find_and_open, slide_id
+    )
     if not info:
         raise HTTPException(404, "text text text text")
 
@@ -611,7 +615,9 @@ async def get_stage_level(
     dict_user: dict = Depends(get_current_user),
 ):
     """effective MPP text stage index (0/1/2) text."""
-    info = _find_and_open(slide_id)
+    info = await asyncio.get_running_loop().run_in_executor(
+        viewer_executor, _find_and_open, slide_id
+    )
     if not info:
         raise HTTPException(404, "text text text text")
 

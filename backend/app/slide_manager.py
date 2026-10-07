@@ -306,34 +306,34 @@ class SlideManager:
                 self._open_locks[slide_id] = obj_lock
             return obj_lock
 
-    def _close_info_locked(self, slide_id: str, info: SlideInfo) -> None:
-        self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
-        try:
-            info.slide.close()
-        except Exception:
-            pass
+    @staticmethod
+    def _close_infos(infos) -> None:
+        # Native close may wait for an active read. Never hold the manager lock.
+        for info in infos:
+            try:
+                info.slide.close()
+            except Exception:
+                pass
 
-    def _evict_idle_locked(self, exclude_slide_id: str = "") -> None:
-        """Close idle or least-recently-used OpenSlide handles."""
-        float_now = time.time()
-        for str_sid, info in list(self._slides.items()):
-            if str_sid == exclude_slide_id:
-                continue
-            if info.last_accessed + IDLE_SLIDE_TTL_SECONDS <= float_now:
-                self._slides.pop(str_sid, None)
-                self._close_info_locked(str_sid, info)
-
+    def _evict_idle_locked(self, exclude_slide_id: str = "") -> list:
+        """Detach expired/LRU handles; caller closes them outside the lock."""
+        retired = []
+        now = time.time()
+        for sid, info in list(self._slides.items()):
+            if sid != exclude_slide_id and info.last_accessed + IDLE_SLIDE_TTL_SECONDS <= now:
+                self._slides.pop(sid)
+                self._generations[sid] = self._generations.get(sid, 0) + 1
+                retired.append(info)
         while len(self._slides) > MAX_OPEN_SLIDES:
-            list_candidates = [
-                (str_sid, info)
-                for str_sid, info in self._slides.items()
-                if str_sid != exclude_slide_id
-            ]
-            if not list_candidates:
+            candidates = [(sid, info) for sid, info in self._slides.items()
+                          if sid != exclude_slide_id]
+            if not candidates:
                 break
-            str_evict_id, info_evict = min(list_candidates, key=lambda item: item[1].last_accessed)
-            self._slides.pop(str_evict_id, None)
-            self._close_info_locked(str_evict_id, info_evict)
+            sid, info = min(candidates, key=lambda item: item[1].last_accessed)
+            self._slides.pop(sid)
+            self._generations[sid] = self._generations.get(sid, 0) + 1
+            retired.append(info)
+        return retired
 
     def open(self, slide_id: str, file_path: str) -> SlideInfo:
         """text text (text text text text)"""
@@ -347,7 +347,6 @@ class SlideManager:
                 if slide_id in self._slides:
                     info = self._slides[slide_id]
                     info.touch()
-                    self._evict_idle_locked(exclude_slide_id=slide_id)
                     return info
 
             slide = None
@@ -369,16 +368,16 @@ class SlideManager:
                 self._slides[slide_id] = info
                 # text open text generation 0 text (text text text)
                 self._generations.setdefault(slide_id, 0)
-                self._evict_idle_locked(exclude_slide_id=slide_id)
-                return info
+                retired = self._evict_idle_locked(exclude_slide_id=slide_id)
+            self._close_infos(retired)
+            return info
 
     def get(self, slide_id: str) -> Optional[SlideInfo]:
-        """text text text"""
+        """Lookup only; eviction is done on open, never on the request hot path."""
         with self._lock:
             info = self._slides.get(slide_id)
             if info:
                 info.touch()
-                self._evict_idle_locked(exclude_slide_id=slide_id)
             return info
 
     def get_generation(self, slide_id: str) -> int:
@@ -387,23 +386,20 @@ class SlideManager:
             return self._generations.get(slide_id, 0)
 
     def close(self, slide_id: str):
-        """text text — generation text bump text text thread-local text text."""
         with self._lock:
             info = self._slides.pop(slide_id, None)
             if info:
-                self._close_info_locked(slide_id, info)
+                self._generations[slide_id] = self._generations.get(slide_id, 0) + 1
+        if info:
+            self._close_infos([info])
 
     def close_all(self):
-        """text text text — text generation bump."""
         with self._lock:
-            for str_sid in list(self._slides.keys()):
-                self._generations[str_sid] = self._generations.get(str_sid, 0) + 1
-            for info in self._slides.values():
-                try:
-                    info.slide.close()
-                except Exception:
-                    pass
+            infos = list(self._slides.values())
+            for sid in self._slides:
+                self._generations[sid] = self._generations.get(sid, 0) + 1
             self._slides.clear()
+        self._close_infos(infos)
 
     def list_slides(self):
         """text text text"""

@@ -12,6 +12,7 @@ text:
 Claude.md text text (str_/int_/bool_/list_/dict_/float_ text).
 """
 
+import asyncio
 import shutil
 from pathlib import Path
 from typing import List, Tuple
@@ -41,12 +42,41 @@ def _entry_atime(tiles_dir: Path) -> float:
         return 0.0
 
 
+def _active_tile_keys():
+    from app import tile_generator
+    from app.slide_manager import slide_manager
+
+    keys = set()
+    for info in slide_manager.list_slides().values():
+        try:
+            keys.add(tile_generator.get_tiles_dir_for_path(info["file_path"]).name)
+        except Exception:
+            continue
+    return keys
+
+
+def _inspect_tiles(full_path, active_keys):
+    from app import tile_generator
+
+    directory = tile_generator.get_tiles_dir_for_path(full_path)
+    if directory.name in active_keys or not directory.exists():
+        return None
+    return directory, _dir_size(directory), _entry_atime(directory)
+
+
+def _remove_tiles(directory):
+    # A viewer may have opened the slide while the lengthy size scan ran.
+    if directory.name in _active_tile_keys():
+        return False
+    shutil.rmtree(directory)
+    return True
+
+
 async def run_janitor_once() -> None:
     """text text text LRU text eviction 1text text."""
     from app.config import settings
     from app.database import is_db_connected, get_db
-    from app import tile_generator, slide_store
-    from app.slide_manager import slide_manager
+    from app import slide_store
 
     int_quota = settings.TILE_CACHE_QUOTA_BYTES
     if int_quota <= 0:
@@ -56,13 +86,11 @@ async def run_janitor_once() -> None:
 
     db = get_db()
 
-    # text text stem text — text text text text text
-    set_active_keys = set()
-    for str_sid, dict_info in slide_manager.list_slides().items():
-        try:
-            set_active_keys.add(tile_generator.get_tiles_dir_for_path(dict_info["file_path"]).name)
-        except Exception:
-            continue
+    # Filesystem traversal/stat and removal must never run on the event loop.
+    # Use the existing bounded tile pool, with its background CPU affinity.
+    from app.cpu_layout import bg_executor
+    loop = asyncio.get_running_loop()
+    set_active_keys = await loop.run_in_executor(bg_executor, _active_tile_keys)
 
     list_entries: List[Tuple[float, int, str, str, Path]] = []
     int_total = 0
@@ -76,13 +104,12 @@ async def run_janitor_once() -> None:
         str_full_path = dict_slide.get("str_full_path") or ""
         if not str_filename or not str_full_path:
             continue
-        tiles_dir = tile_generator.get_tiles_dir_for_path(str_full_path)
-        if not tiles_dir.exists():
+        entry = await loop.run_in_executor(
+            bg_executor, _inspect_tiles, str_full_path, set_active_keys
+        )
+        if entry is None:
             continue
-        if tiles_dir.name in set_active_keys:
-            continue
-        int_size = _dir_size(tiles_dir)
-        float_atime = _entry_atime(tiles_dir)
+        tiles_dir, int_size, float_atime = entry
         list_entries.append((
             float_atime,
             int_size,
@@ -103,7 +130,9 @@ async def run_janitor_once() -> None:
         if int_total - int_freed <= int_quota:
             break
         try:
-            shutil.rmtree(tiles_dir, ignore_errors=True)
+            removed = await loop.run_in_executor(bg_executor, _remove_tiles, tiles_dir)
+            if not removed:
+                continue
         except Exception as e:
             print(f"[tile_janitor] rmtree failed {str_filename}: {e}")
             continue

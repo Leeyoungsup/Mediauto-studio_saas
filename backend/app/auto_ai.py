@@ -218,7 +218,10 @@ async def _run_auto_inference(
     # slide_manager text text open (text _open_and_generate text text text subset)
     if slide_manager.get(str_slide_id) is None:
         try:
-            slide_manager.open(str_slide_id, str_full_path)
+            from app.cpu_layout import ai_executor
+            await asyncio.get_running_loop().run_in_executor(
+                ai_executor, slide_manager.open, str_slide_id, str_full_path
+            )
         except Exception as e:
             print(f"[auto_ai] open failed {str_filename}: {e}")
             return
@@ -270,12 +273,8 @@ async def _run_auto_inference(
     print(f"[auto_ai] done {str_model}/{str_variant} on {str_filename}")
 
 
-def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
-    """_run_virtual_stain text text hit text text — meta.json + (level-0 text OR text PNG).
-
-    auto_ai text text text text text text text text text hit text text
-    "inferring/done" text text text text text text text text.
-    """
+def _vs_cache_exists(str_full_path: str, float_target_mpp: float, str_stain_type: Optional[str] = None) -> bool:
+    """Validate model, requested stain, source and artifacts before skipping VS."""
     from app.ai_pipelines.cache_paths import get_vs_cache_paths as _get_vs_cache_paths, get_vs_tile_dir as _get_vs_tile_dir
     from app.config import settings
     png_path, meta_path = _get_vs_cache_paths(str_full_path, float_target_mpp)
@@ -287,6 +286,8 @@ def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
         metadata = json.loads(meta_path.read_text(encoding="utf-8"))
         if not isinstance(metadata, dict):
             return False
+        if str_stain_type is not None and metadata.get("stain_type") != str_stain_type:
+            return False
         model_file = VS_MODEL_FILES.get(metadata.get("stain_type"))
         if not model_file or metadata.get("model_identity") != model_identity(Path(settings.MODEL_DIR) / model_file):
             return False
@@ -295,7 +296,26 @@ def _vs_cache_exists(str_full_path: str, float_target_mpp: float) -> bool:
     path_lvl0 = _get_vs_tile_dir(str_full_path, float_target_mpp) / '0'
     bool_tiles_ok = path_lvl0.exists() and any(path_lvl0.glob('*.jpeg'))
     bool_png_legacy = png_path.exists()
-    return bool_tiles_ok or bool_png_legacy
+    if not (bool_tiles_ok or bool_png_legacy):
+        return False
+    from app.tile_generator import source_marker_matches_file_stat, source_signature_matches
+    if not source_marker_matches_file_stat(metadata, str_full_path):
+        return False
+    # Use a private handle so scanning neither evicts viewer slides nor reuses
+    # stale reader metadata after a source replacement. This runs off-loop.
+    from app.openslide_utils import open_slide_silently
+    from app.philips_proxy import PhilipsSlideProxy, is_philips_isyntax
+    slide = None
+    try:
+        slide = (PhilipsSlideProxy(str_full_path) if is_philips_isyntax(str_full_path)
+                 else open_slide_silently(str_full_path))
+        return source_signature_matches(metadata, slide, str_full_path)
+    except Exception as exc:
+        print(f"[auto_ai] VS source validation failed ({Path(str_full_path).name}): {exc}")
+        return False
+    finally:
+        if slide is not None:
+            slide.close()
 
 
 def _cell_has_bbox(cell) -> bool:
@@ -570,6 +590,7 @@ _assistance_file_checks: dict = {}
 def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
     """Check the assistance artifact without deleting or rewriting user data."""
     from app.config import settings
+    from app.assistance_cache_metadata import read_assistance_metadata
     from app.routers.cell_annotation import _expected_assistance_confidence_threshold
 
     path = Path(settings.CELL_ANNOTATION_DIR) / slide_cache_key(str_full_path) / "WSI_Labeling_assistance.json"
@@ -582,7 +603,7 @@ def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
         if cached and cached[0] == state:
             missing = cached[1]
         else:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = read_assistance_metadata(path)
             missing = (
                 payload.get("annotation_ai", {}).get("key") != dict_config["key"]
                 or not cache_has_current_detection_postprocess(payload.get("source_ai_postprocess"))
@@ -728,7 +749,7 @@ async def _scan_and_infer_once() -> None:
                     if not str_full_path or not Path(str_full_path).exists():
                         int_missing_file += 1
                         continue
-                    if await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp):
+                    if await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp, str_variant):
                         int_vs_cache_hits += 1
                         continue
                     list_candidates.append(dict_slide)
@@ -759,7 +780,7 @@ async def _scan_and_infer_once() -> None:
                 else:
                     int_marker_candidates += 1
 
-                if str_model in ("VS IHC", "VS-IHC") and await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp):
+                if str_model in ("VS IHC", "VS-IHC") and await asyncio.to_thread(_vs_cache_exists, str_full_path, float_target_mpp, str_variant):
                     # text text → text text (text X)
                     int_vs_cache_hits += 1
                     continue

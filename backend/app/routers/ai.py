@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, Response
 from app.audit import get_client_ip, log_audit_event
 from app.auth import get_current_user, get_media_user, require_not_viewer
 from app.config import settings
-from app.cpu_layout import ai_executor
+from app.cpu_layout import ai_executor, viewer_executor
 from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 
@@ -354,7 +354,9 @@ async def start_virtual_stain(
 async def get_virtual_stain_image(slide_id: str, stain_type: str,
                                   target_mpp: float = Query(2.0)):
     """Virtual stain text PNG text (text text text, PDF/text)"""
-    info = _find_and_open_slide(slide_id)
+    info = await asyncio.get_running_loop().run_in_executor(
+        viewer_executor, _find_and_open_slide, slide_id
+    )
     if not info:
         raise HTTPException(404, "slide not found")
     png_path, _ = _get_vs_cache_paths(info.file_path, target_mpp)
@@ -376,7 +378,9 @@ async def get_virtual_stain_tile(
     Virtual stain text text text.
     text text text text, text 404 (text/text text text text text).
     """
-    info = _find_and_open_slide(slide_id)
+    info = await asyncio.get_running_loop().run_in_executor(
+        viewer_executor, _find_and_open_slide, slide_id
+    )
     if not info:
         raise HTTPException(404, "slide not found")
     tile_dir = _get_vs_tile_dir(info.file_path, target_mpp)

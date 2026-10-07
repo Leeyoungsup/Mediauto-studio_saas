@@ -117,6 +117,9 @@ def _install_asyncio_noise_filter():
     loop.set_exception_handler(_handle_exception)
 
 
+from app.event_loop_watchdog import monitor_event_loop_delay as _monitor_event_loop_delay
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """text text/text text text text"""
@@ -150,7 +153,15 @@ async def lifespan(app: FastAPI):
     else:
         print("[auto_ai] worker disabled by admin settings")
 
-    yield
+    monitor = asyncio.create_task(_monitor_event_loop_delay())
+    try:
+        yield
+    finally:
+        monitor.cancel()
+        try:
+            await monitor
+        except asyncio.CancelledError:
+            pass
     # text text text text
     await auto_ai.stop_auto_worker()
     await tile_worker.stop_tile_worker()

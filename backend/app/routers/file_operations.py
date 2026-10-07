@@ -1,5 +1,6 @@
 """Slide file management endpoints."""
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -82,7 +83,7 @@ async def _delete_slide_file(str_path: str, str_filename: str) -> dict:
     str_slide_id = slide_cache_key(str(target))
     if slide_manager.get(str_slide_id) is not None:
         try:
-            slide_manager.close(str_slide_id)
+            await asyncio.to_thread(slide_manager.close, str_slide_id)
         except Exception as exc:
             print(f"[file_operations] close before delete failed ({str_filename}): {exc}")
 
@@ -241,7 +242,7 @@ async def move_file(
     str_old_cache_key = slide_cache_key(str(src))
     if slide_manager.get(str_old_cache_key) is not None:
         try:
-            slide_manager.close(str_old_cache_key)
+            await asyncio.to_thread(slide_manager.close, str_old_cache_key)
         except Exception as exc:
             print(f"[file_operations] close before move failed ({filename}): {exc}")
     shutil.move(str(src), str(dst))
