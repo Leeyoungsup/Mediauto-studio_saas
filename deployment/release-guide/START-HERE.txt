@@ -1,0 +1,71 @@
+MeDIAuto AI — 배포 최종본 / Deployment package
+Application baseline: 3.3.2 | Installer revision: 2026-10-07-r18
+
+배포 파일 / Installer selection
+  Windows GUI: MeDIAuto-Setup-windows-x64.exe
+  Linux GUI:   MeDIAuto-Setup-linux-x64.run
+  Linux CLI:   MeDIAuto-Setup-linux-x64-cli.tar.gz
+Windows용 별도 CLI 배포 파일은 없습니다. 내부 .bat/.ps1은 GUI와 서버 실행을 위한 지원 파일입니다.
+There is no separate Windows CLI distribution. Internal .bat/.ps1 files support the GUI and server startup.
+
+필수 조건 / Required
+- 최초 설치 및 업데이트에 인터넷 연결 필수. 오프라인 설치본이 아닙니다.
+  Internet is required for initial setup and updates. This is not an offline installer.
+- NVIDIA GPU: Windows driver >=570.65 / Linux driver >=570.26.
+  PyTorch 2.11.0 + torchvision 0.26.0, CUDA 12.8. CPU fallback is disabled.
+  These are this installer's driver floors; GPU runtime checks must also pass.
+- 관리자 권한 / Administrator privileges (UAC on Windows, sudo on Linux).
+- 별도 모델 폴더의 가중치 11개 / 11 model weights supplied separately.
+- Windows: x86-64 Windows 11 권장/recommended; winget (App Installer).
+  Docker mode additionally requires compatible Docker Desktop + WSL2 GPU support.
+- Linux: Ubuntu 22.04+ / Debian 12+, x86-64 + systemd, compatible NVIDIA driver.
+  GUI requires a graphical desktop, Tk and pkexec/polkit. CLI works over SSH.
+- 드라이버 설치 후 재부팅이 필요할 수 있습니다. 직접 재부팅 후 같은 설치기를 실행하세요.
+  Driver setup may require a manual reboot; rerun the same installer afterward.
+
+PDF 가이드 / Illustrated PDF guides (guides/)
+  MeDIAuto-Windows-Installation-Guide-KO.pdf
+  MeDIAuto-Windows-Installation-Guide-EN.pdf
+  MeDIAuto-Linux-Installation-Guide-KO.pdf
+  MeDIAuto-Linux-Installation-Guide-EN.pdf
+Windows: GUI installation. Linux: GUI and terminal installation in each language.
+Common GUI/SDK images are actual Linux captures, explicitly labeled in both OS guides.
+Windows native screenshots and a clean Windows end-to-end install have not been verified here.
+
+시작 / Launch
+Windows: EXE 실행; 이후 같은 설치 폴더의 setup-gui.bat로 재시도.
+Linux GUI (as regular user):
+  chmod +x MeDIAuto-Setup-linux-x64.run
+  ./MeDIAuto-Setup-linux-x64.run
+Linux CLI (as regular user; sudo is requested when needed):
+  tar -xzf MeDIAuto-Setup-linux-x64-cli.tar.gz
+  cd MeDIAuto-GPU-installer
+  bash install.sh
+
+GUI/CLI는 입력 방식이며, Docker/Native는 내부에서 선택하는 실행 환경입니다.
+GUI/CLI is the input interface; Docker/Native is the selected runtime.
+설치 후 서버는 자동 실행하지 않습니다 / The app is not started automatically.
+  Native: native/start.bat or bash native/start.sh
+  Docker: docker/start.bat or bash docker/start.sh
+  Local after Docker setup: docker/start-local.bat or bash docker/start-local.sh
+Run only one app runtime per installation at a time. Stop with Ctrl+C.
+Default URL after startup: http://localhost:18093 (use the configured port).
+New DB only: admin / admin1234! — change the password after initial sign-in.
+Existing accounts are not reset by reinstalling.
+
+범위 / Scope
+This is an online installer, not an embedded snapshot of the application or models.
+New installs clone the chosen GitHub branch/tag (default main), which may change.
+The actual installed commit is recorded in external-root/config/source.json.
+Existing Git worktrees and application data are preserved; setup does not pull/reset them.
+Database, secrets and file stores must be backed up together before updates.
+The Windows EXE is unsigned. Verify SHA256SUMS.txt before use.
+Read VALIDATION.txt for packaging checks and target-PC validation limits.
+
+Linux r18 자동 준비 / Automatic bootstrap
+System Python 3.8 can now bootstrap setup. Existing Conda is reused; if absent,
+official Miniconda is downloaded and SHA-256 verified automatically. A dedicated
+mediauto-installer environment supplies Python 3.12 without changing base Python.
+기존 Conda 재사용 → 없으면 자동 설치 → 별도 Python 환경 준비 → 설치 자동 재개.
+수동 conda 설치/활성화는 필요하지 않습니다. sudo·인증정보·SDK 동의는 직접 입력합니다.
+The Python 3.8 bootstrap was tested; a full Ubuntu 20.04 install remains unverified.

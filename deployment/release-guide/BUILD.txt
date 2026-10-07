@@ -1,0 +1,25 @@
+Rebuilding the final installer set
+
+1. On a Linux workstation, provide Python 3.10+ with Tk and Pillow, an X11 display
+   (Xvfb is sufficient), Playwright, Chromium, NSIS, pdfinfo and pdftotext.
+   The OS-specific Philips SDK folders and Windows OpenSlide vendor wheel are required
+   by the existing unified installer builder. No production credentials are needed.
+2. Capture the real GUI without installation:
+     python deployment/capture_release_gui.py
+   SCREENSHOT_PYTHON can select a separate interpreter with Pillow.
+3. Generate the four PDF guides and HTML sources:
+     python deployment/build_installation_guides.py
+   CHROME_PATH selects Chromium (default /opt/google/chrome/chrome).
+   The generator fails for page overflow or missing images.
+4. Build the final three installers:
+     python deployment/build_final_release.py
+   MAKENSIS selects the compiler; NSISDIR selects an extracted NSIS data directory.
+5. Run deployment tests and record results in the release's test-results.txt.
+   Verify packages, PDF contents and refresh hashes after adding results:
+     python deployment/build_final_release.py --verify-only
+
+Output: artifacts/local-deployment/final/2026-10-07-r18/
+The installer revision is distinct from app version 3.3.2.
+Application source is downloaded from the selected branch/tag, not embedded.
+Windows GUI screen capture must be performed separately on Windows if required.
+Do not label Linux shared-GUI captures as native Windows screenshots.

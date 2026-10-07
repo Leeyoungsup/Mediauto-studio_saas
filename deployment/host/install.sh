@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
-if [[ $EUID -ne 0 ]]; then exec sudo bash "$PWD/install.sh" "$@"; fi
+if [[ $EUID -ne 0 ]]; then
+  # Preserve a nonstandard Conda location when sudo resets PATH.
+  mediauto_conda="${CONDA_EXE:-}"
+  if [[ -z "$mediauto_conda" ]]; then mediauto_conda=$(command -v conda || true); fi
+  exec sudo env "CONDA_EXE=$mediauto_conda" bash "$PWD/install.sh" "$@"
+fi
 if [[ "$(uname -m)" != x86_64 ]]; then echo 'This release requires x86-64.'; exit 1; fi
 source /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) echo 'Automatic Linux installation supports Ubuntu/Debian with systemd.'; exit 1;; esac
@@ -29,4 +34,6 @@ if ! docker info --format '{{json .Runtimes}}' | grep -q nvidia; then
   bash "$PWD/setup-nvidia-runtime.sh"
 fi
 if [[ "${1:-}" == --prepare-only ]]; then exit 0; fi
-python3 install.py "$@"
+# Ubuntu 20.04's system Python 3.8 can run this bootstrap. The application
+# installer itself is re-executed with a verified, isolated Conda Python.
+exec /usr/bin/python3 "$PWD/bootstrap_python.py" "$PWD/install.py" "$@"

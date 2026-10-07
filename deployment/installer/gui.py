@@ -41,6 +41,11 @@ class Installer(tk.Tk):
         canvas.bind('<Configure>',lambda event:canvas.itemconfigure(content,width=event.width))
         ttk.Label(outer,text='MeDIAuto AI 설치',style='Title.TLabel').pack(anchor='w')
         ttk.Label(outer,text='GitHub 소스 · GPU 환경 · 외부 데이터 저장 · 설치 후 수동 실행').pack(anchor='w',pady=(3,12))
+        minimum='570.65' if os.name=='nt' else '570.26'
+        requirements=('필수: 설치·업데이트 시 인터넷 연결 / 관리자 권한 / NVIDIA GPU 및 드라이버 '+minimum+' 이상\n'
+                      'Required: Internet for setup/updates; admin access; NVIDIA driver >= '+minimum+' (CUDA 12.8).\n'
+                      'Python·Conda 자동 준비 / Automatic Python & Conda setup · 모델 별도 · CPU 전환 없음')
+        ttk.Label(outer,text=requirements,wraplength=950,foreground='#93421b').pack(anchor='w',pady=(0,10))
         row=ttk.Frame(outer);row.pack(fill='x')
         self.mode=tk.StringVar(value='docker')
         self.mode_buttons=[]
@@ -122,11 +127,13 @@ class Installer(tk.Tk):
                 if not Path(values['model_path']).is_dir():raise ValueError('기존 모델 폴더를 선택하세요.')
         except ValueError as exc:messagebox.showerror('입력값 확인',str(exc));return
         self.values=values;self.running=True;self.set_form_state(True);self.progress.start(12)
-        self.status.set('관리자 인증 및 설치 준비 중…');self.update_idletasks();self.canvas.yview_moveto(1)
+        self.status.set('관리자 인증 및 Python·Conda 자동 준비 중…');self.update_idletasks();self.canvas.yview_moveto(1)
         threading.Thread(target=self.run_worker,args=(values,),daemon=True).start()
     def run_worker(self,values):
         try:
             command=[sys.executable,'-X','utf8','-u',str(ROOT/'gui_worker.py')]
+            if os.name!='nt':
+                command=[sys.executable, '-u', str(ROOT/values['mode']/'bootstrap_python.py'), str(ROOT/'gui_worker.py')]
             if os.name!='nt' and os.geteuid()!=0:
                 if not shutil.which('pkexec'):raise RuntimeError('pkexec가 필요합니다. polkit을 설치하거나 관리자 권한으로 GUI를 실행하세요.')
                 command=['pkexec',*command]

@@ -1,0 +1,8 @@
+{
+  "platform": "Linux X11 (virtual display)",
+  "source": "deployment/installer/gui.py",
+  "installation_started": false,
+  "license_accepted": false,
+  "windows_native_capture": false,
+  "notes": "Actual shared Tk GUI. Linux paths and driver floor are shown; Windows uses its own defaults."
+}

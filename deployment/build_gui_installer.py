@@ -13,10 +13,10 @@ from build_unified_installer import build as build_payload
 
 ROOT=Path(__file__).resolve().parents[1]
 
-def build():
-    build_payload()
-    packages=ROOT/'artifacts/local-deployment/unified'
-    output=ROOT/'artifacts/local-deployment/gui/2026-09-22-r16'
+def build(output=None, packages=None, extras=None, exclude=()):
+    packages=Path(packages) if packages is not None else ROOT/'artifacts/local-deployment/unified'
+    build_payload(packages, extras=extras, exclude=exclude)
+    output=Path(output) if output is not None else ROOT/'artifacts/local-deployment/gui/2026-09-22-r16'
     output.mkdir(parents=True,exist_ok=True)
     compiler=os.environ.get('MAKENSIS') or shutil.which('makensis')
     if not compiler:raise RuntimeError('Install NSIS or set MAKENSIS to makensis.')
@@ -36,7 +36,7 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "MeDIAuto AI GPU Setup"
-!define MUI_WELCOMEPAGE_TEXT "This setup extracts the installer and opens its graphical configuration window. Existing application data is not removed. Model weights must be supplied separately."
+!define MUI_WELCOMEPAGE_TEXT "Internet access and administrator permission are required. NVIDIA GPU with Windows driver 570.65 or newer is required (CUDA 12.8 runtime). Model weights must be supplied separately.$\r$\n$\r$\nThis setup opens the graphical installer. A driver update may require a manual restart. Start the app manually after installation."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES

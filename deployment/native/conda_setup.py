@@ -109,9 +109,9 @@ def ensure_linux_compatibility(conda, prefix, env):
         alias.symlink_to('libtinyxml.so')
 
 
-def prepare(root, config, windows):
+def ensure_conda(root, cache, windows):
     root = Path(root)
-    cache = Path(config['paths']['cache'])/'conda'
+    cache = Path(cache)
     cache.mkdir(parents=True, exist_ok=True)
     if not windows and os.environ.get('SUDO_USER'):
         import pwd
@@ -147,6 +147,13 @@ def prepare(root, config, windows):
             invoke(command)
         conda = find_conda(root, windows)
         if conda is None: raise RuntimeError('Conda installation did not produce a working executable.')
+    return conda
+
+
+def prepare(root, config, windows):
+    root = Path(root)
+    cache = Path(config['paths']['cache'])/'conda'
+    conda = ensure_conda(root, cache, windows)
     minor = 7 if windows else 8
     name = 'philips-sdk-py3'+str(minor)
     initialize_shell(conda, windows)

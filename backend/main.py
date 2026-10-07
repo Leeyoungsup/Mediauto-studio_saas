@@ -153,15 +153,19 @@ async def lifespan(app: FastAPI):
     else:
         print("[auto_ai] worker disabled by admin settings")
 
-    monitor = asyncio.create_task(_monitor_event_loop_delay())
+    # Verbose stall diagnostics are opt-in for troubleshooting.
+    monitor = None
+    if os.environ.get("MEDIAUTO_EVENT_LOOP_DIAGNOSTICS", "").strip().lower() in {"1", "true", "yes"}:
+        monitor = asyncio.create_task(_monitor_event_loop_delay())
     try:
         yield
     finally:
-        monitor.cancel()
-        try:
-            await monitor
-        except asyncio.CancelledError:
-            pass
+        if monitor is not None:
+            monitor.cancel()
+            try:
+                await monitor
+            except asyncio.CancelledError:
+                pass
     # text text text text
     await auto_ai.stop_auto_worker()
     await tile_worker.stop_tile_worker()
