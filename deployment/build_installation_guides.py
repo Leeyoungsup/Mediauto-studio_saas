@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'deployment/release-guide'
-RELEASE = '2026-10-07-r19'
+RELEASE = '2026-10-07-r20'
 DEFAULT_OUT = ROOT / 'artifacts/local-deployment/final' / RELEASE
 E = html.escape
 CSS = '''
@@ -93,9 +93,9 @@ def pages_for(platform, lang):
             box(t('CLI 패키지는 그래픽 데스크톱이나 Tk가 필요하지 않습니다. 모델·인터넷·NVIDIA·sudo 조건은 GUI와 동일합니다.','The CLI path does not need a graphical desktop or Tk. Model, internet, NVIDIA and sudo requirements are the same as GUI setup.')))
     if not win:
         add(t('Python · Conda 자동 준비 / 재설치','Automatic Python & Conda setup / retry'),
-            p(t('r19은 시스템 Python 3.8에서도 설치 준비를 시작합니다. Python 버전 검사 전에 Conda와 설치기용 Python을 자동 준비하므로 수동 Conda 설치나 base 업그레이드가 필요하지 않습니다.','r19 can bootstrap from system Python 3.8. It prepares Conda and installer Python before the installer version check; no manual Conda installation or base upgrade is required.'))+
+            p(t('r20은 시스템 Python 3.8에서도 설치 준비를 시작합니다. Python 버전 검사 전에 Conda와 설치기용 Python을 자동 준비하므로 수동 Conda 설치나 base 업그레이드가 필요하지 않습니다.','r20 can bootstrap from system Python 3.8. It prepares Conda and installer Python before the installer version check; no manual Conda installation or base upgrade is required.'))+
             listing([t('기존 Conda를 찾아 재사용합니다. 없으면 공식 Miniconda를 다운로드하고 SHA-256 검증 후 설치합니다.','Find and reuse existing Conda, or download official Miniconda and verify its SHA-256 before installation.'),t('별도 mediauto-installer 환경에 Python 3.12를 준비합니다. 정상 환경은 재사용하며 기존 base Python은 변경하지 않습니다.','Prepare Python 3.12 in the separate mediauto-installer environment. Reuse a working environment without changing base Python.'),t('준비된 Python으로 설치를 자동 재개하고 이후 앱 및 Philips 환경을 구성합니다. sudo 인증·GitHub 인증정보·SDK 동의는 직접 입력합니다.','Continue setup automatically using that Python, then configure app and Philips environments. Enter sudo authorization, GitHub credentials and SDK consent yourself.')],True)+
-            p(t('현재 경로 예시: r19 CLI 파일을 /mnt/hdd1/KNUCH에 저장한 뒤 아래 명령을 실행합니다. 기존 설치기 폴더에 설치 코드만 덮어쓰며 별도 모델·데이터 폴더는 유지합니다.','Existing-path example: save the r19 CLI archive in /mnt/hdd1/KNUCH and run the following. It replaces packaged installer code in place and preserves separate model/data folders.'))+
+            p(t('현재 경로 예시: r20 CLI 파일을 /mnt/hdd1/KNUCH에 저장한 뒤 아래 명령을 실행합니다. 기존 설치기 폴더에 설치 코드만 덮어쓰며 별도 모델·데이터 폴더는 유지합니다.','Existing-path example: save the r20 CLI archive in /mnt/hdd1/KNUCH and run the following. It replaces packaged installer code in place and preserves separate model/data folders.'))+
             code('cd /mnt/hdd1/KNUCH\ntar -xzf MeDIAuto-Setup-linux-x64-cli.tar.gz\ncd MeDIAuto-GPU-installer\nbash install.sh')+
             table([('Mode','2 (Native)'),('External data root','/mnt/hdd1/KNUCH/MeDIAutoData'),('Model folder','/mnt/hdd1/KNUCH/model')],[t('입력','Field'),t('예시','Example')])+
             p(t('기존 데이터 루트가 있다면 반드시 기존 값을 사용하세요. 설치 완료 후 같은 폴더에서 bash native/start.sh로 실행합니다.','If a data root already exists, keep its saved value. After setup completes, run bash native/start.sh from the same installer folder.'))+
@@ -126,6 +126,7 @@ def pages_for(platform, lang):
         table([
             (t('드라이버 / CUDA 실패','Driver / CUDA failure'),t('nvidia-smi 및 '+driver+' 기준을 확인합니다. 지원되는 드라이버 설치 후 재부팅하고 재시도합니다. 기준을 만족해도 GPU 모델/패키지 호환성 검사를 통과해야 합니다.','Check nvidia-smi and the '+driver+' floor. Install a supported driver, reboot and retry. GPU/package runtime compatibility must also pass.')),
             (t('다운로드 / 인증서','Download / certificate'),t('인터넷·DNS·시스템 시간·프록시 인증서를 확인합니다. Windows Update/OS 저장소 정책도 확인합니다.','Check internet/DNS, system time, proxy certificates and Windows Update/OS repository policies.')),
+            (t('CXXABI / greenlet 오류','CXXABI / greenlet error'),t('새 설치기로 재실행하세요. Conda C++ 런타임을 자동 보완하고 GPU 라이브러리보다 먼저 불러옵니다. 시스템 libstdc++는 교체하지 않습니다.','Rerun the updated installer. It prepares the Conda C++ runtime and loads it before GPU libraries. System libstdc++ is not replaced.')),
             (t('포트 충돌','Port conflict'),t('다른 DB·서버의 포트를 사용하지 마세요. 새 설치는 다른 포트를 선택하고 기존 설치 재시도는 저장된 설정을 확인합니다.','Do not reuse another DB/server’s port. Choose another port for a new install; review saved settings for retries.')),
             (t('모델 검사 실패','Model check failure'),t('지정 폴더·파일명·11개 가중치의 배포 버전을 확인합니다. 해시 검사를 우회하지 마세요.','Check the selected folder, filenames and supplied version of all 11 weights. Do not bypass hash validation.')),
             (t('GUI가 열리지 않음','GUI does not open'),t('setup-gui.bat로 재시도하고 Python 3.12, winget, UAC 정책을 확인합니다.' if win else 'DISPLAY/Wayland 데스크톱, Tk, pkexec/polkit을 확인합니다. SSH는 CLI 패키지를 사용합니다.','Retry setup-gui.bat and check Python 3.12, winget and UAC policy.' if win else 'Check the graphical session, Tk and pkexec/polkit. Use CLI over SSH.')),

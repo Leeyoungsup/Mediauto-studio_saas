@@ -8,6 +8,7 @@ import unittest
 
 HARNESS = '''import sys,types,runpy,socket,subprocess
 sys.argv.pop(0)
+sys.modules['runtime_libraries']=types.SimpleNamespace(load_conda_cpp_runtime=lambda: print('CPP LOAD'),check_asyncio=lambda: print('ASYNC CHECK'))
 sys.modules['gpu_check']=types.SimpleNamespace(check_gpu=lambda: print('GPU CHECK'))
 class Connection:
  def __enter__(self): return self
@@ -34,6 +35,8 @@ class RunnerTests(unittest.TestCase):
      args=[sys.executable,'-c',HARNESS,str(runner.resolve()),str(settings)]+([mode] if mode else [])
      result=subprocess.run(args,capture_output=True,text=True)
      output=log.read_text() if not mode and log.exists() else result.stdout+result.stderr
+     self.assertLess(output.index('CPP LOAD') if 'CPP LOAD' in output else 0, output.index('ASYNC CHECK'))
+     self.assertLess(output.index('GPU CHECK'), output.index('ASYNC CHECK'))
      if mode=='--check':
       self.assertEqual(result.returncode,0,output)
       self.assertNotIn('SERVER OUTPUT',output)

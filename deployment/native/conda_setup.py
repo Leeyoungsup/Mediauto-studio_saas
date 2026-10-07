@@ -252,6 +252,19 @@ def prepare_main(root, config, windows):
     if not python.is_file():
         if prefix.exists() and any(prefix.iterdir()):raise RuntimeError('Incomplete GPU Conda environment: '+str(prefix))
         invoke([conda,'create','--yes','--name',name,'--override-channels','--channel','conda-forge','python=3.12','pip'],env=env)
+    if not windows:
+        probe = ('import ctypes,sys; from pathlib import Path; '
+                 'p=Path(sys.prefix)/"lib/libstdc++.so.6"; '
+                 'assert b"CXXABI_1.3.15" in p.read_bytes(); '
+                 'ctypes.CDLL(str(p), mode=ctypes.RTLD_GLOBAL)')
+        runtime_check=[conda,'run','--no-capture-output','--name',name,'python','-c',probe]
+        try:
+            invoke(runtime_check, env=env, capture_output=True, text=True)
+        except (OSError, subprocess.CalledProcessError):
+            print('Preparing compatible Conda C++ runtime...', flush=True)
+            invoke([conda,'install','--yes','--name',name,'--override-channels','--channel','conda-forge',
+                    'libstdcxx-ng>=14','libgcc-ng>=14'],env=env)
+            invoke(runtime_check, env=env, capture_output=True, text=True)
     prefix=named_prefix(conda,name)
     python=prefix/('python.exe' if windows else 'bin/python')
     command=[str(conda),'run','--no-capture-output','--name',name,'python']

@@ -23,8 +23,29 @@ class CondaSetupTests(unittest.TestCase):
                     self.assertIn('medicus-saas',str(python))
                     python.parent.mkdir(parents=True);python.touch();invoke.reset_mock()
                     c.prepare_main(root,{'paths':{'cache':str(root/'cache')}},windows)
-                    self.assertEqual(invoke.call_count,1)
+                    self.assertEqual(invoke.call_count,1 if windows else 2)
                     self.assertIn('run',invoke.call_args.args[0])
+
+    def test_old_linux_cpp_runtime_is_repaired_and_rechecked(self):
+        for repair_works in (True, False):
+            with self.subTest(repair_works=repair_works), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);python=root/'envs/medicus-saas/bin/python'
+                python.parent.mkdir(parents=True);python.touch()
+                calls=[]
+                def invoke(args, **kwargs):
+                    calls.append(args)
+                    if len(calls)==1 or (len(calls)==3 and not repair_works):
+                        raise subprocess.CalledProcessError(1,args)
+                with patch.object(c,'find_conda',return_value=root/'conda'),patch.object(c,'invoke',side_effect=invoke):
+                    if repair_works:
+                        c.prepare_main(root,{'paths':{'cache':str(root/'cache')}},False)
+                    else:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            c.prepare_main(root,{'paths':{'cache':str(root/'cache')}},False)
+                self.assertIn('libstdcxx-ng>=14',calls[1])
+                self.assertIn('libgcc-ng>=14',calls[1])
+                self.assertEqual(calls[0],calls[2])
+                self.assertEqual(len(calls),4 if repair_works else 3)
 
     def test_windows_broken_pillow_repaired_through_conda_and_rechecked(self):
         with tempfile.TemporaryDirectory() as directory:

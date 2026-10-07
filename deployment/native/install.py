@@ -533,7 +533,7 @@ def prepare_application(config, source):
     run([python,'-m','pip','install','--upgrade','torch==2.11.0+cu128','torchvision==0.26.0+cu128','--index-url','https://download.pytorch.org/whl/cu128'])
     # Enforce asyncio extras even when reusing an older application checkout.
     run([python,'-m','pip','install','-r',native_requirements,'SQLAlchemy[asyncio]>=2.0,<3.0'])
-    run([python,'-c','import asyncio, greenlet; from sqlalchemy.ext.asyncio import AsyncConnection; from sqlalchemy.util.concurrency import greenlet_spawn; assert asyncio.run(greenlet_spawn(lambda: 42)) == 42; print("SQLAlchemy asyncio/greenlet check passed")'])
+    run([python,'-c','import sys; sys.path.insert(0,'+repr(str(ROOT))+'); from runtime_libraries import load_conda_cpp_runtime, check_asyncio; load_conda_cpp_runtime(); check_asyncio(); print("SQLAlchemy asyncio/greenlet check passed")'])
     run([python,'-m','pip','check'])
     run([python,'-c','import openslide, pyvips, torch; assert pyvips.type_find("VipsOperation", "tiffsave"); print("Native OpenSlide/libvips/PyTorch imports passed")'])
     backend=source/'backend'

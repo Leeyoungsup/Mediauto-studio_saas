@@ -18,7 +18,7 @@ Rebuilding the final installer set
    Verify packages, PDF contents and refresh hashes after adding results:
      python deployment/build_final_release.py --verify-only
 
-Output: artifacts/local-deployment/final/2026-10-07-r19/
+Output: artifacts/local-deployment/final/2026-10-07-r20/
 The installer revision is distinct from app version 3.3.2.
 Application source is downloaded from the selected branch/tag, not embedded.
 Windows GUI screen capture must be performed separately on Windows if required.

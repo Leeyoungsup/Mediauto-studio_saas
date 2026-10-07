@@ -31,6 +31,8 @@ class ConsoleLog:
 
 
 def main():
+    from runtime_libraries import load_conda_cpp_runtime, check_asyncio
+    load_conda_cpp_runtime()
     # Also support VS Code launching the Conda interpreter directly.
     dll_handles=[]
     if os.name == 'nt':
@@ -60,13 +62,16 @@ def main():
     print('[START] MeDIAuto runner: '+sys.executable, flush=True)
     from gpu_check import check_gpu
     check_gpu()
+    # Exercise SQLAlchemy in this same process after GPU libraries were loaded.
+    check_asyncio()
     for _ in range(60):
         try:
             with socket.create_connection(('127.0.0.1',settings['db_port']),timeout=2):break
         except OSError:time.sleep(2)
     else:raise RuntimeError('PostgreSQL is not accepting connections.')
-    subprocess.run([sys.executable,'-m','alembic','upgrade','head'],check=True,**child_output)
-    subprocess.run([sys.executable,str(Path(__file__).resolve().with_name('bootstrap_admin.py')),'--strict-models','--strict-db'],check=True,**child_output)
+    runtime_entry=str(Path(__file__).resolve().with_name('runtime_libraries.py'))
+    subprocess.run([sys.executable,runtime_entry,'--module','alembic','upgrade','head'],check=True,**child_output)
+    subprocess.run([sys.executable,runtime_entry,'--script',str(Path(__file__).resolve().with_name('bootstrap_admin.py')),'--strict-models','--strict-db'],check=True,**child_output)
     if '--check' in sys.argv:return
     # Running in-process lets systemd/Task Scheduler stop the actual server process.
     sys.path.insert(0,settings['backend'])

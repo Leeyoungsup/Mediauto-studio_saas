@@ -1,5 +1,5 @@
 MeDIAuto AI — 배포 최종본 / Deployment package
-Application baseline: 3.3.2 | Installer revision: 2026-10-07-r19
+Application baseline: 3.3.2 | Installer revision: 2026-10-07-r20
 
 배포 파일 / Installer selection
   Windows GUI: MeDIAuto-Setup-windows-x64.exe
@@ -62,7 +62,7 @@ Database, secrets and file stores must be backed up together before updates.
 The Windows EXE is unsigned. Verify SHA256SUMS.txt before use.
 Read VALIDATION.txt for packaging checks and target-PC validation limits.
 
-Linux r19 자동 준비 / Automatic bootstrap
+Linux r20 자동 준비 / Automatic bootstrap
 System Python 3.8 can now bootstrap setup. Existing Conda is reused; if absent,
 official Miniconda is downloaded and SHA-256 verified automatically. A dedicated
 mediauto-installer environment supplies Python 3.12 without changing base Python.
@@ -73,3 +73,9 @@ The Python 3.8 bootstrap was tested; a full Ubuntu 20.04 install remains unverif
 SQLAlchemy asyncio dependencies are explicitly installed even for old app checkouts.
 A greenlet/asyncio execution check runs before database migration.
 기존 앱 소스에도 비동기 DB 의존성을 설치하고 DB 마이그레이션 전에 동작 검사합니다.
+
+Linux C++ runtime / C++ 런타임
+Setup checks the Conda C++ ABI and installs libstdcxx-ng>=14 / libgcc-ng>=14
+when needed. The runner loads the selected Conda C++ library before GPU/image
+libraries and checks SQLAlchemy asyncio in the same process after the GPU check.
+시스템 C++ 라이브러리는 교체하지 않습니다. 기존 설치도 새 설치기로 재실행하세요.
