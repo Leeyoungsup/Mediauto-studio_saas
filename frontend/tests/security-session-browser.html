@@ -1,0 +1,48 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>Security session browser tests</title><style>body{font:20px/1.9 'Noto Sans CJK KR',sans-serif;padding:45px;color:#203044}h1{font-size:30px}pre{font-size:17px;white-space:pre-wrap;background:#f4f7fa;padding:25px}#summary{color:#13733a;font-weight:bold}</style><h1>보안 세션 · 브라우저 동작 검증</h1><p>2026-10-08 · 실제 security-session.js 실행 · 테스트용 저장소·시계·응답 사용</p><p id="summary">RUNNING</p><pre id="results"></pre><script>
+(async () => {
+const source = await fetch('../js/security-session.js').then(r => { if (!r.ok) throw new Error('Source unavailable'); return r.text(); });
+const result = document.getElementById('results');
+let passed = 0;
+function assert(ok, name) { if (!ok) throw new Error(name); passed++; result.textContent += 'PASS  '+name+'\n'; }
+function fixture() {
+    let now=10000000;
+    const values=new Map([['access_token','test-access'],['security_last_activity',String(now)]]);
+    const storage={getItem:key=>values.get(key)||null,setItem:(key,v)=>values.set(key,String(v)),removeItem:key=>values.delete(key)};
+    const events={}, timers=[], requests=[], redirects=[];
+    const loc={pathname:'/home',replace:path=>redirects.push(path)};
+    const win={fetch:async (url,opts)=> {requests.push({url,opts});return new Response('{}',{status:200});}, addEventListener:(key,fn)=>events[key]=fn,prompt:()=> '검토용 다운로드'};
+    new Function('window','localStorage','location','setInterval','Date', source)(win,storage,loc,fn=>timers.push(fn),{now:()=>now});
+    return {win,storage,events,timers,requests,redirects,advance:ms=>now+=ms};
+}
+async function run() {
+    let f=fixture();
+    f.events.pointerdown({isTrusted:false});
+    assert(f.requests.length===0,'synthetic events do not extend session');
+    f.events.pointerdown({isTrusted:true});
+    await new Promise(resolve=>setTimeout(resolve,0));
+    assert(f.requests.length===1 && f.requests[0].url==='/api/auth/activity','human input reports activity');
+    f.events.pointermove({isTrusted:true});
+    assert(f.requests.length===1,'activity requests are throttled');
+    f.advance(10001);f.events.keydown({isTrusted:true});await new Promise(resolve=>setTimeout(resolve,0));
+    assert(f.requests.length===2,'continued human activity renews server deadline');
+    f.advance(30*60*1000);f.timers[0]();
+    assert(!f.storage.getItem('access_token') && f.redirects[0]==='/login','30-minute inactivity clears tokens and redirects');
+    f=fixture();f.events.storage({key:'access_token',newValue:null});
+    assert(f.redirects[0]==='/login','logout propagates to another tab');
+    f=fixture();f.win.prompt=()=>null;
+    assert(await f.win.MediautoSecurity.authorizeExport('test.json')===false && f.requests.length===0,'cancel prevents export audit and file action');
+    f.win.prompt=()=> 'a';let rejected=false;try{await f.win.MediautoSecurity.authorizeExport('test.json');}catch(e){rejected=true;}
+    assert(rejected && f.requests.length===0,'invalid reason blocks export');
+    f.win.prompt=()=> '연구 검토';
+    assert(await f.win.MediautoSecurity.authorizeExport('test.json')===true,'valid export requires successful server audit');
+    const payload=JSON.parse(f.requests[0].opts.body);
+    assert(payload.str_reason==='연구 검토' && payload.str_filename==='test.json','export audit includes reason and filename');
+    f.win.fetch=async ()=>new Response('{}',{status:503});rejected=false;
+    try{await f.win.MediautoSecurity.authorizeExport('test.json');}catch(e){rejected=true;}
+    assert(rejected,'audit failure blocks local export');
+    document.getElementById('summary').textContent=passed+' / '+passed+' PASSED';
+}
+run().catch(e=>{result.textContent+='FAIL '+e.stack;document.getElementById('summary').textContent='FAILED';}).finally(() => { if (location.search.includes('capture=1')) fetch('/__tests_complete?passed='+passed); });
+
+})().catch(e => {document.getElementById("summary").textContent="FAILED: "+e.message;});
+</script></html>

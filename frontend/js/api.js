@@ -415,8 +415,10 @@ export const api = {
     },
 
     async downloadTerminationCompletedCellPatches(projectPath) {
+        const reason = window.MediautoSecurity.requestReason();
+        if (reason === null) return null;
         const res = await _authFetch(
-            `${API_BASE}/cell-annotation/projects/${encodeURIComponent(projectPath)}/termination-export`
+            `${API_BASE}/cell-annotation/projects/${encodeURIComponent(projectPath)}/termination-export?reason=${encodeURIComponent(reason)}`
         );
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();

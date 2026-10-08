@@ -39,6 +39,10 @@ class User(Base):
     dt_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     dt_last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    dt_password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    str_active_session_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    dt_last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     list_sessions: Mapped[list["Session"]] = relationship(
         back_populates="obj_user",
         cascade="all, delete-orphan",

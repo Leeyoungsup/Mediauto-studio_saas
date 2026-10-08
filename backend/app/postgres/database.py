@@ -63,6 +63,12 @@ async def connect_postgres() -> None:
                 raise RuntimeError(
                     "PostgreSQL schema is missing. Run 'alembic upgrade head' first."
                 )
+            try:
+                await obj_connection.execute(text(
+                    "SELECT dt_password_changed_at, str_active_session_id, dt_last_activity_at FROM users LIMIT 0"
+                ))
+            except Exception as exc:
+                raise RuntimeError("Security schema is missing. Run 'alembic upgrade head' first.") from exc
     except Exception:
         await _engine.dispose()
         _engine = None

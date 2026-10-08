@@ -1607,6 +1607,7 @@ async function _exportPDF(state) {
         : `${safeName}_${str_model_part}_report.pdf`;
 
     // File System Access API text text text text text text
+    if (!await window.MediautoSecurity.authorizeExport(filename)) return;
     const blob = pdf.output('blob');
     if (window.showSaveFilePicker) {
         try {

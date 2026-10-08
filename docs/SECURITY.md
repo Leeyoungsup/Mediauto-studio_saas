@@ -3,6 +3,16 @@
 
 병원 On-Premise 배포 전제. 환자 WSI(조직 슬라이드)·AI 분석 결과·로그인 이력 등을 다루는 의료정보 시스템이며, **SaMD (Software as a Medical Device) 2등급** 인허가를 목표로 설계된다. 인증/인가/감사/암호화 네 축에 더해, IEC 62304·ISO 14971·21 CFR Part 11·식약처 의료기기 사이버보안 가이드라인의 기술 통제 항목을 우선 구현했다.
 
+## 2026-10-08 체크리스트 보완 코드 적용
+
+- KP07: 새 비밀번호 최소 9자리, 영문 대·소문자·숫자·특수문자 조합. 변경일에서 90일 경과 또는 변경일 미상 시 비밀번호 변경만 허용하며 일반 기능과 미디어 접근은 차단한다. 신규 설치 관리자는 설치 비밀번호를 반드시 변경한다. 새 로그인은 이전 접속의 access·refresh·미디어 티켓을 무효화한다.
+- KP18: 서버의 마지막 사용자 입력 시각에서 30분 경과 시 access·refresh·미디어·activity 요청을 차단한다. 키보드·포인터·스크롤 입력만 `/api/auth/activity`에 전송하며, 토큰 갱신·타일 로드·polling은 활동 시각을 연장하지 않는다. 클라이언트에서도 유휴 시 토큰을 지우고 로그인으로 이동한다.
+- KP26: ZIP 다운로드는 사유를 필수로 검증한다. 로컬 ROI JSON·분석 PDF 출력은 사유를 서버에 기록한 뒤 저장한다. 사용자 ID·대상 파일·시각·IP·사유를 감사로그에 남기며 기록 실패 시 반출을 중단한다. 로그는 완료 기록이 아닌 다운로드 요청 기록이다. 이미 브라우저에 표시한 데이터를 개발자 도구로 추출하는 행위까지 방지하는 DLP 기능은 아니다.
+
+배포 시 앱을 중지하고 현재 설정·DB를 백업한 다음, 기존 실행 환경과 `POSTGRES_URI`를 사용하여 `cd backend && python -m alembic upgrade head`를 실행한다. 이후 동일 버전의 프런트엔드와 백엔드로 재시작한다. Native runner는 시작 시 migration을 수행한다. 기존 로그인은 모두 다시 로그인해야 하고 비밀번호 변경일이 없는 계정은 변경 화면으로 이동한다. 실제 운영 DB migration과 재시작은 코드 검증과 별도 단계다. 이 변경에서는 운영 DB를 수정하지 않았다.
+
+검증: `PYTHONPATH=backend python -m pytest backend/tests/test_security_checklist.py backend/tests/test_auth_store.py backend/tests/test_access_boundaries.py backend/tests/test_audit_v2.py backend/tests/test_activity_audit.py backend/tests/test_postgres_foundation.py`. 브라우저 검증은 `frontend`를 임시 로컬 HTTP로 제공하고 `/tests/security-session-browser.html`을 연다. 임시 SQLite 회귀 테스트 72개와 별도 PostgreSQL 12 인스턴스의 migration 및 보안 테스트 24개를 통과했다. 브라우저 검증 11개를 통과했다. 실제 운영 PostgreSQL에는 migration을 실행하지 않았으며 운영 배포 여부와 구분한다.
+
 ## 목차
 
 - [SaMD 2등급 인허가 컨텍스트](#samd-2등급-인허가-컨텍스트)
@@ -58,7 +68,7 @@ IMDRF 의 "정보 사용 ↔ 의학적 상태 심각도" 매트릭스로 등급�
 | 통제 영역 | 구현 | 근거 §장 |
 | --- | --- | :-: |
 | 다중 요소 인증 | ID/PW + RFC 6238 TOTP | §8 |
-| 세션 관리 | JWT 15분 + Refresh 7일, CAS rotation, reuse 탐지 | §3 |
+| 세션 관리 | JWT 기본 360분 + Refresh 7일, 단일 로그인 식별자, 30분 무활동 종료 | §3 |
 | 계정 잠금·승인 | 5회 실패 30분 잠금, admin 승인 워크플로 | §4 |
 | 권한 분리 | RBAC 3단계 (admin/doctor/viewer), 이중 게이팅 | §5 |
 | 감사 추적 | HMAC 체인 + 변경 전/후 값 + IP geo | §9 |
@@ -123,7 +133,7 @@ hashed = bcrypt(plain + pepper, cost=12)
 
 ### 비밀번호 정책
 
-- 최소 8자, 대/소문자 + 숫자 + 특수문자 포함 (정규식 패턴 검증).
+- 최소 9자, 대/소문자 + 숫자 + 특수문자 포함 (정규식 패턴 검증).
 - 아이디는 4~30자 영문/숫자/언더스코어만 허용.
 - 계정 열거 방지 — 아이디 존재 여부 / 승인 상태에 따라 메시지를 다르게 반환하지 않고 "아이디 또는 비밀번호가 올바르지 않습니다"로 통일. 승인 상태 검증은 비밀번호 검증 **이후**에 수행.
 
@@ -135,8 +145,8 @@ hashed = bcrypt(plain + pepper, cost=12)
 
 | 토큰 | 알고리즘 | 수명 | 저장 | 페이로드 |
 | ---- | ------- | ---- | ---- | -------- |
-| Access | HS256 | 15분 | 서버는 무상태(JWT 자체 검증) | `sub`, `role`, `type=access`, `exp`, `iat`, `jti` |
-| Refresh | HS256 | 7일 | `sessions` 컬렉션에 원본 저장 | `sub`, `type=refresh`, `exp`, `iat`, `jti` |
+| Access | HS256 | 기본 360분 (환경변수 설정) | 매 요청마다 사용자·현재 세션·유휴 시각 검증 | `sub`, `sid`, `role`, `type=access`, `exp`, `iat`, `jti` |
+| Refresh | HS256 | 7일 | `sessions` 컬렉션에 원본 저장 | `sub`, `sid`, `type=refresh`, `exp`, `iat`, `jti` |
 
 - `jti` — 매 발급마다 `secrets.token_urlsafe(16)` (replay 추적·취소 시 사용).
 - 서명 키: `JWT_SECRET_KEY` (위 시크릿 관리 참조).
@@ -154,11 +164,11 @@ hashed = bcrypt(plain + pepper, cost=12)
 1. `(str_refresh_token, bool_is_revoked=false)` 조건으로 `bool_is_revoked=true` + `str_replaced_by=<새 토큰>` 기록.
 2. CAS 승리자: 새 세션 insert 후 새 토큰 반환.
 3. CAS 패자(이미 revoked): `dt_rotated_at` 과 현재 시각의 차가 **5분 grace window** 이내면 → `str_replaced_by` 포인터를 따라가 replacement 세션 토큰을 반환(모바일 탭 suspend/재개 대응).
-4. grace window를 초과한 revoked 토큰 재사용: 진짜 **reuse 공격**으로 간주 → 해당 사용자의 **전체 세션 일괄 폐기**(전역 로그아웃).
+4. grace window를 초과한 이전 rotation 토큰은 해당 요청을 거부한다. 현재 로그인 식별자가 다른 토큰은 rotation 처리 전에 거부한다. 현재 로그인 식별자의 미등록 refresh 토큰 사용은 전체 세션 폐기 대상으로 처리한다.
 
 ### 로그아웃
 
-`POST /api/auth/logout`은 현재 사용자의 모든 `sessions` 문서를 revoke한다. 서버 측 세션 삭제로 access token이 만료될 때까지의 최대 15분 갭만 남음.
+`POST /api/auth/logout`은 현재 사용자의 refresh 세션을 폐기하고 활성 로그인 식별자를 비운다. 기존 access JWT와 미디어 티켓도 이후 요청에서 거부한다. 새 로그인 시 이전 로그인 식별자를 교체하므로 동일 계정의 이전 접속은 계속 사용할 수 없다.
 
 ### 세션 TTL
 
@@ -482,10 +492,10 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 
 ### 설계상 한계
 
-- **DB 미연결 시 anonymous admin** — 개발 편의용 fallback. 운영에서 PostgreSQL이 잠시라도 끊기면 인증이 우회될 수 있으므로 DB 장애 시 앱이 unhealthy 상태가 되도록 orchestrator 레벨에서 보장하고, 향후 fail-closed로 전환해야 한다.
+- **DB 미연결 시 인증 차단** — 인증 저장소가 연결되지 않으면 503을 반환한다. 로그인 세션 상태는 요청마다 DB에서 확인한다.
 - **AES-GCM 필드 암호화는 검색 불가** — 암호화된 필드로는 쿼리할 수 없음. 필요 시 HMAC 인덱스 컬럼 추가.
 - **Refresh rotation grace window 5분** — 너무 길면 reuse 탐지가 둔해지고, 너무 짧으면 모바일 백그라운드 탭이 깨어날 때 세션 무효화 경험. 현재 값은 경험적 절충.
-- **사용자 캐시 30초 TTL** — 관리자 변경은 즉시 무효화되지만, 일반 사용자 상태 변경(비밀번호 변경 등)은 최대 30초 지연 가능. 보안상 민감한 작업(비밀번호 변경)은 세션 revoke로 추가 방어.
+- **요청별 사용자 조회** — access JWT와 미디어 티켓에 대한 계정·세션·유휴 시각 검증은 캐시를 우회한다. 타일 요청이 많은 환경에서는 DB 풀과 지연 시간을 점검해야 한다.
 - **WebSocket 채널 없음** — 현재 모든 통신이 HTTP. 실시간 알림이 필요해지면 JWT over WS 설계 추가 필요.
 
 ### 취약점 대응 절차
@@ -595,7 +605,7 @@ CSRF, Rate Limiting 미들웨어는 ASGI 프로토콜 레벨에서 직접 구현
 | C-25 | 비밀번호 변경 시 세션 폐기 | IEC 81001-5-1 | §4 | 도메인 로직 (비밀번호 변경 → 세션 revoke) | ✅ |
 | C-26 | 토큰 재사용 탐지 | OWASP, 식약처 §4.1.6 | §3 | 인증·인가 레이어 (refresh CAS reuse 분기) | ✅ |
 | C-27 | 보안 이벤트 알림 | 식약처 §5.4 | — | (미구현 — 외부 SIEM 연동 권장) | ❌ |
-| C-28 | 자동 로그아웃 (idle) | IEC 81001-5-1 | §3 | 인증·인가 레이어 (Access 15분 + Refresh 7일) | ✅ |
+| C-28 | 자동 로그아웃 (idle) | IEC 81001-5-1 | §3 | 인증·인가 레이어 (서버 30분 무활동 검증 + 브라우저 입력 감지) | ✅ |
 | C-29 | 보안 헤더 (HSTS/CSP/XFO) | OWASP | §10 | (네트워크 레이어 — 리버스 프록시에서 추가 필요) | ❌ |
 | C-30 | 사이버보안 사고 대응 절차 | 식약처 §7, IEC 81001-5-1 | §13 | 본 문서 §13 "취약점 대응 절차" | ⚠ 문서화 |
 | C-31 | SBOM (Software Bill of Materials) | 식약처 §8, FDA 가이드 | — | 의존성 명세 + pip-audit 자동화 권장 | ⚠ 운영 |

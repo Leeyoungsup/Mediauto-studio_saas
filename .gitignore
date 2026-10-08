@@ -35,3 +35,4 @@ Philips_SDK/
 /deployment/native/.install-location.json
 /backend/annotations/*
 High_impactAI/
+security/

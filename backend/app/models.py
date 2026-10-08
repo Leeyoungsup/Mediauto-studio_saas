@@ -94,4 +94,7 @@ def create_user_document(
         "dt_created_at": dt_now,
         "dt_updated_at": dt_now,
         "dt_last_login": None,
+        "dt_password_changed_at": dt_now,
+        "str_active_session_id": "",
+        "dt_last_activity_at": None,
     }

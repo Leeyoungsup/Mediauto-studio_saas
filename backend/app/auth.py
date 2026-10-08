@@ -9,6 +9,7 @@ text text:
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from app.security_policy import check_session, password_change_required
 
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
@@ -62,13 +63,14 @@ def invalidate_user_cache(str_user_id: str = ""):
 
 
 # ── text text ──
-def create_access_token(str_user_id: str, str_role: str) -> str:
+def create_access_token(str_user_id: str, str_role: str, str_session_id: str = "") -> str:
     """Access Token text (text text)"""
     dt_expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
     dict_payload = {
         "sub": str_user_id,
+        "sid": str_session_id,
         "role": str_role,
         "type": TOKEN_TYPE_ACCESS,
         "exp": dt_expire,
@@ -82,13 +84,14 @@ def create_access_token(str_user_id: str, str_role: str) -> str:
     )
 
 
-def create_refresh_token(str_user_id: str) -> tuple:
+def create_refresh_token(str_user_id: str, str_session_id: str = "") -> tuple:
     """Refresh Token text (text text) → (token, expires_at)"""
     dt_expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
     dict_payload = {
         "sub": str_user_id,
+        "sid": str_session_id,
         "type": TOKEN_TYPE_REFRESH,
         "exp": dt_expire,
         "iat": datetime.now(timezone.utc),
@@ -172,12 +175,6 @@ async def get_current_user(request: Request) -> dict:
             detail="Invalid token payload",
         )
 
-    # text text — text text text text text DB text text
-    dict_cached = _get_cached_user(str_user_id)
-    if dict_cached is not None:
-        _check_user_state(dict_cached)
-        return dict_cached
-
     dict_user = await get_user_store().find_by_id(str_user_id, bool_include_secrets=False)
 
     if dict_user is None:
@@ -187,6 +184,11 @@ async def get_current_user(request: Request) -> dict:
         )
 
     _check_user_state(dict_user)
+    check_session(dict_user, dict_payload.get("sid", ""))
+    if password_change_required(dict_user) and request.url.path not in {
+        "/api/auth/change-password", "/api/auth/me", "/api/auth/logout", "/api/auth/activity",
+    }:
+        raise HTTPException(403, detail="PASSWORD_CHANGE_REQUIRED")
 
     # _idtext text text
     dict_user["_id"] = str(dict_user["_id"])
@@ -215,7 +217,8 @@ async def get_media_user(request: Request) -> dict:
     from app.url_signer import verify_media_ticket
 
     str_ticket = request.query_params.get("mt", "")
-    str_user_id = verify_media_ticket(str_ticket)
+    str_subject = verify_media_ticket(str_ticket)
+    str_user_id, _, str_ticket_session = (str_subject or "").partition(":")
     if not str_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -226,12 +229,6 @@ async def get_media_user(request: Request) -> dict:
     # DB text text text text
     if not is_auth_store_connected():
         raise HTTPException(503, "Authentication service unavailable")
-
-    # text text — text text text text DB text text
-    dict_cached = _get_cached_user(str_user_id)
-    if dict_cached is not None:
-        _check_user_state(dict_cached)
-        return dict_cached
 
     try:
         dict_user = await get_user_store().find_by_id(str_user_id, bool_include_secrets=False)
@@ -247,7 +244,11 @@ async def get_media_user(request: Request) -> dict:
             detail="User not found or inactive",
         )
 
+    # Signed subject is user_id:session_id. Legacy tickets cannot authorize a new session.
     _check_user_state(dict_user)
+    check_session(dict_user, str_ticket_session)
+    if password_change_required(dict_user):
+        raise HTTPException(403, detail="PASSWORD_CHANGE_REQUIRED")
     dict_user["_id"] = str(dict_user["_id"])
     dict_user = _normalize_user_role(dict_user)
     _set_cached_user(str_user_id, dict_user)
