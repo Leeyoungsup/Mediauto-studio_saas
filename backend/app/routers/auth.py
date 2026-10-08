@@ -9,6 +9,8 @@ text:
 
 import asyncio
 import re
+import secrets
+from app.security_policy import check_session, password_change_required, utc
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -22,6 +24,7 @@ from app.auth import (
     decode_token,
     get_current_user,
     require_role,
+    _check_user_state,
     TOKEN_TYPE_REFRESH,
 )
 from app.config import settings
@@ -33,9 +36,9 @@ from app.totp import generate_totp_secret, verify_totp, build_totp_uri
 router = APIRouter()
 
 # ── text ──
-PASSWORD_MIN_LENGTH = 8
+PASSWORD_MIN_LENGTH = 9
 PASSWORD_PATTERN = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{8,}$"
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{9,}$"
 )
 
 # Refresh token rotation grace window.
@@ -59,7 +62,7 @@ LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
 
 class RegisterRequest(BaseModel):
     str_login_id: str = Field(..., min_length=4, max_length=30)
-    str_password: str = Field(..., min_length=8, max_length=128)
+    str_password: str = Field(..., min_length=9, max_length=128)
     str_name: str = Field(..., min_length=1, max_length=100)
     str_department: str = Field(default="", max_length=100)
 
@@ -76,6 +79,7 @@ class TokenResponse(BaseModel):
     str_token_type: str = "bearer"
     int_expires_in: int
     dict_user: dict
+    bool_password_change_required: bool = False
 
 
 class MfaRequiredResponse(BaseModel):
@@ -103,7 +107,7 @@ async def register(body: RegisterRequest, request: Request):
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 8 characters and include letters, numbers, and a special character.",
+            detail="Password must be at least 9 characters and include letters, numbers, and a special character.",
         )
 
     obj_user_store = get_user_store()
@@ -189,7 +193,7 @@ async def login(body: LoginRequest, request: Request):
 
     # text text text
     if dict_user.get("bool_is_locked", False):
-        dt_locked_until = dict_user.get("dt_locked_until")
+        dt_locked_until = utc(dict_user.get("dt_locked_until"))
         if dt_locked_until and dt_locked_until > datetime.now(timezone.utc):
             int_remaining_minutes = int(
                 (dt_locked_until - datetime.now(timezone.utc)).total_seconds() / 60
@@ -222,17 +226,10 @@ async def login(body: LoginRequest, request: Request):
 
     # text text
     if not verify_password(body.str_password, dict_user["str_hashed_password"]):
-        int_attempts = dict_user.get("int_failed_login_attempts", 0) + 1
-        dict_update = {"$set": {"int_failed_login_attempts": int_attempts}}
-
-        if int_attempts >= settings.MAX_LOGIN_ATTEMPTS:
-            dt_lock_until = datetime.now(timezone.utc) + timedelta(
-                minutes=settings.ACCOUNT_LOCK_MINUTES
-            )
-            dict_update["$set"]["bool_is_locked"] = True
-            dict_update["$set"]["dt_locked_until"] = dt_lock_until
-
-        await obj_user_store.update_by_id(str(dict_user["_id"]), dict_update["$set"])
+        int_attempts = await obj_user_store.record_failed_login(
+            str_user_id, settings.MAX_LOGIN_ATTEMPTS,
+            datetime.now(timezone.utc) + timedelta(minutes=settings.ACCOUNT_LOCK_MINUTES),
+        )
 
         await log_audit_event(
             str_action="user.login_failed",
@@ -314,8 +311,14 @@ async def login(body: LoginRequest, request: Request):
     )
 
     # text text
-    str_access_token = create_access_token(str_user_id, dict_user["str_role"])
-    str_refresh_token, dt_refresh_expires = create_refresh_token(str_user_id)
+    str_session_id = secrets.token_urlsafe(32)
+    await obj_session_store.revoke_for_user(str_user_id)
+    await obj_user_store.update_by_id(str_user_id, {
+        "str_active_session_id": str_session_id,
+        "dt_last_activity_at": datetime.now(timezone.utc),
+    })
+    str_access_token = create_access_token(str_user_id, dict_user["str_role"], str_session_id)
+    str_refresh_token, dt_refresh_expires = create_refresh_token(str_user_id, str_session_id)
 
     # Refresh tokentext DBtext text (text text)
     await obj_session_store.insert({
@@ -341,6 +344,7 @@ async def login(body: LoginRequest, request: Request):
     asyncio.create_task(enrich_audit_with_geo(str_login_log_id, str_client_ip))
 
     return TokenResponse(
+        bool_password_change_required=password_change_required(dict_user),
         str_access_token=str_access_token,
         str_refresh_token=str_refresh_token,
         int_expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -388,9 +392,15 @@ async def refresh_token(body: RefreshRequest, request: Request):
             detail="User not found or deactivated",
         )
 
+    _check_user_state(dict_user)
+    str_session_id = dict_payload.get("sid", "")
+    check_session(dict_user, str_session_id)
+    if password_change_required(dict_user):
+        raise HTTPException(403, detail="PASSWORD_CHANGE_REQUIRED")
+
     # text text text text — CAS text replaced_by text text text text.
-    str_new_access = create_access_token(str_user_id, dict_user["str_role"])
-    str_new_refresh, dt_new_expires = create_refresh_token(str_user_id)
+    str_new_access = create_access_token(str_user_id, dict_user["str_role"], str_session_id)
+    str_new_refresh, dt_new_expires = create_refresh_token(str_user_id, str_session_id)
     dt_now = datetime.now(timezone.utc)
 
     # ── text CAS: active text revoked text text replacement text text ──
@@ -464,7 +474,7 @@ async def refresh_token(body: RefreshRequest, request: Request):
         if dict_repl is not None:
             # replacement text text → text access_token text text
             # text refresh_token text text text. rotation text text text.
-            str_grace_access = create_access_token(str_user_id, dict_user["str_role"])
+            str_grace_access = create_access_token(str_user_id, dict_user["str_role"], str_session_id)
             return TokenResponse(
                 str_access_token=str_grace_access,
                 str_refresh_token=str_replaced_by,
@@ -528,7 +538,7 @@ async def issue_media_ticket(dict_current_user: dict = Depends(get_current_user)
     """
     from app.url_signer import sign_media_ticket
 
-    return sign_media_ticket(str(dict_current_user["_id"]))
+    return sign_media_ticket(str(dict_current_user["_id"]) + ":" + dict_current_user["str_active_session_id"])
 
 
 # ── text text text ──
@@ -543,13 +553,14 @@ async def get_me(dict_current_user: dict = Depends(get_current_user)):
         "str_department": dict_current_user.get("str_department", ""),
         "dict_preferences": dict_current_user.get("dict_preferences", {}),
         "dt_last_login": dict_current_user.get("dt_last_login"),
+        "bool_password_change_required": password_change_required(dict_current_user),
     }
 
 
 # ── text text ──
 class ChangePasswordRequest(BaseModel):
     str_current_password: str = Field(..., min_length=1)
-    str_new_password: str = Field(..., min_length=8, max_length=128)
+    str_new_password: str = Field(..., min_length=9, max_length=128)
 
 
 @router.post("/change-password")
@@ -575,6 +586,8 @@ async def change_password(
             detail="Current password is incorrect",
         )
 
+    if verify_password(body.str_new_password, dict_user_full["str_hashed_password"]):
+        raise HTTPException(400, "New password must differ from the current password")
     str_new_hashed = hash_password(body.str_new_password)
     await obj_user_store.update_by_id(
         dict_current_user["_id"],
@@ -696,3 +709,27 @@ async def mfa_disable(
 async def mfa_status(dict_current_user: dict = Depends(get_current_user)):
     """text text MFA text text text."""
     return {"bool_mfa_enabled": dict_current_user.get("bool_mfa_enabled", False)}
+
+
+@router.post("/activity")
+async def record_activity(dict_current_user: dict = Depends(get_current_user)):
+    """Explicit foreground user activity; polling and token refresh never touch this clock."""
+    dt_cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.SESSION_INACTIVE_MINUTES)
+    if not await get_user_store().touch_activity(
+        dict_current_user["_id"], dict_current_user["str_active_session_id"], dt_cutoff,
+    ):
+        raise HTTPException(401, "Session expired")
+    return {"int_idle_timeout_seconds": settings.SESSION_INACTIVE_MINUTES * 60}
+
+
+class DownloadIntentRequest(BaseModel):
+    str_reason: str = Field(..., min_length=2, max_length=200)
+    str_filename: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/download-intent")
+async def download_intent(body: DownloadIntentRequest, request: Request,
+                          dict_current_user: dict = Depends(get_current_user)):
+    from app.download_security import record_download
+    await record_download(request, dict_current_user, body.str_filename, body.str_reason)
+    return {"str_status": "recorded"}

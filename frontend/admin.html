@@ -7,6 +7,7 @@
     <link rel="icon" href="assets/app_icon.ico">
     <link rel="stylesheet" href="css/shared-header.css?v=20260901-01">
     <link rel="stylesheet" href="css/admin.css?v=20260914-audit-01">
+    <script src="/js/security-session.js?v=20261008-01"></script>
 </head>
 <body>
     <div id="shared-header-root"></div>
@@ -115,7 +116,7 @@
                 </div>
                 <div class="form-row">
                     <label for="new-password">Password *</label>
-                    <input type="password" id="new-password" required minlength="8"
+                    <input type="password" id="new-password" required minlength="9"
                            pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
                            placeholder="8+ chars with upper/lowercase, number, and special character"
                            title="Use at least 8 characters with uppercase, lowercase, number, and special character">
@@ -268,7 +269,7 @@
             </div>
             <div class="form-row">
                 <label for="edit-password">New Password</label>
-                <input type="password" id="edit-password" minlength="8"
+                <input type="password" id="edit-password" minlength="9"
                        pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
                        placeholder="Leave blank, or use 8+ chars with upper/lowercase, number, special"
                        title="Leave blank to keep current password, or use at least 8 characters with uppercase, lowercase, number, and special character">

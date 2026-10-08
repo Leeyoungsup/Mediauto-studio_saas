@@ -34,10 +34,10 @@ LIST_RUNTIME_DIRS = (
     "dicom_cache",
     "model",
 )
-STR_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$")
+STR_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$")
 DICT_DEFAULT_BOOTSTRAP_ADMIN = {
     "MEDIAUTO_BOOTSTRAP_ADMIN_ID": "admin",
-    "MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD": "urban12!@",
+    "MEDIAUTO_BOOTSTRAP_ADMIN_PASSWORD": "urban123!@",
     "MEDIAUTO_BOOTSTRAP_ADMIN_NAME": "Administrator",
     "MEDIAUTO_BOOTSTRAP_ADMIN_DEPARTMENT": "",
 }
@@ -309,7 +309,7 @@ def _check_philips_if_enabled() -> list[str]:
 def _bootstrap_admin_document(str_login_id: str, str_password: str, str_name: str, str_department: str) -> dict:
     from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 
-    return create_user_document(
+    document = create_user_document(
         str_login_id=str_login_id,
         str_hashed_password=hash_password(str_password),
         str_name=str_name,
@@ -319,6 +319,8 @@ def _bootstrap_admin_document(str_login_id: str, str_password: str, str_name: st
         bool_is_active=True,
         str_approved_by="bootstrap",
     )
+    document["dt_password_changed_at"] = None  # Mandatory replacement of the installation password.
+    return document
 
 
 async def _check_postgres_and_admin(
@@ -343,6 +345,8 @@ async def _check_postgres_and_admin(
             str_error = "PostgreSQL already contains users; automatic admin creation was refused."
             _log("ERROR", str_error)
             return False, str_error
+        if not STR_PASSWORD_PATTERN.match(str_password):
+            return False, "Bootstrap admin password must contain at least 9 characters, letters, numbers and special characters."
         await obj_users.insert(
             _bootstrap_admin_document(
                 str_login_id, str_password, str_name, str_department,
@@ -365,10 +369,6 @@ def _check_database_and_admin(settings, bool_skip_db: bool) -> tuple[bool, str]:
     bool_explicit, str_login_id, str_password, str_name, str_department = _admin_bootstrap_values()
     if not all((str_login_id, str_password, str_name)):
         str_error = "Admin bootstrap requires ID, password, and name environment variables."
-        _log("ERROR", str_error)
-        return False, str_error
-    if not STR_PASSWORD_PATTERN.match(str_password):
-        str_error = "Bootstrap admin password does not meet the application password policy."
         _log("ERROR", str_error)
         return False, str_error
 

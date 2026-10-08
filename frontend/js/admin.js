@@ -113,6 +113,7 @@ async function authFetch(path, options = {}) {
     }
     if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
+        if (data.detail === 'PASSWORD_CHANGE_REQUIRED') { location.href = '/profile'; return null; }
         alert(data.detail || 'Permission denied.');
         location.href = '/ai';
         return null;

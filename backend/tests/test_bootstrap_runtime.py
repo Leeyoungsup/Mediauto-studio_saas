@@ -64,7 +64,7 @@ class BootstrapRuntimeTests(unittest.TestCase):
 
         self.assertFalse(bool_explicit)
         self.assertEqual(str_login_id, "admin")
-        self.assertEqual(str_password, "urban12!@")
+        self.assertEqual(str_password, "urban123!@")
         self.assertEqual(str_name, "Administrator")
         self.assertEqual(str_department, "")
 

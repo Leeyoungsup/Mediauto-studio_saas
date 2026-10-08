@@ -26,7 +26,7 @@ from app.repositories.operational_store import (
 
 LOGIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_]{4,30}$")
 PASSWORD_PATTERN = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{8,}$"
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).{9,}$"
 )
 
 router = APIRouter()
@@ -192,7 +192,7 @@ async def reject_user(
 # ── text text text (Admintext) ──
 class CreateUserRequest(BaseModel):
     str_login_id: str = Field(..., min_length=4, max_length=30)
-    str_password: str = Field(..., min_length=8, max_length=128)
+    str_password: str = Field(..., min_length=9, max_length=128)
     str_name: str = Field(..., min_length=1, max_length=100)
     str_department: str = Field(default="", max_length=100)
     str_role: str = Field(default="viewer", pattern="^(admin|doctor|labeler|viewer)$")
@@ -210,7 +210,7 @@ async def create_user(
     if not PASSWORD_PATTERN.match(body.str_password):
         raise HTTPException(
             400,
-            "Password must be at least 8 characters and include letters, numbers, and a special character.",
+            "Password must be at least 9 characters and include letters, numbers, and a special character.",
         )
 
     obj_user_store = get_user_store()
@@ -253,7 +253,7 @@ class UpdateUserRequest(BaseModel):
     str_user_id: str
     str_name: str = Field(None, max_length=100)
     str_department: str = Field(None, max_length=100)
-    str_password: str = Field(None, min_length=8, max_length=128)
+    str_password: str = Field(None, min_length=9, max_length=128)
 
 
 class UpdateMyProfileRequest(BaseModel):
@@ -408,7 +408,7 @@ async def update_user(
         if not PASSWORD_PATTERN.match(body.str_password):
             raise HTTPException(
                 400,
-                "Password must be at least 8 characters and include letters, numbers, and a special character.",
+                "Password must be at least 9 characters and include letters, numbers, and a special character.",
             )
         dict_updates["str_hashed_password"] = hash_password(body.str_password)
         dict_before["str_password"] = "********"

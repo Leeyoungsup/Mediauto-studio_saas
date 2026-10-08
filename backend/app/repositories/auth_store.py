@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 
 from app.postgres.database import get_postgres_session, is_postgres_connected
 from app.postgres.models import Session, User
@@ -30,6 +30,9 @@ _TUPLE_USER_FIELDS = (
     "dt_created_at",
     "dt_updated_at",
     "dt_last_login",
+    "dt_password_changed_at",
+    "str_active_session_id",
+    "dt_last_activity_at",
 )
 _TUPLE_SESSION_FIELDS = (
     "str_user_id",
@@ -95,12 +98,36 @@ class PostgresUserStore:
 
     async def update_by_id(self, str_user_id: str, dict_values: dict) -> bool:
         dict_allowed = {str_key: obj_value for str_key, obj_value in dict_values.items() if str_key in _TUPLE_USER_FIELDS}
+        if "str_hashed_password" in dict_allowed:
+            dict_allowed["dt_password_changed_at"] = datetime.now(timezone.utc)
+            dict_allowed["str_active_session_id"] = ""
         if not dict_allowed:
             return False
         async with get_postgres_session() as obj_session:
             result = await obj_session.execute(
                 update(User).where(User.str_id == str_user_id).values(**dict_allowed)
             )
+            return bool(result.rowcount)
+
+    async def record_failed_login(self, str_user_id: str, int_limit: int, dt_lock_until: datetime) -> int:
+        # Increment under the database row lock: simultaneous failures cannot lose counts.
+        int_next = User.int_failed_login_attempts + 1
+        async with get_postgres_session() as obj_session:
+            result = await obj_session.scalar(update(User).where(User.str_id == str_user_id).values(
+                int_failed_login_attempts=int_next,
+                bool_is_locked=case((int_next >= int_limit, True), else_=User.bool_is_locked),
+                dt_locked_until=case((int_next >= int_limit, dt_lock_until), else_=User.dt_locked_until),
+            ).returning(User.int_failed_login_attempts))
+            return int(result or 0)
+
+    async def touch_activity(self, str_user_id: str, str_session_id: str, dt_cutoff: datetime) -> bool:
+        async with get_postgres_session() as obj_session:
+            result = await obj_session.execute(update(User).where(
+                User.str_id == str_user_id,
+                User.str_active_session_id == str_session_id,
+                User.dt_last_activity_at > dt_cutoff,
+                User.bool_is_active.is_(True),
+            ).values(dt_last_activity_at=datetime.now(timezone.utc)))
             return bool(result.rowcount)
 
     async def delete_by_id(self, str_user_id: str) -> bool:
@@ -207,6 +234,7 @@ class PostgresSessionStore:
         if bool_only_active:
             obj_query = obj_query.where(Session.bool_is_revoked.is_(False))
         async with get_postgres_session() as obj_session:
+            await obj_session.execute(update(User).where(User.str_id == str_user_id).values(str_active_session_id=""))
             result = await obj_session.execute(obj_query.values(bool_is_revoked=True))
             return int(result.rowcount or 0)
 

@@ -781,6 +781,8 @@ def _remove_temporary_export(path: str) -> None:
 @router.get("/projects/{project_path}/termination-export")
 async def download_termination_completed_cell_patches(
     project_path: str,
+    request: Request,
+    reason: str = Query(..., min_length=2, max_length=200),
     dict_user: dict = Depends(get_current_user),
 ):
     """Download termination-completed cell patches and their paired JSON labels.
@@ -794,6 +796,8 @@ async def download_termination_completed_cell_patches(
     if str_login_id != "youngseoplee" and str_user_name != "youngseoplee":
         raise HTTPException(403, "Termination export is restricted to the YoungSeopLee account")
 
+    from app.download_security import record_download
+    await record_download(request, dict_user, project_path, reason)
     str_project = _safe_project_name(project_path)
     project_dir = safe_subpath(str_project)
     db = _require_db()

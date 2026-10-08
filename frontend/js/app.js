@@ -2269,6 +2269,12 @@ async function _downloadAnnotations() {
         baseName = currentSlideInfo.filename.replace(/\.[^.]+$/, '') + '_roi';
     }
     const suggestedName = `${baseName}.json`;
+    try {
+        if (!await window.MediautoSecurity.authorizeExport(suggestedName)) return;
+    } catch (err) {
+        setStatus(err.message);
+        return;
+    }
 
     if (window.showSaveFilePicker) {
         try {
