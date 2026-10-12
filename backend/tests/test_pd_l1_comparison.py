@@ -359,3 +359,24 @@ def test_json_failure_keeps_db_record_and_same_measurement_retry_repairs_file(cl
     assert client.post('/comparison/records', headers=HEADERS, json=body).status_code == 200
     files = list(Path(settings.COMPARISON_DIR).rglob('account_*.json'))
     assert len(files) == 1 and len(json.loads(files[0].read_text())['measurements']) == 1
+
+
+def test_completion_status_is_account_and_project_specific(client):
+    assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == []
+    assert client.post('/comparison/records', headers=HEADERS, json=measurement()).status_code == 200
+    status = client.get('/comparison/completed?project_path=project-one').json()
+    assert status == {'user_id':'doctor-one','slide_ids':['slide-one']}
+    assert client.get('/comparison/completed?project_path=other-project').json()['slide_ids'] == []
+    client.app_under_test.dependency_overrides[get_current_user] = lambda: {'_id':'doctor-two','str_role':'doctor'}
+    assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == []
+    assert client.post('/comparison/records', headers=HEADERS, json=measurement()).status_code == 200
+    assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == ['slide-one']
+    assert client.post('/comparison/records', headers=HEADERS, json=measurement()).status_code == 200
+    assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == ['slide-one']
+
+
+def test_completed_list_does_not_require_opening_slides(client, monkeypatch):
+    assert client.post('/comparison/records', headers=HEADERS, json=measurement()).status_code == 200
+    monkeypatch.setattr(routes.slide_manager, 'get', lambda identifier: None)
+    assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == ['slide-one']
+    assert client.get('/comparison/completed?project_path=../project-one').status_code == 400

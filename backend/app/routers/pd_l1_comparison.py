@@ -18,7 +18,7 @@ from app.config import settings
 from app.comparison_files import write_comparison_json
 from app.ai_pipelines.scoring import PD_SCORE_CONFIG
 from app.database import get_db, is_db_connected
-from app.path_utils import rel_path_for
+from app.path_utils import rel_path_for, safe_filename
 from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
 from app.repositories.application_store import PostgresDocumentCollection
@@ -196,3 +196,13 @@ async def list_comparisons(slide_id: str = Query(min_length=1, max_length=64),
     for record in records:
         latest.setdefault(record["user_id"], record)
     return {"records": list(latest.values())[:limit]}
+
+
+@router.get("/completed")
+async def completed_slides(project_path: str = Query(min_length=1, max_length=256),
+                           user=Depends(get_current_user)):
+    project = safe_filename(project_path)
+    records = await store().find({"kind": "comparison", "project_path": project,
+                                  "user_id": user["_id"]}).to_list(length=None)
+    return {"user_id": user["_id"],
+            "slide_ids": sorted({record["slide_id"] for record in records})}

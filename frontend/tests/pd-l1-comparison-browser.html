@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>PD-L1 comparison browser verification</title>
-<link rel="stylesheet" href="/css/shared-header.css?v=20261012-pdl1-01">
-<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261012-pdl1-09">
+<link rel="stylesheet" href="/css/shared-header.css?v=20261012-knuch-logo-01">
+<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261012-pdl1-11">
 <style>body{margin:0;background:#f4f3fa;font-family:Arial,sans-serif}main{display:grid;grid-template-columns:1fr 420px;gap:24px;padding:24px}.test-results{background:white;border-radius:12px;padding:20px}li{margin:14px 0;color:#146c43}.failure{color:#b42318}</style></head>
 <body><div id="shared-header-root"></div><main><section class="test-results"><h1>PD-L1 비교 브라우저 검증</h1><p>실제 화면 모듈 · 테스트 데이터와 시계 사용</p><div id="watch"></div><ol id="results"></ol></section><aside id="fixture"></aside></main>
-<script src="/js/shared-header.js?v=20261012-pdl1-01"></script>
+<script src="/js/shared-header.js?v=20261012-knuch-logo-01"></script>
 <script type="module">
-import { TileViewer } from '/js/tile-viewer.js?v=20261012-pdl1-09';
-import { api } from '/js/api.js?v=20261012-pdl1-09';
-import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261012-pdl1-09';
+import { TileViewer } from '/js/tile-viewer.js?v=20261012-pdl1-11';
+import { api } from '/js/api.js?v=20261012-pdl1-11';
+import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261012-pdl1-11';
 const results=document.getElementById('results');let passed=0;
 function check(condition,text){if(!condition)throw Error(text);const row=document.createElement('li');row.textContent=text;results.append(row);passed++;}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -30,9 +30,9 @@ try{
  api.readPdl1Json=(slide,tissue,options)=>new Promise((resolve,reject)=>{readResolvers.push({slide,tissue,resolve,reject});});
  let saves=0;
  api.savePdl1Comparison=async body=>{calls.push({...body});if(++saves===1)throw Error('Temporary network failure');const record={...body,_id:'record',user_id:'doctor-one',user_name:'Specialist A',filename:'anonymous.svs',score_type:'CPS',ai_json_elapsed_ms:18.25,ai_percentage:45,dt_created_at:new Date().toISOString()};records=[record];return record;};
- let displayResolvers=[], displayed=[], overviewResolve;
+ let displayResolvers=[], displayed=[], overviewResolve, savedEvents=[];
  let firstOverview=true;
- const comparison=createPdl1Comparison({waitForOverview:()=>firstOverview?(firstOverview=false,new Promise(resolve=>overviewResolve=resolve)):Promise.resolve(),displayResult:(result,context)=>new Promise(resolve=>{
+ const comparison=createPdl1Comparison({onSaved:record=>savedEvents.push(record),waitForOverview:()=>firstOverview?(firstOverview=false,new Promise(resolve=>overviewResolve=resolve)):Promise.resolve(),displayResult:(result,context)=>new Promise(resolve=>{
    displayed.push({result,context});displayResolvers.push(resolve);
  })});comparison.setUser({str_role:'doctor'});
  comparison.openSlide({slideId:'slide-one',project:'project-one',filename:'anonymous.svs'});
@@ -60,9 +60,11 @@ try{
  now+=2000;displayResolvers.shift()();
  await until(()=>document.querySelector('[data-message]').textContent.includes('저장 실패'));
  check(calls[0].ai_result_elapsed_ms===77000&&calls[0].ai_timing_basis==='slide_entry_to_display','AI result 시간에 초기 타일 대기·요청·전송·화면 처리 모두 포함');
+ check(savedEvents.length===0,'저장 실패 시 완료 이벤트를 발생시키지 않음');
  check(calls[0].specialist_elapsed_ms===70000,'전문의 기록에 JSON 대기·저장 시간 미포함');
  now+=7000;form.requestSubmit();await until(()=>document.querySelector('[data-message]').textContent.startsWith('저장했습니다'));
  check(calls.length===2&&calls[1].run_id===calls[0].run_id&&calls[1].specialist_elapsed_ms===70000,'저장 실패 재시도에 같은 측정 ID·시간 유지');
+ check(savedEvents.length===1&&savedEvents[0].user_id==='doctor-one','서버 저장 성공 시 해당 계정의 완료 이벤트 발생');
  await until(()=>document.querySelector('.pdl1-history-record'));
  check(document.querySelector('.pdl1-history-record').textContent.includes('anonymous.svs'),'서버 기록 재조회 표시');
  check(!document.querySelector('[data-history-section]').hidden&&document.querySelector('.pdl1-history-record strong').textContent==='Specialist A','기록 저장 후 계정명과 함께 표시');

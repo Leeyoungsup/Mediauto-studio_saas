@@ -105,6 +105,9 @@
             <header class="shared-header">
                 <div class="shared-header-inner">
                     <div class="shared-brand">
+                        <span class="shared-hospital-brand">
+                            <img src="/assets/칠곡경북대병원_logo.png" alt="칠곡경북대학교병원" class="shared-hospital-logo">
+                        </span>
                         <a href="/home" class="shared-brand-home" aria-label="MeDIAuto Studio home">
                             <img src="assets/logo.png" alt="MeDIAuto Studio" class="shared-logo">
                         </a>

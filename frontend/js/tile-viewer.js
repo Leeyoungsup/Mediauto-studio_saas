@@ -10,7 +10,7 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20261012-pdl1-09';
+import { api } from './api.js?v=20261012-pdl1-11';
 import { fixedAreaCoordinates, annotationAreaLabel } from './annotation-area.js?v=20260914-area-toggle-01';
 
 const TILE_SIZE = 1024;

@@ -363,6 +363,13 @@ export const api = {
         return _jsonOrThrow(response, 'Comparison save failed');
     },
 
+    async listCompletedPdl1Slides(projectPath, options = {}) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/completed?project_path=${encodeURIComponent(projectPath)}`, {
+            signal: options.signal,
+        });
+        return _jsonOrThrow(response, 'Comparison completion status unavailable');
+    },
+
     async listPdl1Comparisons(slideId) {
         const response = await _authFetch(`${API_BASE}/pd-l1-comparison/records?slide_id=${encodeURIComponent(slideId)}`);
         return _jsonOrThrow(response, 'Comparison history unavailable');

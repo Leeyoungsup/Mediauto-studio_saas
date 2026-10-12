@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261012-pdl1-09';
+import { api } from './api.js?v=20261012-pdl1-11';
 import { esc } from './common-utils.js?v=20260604-01';
 
 export function formatStopwatch(ms) {
@@ -30,7 +30,7 @@ export class AssessmentClock {
     }
 }
 
-export function createPdl1Comparison({ displayResult, waitForOverview } = {}) {
+export function createPdl1Comparison({ displayResult, waitForOverview, onSaved } = {}) {
     const root = document.getElementById('pdl1-comparison-panel');
     const watch = document.getElementById('pdl1-stopwatch');
     if (!root || !watch) return null;
@@ -191,6 +191,7 @@ export function createPdl1Comparison({ displayResult, waitForOverview } = {}) {
                 ai_result_elapsed_ms: ai?.ai_result_elapsed_ms ?? null,
                 ai_timing_basis: 'slide_entry_to_display', ...frozenInput,
             });
+            onSaved?.(record);
             if (version !== generation) return;
             saved = true; summary.hidden = false;
             const ratio = record.ai_result_elapsed_ms > 0 ? record.specialist_elapsed_ms / record.ai_result_elapsed_ms : null;

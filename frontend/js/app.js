@@ -1,4 +1,4 @@
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-09';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-11';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
@@ -8,8 +8,8 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20261012-pdl1-09';
-import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-09';
+import { api } from './api.js?v=20261012-pdl1-11';
+import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-11';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -234,6 +234,12 @@ let lastSegData = null;  // segmentation overlay data from epithelial classifica
 let viewer = new AiViewer($canvas, $overlay);
 const _primaryViewer = viewer;
 const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison({
+    onSaved(record) {
+        if (record.user_id !== window.__currentUserId || record.project_path !== _getCurrentProjectName()) return;
+        _pdl1CompletedSlideIds.add(record.slide_id);
+        _pdl1CompletionVersion++;
+        $slideList.querySelectorAll('.slide-list-item[data-slide-id]').forEach(_updateComparisonBadge);
+    },
     async waitForOverview(context, signal) {
         if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
         await viewer.whenOverviewReady(signal);
@@ -4431,6 +4437,8 @@ if ($rightResizer && $rightPanel) {
 
 let currentBrowsePath = '';
 let _projectListCache = [];
+let _pdl1CompletedSlideIds = new Set();
+let _pdl1CompletionVersion = 0;
 let _projectGatePage = 1;
 let _projectGateSort = { key: 'name', dir: 'asc' };
 const $breadcrumb = $('#folder-breadcrumb');
@@ -4896,10 +4904,24 @@ async function loadSlideList() {
     const str_request_path = currentBrowsePath;
     const controller = _beginLatestRead('slide-list');
     try {
-        const data = await api.browse(str_request_path, { signal: controller.signal });
+        const completionVersion = _pdl1CompletionVersion;
+        const [data, completed] = await Promise.all([
+            api.browse(str_request_path, { signal: controller.signal }),
+            IS_PDL1_COMPARISON && str_request_path
+                ? api.listCompletedPdl1Slides(str_request_path.split('/')[0], { signal: controller.signal })
+                    .catch(() => null)
+                : Promise.resolve(null),
+        ]);
         // Folder changes can overlap. Never render an older folder response
         // using the path of the folder that is active now.
         if (int_request_seq !== _slideListRequestSeq || str_request_path !== currentBrowsePath) return;
+        if (IS_PDL1_COMPARISON) {
+            const confirmed = completed?.user_id === window.__currentUserId ? completed.slide_ids : [];
+            _pdl1CompletedSlideIds = new Set([
+                ...confirmed,
+                ...(_pdl1CompletionVersion !== completionVersion ? _pdl1CompletedSlideIds : []),
+            ]);
+        }
         _lastBrowseData = data || { path: str_request_path, folders: [], slides: [] };
         _lastBrowseData.path = str_request_path;
         renderSlideList(_lastBrowseData);
@@ -5002,6 +5024,27 @@ function _createSlideLabelThumb(filename, path) {
     return img;
 }
 
+function _updateComparisonBadge(item) {
+    if (!IS_PDL1_COMPARISON) return;
+    const completed = _pdl1CompletedSlideIds.has(item.dataset.slideId);
+    item.classList.toggle('comparison-completed', completed);
+    const old = item.querySelector('.pdl1-completed-badge');
+    if (!completed) { old?.remove(); return; }
+    if (old) return;
+    const badge = document.createElement('span');
+    badge.className = 'pdl1-completed-badge';
+    badge.textContent = '✓ 내 평가 완료';
+    badge.title = '현재 로그인한 계정으로 비교 결과를 저장한 슬라이드입니다.';
+    const name = item.querySelector('.slide-list-name');
+    if (!name) return;
+    let stack = item.querySelector('.pdl1-slide-name-stack');
+    if (!stack) {
+        stack = document.createElement('div'); stack.className = 'pdl1-slide-name-stack';
+        name.replaceWith(stack); stack.appendChild(name);
+    }
+    stack.appendChild(badge);
+}
+
 function renderSlideList(data = _lastBrowseData) {
         _slideLabelObserver?.disconnect();
         _slideLabelObserver = null;
@@ -5089,6 +5132,7 @@ function renderSlideList(data = _lastBrowseData) {
             nameWrap.className = 'slide-name-cell';
             nameWrap.append(thumb, labelThumb, name);
             item.append(nameWrap);
+            _updateComparisonBadge(item);
 
             if (strSlideStatus) {
                 const statusMeta = {
@@ -6268,7 +6312,7 @@ $btnVsSplit?.addEventListener('click', () => {
         });
         pdl1Comparison?.setUser(dict_me);
         window.__currentUserRole = normalizedRole;
-        window.__currentUserId = String(dict_me._id || '');
+        window.__currentUserId = String(dict_me.str_id || dict_me._id || '');
         if (window.__currentUserRole === 'viewer') {
             _applyViewerRoleRestrictions();
         }

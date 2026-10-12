@@ -51,3 +51,9 @@
 #pdl1-comparison-panel .pdl1-history:empty { display: none; }
 .pd-l1-comparison-page #pdl1-comparison-panel { flex: 0 0 auto; }
 .pd-l1-comparison-page #right-panel > :not(#pdl1-comparison-panel) { display: none !important; }
+
+.pdl1-completed-badge { display: block; width: max-content; max-width: 100%; margin-top: 5px; padding: 3px 6px; border-radius: 5px; background: #d8f3e2; color: #17653c; font-size: 10px; font-weight: 700; line-height: 1.4; }
+.slide-list.grid-view .pdl1-completed-badge { margin-left: auto; margin-right: auto; }
+
+.pdl1-slide-name-stack { min-width: 0; flex: 1; }
+.slide-list.grid-view .pdl1-slide-name-stack { width: 100%; }
