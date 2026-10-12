@@ -1,3 +1,4 @@
+import { setQuantiFormula, setQuantiCountFormula } from './quanti-formula.js?v=20261012-02';
 import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
  * MeDIAuto Studio SaaS annotation entry point.
@@ -5205,6 +5206,8 @@ function _updateResultCounts() {
         const id = parseInt(idStr);
         el.textContent = _formatCountWithRatio(counts[id] || 0, total);
     }
+    setQuantiCountFormula($resultList.parentElement.querySelector('.panel-header'), counts,
+        !_lastDetectionResult.pd_score && !_lastDetectionResult.her2_score && !_lastDetectionResult.allred_score && !_lastDetectionResult.ki67_score);
     _updatePdScoreDisplay(counts);
     _updateHer2ScoreDisplay(counts);
     _updateAllredScoreDisplay(counts);
@@ -5217,6 +5220,7 @@ function _updatePdScoreDisplay(counts) {
 
     const scoreType = _lastDetectionResult.pd_score.score_type;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    setQuantiFormula($pdScoreResult, scoreType, c);
 
     if (scoreType === 'CPS') {
         const posTumor = c[3] || 0;
@@ -5262,6 +5266,7 @@ function _updateHer2ScoreDisplay(counts) {
     if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
     if (!_lastDetectionResult || !_lastDetectionResult.her2_score) return;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    setQuantiFormula($ihcScoreResult, 'HER2', c);
     const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
     const total = n0 + n1 + n2 + n3;
     const weighted = total === 0 ? 0 : (0 * n0 + 1 * n1 + 2 * n2 + 3 * n3) / total;
@@ -5313,6 +5318,7 @@ function _updateAllredScoreDisplay(counts) {
     if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
     if (!_lastDetectionResult || !_lastDetectionResult.allred_score) return;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    setQuantiFormula($ihcScoreResult, 'Allred', c);
     const a = _computeAllredFromCounts(c);
     const marker = _lastDetectionTissue || 'ER/PR';
     const markerLabel = marker === 'ER_PR' ? 'ER/PR' : marker;
@@ -5340,6 +5346,7 @@ function _updateKi67ScoreDisplay(counts) {
     if (!$ihcScoreResult || $ihcScoreResult.hidden) return;
     if (!_lastDetectionResult || !_lastDetectionResult.ki67_score) return;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
+    setQuantiFormula($ihcScoreResult, 'KI-67', c);
     const n0 = c[0] || 0, n1 = c[1] || 0, n2 = c[2] || 0, n3 = c[3] || 0;
     const total = n0 + n1 + n2 + n3;
     const pos = n1 + n2 + n3;
@@ -5363,6 +5370,7 @@ function _updateKi67ScoreDisplay(counts) {
 
 function buildResultList(result) {
     $resultList.innerHTML = '';
+    setQuantiCountFormula($resultList.parentElement.querySelector('.panel-header'), {}, false);
 
     let counts, total;
     if (viewer.detectionCells && viewer.detectionCells.length) {
@@ -5375,6 +5383,9 @@ function buildResultList(result) {
             total++;
         }
     }
+
+    setQuantiCountFormula($resultList.parentElement.querySelector('.panel-header'), counts,
+        !result.pd_score && !result.her2_score && !result.allred_score && !result.ki67_score);
 
     const classCbs = {};
     const perClassCountEls = {};
@@ -5464,6 +5475,7 @@ function buildResultList(result) {
 
 function clearResults() {
     $resultList.innerHTML = '';
+    setQuantiCountFormula($resultList.parentElement.querySelector('.panel-header'), {}, false);
     $btnVisualize.disabled = true;
     $btnClearResults.disabled = true;
     $btnSaveResults.disabled = true;

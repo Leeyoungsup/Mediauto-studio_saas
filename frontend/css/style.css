@@ -6036,3 +6036,35 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
 .fixed-area-menu button:hover, .fixed-area-menu button:focus-visible { background: #475569; }
 .fixed-area-menu button[aria-checked="true"] { background: #2563eb; }
 .ann-area { grid-column: 1 / -1; font-size: 11px; color: #64748b; white-space: nowrap; }
+
+/* Out-of-flow formula controls preserve Quanti card dimensions. */
+.score-card { position: relative; }
+.quanti-formula-trigger {
+    position: absolute; top: 2px; right: 12px;
+    border: 0; padding: 0 3px; background: transparent; color: #fff;
+    font-weight: 600; font-family: inherit; font-size: 10px; line-height: 12px;
+    cursor: pointer; opacity: .9;
+}
+.quanti-formula-trigger:hover { opacity: 1; text-decoration: underline; }
+.quanti-formula-trigger:focus-visible { outline: 2px solid #fff; outline-offset: 1px; border-radius: 3px; }
+.quanti-formula-popover {
+    position: fixed; z-index: 10000; box-sizing: border-box;
+    width: min(350px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
+    padding: 16px; border: 1px solid #dcd8f3; border-radius: 12px;
+    background: #fff; color: #25304b; box-shadow: 0 8px 30px #1b174b33;
+    font: 12px/1.55 system-ui, sans-serif; overflow-wrap: anywhere;
+}
+.quanti-formula-popover h3 { margin: 0 0 10px; font-size: 14px; color: #5143bc; }
+.quanti-formula-popover p { margin: 8px 0; }
+.quanti-equation { margin: 12px 0; padding: 10px 4px; overflow-x: auto; }
+.quanti-equation-primary { padding: 16px 8px; background: #f2f0fc; border-radius: 8px; }
+.quanti-equation math { font-size: 17px; color: #25304b; }
+.quanti-equation-primary math { font-size: 20px; }
+.quanti-formula-popover .quanti-symbols { font-size: 11px; line-height: 1.65; color: #58617a; }
+.quanti-formula-close { display: block; margin-left: auto; padding: 4px 10px; border: 1px solid #dcd8f3; border-radius: 5px; background: #f2f0fc; color: #5143bc; cursor: pointer; }
+
+.quanti-count-formula-host { position: relative; }
+.quanti-count-formula-host .quanti-formula-trigger {
+    top: 50%; right: 40px; transform: translateY(-50%); color: var(--accent, #6c5ce7);
+}
+.quanti-formula-trigger[hidden] { display: none; }
