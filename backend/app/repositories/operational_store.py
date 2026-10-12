@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
 from app.postgres.database import get_postgres_session, is_postgres_connected
 from app.postgres.models import AuditIntegritySeal, AuditLog, CaseClinicalInfo, IpGeoCache
+from app.encryption import encrypt_json, decrypt_json
 
 
 _AUDIT_FIELDS = (
@@ -105,6 +106,7 @@ def _clinical_model_to_dict(obj_info: CaseClinicalInfo) -> dict:
     dict_info = {"_id": obj_info.str_id}
     for str_field in _CLINICAL_FIELDS:
         dict_info[str_field] = getattr(obj_info, str_field)
+    dict_info["dict_clinical_info"] = decrypt_json(dict_info["dict_clinical_info"] or {})
     return dict_info
 
 
@@ -255,13 +257,14 @@ class PostgresClinicalInfoStore:
     async def insert(self, dict_info: dict) -> str:
         str_id = str(dict_info.get("_id") or _new_id())
         dict_values = {str_field: dict_info[str_field] for str_field in _CLINICAL_FIELDS if str_field in dict_info}
+        dict_values["dict_clinical_info"] = encrypt_json(dict_values.get("dict_clinical_info") or {})
         async with get_postgres_session() as obj_session:
             obj_session.add(CaseClinicalInfo(str_id=str_id, **dict_values))
         return str_id
 
     async def upsert(self, str_case_name: str, dict_clinical_info: dict, dt_now: datetime) -> None:
         obj_statement = postgres_insert(CaseClinicalInfo).values(
-            id=_new_id(), str_case_name=str_case_name, dict_clinical_info=dict_clinical_info,
+            id=_new_id(), str_case_name=str_case_name, dict_clinical_info=encrypt_json(dict_clinical_info),
             dt_created_at=dt_now, dt_updated_at=dt_now,
         )
         async with get_postgres_session() as obj_session:

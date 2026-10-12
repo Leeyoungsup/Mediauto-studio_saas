@@ -204,7 +204,9 @@ if _cors_origins:
 # CSRF text — text text text X-Requested-With text text
 # Rate Limiting — IPtext text text (text: 10text/5text, API: 200text/text)
 # text ASGI text — BaseHTTPMiddleware text body text text text
+from app.admin_network import AdminNetworkMiddleware
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(AdminNetworkMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 # text text

@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from app.postgres.database import get_postgres_session
 from app.postgres.models import ApplicationDocument
+from app.encryption import encrypt_json, decrypt_json, ENCRYPTED_JSON_MARKER
 
 
 APPLICATION_COLLECTIONS = (
@@ -47,7 +48,9 @@ def encode_document_value(obj_value: Any) -> Any:
             obj_dt = obj_dt.replace(tzinfo=timezone.utc)
         return {_TYPE_KEY: "datetime", _VALUE_KEY: obj_dt.isoformat()}
     if isinstance(obj_value, dict):
-        return {str(k): encode_document_value(v) for k, v in obj_value.items()}
+        return {str(k): encrypt_json(encode_document_value(v))
+                if k == "dict_clinical_info" and isinstance(v, dict)
+                else encode_document_value(v) for k, v in obj_value.items()}
     if isinstance(obj_value, (list, tuple)):
         return [encode_document_value(v) for v in obj_value]
     return obj_value
@@ -56,6 +59,8 @@ def encode_document_value(obj_value: Any) -> Any:
 def decode_document_value(obj_value: Any) -> Any:
     """Restore datetimes and legacy tagged identifiers read from JSONB."""
     if isinstance(obj_value, dict):
+        if ENCRYPTED_JSON_MARKER in obj_value:
+            return decode_document_value(decrypt_json(obj_value))
         if obj_value.get(_TYPE_KEY) == "datetime" and _VALUE_KEY in obj_value:
             return datetime.fromisoformat(str(obj_value[_VALUE_KEY]))
         if obj_value.get(_TYPE_KEY) == "object_id" and _VALUE_KEY in obj_value:

@@ -16,6 +16,7 @@ from jose import JWTError, jwt
 
 from app.config import settings
 from app.models import UserRole
+from app.permissions import check_capability
 from app.repositories.auth_store import get_user_store, is_auth_store_connected
 
 # ── text ──
@@ -263,12 +264,7 @@ def require_not_viewer(
 
     Admin, Doctor text text. Viewer text text text text text text/text text.
     """
-    str_user_role = dict_current_user.get("str_role", "")
-    if str_user_role not in {UserRole.ADMIN.value, UserRole.DOCTOR.value, UserRole.LABELER.value}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This role cannot perform this action",
-        )
+    check_capability(dict_current_user.get("str_role", ""), "content.write")
     return dict_current_user
 
 
@@ -291,3 +287,10 @@ def require_role(*list_allowed_roles: UserRole):
         return dict_current_user
 
     return _role_checker
+
+
+def require_capability(capability: str):
+    async def authorize(dict_current_user: dict = Depends(get_current_user)) -> dict:
+        check_capability(dict_current_user.get("str_role", ""), capability)
+        return dict_current_user
+    return authorize

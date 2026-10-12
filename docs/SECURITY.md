@@ -11,7 +11,26 @@
 
 배포 시 앱을 중지하고 현재 설정·DB를 백업한 다음, 기존 실행 환경과 `POSTGRES_URI`를 사용하여 `cd backend && python -m alembic upgrade head`를 실행한다. 이후 동일 버전의 프런트엔드와 백엔드로 재시작한다. Native runner는 시작 시 migration을 수행한다. 기존 로그인은 모두 다시 로그인해야 하고 비밀번호 변경일이 없는 계정은 변경 화면으로 이동한다. 실제 운영 DB migration과 재시작은 코드 검증과 별도 단계다. 이 변경에서는 운영 DB를 수정하지 않았다.
 
-검증: `PYTHONPATH=backend python -m pytest backend/tests/test_security_checklist.py backend/tests/test_auth_store.py backend/tests/test_access_boundaries.py backend/tests/test_audit_v2.py backend/tests/test_activity_audit.py backend/tests/test_postgres_foundation.py`. 브라우저 검증은 `frontend`를 임시 로컬 HTTP로 제공하고 `/tests/security-session-browser.html`을 연다. 임시 SQLite 회귀 테스트 72개와 별도 PostgreSQL 12 인스턴스의 migration 및 보안 테스트 24개를 통과했다. 브라우저 검증 11개를 통과했다. 실제 운영 PostgreSQL에는 migration을 실행하지 않았으며 운영 배포 여부와 구분한다.
+검증: `PYTHONPATH=backend python -m pytest backend/tests/test_partial_controls.py backend/tests/test_rate_limit_security.py backend/tests/test_security_checklist.py backend/tests/test_auth_store.py backend/tests/test_access_boundaries.py backend/tests/test_audit_v2.py backend/tests/test_activity_audit.py backend/tests/test_postgres_foundation.py`. 브라우저 검증은 `frontend`를 임시 로컬 HTTP로 제공하고 `/tests/security-session-browser.html`을 연다. 임시 SQLite 회귀 테스트 198개와 별도 PostgreSQL 12 인스턴스의 migration 및 보안 테스트 24개를 통과했다. 브라우저 검증 11개를 통과했다. 실제 운영 PostgreSQL에는 migration을 실행하지 않았으며 운영 배포 여부와 구분한다.
+
+## 2026-10-08 P 항목 추가 보완
+
+- KP04: `permissions.py`의 공통 역할 정책으로 콘텐츠 읽기·쓰기, 프로젝트 관리·삭제, 계정 관리, 서버 관리를 구분한다. 정의되지 않은 역할·기능은 허용하지 않는다. 프로젝트·계정·서버 설정 API에 공통 권한 검사를 적용했다. 실제 사용자별 직무 배정·승인은 운영 단계의 확인 사항이다.
+- KP09: 관리자 화면(`/admin`, `/admin.html`), 관리자·사용자 관리 API 및 로컬 파일 열기는 접속 IP를 제한한다. `ADMIN_ALLOWED_NETWORKS` 기본값은 `192.168.0.0/24,127.0.0.1/32,::1/128`이다. 접속 IP는 ASGI client에서 읽고 `X-Forwarded-For`, `X-Real-IP`를 직접 신뢰하지 않는다. 빈 목록·전체 허용 CIDR·잘못된 설정은 시작 시 거부한다. 실제 리버스 프록시를 사용하는 배포에서는 Uvicorn의 trusted proxy 범위를 별도로 제한해야 한다. 배포 시 Docker bridge를 통해 보이는 접속 주소를 점검하고 필요한 프록시만 허용한다.
+- KP24 부분 보완: AES 키는 정확히 32바이트의 유효한 base64url만 허용하며 짧은 키 보충·긴 키 잘라내기를 제거했다. 기존 키를 임의로 변경하면 과거 MFA 데이터가 복호화되지 않는다. 기존 비표준 길이 키를 사용하는 배포는 재암호화 절차가 필요하다. 키 관리·접근권한·교체·폐기의 실제 운영 증빙은 여전히 별도 확인해야 한다.
+- 사용자 활동·다운로드 사유 요청에 CSRF 헤더를 포함하고, 인증·다운로드 시험에도 실제 CSRF 미들웨어를 추가했다.
+
+추가 시험: `PYTHONPATH=backend python -m pytest backend/tests/test_partial_controls.py backend/tests/test_security_checklist.py`. 운영 서버 배포·설정 변경은 실행하지 않았다. 로그 장기 보관·정기 점검·실사용자 계정 배정·저장매체 암호화·완전 파기 등은 코드 보완만으로 실제 충족을 증명할 수 없다.
+
+## 2026-10-12 미완료 항목의 기술 보완
+
+- KP20: 임상정보 사전(`dict_clinical_info`)은 사례별 테이블과 슬라이드 문서의 복제본을 모두 AES-256-GCM으로 저장한다. 읽을 때 복호화하며 기존 평문 조회는 호환한다. 암호문 변조·잘못된 형식·틀린 키는 오류로 중단한다. 파일명·사례명·WSI 및 다른 필드는 이 변경의 암호화 대상이 아니다.
+- 기존 자료는 배포만으로 모두 암호화되지 않는다. 앱을 중지하고 현재 DB와 **동일한 암호키**를 안전하게 보존한 후, 기존 실행 환경에서 `cd backend && python -m scripts.encrypt_clinical_data`로 대상 건수만 확인한다. `--apply`를 추가하면 두 저장 경로를 같은 트랜잭션에서 변환한다. 실패 시 롤백하며, 재실행은 이미 암호화된 자료를 검증하고 건너뛴다. 변환은 앱을 중지한 유지보수 시간에 실행한다. 백업·키 보존 없이 실행하지 않는다. 운영 DB에서는 실행하지 않았다.
+- KP24: 키 파일은 일반 파일·서비스 계정 소유·0600 권한을 요구한다. 심볼릭 링크와 손상되거나 필수 키가 누락된 기존 파일은 거부한다. 기존 키를 자동 재생성하지 않는다. 새 파일은 임시 파일을 완전히 기록한 후 기존 파일을 덮어쓰지 않고 게시한다. 저장 실패는 시작 실패로 처리한다. 기존 키와 legacy pepper는 보존한다. POSIX 권한을 적용하며 Windows ACL은 별도 운영 점검 대상이다.
+- 키의 수동 교체·폐기는 암호화 데이터의 재암호화·삭제와 연계하여 수행해야 한다. 키 파일만 삭제·교체하거나 포맷하면 복호화 불가·감사로그 검증 불가가 발생한다. 본 변경은 운영 키 교체·폐기·DB 변환을 수행하지 않는다.
+- 키 분실 방지, 임상정보 두 저장 경로의 암호화·복호화·조회·수정, 평문 자료 변환 preview·적용·재실행 및 암호문 변조 거부를 격리 환경에서 검증했다. SQLite 기반 회귀 시험 220개, 별도 PostgreSQL 시험 39개 통과. 운영 배포·암호화 변환과 구분한다.
+- 서버 설정 읽기 전용 점검: 작업 폴더의 기존 키 파일 0600 및 AES 키 32바이트 확인. GNOME 유휴 300초·잠금 활성화·잠금 지연 0초 확인. 기존 Bash TMOUT·웹 세션 통제와 함께 기록하되, GUI 실제 잠금 동작·운영 웹 배포 상태는 별도 확인한다.
+
 
 ## 목차
 

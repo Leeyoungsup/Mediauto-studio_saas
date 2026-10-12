@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.audit import get_client_ip, log_audit_event
-from app.auth import require_role
-from app.models import UserRole
+from app.auth import require_capability
 from app.runtime_settings import get_worker_settings, load_worker_settings, save_worker_settings
 
 
@@ -45,7 +44,7 @@ def _worker_status_payload(dict_settings: dict) -> dict:
 
 @router.get("/settings")
 async def get_admin_settings(
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("server.manage")),
 ):
     dict_settings = await load_worker_settings()
     return _worker_status_payload(dict_settings)
@@ -55,7 +54,7 @@ async def get_admin_settings(
 async def update_worker_settings(
     body: WorkerSettingsRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("server.manage")),
 ):
     dict_before = get_worker_settings()
     dict_after = await save_worker_settings(

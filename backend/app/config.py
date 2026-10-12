@@ -3,6 +3,8 @@
 import json
 import os
 import secrets
+import stat
+import tempfile
 from pathlib import Path
 
 
@@ -29,13 +31,29 @@ _SECRETS_FILE = configured_path("MEDIAUTO_SECRETS_FILE", BACKEND_DIR / ".secrets
 
 def _load_or_create_secrets() -> dict:
     dict_loaded: dict = {}
+    if _SECRETS_FILE.is_symlink():
+        raise RuntimeError("Secrets file must not be a symbolic link")
     bool_existed = _SECRETS_FILE.exists()
     if bool_existed:
         try:
-            with open(_SECRETS_FILE, "r", encoding="utf-8") as f:
-                dict_loaded = json.load(f) or {}
-        except Exception:
-            dict_loaded = {}
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            with os.fdopen(os.open(_SECRETS_FILE, flags), "r", encoding="utf-8") as f:
+                metadata = os.fstat(f.fileno())
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise RuntimeError("Secrets file must be a regular file")
+                if os.name == "posix":
+                    if metadata.st_uid != os.geteuid():
+                        raise RuntimeError("Secrets file must belong to the service account")
+                    os.fchmod(f.fileno(), 0o600)
+                dict_loaded = json.load(f)
+            if not isinstance(dict_loaded, dict) or any(
+                not isinstance(dict_loaded.get(key), str) or not dict_loaded[key].strip()
+                for key in ("jwt_secret_key", "field_encryption_key")
+            ):
+                raise RuntimeError("Existing secrets file is incomplete")
+        except Exception as exc:
+            # Never replace a damaged key: that would make existing MFA/data unreadable.
+            raise RuntimeError("Cannot safely load existing secrets; restore the original file") from exc
 
     bool_changed = False
     if not dict_loaded.get("jwt_secret_key"):
@@ -60,15 +78,26 @@ def _load_or_create_secrets() -> dict:
     if bool_changed:
         try:
             _SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(_SECRETS_FILE, "w", encoding="utf-8") as f:
-                json.dump(dict_loaded, f, indent=2)
+            descriptor, temporary = tempfile.mkstemp(prefix=".secrets-", dir=_SECRETS_FILE.parent)
             try:
-                os.chmod(_SECRETS_FILE, 0o600)
-            except Exception:
-                pass
+                with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                    json.dump(dict_loaded, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                if bool_existed:
+                    os.replace(temporary, _SECRETS_FILE)
+                else:
+                    # Publish a fully written file without overwriting another starter's keys.
+                    try:
+                        os.link(temporary, _SECRETS_FILE)
+                    except FileExistsError:
+                        return _load_or_create_secrets()
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
             print(f"[MeDIAuto SaaS] Persistent secrets written to {_SECRETS_FILE}")
-        except Exception as e:
-            print(f"[MeDIAuto SaaS] WARN — failed to persist secrets: {e}")
+        except Exception as exc:
+            raise RuntimeError("Cannot persist secrets securely; startup stopped") from exc
 
     return dict_loaded
 

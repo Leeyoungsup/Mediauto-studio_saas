@@ -9,10 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
 from app import slide_store
-from app.auth import get_current_user, require_not_viewer, require_role
+from app.auth import get_current_user, require_not_viewer, require_capability
 from app.config import settings
 from app.database import get_db, is_db_connected
-from app.models import UserRole
 from app.repositories.project_store import get_project_metrics
 from app.path_utils import safe_filename, safe_subpath
 from app.project_utils import (
@@ -101,7 +100,7 @@ async def list_projects():
     return {"projects": list_projects_out}
 
 
-@router.post("/project/create", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@router.post("/project/create", dependencies=[Depends(require_capability("project.manage"))])
 async def create_project(
     request: Request,
     name: str = Form(...),
@@ -164,7 +163,7 @@ async def create_project(
     return {"status": "created", "name": name, "path": name}
 
 
-@router.post("/project/update", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@router.post("/project/update", dependencies=[Depends(require_capability("project.manage"))])
 async def update_project(
     request: Request,
     name: str = Form(...),
@@ -240,7 +239,7 @@ async def update_project(
     return {"status": "saved", "name": name, "path": name}
 
 
-@router.post("/project/rename", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@router.post("/project/rename", dependencies=[Depends(require_capability("project.manage"))])
 async def rename_project(
     request: Request,
     name: str = Form(...),
@@ -282,7 +281,7 @@ async def rename_project(
     return {"status": "renamed", "name": new_name, "path": new_name}
 
 
-@router.post("/project/move-folder", dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.DOCTOR))])
+@router.post("/project/move-folder", dependencies=[Depends(require_capability("project.manage"))])
 async def move_folder_to_project(
     request: Request,
     src_path: str = Form(...),
@@ -319,7 +318,7 @@ async def move_folder_to_project(
     return {"status": "moved", "src_path": src_path, "dst_path": str_new_rel}
 
 
-@router.post("/project/delete", dependencies=[Depends(require_role(UserRole.ADMIN))])
+@router.post("/project/delete", dependencies=[Depends(require_capability("project.delete"))])
 async def delete_project(
     request: Request,
     name: str = Form(...),

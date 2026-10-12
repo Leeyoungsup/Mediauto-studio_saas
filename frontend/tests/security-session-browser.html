@@ -20,7 +20,7 @@ async function run() {
     assert(f.requests.length===0,'synthetic events do not extend session');
     f.events.pointerdown({isTrusted:true});
     await new Promise(resolve=>setTimeout(resolve,0));
-    assert(f.requests.length===1 && f.requests[0].url==='/api/auth/activity','human input reports activity');
+    assert(f.requests.length===1 && f.requests[0].url==='/api/auth/activity' && f.requests[0].opts.headers['X-Requested-With']==='XMLHttpRequest','human input reports activity with CSRF header');
     f.events.pointermove({isTrusted:true});
     assert(f.requests.length===1,'activity requests are throttled');
     f.advance(10001);f.events.keydown({isTrusted:true});await new Promise(resolve=>setTimeout(resolve,0));
@@ -36,7 +36,7 @@ async function run() {
     f.win.prompt=()=> '연구 검토';
     assert(await f.win.MediautoSecurity.authorizeExport('test.json')===true,'valid export requires successful server audit');
     const payload=JSON.parse(f.requests[0].opts.body);
-    assert(payload.str_reason==='연구 검토' && payload.str_filename==='test.json','export audit includes reason and filename');
+    assert(payload.str_reason==='연구 검토' && payload.str_filename==='test.json' && f.requests[0].opts.headers['X-Requested-With']==='XMLHttpRequest','export audit includes reason, filename and CSRF header');
     f.win.fetch=async ()=>new Response('{}',{status:503});rejected=false;
     try{await f.win.MediautoSecurity.authorizeExport('test.json');}catch(e){rejected=true;}
     assert(rejected,'audit failure blocks local export');

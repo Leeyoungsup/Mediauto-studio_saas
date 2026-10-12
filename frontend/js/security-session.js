@@ -35,7 +35,7 @@
         if (activityInFlight || Date.now() - lastSent < 10000) return;
         activityInFlight = true;
         const token = localStorage.getItem('access_token');
-        window.fetch('/api/auth/activity', {method: 'POST', headers: {Authorization: `Bearer ${token}`}})
+        window.fetch('/api/auth/activity', {method: 'POST', headers: {Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest'}})
             .then(res => { if (res.ok) lastSent = Date.now(); })
             .catch(() => {}).finally(() => { activityInFlight = false; });
     }
@@ -52,7 +52,7 @@
             if (reason === null) return false;
             if (reason.trim().length < 2 || reason.trim().length > 200) throw new Error('다운로드 사유는 2~200자로 입력하세요.');
             const res = await window.fetch('/api/auth/download-intent', {
-                method: 'POST', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`},
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`},
                 body: JSON.stringify({str_reason: reason.trim(), str_filename: filename}),
             });
             if (!res.ok) throw new Error('다운로드 사유 기록에 실패했습니다. 다시 시도하세요.');

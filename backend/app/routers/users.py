@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.audit import get_client_ip, log_audit_event
 from app.activity_audit import ANNOTATION_LOG_ACTIONS
-from app.auth import get_current_user, invalidate_user_cache, require_role
+from app.auth import require_capability, get_current_user, invalidate_user_cache
 from app.models import ApprovalStatus, UserRole, create_user_document, hash_password
 from app.repositories.auth_store import get_session_store, get_user_store
 from app.repositories.operational_store import (
@@ -39,7 +39,7 @@ async def list_users(
     int_limit: int = Query(50, ge=1, le=200),
     str_approval_status: str = Query(None, pattern="^(pending|approved|rejected)$"),
     str_search: str = Query(None),
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text (text, text/text text)"""
     obj_user_store = get_user_store()
@@ -67,7 +67,7 @@ async def list_users(
 # ── text text text (Admintext) ──
 @router.get("/pending")
 async def list_pending_users(
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text text"""
     list_pending = await get_user_store().list(
@@ -87,7 +87,7 @@ class ApprovalRequest(BaseModel):
 async def approve_user(
     body: ApprovalRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text text → text + text text"""
     obj_user_store = get_user_store()
@@ -146,7 +146,7 @@ class RejectRequest(BaseModel):
 async def reject_user(
     body: RejectRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text"""
     obj_user_store = get_user_store()
@@ -202,7 +202,7 @@ class CreateUserRequest(BaseModel):
 async def create_user(
     body: CreateUserRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text text (text text + text)"""
     if not LOGIN_ID_PATTERN.match(body.str_login_id):
@@ -380,7 +380,7 @@ async def update_my_preferences(
 async def update_user(
     body: UpdateUserRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text / text text (text text /role text)"""
     obj_user_store = get_user_store()
@@ -443,7 +443,7 @@ async def update_user(
 async def delete_user(
     str_user_id: str,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text + text text text text"""
     if str_user_id == dict_current_user["_id"]:
@@ -501,7 +501,7 @@ class UpdateRoleRequest(BaseModel):
 async def update_user_role(
     body: UpdateRoleRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text"""
     obj_user_store = get_user_store()
@@ -567,7 +567,7 @@ class ToggleActiveRequest(BaseModel):
 async def toggle_user_active(
     body: ToggleActiveRequest,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text/text"""
     obj_user_store = get_user_store()
@@ -619,7 +619,7 @@ async def toggle_user_active(
 async def unlock_user(
     str_user_id: str,
     request: Request,
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text"""
     obj_user_store = get_user_store()
@@ -673,7 +673,7 @@ async def get_audit_logs(
     int_limit: int = Query(100, ge=1, le=500),
     str_action: str = Query(None),
     str_user_id: str = Query(None),
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text"""
     obj_audit_store = get_audit_store()
@@ -700,7 +700,7 @@ async def get_recent_logins(
     int_limit: int = Query(100, ge=1, le=500),
     int_skip: int = Query(0, ge=0),
     str_user_id: str = Query(None, description="text text text"),
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text text — text text text UI text text.
 
@@ -757,7 +757,7 @@ async def get_user_activity(
         pattern="^(all|login|slide|ai|project|file|annotation|upload)$",
         description="text text text",
     ),
-    dict_current_user: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_current_user: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text text text — text/text text/AI text.
 
@@ -848,7 +848,7 @@ async def get_user_activity(
 @router.get("/audit-logs/verify-chain")
 async def verify_audit_chain(
     int_limit: int = Query(10000, ge=100, le=100000),
-    dict_admin: dict = Depends(require_role(UserRole.ADMIN)),
+    dict_admin: dict = Depends(require_capability("accounts.manage")),
 ):
     """text text HMAC text text text.
 

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app import auth, audit, download_security
+from app.csrf import CSRFMiddleware
 from app.models import create_user_document, hash_password
 from app.postgres import database
 from app.postgres.base import Base
@@ -56,6 +57,7 @@ def security_client(monkeypatch, tmp_path):
         await get_user_store().insert(user)
     asyncio.run(setup())
     app = FastAPI()
+    app.add_middleware(CSRFMiddleware)
     app.include_router(auth_routes.router, prefix='/api/auth')
 
     @app.get('/api/private')
@@ -84,7 +86,7 @@ def login(client, password=PASSWORD):
 
 
 def headers(tokens):
-    return {'Authorization': 'Bearer ' + tokens['str_access_token']}
+    return {'Authorization': 'Bearer ' + tokens['str_access_token'], 'X-Requested-With': 'XMLHttpRequest'}
 
 
 def test_second_login_revokes_access_refresh_and_media(security_client):
