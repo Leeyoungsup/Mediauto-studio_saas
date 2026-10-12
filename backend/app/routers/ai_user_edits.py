@@ -11,10 +11,13 @@ text text text(ai_results/...) text text text text.
 
 import asyncio
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
+from app.json_file_response import json_file_envelope
 from app.activity_audit import audit_activity
 from app.auth import get_current_user
 from app.config import settings
@@ -102,8 +105,14 @@ async def save_detection_result(
         result_obj["total_cells"] = int_total_cells
 
     def _write_json_to_disk():
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(result_obj, f)
+        # Readers retain a stable snapshot while another save replaces the file.
+        fd, temporary = tempfile.mkstemp(prefix=file_path.name + '.', suffix='.tmp', dir=file_path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(result_obj, f)
+            os.replace(temporary, file_path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     try:
         await loop.run_in_executor(None, _write_json_to_disk)
@@ -212,25 +221,17 @@ async def load_user_edit(
         raise HTTPException(404, "text text")
 
     str_file_path = dict_doc.get("str_file_path") or ""
-    if not str_file_path or not Path(str_file_path).exists():
-        raise HTTPException(404, "text text text")
+    if not str_file_path:
+        raise HTTPException(404, "Saved AI result file not found")
 
-    # text AI text JSON — text text text text text text.
-    # text MB text text text text text.
-    def _read_json_from_disk():
-        with open(str_file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    loop = asyncio.get_running_loop()
     try:
-        result_obj = await loop.run_in_executor(None, _read_json_from_disk)
-    except Exception as e:
-        raise HTTPException(500, f"Load failed: {e}")
-
-    return {
-        "ai_mode": ai_mode,
-        "variant": variant or "",
-        "user_id": user_id,
-        "user_name": dict_doc.get("str_user_name", ""),
-        "result": result_obj,
-    }
+        return await json_file_envelope(str_file_path, {
+            "ai_mode": ai_mode,
+            "variant": variant or "",
+            "user_id": user_id,
+            "user_name": dict_doc.get("str_user_name", ""),
+        })
+    except FileNotFoundError:
+        raise HTTPException(404, "Saved AI result file not found")
+    except OSError:
+        raise HTTPException(500, "Unable to read saved AI result")
