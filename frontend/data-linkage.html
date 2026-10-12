@@ -20,7 +20,7 @@
                     <a href="/home" class="shared-nav-item">Home</a>
                     <a href="/project" class="shared-nav-item">Project</a>
                     <a href="/data-linkage" class="shared-nav-item active">Data Linkage</a>
-                    <a href="/ai" class="shared-nav-item">AI</a>
+                    <a href="/ai" class="shared-nav-item">Viewer</a>
                     <a href="/tissue-annotation" class="shared-nav-item">Annotation</a>
                 </nav>
                 <div class="shared-user-info">
@@ -90,8 +90,8 @@
                 </div>
                 <div id="dl-thumbnail-row" class="data-linkage-thumbnails"></div>
                 <div id="dl-selected-slide" class="data-linkage-selected-slide">Selected image: -</div>
-                <div class="data-linkage-ai-actions" aria-label="Open in AI viewer">
-                    <button id="dl-ai-view-btn" type="button" disabled>View</button>
+                <div class="data-linkage-ai-actions" aria-label="Open in Viewer">
+                    <button id="dl-ai-view-btn" type="button" disabled>Viewer</button>
                     <button id="dl-ai-multi-view-btn" type="button" disabled>Multi View</button>
                     <span id="dl-ai-selection-status">Select 2–4 images for Multi View</span>
                 </div>
@@ -106,7 +106,7 @@
         </section>
     </main>
 
-    <script src="js/shared-header.js?v=20260901-01"></script>
+    <script src="js/shared-header.js?v=20261012-01"></script>
     <script>
         (function () {
             var user = {};
@@ -118,6 +118,6 @@
             });
         })();
     </script>
-    <script type="module" src="js/data-linkage.js?v=20260914-01"></script>
+    <script type="module" src="js/data-linkage.js?v=20261012-01"></script>
 </body>
 </html>

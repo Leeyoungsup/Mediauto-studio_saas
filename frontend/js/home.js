@@ -240,7 +240,7 @@
     }
 
     function recentSlidePageMeta(page) {
-        if (page === 'ai') return { label: 'AI', cls: 'page-ai' };
+        if (page === 'ai') return { label: 'Viewer', cls: 'page-ai' };
         if (page === 'cell-annotation') return { label: 'Cell Annotation', cls: 'page-cell' };
         return { label: 'Tissue Annotation', cls: 'page-tissue' };
     }

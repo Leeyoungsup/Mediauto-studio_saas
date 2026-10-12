@@ -137,14 +137,14 @@ import { api } from './api.js?v=20260914-01';
         if ($aiView) {
             $aiView.disabled = !state.selectedSlide?.filename;
             $aiView.title = state.selectedSlide?.filename
-                ? `Open ${state.selectedSlide.filename} in AI View`
+                ? `Open ${state.selectedSlide.filename} in Viewer`
                 : 'Select an image first';
         }
         if ($aiMultiView) {
             $aiMultiView.disabled = selectedSlides.length < 2 || selectedSlides.length > 4;
             $aiMultiView.title = $aiMultiView.disabled
                 ? 'Select 2 to 4 images using the + buttons on the thumbnails'
-                : `Open ${selectedSlides.length} selected images in AI Multi View`;
+                : `Open ${selectedSlides.length} selected images in Viewer (Multi View)`;
         }
         if ($aiSelectionStatus) {
             $aiSelectionStatus.textContent = message || (
