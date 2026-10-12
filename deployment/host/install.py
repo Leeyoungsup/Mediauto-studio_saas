@@ -144,6 +144,16 @@ def configure():
         return config
     default = 'C:/MeDIAutoData' if WINDOWS else '/srv/mediauto'
     base = Path(ask('External data root', default)).expanduser().resolve()
+    existing = base/'config/settings.json'
+    if existing.is_file():
+        config = json.loads(existing.read_text(encoding='utf-8'))
+        validate(config)
+        if Path(config['data_root']).resolve() != base:
+            raise ValueError('Saved data root differs; existing configuration preserved.')
+        RUNTIME = base/'config'
+        (ROOT/'.install-location.json').write_text(json.dumps({'data_root':str(base)}),encoding='utf-8')
+        print('Existing configuration discovered:', existing)
+        return config
     model_path = input('Model folder (existing weights): ').strip().strip('"')
     if not model_path: raise ValueError('A separate model folder is required.')
     slide_path = input(f'Slide folder (Enter = {base / "slides"}): ').strip().strip('"')
@@ -544,7 +554,10 @@ def main():
             path = ROOT/entry['path']
             if path.is_symlink() or not path.resolve().is_relative_to(ROOT.resolve()) or sha(path) != entry['sha256']:
                 raise ValueError('Installer bundle checksum mismatch: '+entry['path'])
-    config=configure();check_ports(config)
+    config=configure()
+    from existing_database import handle as handle_existing_database
+    handle_existing_database(config,RUNTIME,write_private,WINDOWS)
+    check_ports(config)
     if 'repository' not in config:
         config['repository']=ask('GitHub repository','Leeyoungsup/Mediauto-studio_saas')
         config['ref']=ask('GitHub branch/tag','main')

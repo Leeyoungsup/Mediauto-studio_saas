@@ -152,6 +152,16 @@ def configure():
         return config
     default = 'C:/MeDIAutoData' if WINDOWS else '/srv/mediauto'
     base = Path(ask('External data root', default)).expanduser().resolve()
+    existing = base/'config/settings.json'
+    if existing.is_file():
+        config = json.loads(existing.read_text(encoding='utf-8'))
+        validate(config)
+        if Path(config['data_root']).resolve() != base:
+            raise ValueError('Saved data root differs; existing configuration preserved.')
+        RUNTIME = base/'config'
+        (ROOT/'.install-location.json').write_text(json.dumps({'data_root':str(base)}),encoding='utf-8')
+        print('Existing configuration discovered:', existing)
+        return config
     model_path = input('Model folder (existing weights): ').strip().strip('"')
     if not model_path: raise ValueError('A separate model folder is required.')
     slide_path = input(f'Slide folder (Enter = {base / "slides"}): ').strip().strip('"')
@@ -617,7 +627,10 @@ def main():
     if sys.version_info<(3,10):raise ValueError('Python 3.10 or newer is required.')
     if not WINDOWS and os.geteuid()!=0:raise ValueError('Run bash install.sh (sudo is required).')
     if platform.machine().lower() not in ('amd64','x86_64'):raise ValueError('x86-64 required.')
-    config=configure();check_ports(config)
+    config=configure()
+    from existing_database import handle as handle_existing_database
+    handle_existing_database(config,RUNTIME,write_private,WINDOWS)
+    check_ports(config)
     try: run(['nvidia-smi','--query-gpu=name,driver_version','--format=csv,noheader'])
     except (RuntimeError,OSError): raise RuntimeError('NVIDIA GPU/driver is not ready. Resolve nvidia-smi errors; CPU fallback is disabled.')
     from github_source import download

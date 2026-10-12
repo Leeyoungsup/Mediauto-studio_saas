@@ -1,5 +1,5 @@
 MeDIAuto AI — 배포 최종본 / Deployment package
-Application baseline: 3.3.2 | Installer revision: 2026-10-07-r20
+Application baseline: 3.3.2 | Installer revision: 2026-10-08-r21
 
 배포 파일 / Installer selection
   Windows GUI: MeDIAuto-Setup-windows-x64.exe
@@ -62,7 +62,7 @@ Database, secrets and file stores must be backed up together before updates.
 The Windows EXE is unsigned. Verify SHA256SUMS.txt before use.
 Read VALIDATION.txt for packaging checks and target-PC validation limits.
 
-Linux r20 자동 준비 / Automatic bootstrap
+Linux r21 자동 준비 / Automatic bootstrap
 System Python 3.8 can now bootstrap setup. Existing Conda is reused; if absent,
 official Miniconda is downloaded and SHA-256 verified automatically. A dedicated
 mediauto-installer environment supplies Python 3.12 without changing base Python.
@@ -79,3 +79,12 @@ Setup checks the Conda C++ ABI and installs libstdcxx-ng>=14 / libgcc-ng>=14
 when needed. The runner loads the selected Conda C++ library before GPU/image
 libraries and checks SQLAlchemy asyncio in the same process after the GPU check.
 시스템 C++ 라이브러리는 교체하지 않습니다. 기존 설치도 새 설치기로 재실행하세요.
+
+Linux existing DB selection / 기존 DB 선택
+1 (default): keep/recover; 2: backup then reset DB; 0: cancel.
+Reset requires typing RESET and the exact detected service name.
+DB/settings/keys are backed up under data-root/recovery-backups; the old cluster
+is archived, not deleted. Models/slides/keys/result files are retained.
+Recovery of lost ownership requires original secrets and explicit credential-sync consent.
+Only a uniquely verified running MeDIAuto systemd service is supported.
+Windows ownership mismatch recovery/reset is not supported by this revision.
