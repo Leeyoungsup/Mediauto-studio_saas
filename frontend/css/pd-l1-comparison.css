@@ -37,3 +37,17 @@
 .pdl1-history-record { display: grid; gap: 6px; margin-bottom: 10px; padding: 12px; border: 1px solid #e4dfef; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
 .pdl1-history-record strong { color: #27213f; }
 @media(max-width: 700px) { .pdl1-stopwatch { gap: 5px; padding: 5px 7px; } .pdl1-stopwatch span { display: none; } .pdl1-stopwatch output { font-size: 18px; } }
+
+.project-comparison-model { display: grid; gap: 4px; margin-top: 7px; }
+.project-comparison-model select { width: 100%; min-width: 0; padding: 6px; border: 1px solid #d8d2e7; border-radius: 6px; background: #fff; color: #423661; font-size: 11px; }
+.project-comparison-model [role=status] { font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
+.pd-l1-comparison-page .project-gate-row:focus-visible { outline: 2px solid #6c5ce7; outline-offset: -2px; }
+
+.pd-l1-comparison-page .project-gate-action button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 7px 3px; }
+.pd-l1-comparison-page .project-gate-action button:disabled { opacity: .45; cursor: default; }
+
+/* Empty history must not leave a heading, card, or reserved space. */
+#pdl1-comparison-panel [data-history-section][hidden] { display: none !important; }
+#pdl1-comparison-panel .pdl1-history:empty { display: none; }
+.pd-l1-comparison-page #pdl1-comparison-panel { flex: 0 0 auto; }
+.pd-l1-comparison-page #right-panel > :not(#pdl1-comparison-panel) { display: none !important; }

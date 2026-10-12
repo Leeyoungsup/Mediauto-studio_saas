@@ -15,7 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.auth import get_current_user, require_capability
 from app.audit import get_client_ip, log_audit_event
 from app.config import settings
-from app.database import is_db_connected
+from app.comparison_files import write_comparison_json
+from app.ai_pipelines.scoring import PD_SCORE_CONFIG
+from app.database import get_db, is_db_connected
 from app.path_utils import rel_path_for
 from app.slide_identity import slide_cache_key
 from app.slide_manager import slide_manager
@@ -33,7 +35,7 @@ def store():
 class JsonReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     slide_id: str = Field(min_length=1, max_length=64)
-    tissue_type: Literal["Stomach", "Lung"] = "Stomach"
+    tissue_type: Literal["Stomach", "Breast", "Lung"] = "Stomach"
 
 
 class ComparisonRequest(JsonReadRequest):
@@ -43,6 +45,7 @@ class ComparisonRequest(JsonReadRequest):
     grade: str = Field(min_length=1, max_length=80)
     ai_read_id: str | None = Field(default=None, max_length=64)
     ai_result_elapsed_ms: float | None = Field(default=None, gt=0, le=86_400_000, allow_inf_nan=False)
+    ai_timing_basis: Literal["request_to_display", "slide_entry_to_display"] = "request_to_display"
 
     @field_validator("grade")
     @classmethod
@@ -59,7 +62,7 @@ def score_grade(percentage: float, tissue: str) -> str:
     CPS 1/10: Agilent 22C3 CPS interpretation training.
     TPS 1/50: FDA P150013/S006 assay expression categories.
     """
-    score_type, upper = ("CPS", 10) if tissue == "Stomach" else ("TPS", 50)
+    score_type, upper = ("TPS", 50) if tissue == "Lung" else ("CPS", 10)
     if percentage < 1:
         return f"{score_type} < 1"
     if percentage < upper:
@@ -77,6 +80,13 @@ def slide_context(slide_id):
     return info, relative.split("/")[0]
 
 
+async def check_project_model(project, tissue):
+    document = await get_db().project_infos.find_one({"str_project_path": project})
+    fixed = (document or {}).get("str_comparison_tissue_type")
+    if fixed in PD_SCORE_CONFIG and fixed != tissue:
+        raise HTTPException(409, "The project comparison model has changed. Reopen the project to use its fixed model.")
+
+
 def read_json(path, tissue):
     # This interval contains file read and JSON parsing only, never model inference.
     started = time.perf_counter()
@@ -89,7 +99,7 @@ def read_json(path, tissue):
         raise HTTPException(422, "Saved PD-L1 JSON could not be read")
     elapsed = (time.perf_counter() - started) * 1000
     score = result.get("pd_score") if isinstance(result, dict) else None
-    expected = "CPS" if tissue == "Stomach" else "TPS"
+    expected = PD_SCORE_CONFIG[tissue]["score_type"]
     if not isinstance(score, dict) or score.get("score_type") != expected:
         raise HTTPException(422, "Saved JSON does not contain the selected PD-L1 score")
     value = score.get("score")
@@ -105,6 +115,7 @@ def read_json(path, tissue):
 async def read_saved_json(body: JsonReadRequest, user=Depends(get_current_user)):
     repository = store()
     info, project = slide_context(body.slide_id)
+    await check_project_model(project, body.tissue_type)
     key = slide_cache_key(info.file_path)
     directory = (Path(settings.AI_RESULTS_DIR) / "Quanti PD-L1").resolve()
     path = directory / f"{key}_Quanti PD-L1_{body.tissue_type}.json"
@@ -120,6 +131,13 @@ async def read_saved_json(body: JsonReadRequest, user=Depends(get_current_user))
     return {"ai_read_id": record["_id"], **result, "result": payload}
 
 
+async def export_comparison(record, slide_path):
+    try:
+        await asyncio.to_thread(write_comparison_json, record, slide_path)
+    except (OSError, ValueError, KeyError, TypeError):
+        raise HTTPException(503, "DB record retained, but comparison JSON could not be saved. Retry this measurement.")
+
+
 @router.post("/records")
 async def save_comparison(body: ComparisonRequest, request: Request,
                           user=Depends(require_capability("comparison.write"))):
@@ -131,7 +149,9 @@ async def save_comparison(body: ComparisonRequest, request: Request,
     if existing:
         if existing.get("request_signature") != signature:
             raise HTTPException(409, "This measurement has already been recorded")
+        await export_comparison(existing, info.file_path)
         return existing
+    await check_project_model(project, body.tissue_type)
     if body.ai_result_elapsed_ms is not None and not body.ai_read_id:
         raise HTTPException(400, "AI display timing requires a JSON receipt")
     ai = {}
@@ -144,14 +164,15 @@ async def save_comparison(body: ComparisonRequest, request: Request,
             raise HTTPException(400, "JSON timing belongs to a different measurement context")
     record = {"_id": identifier, "kind": "comparison", "project_path": project,
               "slide_id": body.slide_id, "filename": Path(info.file_path).name,
-              "user_id": user["_id"], "tissue_type": body.tissue_type,
-              "score_type": "CPS" if body.tissue_type == "Stomach" else "TPS",
+              "user_id": user["_id"], "user_name": user.get("str_name", ""),
+              "username": user.get("str_username", ""), "tissue_type": body.tissue_type,
+              "score_type": PD_SCORE_CONFIG[body.tissue_type]["score_type"],
               "percentage": body.percentage, "grade": score_grade(body.percentage, body.tissue_type),
               "grade_basis": "score_bands_v1",
               "specialist_elapsed_ms": body.specialist_elapsed_ms,
               "ai_read_id": body.ai_read_id,
               "ai_result_elapsed_ms": body.ai_result_elapsed_ms,
-              "ai_timing_basis": "request_to_display" if body.ai_result_elapsed_ms is not None else None,
+              "ai_timing_basis": body.ai_timing_basis if body.ai_result_elapsed_ms is not None else None,
               "ai_json_elapsed_ms": ai.get("ai_json_elapsed_ms"),
               "ai_percentage": ai.get("ai_percentage"), "ai_grade": ai.get("ai_grade"),
               "request_signature": signature, "dt_created_at": datetime.now(timezone.utc)}
@@ -160,11 +181,18 @@ async def save_comparison(body: ComparisonRequest, request: Request,
                           str_resource_type="pd_l1_comparison", str_resource_id=identifier,
                           str_detail="Specialist assessment and AI result timing recorded",
                           str_ip_address=get_client_ip(request))
+    await export_comparison(record, info.file_path)
     return record
 
 
 @router.get("/records")
-async def list_comparisons(project_path: str = Query(min_length=1, max_length=256),
+async def list_comparisons(slide_id: str = Query(min_length=1, max_length=64),
                            limit: int = Query(default=50, ge=1, le=200)):
-    records = await store().find({"kind": "comparison", "project_path": project_path}).sort("dt_created_at", -1).limit(limit).to_list(length=limit)
-    return {"records": records}
+    _, project = slide_context(slide_id)
+    records = await store().find({"kind": "comparison", "project_path": project,
+                                  "slide_id": slide_id}).sort("dt_created_at", -1).to_list(length=None)
+    # Keep all measurement history stored, but show each account's latest assessment.
+    latest = {}
+    for record in records:
+        latest.setdefault(record["user_id"], record)
+    return {"records": list(latest.values())[:limit]}

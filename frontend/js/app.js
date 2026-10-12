@@ -1,4 +1,4 @@
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-04';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-09';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
@@ -8,8 +8,8 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20261012-pdl1-04';
-import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-04';
+import { api } from './api.js?v=20261012-pdl1-09';
+import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-09';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -234,6 +234,10 @@ let lastSegData = null;  // segmentation overlay data from epithelial classifica
 let viewer = new AiViewer($canvas, $overlay);
 const _primaryViewer = viewer;
 const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison({
+    async waitForOverview(context, signal) {
+        if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
+        await viewer.whenOverviewReady(signal);
+    },
     async displayResult(result, context, signal) {
         if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
         const target = viewer;
@@ -348,7 +352,7 @@ const AI_MODEL_HELP = {
     },
     'pd-tab': {
         title: 'Quanti PD-L1 - PD-L1 Scoring',
-        body: 'Detects PD-L1 IHC result cells and calculates the selected score. Stomach uses CPS = (positive tumor + positive immune) / viable tumor x 100. Lung uses TPS = positive tumor / total tumor x 100. Hidden Other cells are excluded from visualization and score calculations unless reclassified.',
+        body: 'Detects PD-L1 IHC result cells and calculates the selected score. Stomach and Breast use CPS = (positive tumor + positive immune) / viable tumor x 100. Lung uses TPS = positive tumor / total tumor x 100. Hidden Other cells are excluded from visualization and score calculations unless reclassified.',
     },
     'ihc-tab': {
         title: 'Quanti IHC - HER2 / ER / PR / KI-67',
@@ -640,6 +644,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     }
 
     viewer.loadSlide(slideId, currentSlideInfo);
+    pdl1Comparison?.setProject(currentBrowsePath, _projectComparisonModel(currentBrowsePath));
     pdl1Comparison?.openSlide({ slideId, filename: currentSlideInfo.filename, project: currentBrowsePath.split('/')[0] });
 
     if ($mousePosOverlay) $mousePosOverlay.hidden = false;
@@ -4744,8 +4749,9 @@ function _renderProjectGate(list_projects) {
         const path = project.path || project.name || '';
         const title = info.title || project.name || path;
 
-        const row = document.createElement('button');
-        row.type = 'button';
+        const row = document.createElement(IS_PDL1_COMPARISON ? 'div' : 'button');
+        if (IS_PDL1_COMPARISON) { row.tabIndex = 0; row.setAttribute('role', 'group'); row.setAttribute('aria-label', title); }
+        else row.type = 'button';
         row.className = 'project-gate-row';
         row.dataset.path = path;
 
@@ -4757,6 +4763,40 @@ function _renderProjectGate(list_projects) {
         titleEl.textContent = title;
 
         projectEl.append(titleEl);
+        if (IS_PDL1_COMPARISON) {
+            const controls = document.createElement('div');
+            controls.className = 'project-comparison-model';
+            const model = document.createElement('select');
+            model.setAttribute('aria-label', `${title} 비교 모델`);
+            for (const [value, label] of [['', '모델 미지정'], ['Stomach', 'PD-L1 · Stomach (CPS)'], ['Breast', 'PD-L1 · Breast (CPS)'], ['Lung', 'PD-L1 · Lung (TPS)']]) {
+                model.add(new Option(label, value));
+            }
+            model.value = info.comparison_tissue_type || '';
+            model.disabled = !['admin', 'doctor'].includes(window.__currentUserRole);
+            const feedback = document.createElement('span');
+            feedback.setAttribute('role', 'status');
+            controls.addEventListener('click', event => event.stopPropagation());
+            controls.addEventListener('keydown', event => event.stopPropagation());
+            model.addEventListener('change', async () => {
+                const previous = info.comparison_tissue_type || '';
+                const selected = model.value;
+                model.disabled = true; feedback.textContent = '저장 중…';
+                row.dataset.modelSaving = 'true';
+                row.querySelector('[data-open-project]').disabled = true;
+                try {
+                    const updated = await api.setProjectComparisonModel(path, selected);
+                    Object.assign(info, updated.info); project.info = info;
+                    feedback.textContent = '저장됨';
+                } catch (error) {
+                    model.value = previous; feedback.textContent = `저장 실패: ${error.message}`;
+                } finally {
+                    model.disabled = false; row.querySelector('[data-open-project]').disabled = false;
+                    delete row.dataset.modelSaving;
+                }
+            });
+            controls.append(model, feedback);
+            projectEl.appendChild(controls);
+        }
 
         const hospitalEl = document.createElement('div');
         hospitalEl.className = 'project-gate-cell';
@@ -4787,10 +4827,21 @@ function _renderProjectGate(list_projects) {
 
         const actionEl = document.createElement('div');
         actionEl.className = 'project-gate-action';
-        actionEl.textContent = 'Open';
+        if (IS_PDL1_COMPARISON) {
+            const open = document.createElement('button');
+            open.type = 'button'; open.dataset.openProject = ''; open.textContent = 'Open';
+            open.setAttribute('aria-label', `${title} 열기`);
+            actionEl.appendChild(open);
+        } else actionEl.textContent = 'Open';
 
         row.append(projectEl, hospitalEl, ownerEl, slidesEl, aiEl, foldersEl, statusEl, actionEl);
-        row.addEventListener('click', () => _enterProjectFromGate(path));
+        row.addEventListener('click', () => { if (!row.dataset.modelSaving) _enterProjectFromGate(path); });
+        if (IS_PDL1_COMPARISON) row.addEventListener('keydown', event => {
+            if (event.target !== row) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault(); if (!row.dataset.modelSaving) _enterProjectFromGate(path);
+            }
+        });
         $projectGateList.appendChild(row);
     }
     _renderProjectGatePager(list.length, start + 1, start + paged.length, totalPages);
@@ -4809,6 +4860,12 @@ function _hideProjectGate() {
     if ($projectGate) $projectGate.hidden = true;
     document.documentElement.classList.remove('project-gate-boot');
     document.body.classList.remove('project-gate-open');
+}
+
+function _projectComparisonModel(path) {
+    const projectName = String(path || '').split('/')[0];
+    return _projectListCache.find(project => (project.path || project.name) === projectName)
+        ?.info?.comparison_tissue_type || '';
 }
 
 function _enterProjectFromGate(path) {
@@ -4834,7 +4891,7 @@ if ($projectGateAdditional) {
 }
 
 async function loadSlideList() {
-    pdl1Comparison?.setProject(currentBrowsePath);
+    pdl1Comparison?.setProject(currentBrowsePath, _projectComparisonModel(currentBrowsePath));
     const int_request_seq = ++_slideListRequestSeq;
     const str_request_path = currentBrowsePath;
     const controller = _beginLatestRead('slide-list');
@@ -5522,6 +5579,7 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'Quanti HE',      variant: 'Breast',  label: 'Quanti HE · Breast' },
     { model: 'Quanti HE',      variant: 'Other',   label: 'Quanti HE · Other' },
     { model: 'Quanti PD-L1',    variant: 'Stomach', label: 'Quanti PD-L1 · Stomach (CPS)' },
+    { model: 'Quanti PD-L1',    variant: 'Breast', label: 'Quanti PD-L1 · Breast (CPS)' },
     { model: 'Quanti PD-L1',    variant: 'Lung',    label: 'Quanti PD-L1 · Lung (TPS)' },
     { model: 'Quanti IHC', variant: 'HER2',    label: 'Quanti IHC · HER2' },
     { model: 'Quanti IHC', variant: 'ER_PR',   label: 'Quanti IHC · ER/PR (Allred)' },

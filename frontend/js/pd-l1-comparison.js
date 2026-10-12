@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261012-pdl1-04';
+import { api } from './api.js?v=20261012-pdl1-09';
 import { esc } from './common-utils.js?v=20260604-01';
 
 export function formatStopwatch(ms) {
@@ -30,7 +30,7 @@ export class AssessmentClock {
     }
 }
 
-export function createPdl1Comparison({ displayResult } = {}) {
+export function createPdl1Comparison({ displayResult, waitForOverview } = {}) {
     const root = document.getElementById('pdl1-comparison-panel');
     const watch = document.getElementById('pdl1-stopwatch');
     if (!root || !watch) return null;
@@ -45,46 +45,59 @@ export function createPdl1Comparison({ displayResult } = {}) {
     const submit = root.querySelector('[type="submit"]');
     const message = root.querySelector('[data-message]');
     const history = root.querySelector('[data-history]');
+    const historySection = root.querySelector('[data-history-section]');
     const aiTime = root.querySelector('[data-ai-time]');
     const doctorTime = root.querySelector('[data-doctor-time]');
     const aiResult = root.querySelector("[data-ai-result]");
     const summary = root.querySelector('[data-summary]');
     let slide = null, project = '', role = '', run = null, ai = null, readPromise = null;
     let controller = null, saving = false, saved = false, generation = 0, frozenInput = null;
-    let historyGeneration = 0;
+    let historyGeneration = 0, fixedTissue = '', preparing = false;
+    const syncScoreLabel = () => {
+        root.querySelector('[data-score-label]').textContent = tissue.value === 'Lung' ? 'TPS (%)' : 'CPS (%)';
+        tissue.title = fixedTissue ? '프로젝트 선택 화면에서 고정한 모델입니다.' : '';
+    };
     const canWrite = () => ['admin', 'doctor'].includes(role);
     const setMessage = (text, error = false) => {
         message.textContent = text; message.classList.toggle('error', error);
     };
     const duration = ms => ms == null ? '—' : ms < 1000 ? `${ms.toFixed(3)} ms` : `${(ms / 1000).toFixed(3)}초`;
+    const aiTimingLabel = record => record.ai_result_elapsed_ms == null
+        ? (record.ai_json_elapsed_ms == null ? 'AI result' : '이전 JSON 읽기 시간')
+        : (record.ai_timing_basis === 'slide_entry_to_display' ? 'AI result' : 'AI result (이전 요청 기준)');
     function render() {
         watch.querySelector('output').textContent = formatStopwatch(clock.elapsed());
-        watch.classList.toggle('running', !!slide && clock.fixed === null);
+        watch.classList.toggle('running', !!slide && clock.started !== null && clock.fixed === null);
         doctorTime.textContent = slide ? duration(clock.elapsed()) : '—';
         aiTime.textContent = duration(ai?.ai_result_elapsed_ms);
-        submit.disabled = !slide || !canWrite() || saving || saved;
-        percent.disabled = grade.disabled = !slide || !canWrite() || saving || saved || !!frozenInput;
-        tissue.disabled = saving || saved || !!frozenInput;
+        submit.disabled = !slide || preparing || clock.started === null || !canWrite() || saving || saved;
+        percent.disabled = grade.disabled = !slide || preparing || clock.started === null || !canWrite() || saving || saved || !!frozenInput;
+        tissue.disabled = !!fixedTissue || preparing || saving || saved || !!frozenInput;
     }
     const interval = setInterval(render, 250);
     window.addEventListener('pagehide', () => { clearInterval(interval); controller?.abort(); }, { once: true });
 
     async function refreshHistory() {
-        if (!project) { history.textContent = '프로젝트를 선택하면 기록이 표시됩니다.'; return; }
-        const requested = project, version = ++historyGeneration;
-        history.textContent = '기록을 불러오는 중…';
+        const version = ++historyGeneration;
+        historySection.hidden = true; history.textContent = '';
+        if (!slide) return;
+        const requested = slide.slideId;
         try {
             const data = await api.listPdl1Comparisons(requested);
-            if (version !== historyGeneration || requested !== project) return;
-            if (!data.records.length) { history.textContent = '저장된 비교 기록이 없습니다.'; return; }
+            if (version !== historyGeneration || requested !== slide?.slideId) return;
+            if (!data.records.length) return;
             history.innerHTML = data.records.map(record => `<article class="pdl1-history-record">
-                <strong>${esc(record.filename)}</strong>
+                <strong>${esc(record.user_name || record.username || record.user_id || "계정")}</strong>
+                <span>${esc(record.filename)}</span>
                 <span>${esc(record.score_type)} · 전문의 ${esc(record.percentage)}% · Grade ${esc(record.grade)}</span>
-                <span>전문의 ${esc(duration(record.specialist_elapsed_ms))} / ${record.ai_result_elapsed_ms == null && record.ai_json_elapsed_ms != null ? "이전 JSON 읽기 시간" : "AI result"} ${esc(duration(record.ai_result_elapsed_ms ?? record.ai_json_elapsed_ms))}</span>
+                <span>전문의 ${esc(duration(record.specialist_elapsed_ms))} / ${aiTimingLabel(record)} ${esc(duration(record.ai_result_elapsed_ms ?? record.ai_json_elapsed_ms))}</span>
                 <small>${esc(new Date(record.dt_created_at).toLocaleString())}</small>
             </article>`).join('');
+            historySection.hidden = !history.childElementCount;
         } catch (error) {
-            if (version === historyGeneration) history.textContent = `기록 조회 실패: ${error.message}`;
+            if (version === historyGeneration && requested === slide?.slideId) {
+                historySection.hidden = false; history.textContent = `기록 조회 실패: ${error.message}`;
+            }
         }
     }
     root.querySelector('[data-refresh]').addEventListener('click', refreshHistory);
@@ -95,16 +108,25 @@ export function createPdl1Comparison({ displayResult } = {}) {
     });
 
     function loadJson() {
-        controller?.abort(); ai = null; aiResult.hidden = true;
+        controller?.abort(); ai = null; aiResult.hidden = true; preparing = true; render();
+        setMessage('초기 전체 화면의 타일을 준비하는 중…');
         const version = generation;
         const context = { ...slide, tissueType: tissue.value };
-        const started = performance.now();
+        const started = clock.started;
         controller = new AbortController();
         const activeController = controller;
-        const timeout = setTimeout(() => activeController.abort(), 30000);
-        readPromise = api.readPdl1Json(slide.slideId, tissue.value, { signal: activeController.signal })
+        let timeout;
+        readPromise = Promise.resolve().then(async () => {
+            if (!waitForOverview) throw new Error('초기 화면 준비 상태를 확인할 수 없습니다.');
+            await waitForOverview(context, activeController.signal);
+            if (version !== generation || activeController.signal.aborted) return null;
+            preparing = false;
+            render(); setMessage('초기 화면 준비 완료. 점수를 입력한 뒤 확인을 눌러주세요. 시간은 슬라이드 입장부터 측정 중입니다.');
+            timeout = setTimeout(() => activeController.abort(), 30000);
+            return api.readPdl1Json(context.slideId, context.tissueType, { signal: activeController.signal });
+        })
             .then(async result => {
-                if (version !== generation) return;
+                if (version !== generation || !result) return;
                 if (!displayResult || !result.result) throw new Error('AI result 표시 데이터가 없습니다.');
                 aiResult.textContent = `AI result · ${result.score_type} ${result.ai_percentage}%`
                     + (result.ai_grade == null ? '' : ` · Grade ${result.ai_grade}`);
@@ -119,7 +141,14 @@ export function createPdl1Comparison({ displayResult } = {}) {
                 aiResult.hidden = true;
                 aiTime.textContent = 'AI result 없음 / 표시 실패';
                 if (!saving && !saved) setMessage(`AI result를 표시하지 못했습니다. 전문의 결과는 기록할 수 있습니다. ${error.message}`);
-            }).finally(() => clearTimeout(timeout));
+            }).finally(() => {
+                clearTimeout(timeout);
+                if (version === generation) {
+                    preparing = false; render();
+                    // A failed overview must not enable recording an assessment with no starting time.
+                    if (clock.started === null) submit.disabled = percent.disabled = grade.disabled = true;
+                }
+            });
     }
 
     function openSlide(context) {
@@ -135,15 +164,16 @@ export function createPdl1Comparison({ displayResult } = {}) {
     }
 
     tissue.addEventListener('change', () => {
+        if (fixedTissue) { tissue.value = fixedTissue; syncScoreLabel(); return; }
         if (!slide || saving || saved || frozenInput) return;
-        root.querySelector("[data-score-label]").textContent = tissue.value === "Lung" ? "TPS (%)" : "CPS (%)";
+        syncScoreLabel();
         generation++; percent.value = ''; grade.value = '';
         loadJson(); render(); // Changing score type is part of the specialist interval.
     });
 
     form.addEventListener('submit', async event => {
         event.preventDefault();
-        if (!slide || saving || saved || !canWrite() || !form.reportValidity()) return;
+        if (!slide || preparing || clock.started === null || saving || saved || !canWrite() || !form.reportValidity()) return;
         updateGrade();
         const percentage = Number(percent.value), trimmedGrade = grade.value.trim();
         if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100 || !trimmedGrade) {
@@ -158,7 +188,8 @@ export function createPdl1Comparison({ displayResult } = {}) {
             const record = await api.savePdl1Comparison({
                 run_id: run, slide_id: slide.slideId, tissue_type: tissue.value,
                 ai_read_id: ai?.ai_read_id ?? null,
-                ai_result_elapsed_ms: ai?.ai_result_elapsed_ms ?? null, ...frozenInput,
+                ai_result_elapsed_ms: ai?.ai_result_elapsed_ms ?? null,
+                ai_timing_basis: 'slide_entry_to_display', ...frozenInput,
             });
             if (version !== generation) return;
             saved = true; summary.hidden = false;
@@ -167,7 +198,7 @@ export function createPdl1Comparison({ displayResult } = {}) {
                 + (ratio == null ? '' : ` · 시간 비율 ${ratio.toFixed(1)}배`)
                 + (record.ai_percentage == null ? '' : ` · AI ${record.ai_percentage}%`)
                 + (record.ai_grade == null ? '' : ` · AI Grade ${record.ai_grade}`);
-            setMessage('저장했습니다. 프로젝트 기록에서 다시 확인할 수 있습니다.');
+            setMessage('저장했습니다. 이 슬라이드의 계정별 비교 기록에서 다시 확인할 수 있습니다.');
             refreshHistory();
         } catch (error) {
             if (version === generation) setMessage(`저장 실패: ${error.message} 같은 확정 시간으로 다시 확인할 수 있습니다.`, true);
@@ -179,11 +210,13 @@ export function createPdl1Comparison({ displayResult } = {}) {
     return {
         openSlide,
         setUser(user) { role = user.str_role; render(); },
-        setProject(path) {
+        setProject(path, tissueType = '') {
             const next = String(path || '').split('/')[0];
-            if (project === next) return;
+            const fixed = ['Stomach', 'Breast', 'Lung'].includes(tissueType) ? tissueType : '';
+            if (project === next && fixedTissue === fixed) return;
+            fixedTissue = fixed; tissue.value = fixed || 'Stomach'; syncScoreLabel();
             project = next; controller?.abort(); generation++; historyGeneration++;
-            slide = null; clock.reset(); ai = null; frozenInput = null; saving = saved = false;
+            slide = null; preparing = false; clock.reset(); ai = null; frozenInput = null; saving = saved = false;
             summary.hidden = true; aiResult.hidden = true; percent.value = ''; grade.value = '';
             root.querySelector('[data-slide]').textContent = '왼쪽 목록에서 슬라이드를 열어주세요.';
             setMessage('슬라이드를 열면 시간이 자동으로 시작됩니다.'); render(); refreshHistory();

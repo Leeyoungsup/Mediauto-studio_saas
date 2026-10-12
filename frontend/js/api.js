@@ -363,8 +363,8 @@ export const api = {
         return _jsonOrThrow(response, 'Comparison save failed');
     },
 
-    async listPdl1Comparisons(projectPath) {
-        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/records?project_path=${encodeURIComponent(projectPath)}`);
+    async listPdl1Comparisons(slideId) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/records?slide_id=${encodeURIComponent(slideId)}`);
         return _jsonOrThrow(response, 'Comparison history unavailable');
     },
 
@@ -417,6 +417,16 @@ export const api = {
         const res = await _authFetch(`${API_BASE}/slides/project/create`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
+    },
+
+    async setProjectComparisonModel(name, tissueType) {
+        const form = new FormData();
+        form.append('name', name);
+        form.append('tissue_type', tissueType);
+        const res = await _authFetch(`${API_BASE}/slides/project/comparison-model`, {
+            method: 'POST', body: form,
+        });
+        return _jsonOrThrow(res);
     },
 
     async updateProject(name, info = {}) {
@@ -960,7 +970,7 @@ export const api = {
         return res.json();
     },
 
-    /** Quanti PD-L1  (Stomach  CPS, Lung  TPS) */
+    /** Quanti PD-L1  (Stomach/Breast CPS, Lung TPS) */
     async startPdScore(slideId, roiPolygons = null, tissueType = 'Stomach') {
         const form = new FormData();
         form.append('slide_id', slideId);

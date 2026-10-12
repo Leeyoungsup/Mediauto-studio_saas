@@ -3,9 +3,9 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20261012-pdl1-04';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261012-pdl1-04';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261012-pdl1-04';
+import { api } from './api.js?v=20261012-pdl1-09';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261012-pdl1-09';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261012-pdl1-09';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
@@ -523,7 +523,7 @@ const AI_MODEL_HELP = {
     },
     'pd-tab': {
         title: 'Quanti PD-L1 - PD-L1 Scoring',
-        body: 'Detects PD-L1 IHC result cells and calculates the selected score. Stomach uses CPS = (positive tumor + positive immune) / viable tumor x 100. Lung uses TPS = positive tumor / total tumor x 100. Hidden Other cells are excluded from visualization and score calculations unless reclassified.',
+        body: 'Detects PD-L1 IHC result cells and calculates the selected score. Stomach and Breast use CPS = (positive tumor + positive immune) / viable tumor x 100. Lung uses TPS = positive tumor / total tumor x 100. Hidden Other cells are excluded from visualization and score calculations unless reclassified.',
     },
     'ihc-tab': {
         title: 'Quanti IHC - HER2 / ER / PR / KI-67',
@@ -2203,6 +2203,7 @@ const CELL_ANNOTATION_AI_OPTIONS = [
     { key: 'quanti_he_stomach', label: 'Quanti HE-stomach', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
     { key: 'quanti_he_other', label: 'Quanti HE-other', group: 'Inherited AI', inheritClasses: true, preset: 'quanti_he' },
     { key: 'quanti_pd_l1_stomach', label: 'Quanti PD-L1 - Stomach (CPS)', group: 'Inherited AI', inheritClasses: true, preset: 'pd_l1_stomach' },
+    { key: 'quanti_pd_l1_breast', label: 'Quanti PD-L1 - Breast (CPS)', group: 'Inherited AI', inheritClasses: true, preset: 'pd_l1_stomach' },
     { key: 'quanti_pd_l1_lung', label: 'Quanti PD-L1 - Lung (TPS)', group: 'Inherited AI', inheritClasses: true, preset: 'pd_l1_lung' },
     { key: 'quanti_ihc_her2', label: 'Quanti IHC - HER2', group: 'Inherited AI', inheritClasses: true, preset: 'ihc_her2' },
     { key: 'quanti_ihc_er_pr', label: 'Quanti IHC - ER/PR (Allred)', group: 'Inherited AI', inheritClasses: true, preset: 'ihc_er_pr' },
@@ -7148,6 +7149,7 @@ const AUTO_AI_TASK_OPTIONS = [
     { model: 'Quanti HE',      variant: 'Breast',  label: 'Quanti HE · Breast' },
     { model: 'Quanti HE',      variant: 'Other',   label: 'Quanti HE · Other' },
     { model: 'Quanti PD-L1',    variant: 'Stomach', label: 'Quanti PD-L1 · Stomach (CPS)' },
+    { model: 'Quanti PD-L1',    variant: 'Breast', label: 'Quanti PD-L1 · Breast (CPS)' },
     { model: 'Quanti PD-L1',    variant: 'Lung',    label: 'Quanti PD-L1 · Lung (TPS)' },
     { model: 'Quanti IHC', variant: 'HER2',    label: 'Quanti IHC · HER2' },
     { model: 'Quanti IHC', variant: 'ER_PR',   label: 'Quanti IHC · ER/PR (Allred)' },

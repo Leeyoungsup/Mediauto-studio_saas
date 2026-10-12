@@ -5,6 +5,8 @@ text text text. text dict (PD_SCORE_CONFIG / PRECISE_IHC_CONFIG) text text text
 score_type text text text text text text.
 """
 
+from copy import deepcopy
+
 # ═══════════════════════════════════════════════════════════════════
 # Quanti PD-L1 (PD-L1)
 # ═══════════════════════════════════════════════════════════════════
@@ -56,9 +58,16 @@ PD_SCORE_CONFIG = {
 }
 
 
+# Breast CPS uses the same seven classes, exclusions and scoring as Stomach CPS.
+PD_SCORE_CONFIG["Breast"] = {
+    **deepcopy(PD_SCORE_CONFIG["Stomach"]),
+    "model_file": "PDL1_BR_CPS_detection.pt",
+}
+
+
 def compute_pd_score(all_cls, tissue_type: str) -> dict:
     """
-    CPS (Stomach): (positive tumor + positive immune) / viable tumor * 100, capped at 100
+    CPS (Stomach/Breast): (positive tumor + positive immune) / viable tumor * 100, capped at 100
                    - positive tumor = cls 3 (positive Epithelial)
                    - positive immune = cls 4 + cls 5 (positive lymphocyte/macrophage)
                    - viable tumor = cls 0 + cls 3 (all epithelial)

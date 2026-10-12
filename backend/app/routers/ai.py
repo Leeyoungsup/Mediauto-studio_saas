@@ -160,7 +160,7 @@ async def start_pd_score(
     tissue_type: str = Form("Stomach"),
     dict_user: dict = Depends(get_current_user),
 ):
-    """Quanti PD-L1 text text (Stomach → CPS, Lung → TPS)"""
+    """Quanti PD-L1 text text (Stomach/Breast → CPS, Lung → TPS)"""
     info = slide_manager.get(slide_id)
     if not info:
         raise HTTPException(404, "text text text text")

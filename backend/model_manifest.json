@@ -5,6 +5,7 @@
     {"filename": "HnE_BR_segmentation.pt", "feature": "Quanti HE breast segmentation", "required": true},
     {"filename": "HnE_ST_segmentation.pt", "feature": "Quanti HE stomach segmentation", "required": true},
     {"filename": "PDL1_ST_CPS_detection.pt", "feature": "Quanti PD-L1 stomach CPS", "required": true},
+    {"filename": "PDL1_BR_CPS_detection.pt", "feature": "Quanti PD-L1 breast CPS", "required": true},
     {"filename": "PDL1_TPS_detection.pt", "feature": "Quanti PD-L1 lung TPS", "required": true},
     {"filename": "Precise_IHC_HER2_detection.pt", "feature": "Quanti IHC HER2", "required": true},
     {"filename": "Precise_IHC_ER_PR_detection.pt", "feature": "Quanti IHC ER/PR and Ki-67", "required": true},

@@ -45,6 +45,14 @@ ANNOTATION_AI_OPTIONS = [
         "inherit_classes": True,
     },
     {
+        "key": "quanti_pd_l1_breast",
+        "label": "Quanti PD-L1 - Breast (CPS)",
+        "group": "inherited",
+        "base_model": "Quanti PD-L1",
+        "variant": "Breast",
+        "inherit_classes": True,
+    },
+    {
         "key": "quanti_pd_l1_lung",
         "label": "Quanti PD-L1 - Lung (TPS)",
         "group": "inherited",
@@ -305,6 +313,7 @@ def project_public_info(dict_doc: Optional[dict]) -> dict:
         "status": dict_doc.get("str_status", "active"),
         "due_date": dict_doc.get("str_due_date", ""),
         "description": dict_doc.get("str_description", ""),
+        "comparison_tissue_type": dict_doc.get("str_comparison_tissue_type", ""),
         "project_ai_enabled": bool(dict_doc.get("bool_project_ai_enabled", False)),
         "project_ai_tasks": list_tasks,
         "annotation_ai_enabled": bool(dict_annotation_ai.get("enabled")),

@@ -140,7 +140,7 @@ def run_marker_detection_pipeline(
     YOLOv11m text marker detection text text.
     Quanti PD-L1 / Quanti IHC text text.
     text text text — text(SaMD) text text text text text.
-      - Quanti PD-L1 (Stomach/Lung): 0.1
+      - Quanti PD-L1 (Stomach/Breast/Lung): 0.1
       - Quanti IHC (HER2/ER_PR): 0.5
     text wrapper text text text.
     """
@@ -651,7 +651,7 @@ def run_pd_score(task_id, slide_id, roi_polygons, tissue_type):
         extra_fields={"tissue_type": tissue_type},
         log_label="Quanti PD-L1",
         str_variant=tissue_type,
-        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Lung text (SaMD text)
+        float_score_conf_threshold=0.1,  # PD-L1 Stomach/Breast/Lung text (SaMD text)
     )
 
 

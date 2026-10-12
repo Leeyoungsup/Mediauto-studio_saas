@@ -5,6 +5,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
@@ -161,6 +162,36 @@ async def create_project(
         },
     )
     return {"status": "created", "name": name, "path": name}
+
+
+@router.post("/project/comparison-model", dependencies=[Depends(require_capability("project.manage"))])
+async def set_comparison_model(
+    request: Request,
+    name: str = Form(...),
+    tissue_type: Literal["", "Stomach", "Breast", "Lung"] = Form(""),
+    dict_user: dict = Depends(get_current_user),
+):
+    name = safe_filename(name)
+    target = safe_subpath(name)
+    if not target.is_dir():
+        raise HTTPException(404, "Project not found")
+    if not is_db_connected():
+        raise HTTPException(503, "Project storage is unavailable")
+    repository = get_db().project_infos
+    before = project_public_info(await repository.find_one({"str_project_path": name}))
+    now = datetime.now(timezone.utc)
+    # Patch only this setting so project metadata and existing task settings survive.
+    await repository.update_one({"str_project_path": name}, {
+        "$set": {"str_project_path": name, "str_comparison_tissue_type": tissue_type,
+                 "dt_updated_at": now},
+        "$setOnInsert": {"dt_created_at": now},
+    }, upsert=True)
+    after = project_public_info(await repository.find_one({"str_project_path": name}))
+    await _log_event(request, dict_user, str_action="project.comparison_model.update",
+                     str_resource_type="project", str_resource_id=name,
+                     str_detail=f"Updated PD-L1 comparison model for {name}",
+                     dict_before=before, dict_after=after)
+    return {"path": name, "info": after}
 
 
 @router.post("/project/update", dependencies=[Depends(require_capability("project.manage"))])

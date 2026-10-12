@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>PD-L1 comparison browser verification</title>
 <link rel="stylesheet" href="/css/shared-header.css?v=20261012-pdl1-01">
-<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261012-pdl1-01">
+<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261012-pdl1-09">
 <style>body{margin:0;background:#f4f3fa;font-family:Arial,sans-serif}main{display:grid;grid-template-columns:1fr 420px;gap:24px;padding:24px}.test-results{background:white;border-radius:12px;padding:20px}li{margin:14px 0;color:#146c43}.failure{color:#b42318}</style></head>
 <body><div id="shared-header-root"></div><main><section class="test-results"><h1>PD-L1 비교 브라우저 검증</h1><p>실제 화면 모듈 · 테스트 데이터와 시계 사용</p><div id="watch"></div><ol id="results"></ol></section><aside id="fixture"></aside></main>
 <script src="/js/shared-header.js?v=20261012-pdl1-01"></script>
 <script type="module">
-import { api } from '/js/api.js?v=20261012-pdl1-04';
-import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261012-pdl1-04';
+import { TileViewer } from '/js/tile-viewer.js?v=20261012-pdl1-09';
+import { api } from '/js/api.js?v=20261012-pdl1-09';
+import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261012-pdl1-09';
 const results=document.getElementById('results');let passed=0;
 function check(condition,text){if(!condition)throw Error(text);const row=document.createElement('li');row.textContent=text;results.append(row);passed++;}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -24,18 +25,26 @@ try{
  let now=1000;Object.defineProperty(performance,'now',{value:()=>now,configurable:true});
  const standalone=new AssessmentClock();standalone.start();now+=5000;standalone.stop();now+=2000;
  check(standalone.elapsed()===5000,'확정 후 시계 정지');
- let records=[], calls=[],readResolvers=[];
- api.listPdl1Comparisons=async()=>({records});
+ let records=[], calls=[],readResolvers=[],historyCalls=[];
+ api.listPdl1Comparisons=async slide=>{historyCalls.push(slide);return {records};};
  api.readPdl1Json=(slide,tissue,options)=>new Promise((resolve,reject)=>{readResolvers.push({slide,tissue,resolve,reject});});
  let saves=0;
- api.savePdl1Comparison=async body=>{calls.push({...body});if(++saves===1)throw Error('Temporary network failure');const record={...body,_id:'record',filename:'anonymous.svs',score_type:'CPS',ai_json_elapsed_ms:18.25,ai_percentage:45,dt_created_at:new Date().toISOString()};records=[record];return record;};
- let displayResolvers=[], displayed=[];
- const comparison=createPdl1Comparison({displayResult:(result,context)=>new Promise(resolve=>{
+ api.savePdl1Comparison=async body=>{calls.push({...body});if(++saves===1)throw Error('Temporary network failure');const record={...body,_id:'record',user_id:'doctor-one',user_name:'Specialist A',filename:'anonymous.svs',score_type:'CPS',ai_json_elapsed_ms:18.25,ai_percentage:45,dt_created_at:new Date().toISOString()};records=[record];return record;};
+ let displayResolvers=[], displayed=[], overviewResolve;
+ let firstOverview=true;
+ const comparison=createPdl1Comparison({waitForOverview:()=>firstOverview?(firstOverview=false,new Promise(resolve=>overviewResolve=resolve)):Promise.resolve(),displayResult:(result,context)=>new Promise(resolve=>{
    displayed.push({result,context});displayResolvers.push(resolve);
  })});comparison.setUser({str_role:'doctor'});
  comparison.openSlide({slideId:'slide-one',project:'project-one',filename:'anonymous.svs'});
+ await until(()=>overviewResolve);
+ check(document.querySelector('[data-history-section]').hidden&&historyCalls.at(-1)==='slide-one','현재 슬라이드만 조회·기록 없으면 영역 숨김');
+ check(getComputedStyle(document.querySelector('[data-history-section]')).display==='none'&&document.querySelector('[data-history-section]').getBoundingClientRect().height===0,'빈 기록 영역은 실제 화면 높이와 흰 박스를 남기지 않음');
+ now+=9000;await wait(280);
+ check(readResolvers.length===0&&document.querySelector('#pdl1-stopwatch output').textContent==='00:00:09','슬라이드 입장부터 시계 시작·초기 타일 준비 중 AI 요청 대기');
+ check(document.querySelector('.pdl1-form [type=submit]').disabled,'초기 타일 준비 중 평가 입력·확인 차단');
+ overviewResolve();await until(()=>readResolvers.length===1);
  now+=61000;await wait(280);
- check(document.querySelector('#pdl1-stopwatch output').textContent==='00:01:01','슬라이드 열기 후 자동 경과 시간');
+ check(document.querySelector('#pdl1-stopwatch output').textContent==='00:01:10','슬라이드 열기 후 자동 경과 시간');
  const form=document.querySelector('.pdl1-form'),percentage=form.elements.percentage,grade=form.elements.grade;
  percentage.value='45';percentage.dispatchEvent(new Event('input'));
  check(grade.readOnly&&grade.value==='CPS ≥ 10','점수 입력 시 Grade 자동 계산·수동 입력 제한');
@@ -43,33 +52,69 @@ try{
  check(scoreGrade('')===''&&scoreGrade(101)===''&&scoreGrade(50,'Lung')==='TPS ≥ 50','빈 값·범위 오류·TPS 경계값 처리');
  form.requestSubmit();await wait(30);
  now+=5000;await wait(280);
- check(document.querySelector('#pdl1-stopwatch output').textContent==='00:01:01','확인 버튼 즉시 시간 확정·JSON 대기 제외');
+ check(document.querySelector('#pdl1-stopwatch output').textContent==='00:01:10','확인 버튼 즉시 시간 확정·JSON 대기 제외');
  readResolvers.shift().resolve({ai_read_id:'receipt',ai_json_elapsed_ms:18.25,ai_percentage:45,score_type:'CPS',result:{cells:[{x:1,y:2,class_id:3}],pd_score:{score:45}}});
  await until(()=>displayResolvers.length===1);
  check(calls.length===0&&document.querySelector('[data-ai-time]').textContent==='—','전체 결과 화면 표시 완료 전에는 AI 시간 확정·저장하지 않음');
  check(displayed[0].result.cells.length===1,'전체 JSON 세포 데이터를 표시기에 전달');
  now+=2000;displayResolvers.shift()();
  await until(()=>document.querySelector('[data-message]').textContent.includes('저장 실패'));
- check(calls[0].ai_result_elapsed_ms===68000,'AI result 시간에 요청·전송·화면 처리 대기 모두 포함');
- check(calls[0].specialist_elapsed_ms===61000,'전문의 기록에 JSON 대기·저장 시간 미포함');
+ check(calls[0].ai_result_elapsed_ms===77000&&calls[0].ai_timing_basis==='slide_entry_to_display','AI result 시간에 초기 타일 대기·요청·전송·화면 처리 모두 포함');
+ check(calls[0].specialist_elapsed_ms===70000,'전문의 기록에 JSON 대기·저장 시간 미포함');
  now+=7000;form.requestSubmit();await until(()=>document.querySelector('[data-message]').textContent.startsWith('저장했습니다'));
- check(calls.length===2&&calls[1].run_id===calls[0].run_id&&calls[1].specialist_elapsed_ms===61000,'저장 실패 재시도에 같은 측정 ID·시간 유지');
+ check(calls.length===2&&calls[1].run_id===calls[0].run_id&&calls[1].specialist_elapsed_ms===70000,'저장 실패 재시도에 같은 측정 ID·시간 유지');
  await until(()=>document.querySelector('.pdl1-history-record'));
  check(document.querySelector('.pdl1-history-record').textContent.includes('anonymous.svs'),'서버 기록 재조회 표시');
+ check(!document.querySelector('[data-history-section]').hidden&&document.querySelector('.pdl1-history-record strong').textContent==='Specialist A','기록 저장 후 계정명과 함께 표시');
  comparison.openSlide({slideId:'slide-old',project:'project-one',filename:'old.svs'});
- const old=readResolvers.shift();comparison.openSlide({slideId:'slide-new',project:'project-one',filename:'new.svs'});
- const latest=readResolvers.shift();now+=12;latest.resolve({ai_read_id:'new',ai_json_elapsed_ms:1,result:{cells:[]}});old.resolve({ai_read_id:'old',ai_json_elapsed_ms:999,result:{cells:[]}});await until(()=>displayResolvers.length===1);displayResolvers.shift()();await wait(50);
+ await until(()=>readResolvers.length===1);const old=readResolvers.shift();comparison.openSlide({slideId:'slide-new',project:'project-one',filename:'new.svs'});
+ await until(()=>readResolvers.length===1);const latest=readResolvers.shift();now+=12;latest.resolve({ai_read_id:'new',ai_json_elapsed_ms:1,result:{cells:[]}});old.resolve({ai_read_id:'old',ai_json_elapsed_ms:999,result:{cells:[]}});await until(()=>displayResolvers.length===1);displayResolvers.shift()();await wait(50);
  check(document.querySelector('[data-ai-time]').textContent==='12.000 ms','슬라이드 전환 시 이전 JSON 응답 무시');
  now+=5000;form.elements.tissue_type.value='Lung';form.elements.tissue_type.dispatchEvent(new Event('change'));
  check(form.querySelector('[data-score-label]').textContent==='TPS (%)','유형 변경 시 입력란 점수 유형 일치');
+ await until(()=>readResolvers.length===1);
  check(readResolvers[0].tissue==='Lung','CPS/TPS 유형 변경 시 해당 JSON 재조회');
  readResolvers.shift().reject(Error('JSON not found'));await wait(40);
  check(document.querySelector('[data-message]').textContent.includes('JSON'),'JSON 미존재를 성공 시간 0으로 표시하지 않음');
+ comparison.setProject('project-fixed', 'Lung');
+ comparison.openSlide({slideId:'slide-fixed',project:'project-fixed',filename:'fixed.svs'});
+ await wait(30);
+ check(form.elements.tissue_type.value==='Lung'&&form.elements.tissue_type.disabled,'프로젝트 고정 모델 자동 적용·슬라이드별 변경 차단');
+ check(readResolvers.at(-1).tissue==='Lung'&&form.querySelector('[data-score-label]').textContent==='TPS (%)','고정 모델에 맞는 JSON과 점수 입력 유형 사용');
+ form.elements.tissue_type.value='Stomach';form.elements.tissue_type.dispatchEvent(new Event('change'));
+ check(form.elements.tissue_type.value==='Lung','고정 모델 선택을 이벤트로 우회할 수 없음');
+ comparison.setProject('project-free', '');
+ check(!form.elements.tissue_type.disabled&&form.elements.tissue_type.value==='Stomach','미지정 프로젝트 전환 시 이전 모델 고정 해제');
+ comparison.setProject('project-breast', 'Breast');
+ comparison.openSlide({slideId:'slide-breast',project:'project-breast',filename:'breast.svs'});
+ await wait(30);
+ check(form.elements.tissue_type.value==='Breast'&&form.elements.tissue_type.disabled,'Breast(CPS) 프로젝트 고정 모델 적용');
+ check(readResolvers.at(-1).tissue==='Breast'&&form.querySelector('[data-score-label]').textContent==='CPS (%)','Breast JSON 조회와 CPS 입력란 연결');
+ percentage.value='45';percentage.dispatchEvent(new Event('input'));
+ check(grade.value==='CPS ≥ 10','Breast CPS 점수 구간 자동 계산');
  comparison.setUser({str_role:'viewer'});
  check(form.querySelector('[type=submit]').disabled,'조회 역할의 전문의 결과 저장 차단');
  records=[{filename:'<img src=x onerror=alert(1)>',score_type:'TPS',percentage:3,grade:'<script>bad<\/script>',specialist_elapsed_ms:1000,ai_json_elapsed_ms:null,dt_created_at:new Date().toISOString()}];
  document.querySelector('[data-refresh]').click();await wait(50);
  check(!document.querySelector('[data-history] img')&&!document.querySelector('[data-history] script'),'기록 문자열 안전 출력');
+ // Verify actual TileViewer readiness logic with controlled tile completions.
+ let painted=false;
+ const tileFixture=()=>({slideInfo:{},zoom:1,_viewW:2048,_viewH:1024,viewCenterX:1024,viewCenterY:512,
+   _loadGeneration:1,_tileCache:new Map(),_tileFadeStart:new Map(),_tileLoadErrors:new Set(),_fadeDurationMs:0,
+   fitToWindow(){},getEffectiveMpp:()=>20,_getStageLevel:()=>2,_stageDimensions:()=>[2048,1024],_stageDownsample:()=>1,
+   _queueTileTask(){},_processLoadQueue(){},whenRendered:async()=>{painted=true;}});
+ const tile=tileFixture();let ready=false;
+ const preparation=TileViewer.prototype.whenOverviewReady.call(tile).then(()=>ready=true);
+ await wait(30);check(!ready&&!painted,'썸네일·빈 캐시를 타일 준비 완료로 인정하지 않음');
+ tile._tileCache.set('2/0/0',{complete:true,naturalWidth:1024});await wait(40);
+ check(!ready,'일부 초기 타일만 로드된 경우 AI 준비 완료 대기');
+ tile._tileCache.set('2/1/0',{complete:true,naturalWidth:1024});await preparation;
+ check(ready&&painted,'모든 초기 타일 로드와 화면 렌더 후 준비 완료');
+ const failed=tileFixture();const failure=TileViewer.prototype.whenOverviewReady.call(failed).then(()=>false,()=>true);
+ failed._tileLoadErrors.add('2/1/0');check(await failure,'타일 실패를 완료로 처리하지 않음');
+ const cancelled=tileFixture(),abort=new AbortController();
+ const cancellation=TileViewer.prototype.whenOverviewReady.call(cancelled,abort.signal).then(()=>false,error=>error.name==='AbortError');
+ abort.abort();check(await cancellation,'슬라이드 전환 시 초기 타일 대기 취소');
  document.title=`PASS ${passed}`;window.__testResults={passed};
  if(location.search.includes('capture'))fetch(`/__tests_complete?passed=${passed}`);
 }catch(error){const row=document.createElement('li');row.className='failure';row.textContent=error.stack||error.message;results.append(row);document.title='FAIL';if(location.search.includes('capture'))fetch(`/__tests_complete?failed=${encodeURIComponent(error.message)}`);}

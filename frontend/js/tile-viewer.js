@@ -10,7 +10,7 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20261012-pdl1-04';
+import { api } from './api.js?v=20261012-pdl1-09';
 import { fixedAreaCoordinates, annotationAreaLabel } from './annotation-area.js?v=20260914-area-toggle-01';
 
 const TILE_SIZE = 1024;
@@ -139,6 +139,7 @@ export class TileViewer {
         // text text — key → fade start timestamp (ms). text text current-level
         // child text alpha 0 → 1 text text OSD text text text text text text.
         this._tileFadeStart = new Map();
+        this._tileLoadErrors = new Set();
         this._fadeDurationMs = 250;
         this._thumbnailBitmap = null;  // text text text text (slide text text 1text text)
         // ── NDP text toggle (Hamamatsu text) ──
@@ -373,6 +374,7 @@ export class TileViewer {
         this._tileCache.clear();
         this._tileLoading.clear();
         this._tileFadeStart.clear();
+        this._tileLoadErrors.clear();
         this._loadQueue = [];
         this._loadQueuedKeys.clear();
         this._activeLoads = 0;
@@ -1379,6 +1381,58 @@ export class TileViewer {
         });
     }
 
+    /** Wait for every tile of the fitted overview, not thumbnail/fallback completion. */
+    async whenOverviewReady(signal) {
+        if (!this.slideInfo) throw new Error('슬라이드를 먼저 열어주세요.');
+        this.fitToWindow();
+        const generation = this._loadGeneration;
+        const level = this._getStageLevel(this.getEffectiveMpp());
+        const [width, height] = this._stageDimensions(level);
+        const size = TILE_SIZE * this._stageDownsample(level);
+        const left = Math.max(0, Math.floor((this.viewCenterX - this._viewW / this.zoom / 2) / size));
+        const top = Math.max(0, Math.floor((this.viewCenterY - this._viewH / this.zoom / 2) / size));
+        const right = Math.min(Math.ceil(width / TILE_SIZE) - 1, Math.ceil((this.viewCenterX + this._viewW / this.zoom / 2) / size));
+        const bottom = Math.min(Math.ceil(height / TILE_SIZE) - 1, Math.ceil((this.viewCenterY + this._viewH / this.zoom / 2) / size));
+        const tasks = [];
+        for (let ty = top; ty <= bottom; ty++) for (let tx = left; tx <= right; tx++) {
+            const key = `${level}/${tx}/${ty}`;
+            this._tileLoadErrors.delete(key); // A new assessment can retry a previous failure.
+            tasks.push({ level, tx, ty, key });
+        }
+        if (!tasks.length) throw new Error('초기 화면의 타일 범위를 확인할 수 없습니다.');
+        await new Promise((resolve, reject) => {
+            let timer;
+            const finish = error => {
+                clearTimeout(timer); signal?.removeEventListener('abort', abort);
+                error ? reject(error) : resolve();
+            };
+            const abort = () => finish(new DOMException('Overview cancelled', 'AbortError'));
+            const check = () => {
+                if (signal?.aborted) { abort(); return; }
+                if (generation !== this._loadGeneration) {
+                    finish(new Error('초기 화면 준비 중 슬라이드 또는 배율이 변경되었습니다. 다시 측정해주세요.')); return;
+                }
+                if (tasks.some(task => this._tileLoadErrors.has(task.key))) {
+                    finish(new Error('초기 화면 타일을 불러오지 못했습니다. 다시 측정해주세요.')); return;
+                }
+                const ready = tasks.every(task => {
+                    const image = this._tileCache.get(task.key);
+                    const fade = this._tileFadeStart.get(task.key);
+                    return image?.complete && image.naturalWidth > 0
+                        && (fade === undefined || performance.now() - fade >= this._fadeDurationMs);
+                });
+                if (ready) { finish(); return; }
+                tasks.forEach(task => this._queueTileTask({ ...task }));
+                this._processLoadQueue();
+                timer = setTimeout(check, 25);
+            };
+            signal?.addEventListener('abort', abort, { once: true });
+            check();
+        });
+        await this.whenRendered(signal);
+        if (generation !== this._loadGeneration) throw new Error('슬라이드 화면이 변경되었습니다.');
+    }
+
     /** Resolve after the queued canvas render and its browser paint opportunity. */
     whenRendered(signal) {
         return new Promise((resolve, reject) => {
@@ -2127,6 +2181,7 @@ export class TileViewer {
                 this._processLoadQueue();
                 return;
             }
+            this._tileLoadErrors.delete(key);
             this._putCache(key, img);
             this._tileFadeStart.set(key, performance.now());
             this._markPreloadTileDone(key);
@@ -2134,6 +2189,7 @@ export class TileViewer {
             this.requestRender();
         };
         img.onerror = () => {
+            if (int_gen === this._loadGeneration) this._tileLoadErrors.add(key);
             this._inflightImages.delete(img);
             this._tileLoading.delete(key);
             this._activeLoads--;

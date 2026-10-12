@@ -118,6 +118,7 @@ class Settings:
     TILES_DIR: str = str(configured_path("TILES_DIR", BACKEND_DIR / "tiles"))
 
     # AI text text text (uploadstext text)
+    COMPARISON_DIR: str = str(configured_path("COMPARISON_DIR", Path(UPLOAD_DIR).parent / "comparison"))
     AI_RESULTS_DIR: str = str(configured_path("AI_RESULTS_DIR", BACKEND_DIR / "ai_results"))
 
     # text text
