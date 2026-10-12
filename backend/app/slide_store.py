@@ -72,7 +72,7 @@ def _norm_rel_path(str_rel_path: str) -> str:
 
 def _norm_open_page(str_open_page: str) -> str:
     str_page = (str_open_page or "").strip()
-    if str_page in {"ai", "tissue-annotation", "cell-annotation"}:
+    if str_page in {"ai", "pd-l1-comparison", "tissue-annotation", "cell-annotation"}:
         return str_page
     if str_page == "annotation":
         return "tissue-annotation"

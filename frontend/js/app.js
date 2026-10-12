@@ -1,4 +1,4 @@
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-01';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-03';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
@@ -8,8 +8,8 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20260914-01';
-import { AiViewer } from './ai-viewer.js?v=20260914-02';
+import { api } from './api.js?v=20261012-pdl1-03';
+import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-03';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 

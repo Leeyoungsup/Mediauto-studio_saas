@@ -234,12 +234,13 @@
 
     function recentSlideOpenPage(slide) {
         const page = slide?.last_opened_page;
-        if (page === 'ai' || page === 'tissue-annotation' || page === 'cell-annotation') return page;
+        if (page === 'ai' || page === 'pd-l1-comparison' || page === 'tissue-annotation' || page === 'cell-annotation') return page;
         if (page === 'annotation') return 'tissue-annotation';
         return 'tissue-annotation';
     }
 
     function recentSlidePageMeta(page) {
+        if (page === 'pd-l1-comparison') return { label: 'PD-L1 Comparison', cls: 'page-ai' };
         if (page === 'ai') return { label: 'Viewer', cls: 'page-ai' };
         if (page === 'cell-annotation') return { label: 'Cell Annotation', cls: 'page-cell' };
         return { label: 'Tissue Annotation', cls: 'page-tissue' };

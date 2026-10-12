@@ -487,7 +487,8 @@ export const api = {
         form.append('filename', filename);
         form.append('path', path);
         const page = openPage || (
-            location.pathname.includes('cell-annotation') ? 'cell-annotation'
+            location.pathname.includes('pd-l1-comparison') ? 'pd-l1-comparison'
+            : location.pathname.includes('cell-annotation') ? 'cell-annotation'
             : location.pathname.includes('annotation') ? 'tissue-annotation'
             : 'ai'
         );
