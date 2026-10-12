@@ -1,3 +1,6 @@
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-01';
+const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
+const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
 import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
@@ -230,6 +233,12 @@ let lastSegData = null;  // segmentation overlay data from epithelial classifica
 
 let viewer = new AiViewer($canvas, $overlay);
 const _primaryViewer = viewer;
+const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison() : null;
+if (IS_PDL1_COMPARISON) {
+    document.body.classList.add('pd-l1-comparison-page');
+    const hint = document.querySelector('.project-gate-header p');
+    if (hint) hint.textContent = 'Select a project to open in PD-L1 Comparison.';
+}
 
 viewer.onZoomChange = (zoom, mag, mpp) => {
     $zoomInfo.textContent = `${mag.toFixed(1)}x  |  MPP ${mpp.toFixed(3)} μm/px`;
@@ -624,6 +633,7 @@ function onSlideLoaded(slideId, slideInfo, filename) {
     }
 
     viewer.loadSlide(slideId, currentSlideInfo);
+    pdl1Comparison?.openSlide({ slideId, filename: currentSlideInfo.filename, project: currentBrowsePath.split('/')[0] });
 
     if ($mousePosOverlay) $mousePosOverlay.hidden = false;
 
@@ -3225,7 +3235,7 @@ async function _viewSelectedSameCaseSlide() {
     try {
         if (targetPath !== currentBrowsePath) {
             currentBrowsePath = targetPath;
-            history.replaceState(null, '', `/ai?path=${encodeURIComponent(targetPath)}`);
+            history.replaceState(null, '', `${VIEWER_ROUTE}?path=${encodeURIComponent(targetPath)}`);
             await loadSlideList();
         }
         const item = [...($slideList?.querySelectorAll('.slide-list-item[data-slide-id]') || [])]
@@ -4780,6 +4790,7 @@ function _renderProjectGate(list_projects) {
 }
 
 function _showProjectGate(list_projects = _projectListCache) {
+    pdl1Comparison?.setProject('');
     if (!$projectGate) return;
     _renderProjectGate(list_projects);
     $projectGate.hidden = false;
@@ -4797,7 +4808,7 @@ function _enterProjectFromGate(path) {
     if (!path) return;
     _hideProjectGate();
     currentBrowsePath = path;
-    history.replaceState(null, '', `/ai?path=${encodeURIComponent(path)}`);
+    history.replaceState(null, '', `${VIEWER_ROUTE}?path=${encodeURIComponent(path)}`);
     loadSlideList();
 }
 
@@ -4816,6 +4827,7 @@ if ($projectGateAdditional) {
 }
 
 async function loadSlideList() {
+    pdl1Comparison?.setProject(currentBrowsePath);
     const int_request_seq = ++_slideListRequestSeq;
     const str_request_path = currentBrowsePath;
     const controller = _beginLatestRead('slide-list');
@@ -6181,7 +6193,7 @@ $btnVsSplit?.addEventListener('click', () => {
             if ($projectLinkAdmin) $projectLinkAdmin.hidden = false;
         }
         window.MediautoHeader?.render({
-            active: 'viewer',
+            active: IS_PDL1_COMPARISON ? 'pd-l1-comparison' : 'viewer',
             user: { ...dict_me, str_role: normalizedRole },
             showAdmin: normalizedRole === 'admin',
             logout: () => {
@@ -6189,6 +6201,7 @@ $btnVsSplit?.addEventListener('click', () => {
                 api.logout();
             },
         });
+        pdl1Comparison?.setUser(dict_me);
         window.__currentUserRole = normalizedRole;
         window.__currentUserId = String(dict_me._id || '');
         if (window.__currentUserRole === 'viewer') {
@@ -6213,9 +6226,9 @@ $btnVsSplit?.addEventListener('click', () => {
         const firstSlide = _paramMultiSlides[0];
         await openSavedSlide(firstSlide.filename, null, firstSlide.path);
         await _openMultiView(_paramMultiSlides);
-        history.replaceState(null, '', '/ai');
+        history.replaceState(null, '', VIEWER_ROUTE);
     } else if (_paramSlide) {
         await openSavedSlide(_paramSlide, null, _paramPath || currentBrowsePath);
-        history.replaceState(null, '', '/ai');
+        history.replaceState(null, '', VIEWER_ROUTE);
     }
 })();

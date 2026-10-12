@@ -93,6 +93,7 @@ from app.database import initialize_main_loop
 from app.postgres.database import connect_postgres, disconnect_postgres
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
 from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users, admin_settings
+from app.routers import pd_l1_comparison
 from app import auto_ai
 from app import slide_store
 from app import tile_worker
@@ -213,6 +214,7 @@ app.add_middleware(RateLimitMiddleware)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(admin_settings.router, prefix="/api/admin", tags=["admin-settings"])
+app.include_router(pd_l1_comparison.router, prefix="/api/pd-l1-comparison", tags=["pd-l1-comparison"])
 app.include_router(projects.router, prefix="/api/slides", tags=["slide-projects"])
 app.include_router(file_operations.router, prefix="/api/slides", tags=["slide-files"])
 app.include_router(slides.router, prefix="/api/slides", tags=["slides"])
@@ -275,6 +277,7 @@ _DICT_PAGE_ROUTES = {
     "project": "project.html",
     "data-linkage": "data-linkage.html",
     "ai": "app.html",
+    "pd-l1-comparison": "app.html",
     "annotation": "annotation.html",
     "tissue-annotation": "annotation.html",
     "cell-annotation": "cell-annotation.html",
@@ -293,6 +296,7 @@ def _frontend_page_response(str_page: str) -> FileResponse:
     )
 
 
+_legacy_page_files = set()
 for _clean_path, _html_file in _DICT_PAGE_ROUTES.items():
     async def _serve_frontend_page(str_page: str = _clean_path):
         return _frontend_page_response(str_page)
@@ -303,7 +307,9 @@ for _clean_path, _html_file in _DICT_PAGE_ROUTES.items():
         return RedirectResponse(url=str_url, status_code=308)
 
     app.get(f"/{_clean_path}", include_in_schema=False)(_serve_frontend_page)
-    app.get(f"/{_html_file}", include_in_schema=False)(_redirect_legacy_page)
+    if _html_file not in _legacy_page_files:
+        app.get(f"/{_html_file}", include_in_schema=False)(_redirect_legacy_page)
+        _legacy_page_files.add(_html_file)
 
 
 if FRONTEND_DIR.exists():

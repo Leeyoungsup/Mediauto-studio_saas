@@ -348,6 +348,26 @@ function _normalizeAiResultPayload(result) {
 
 export const api = {
 
+    async readPdl1Json(slideId, tissueType, options = {}) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/read-json`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slide_id: slideId, tissue_type: tissueType }), signal: options.signal,
+        });
+        return _jsonOrThrow(response, 'PD-L1 JSON read failed');
+    },
+
+    async savePdl1Comparison(record) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/records`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record),
+        });
+        return _jsonOrThrow(response, 'Comparison save failed');
+    },
+
+    async listPdl1Comparisons(projectPath) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/records?project_path=${encodeURIComponent(projectPath)}`);
+        return _jsonOrThrow(response, 'Comparison history unavailable');
+    },
+
     /**   (  +  ) */
     async browse(path = '', options = {}) {
         const res = await _authFetch(`${API_BASE}/slides/browse?path=${encodeURIComponent(path)}`, { signal: options.signal });

@@ -233,3 +233,6 @@
     .shared-role { display: none; }
     .shared-logout { padding: 5px 10px; font-size: 12px; }
 }
+
+/* Temporarily hide Annotation navigation and its project entry shortcuts. */
+.shared-nav-menu[hidden], .project-mode-nav-menu[hidden], .shared-nav-item[hidden], .project-open-option[hidden] { display: none !important; }

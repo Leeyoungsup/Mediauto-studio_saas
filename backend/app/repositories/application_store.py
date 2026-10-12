@@ -32,6 +32,7 @@ APPLICATION_COLLECTIONS = (
     "patch_cell_annotations",
     "user_ai_edits",
     "app_settings",
+    "pd_l1_comparisons",
 )
 
 _TYPE_KEY = "__mediauto_pg_type__"

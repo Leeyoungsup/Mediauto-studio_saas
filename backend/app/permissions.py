@@ -9,6 +9,7 @@ CAPABILITY_ROLES = MappingProxyType({
     "project.delete": frozenset({"admin"}),
     "accounts.manage": frozenset({"admin"}),
     "server.manage": frozenset({"admin"}),
+    "comparison.write": frozenset({"admin", "doctor"}),
 })
 
 

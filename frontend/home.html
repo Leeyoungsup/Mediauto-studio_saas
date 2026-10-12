@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeDIAuto Studio — Home</title>
     <link rel="icon" href="assets/app_icon.ico">
-    <link rel="stylesheet" href="css/shared-header.css?v=20260901-01">
+    <link rel="stylesheet" href="css/shared-header.css?v=20261012-pdl1-01">
     <link rel="stylesheet" href="css/home.css?v=20260930-02">
     <script src="/js/security-session.js?v=20261008-01"></script>
 </head>
@@ -20,6 +20,7 @@
                 <a href="/home" class="home-nav-item active">Home</a>
                 <a href="/project" class="home-nav-item">Project</a>
                 <a href="/ai" class="home-nav-item">Viewer</a>
+                <a href="/pd-l1-comparison" class="home-nav-item">PD-L1 Comparison</a>
                 <a href="/admin" class="home-nav-item" id="btn-admin" hidden>Admin</a>
             </nav>
             <div class="home-user-info">
@@ -151,11 +152,15 @@
                             <span class="project-open-option-title">Viewer</span>
                             <span class="project-open-option-desc">Open Viewer workspace</span>
                         </button>
-                        <button class="project-open-option" type="button" data-open-page="tissue-annotation">
+                        <button class="project-open-option" type="button" data-open-page="pd-l1-comparison">
+                            <span class="project-open-option-title">PD-L1 Comparison</span>
+                            <span class="project-open-option-desc">Compare specialist assessment and saved JSON read time</span>
+                        </button>
+                        <button class="project-open-option" type="button" data-open-page="tissue-annotation" hidden>
                             <span class="project-open-option-title">Tissue Annotation</span>
                             <span class="project-open-option-desc">Open tissue annotation workflow</span>
                         </button>
-                        <button class="project-open-option" type="button" data-open-page="cell-annotation">
+                        <button class="project-open-option" type="button" data-open-page="cell-annotation" hidden>
                             <span class="project-open-option-title">Cell Annotation</span>
                             <span class="project-open-option-desc">Open cell annotation workflow</span>
                         </button>
@@ -271,7 +276,7 @@
         <a class="home-information-link" href="/ai-guide.html">Important Information</a>
     </footer>
 
-    <script src="js/shared-header.js?v=20261012-01"></script>
+    <script src="js/shared-header.js?v=20261012-pdl1-01"></script>
     <script src="js/home.js?v=20261012-01"></script>
 </body>
 </html>
