@@ -94,6 +94,9 @@ from app.postgres.database import connect_postgres, disconnect_postgres
 from app import cpu_layout  # CPU text — import text executor text, startup text affinity text
 from app.routers import slides, slide_media, annotation_storage, cell_annotation, projects, file_operations, tiles, ai, auth, users, admin_settings
 from app.routers import pd_l1_comparison
+from app.access_logging import configure_tile_access_logging
+
+configure_tile_access_logging()
 from app import auto_ai
 from app import slide_store
 from app import tile_worker

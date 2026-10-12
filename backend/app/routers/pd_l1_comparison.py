@@ -1,4 +1,4 @@
-"""Specialist stopwatch records compared with cached PD-L1 JSON read/parse time."""
+"""Specialist stopwatch records compared with full AI result display time."""
 import asyncio
 import hashlib
 import json
@@ -42,6 +42,7 @@ class ComparisonRequest(JsonReadRequest):
     percentage: float = Field(ge=0, le=100, allow_inf_nan=False)
     grade: str = Field(min_length=1, max_length=80)
     ai_read_id: str | None = Field(default=None, max_length=64)
+    ai_result_elapsed_ms: float | None = Field(default=None, gt=0, le=86_400_000, allow_inf_nan=False)
 
     @field_validator("grade")
     @classmethod
@@ -50,6 +51,20 @@ class ComparisonRequest(JsonReadRequest):
         if not value or any(ord(c) < 32 for c in value):
             raise ValueError("Enter a valid grade")
         return value
+
+
+def score_grade(percentage: float, tissue: str) -> str:
+    """Display score bands, not a numbered clinical grade or treatment decision.
+
+    CPS 1/10: Agilent 22C3 CPS interpretation training.
+    TPS 1/50: FDA P150013/S006 assay expression categories.
+    """
+    score_type, upper = ("CPS", 10) if tissue == "Stomach" else ("TPS", 50)
+    if percentage < 1:
+        return f"{score_type} < 1"
+    if percentage < upper:
+        return f"1 ≤ {score_type} < {upper}"
+    return f"{score_type} ≥ {upper}"
 
 
 def slide_context(slide_id):
@@ -83,7 +98,7 @@ def read_json(path, tissue):
     grade = score.get("grade")
     return {"ai_json_elapsed_ms": elapsed, "ai_percentage": value,
             "ai_grade": str(grade)[:80] if grade is not None else None,
-            "score_type": expected}
+            "score_type": expected, "result": result}
 
 
 @router.post("/read-json")
@@ -96,12 +111,13 @@ async def read_saved_json(body: JsonReadRequest, user=Depends(get_current_user))
     if path.is_symlink():
         raise HTTPException(422, "Saved JSON must be a regular cache file")
     result = await asyncio.to_thread(read_json, path, body.tissue_type)
+    payload = result.pop("result")
     record = {"_id": uuid.uuid4().hex, "kind": "json_read", "project_path": project,
               "slide_id": body.slide_id, "filename": Path(info.file_path).name,
               "tissue_type": body.tissue_type, "user_id": user["_id"],
               "dt_created_at": datetime.now(timezone.utc), **result}
     await repository.insert_one(record)
-    return {"ai_read_id": record["_id"], **result}
+    return {"ai_read_id": record["_id"], **result, "result": payload}
 
 
 @router.post("/records")
@@ -116,6 +132,8 @@ async def save_comparison(body: ComparisonRequest, request: Request,
         if existing.get("request_signature") != signature:
             raise HTTPException(409, "This measurement has already been recorded")
         return existing
+    if body.ai_result_elapsed_ms is not None and not body.ai_read_id:
+        raise HTTPException(400, "AI display timing requires a JSON receipt")
     ai = {}
     if body.ai_read_id:
         ai = await repository.find_one({"_id": body.ai_read_id, "kind": "json_read"})
@@ -128,16 +146,19 @@ async def save_comparison(body: ComparisonRequest, request: Request,
               "slide_id": body.slide_id, "filename": Path(info.file_path).name,
               "user_id": user["_id"], "tissue_type": body.tissue_type,
               "score_type": "CPS" if body.tissue_type == "Stomach" else "TPS",
-              "percentage": body.percentage, "grade": body.grade,
+              "percentage": body.percentage, "grade": score_grade(body.percentage, body.tissue_type),
+              "grade_basis": "score_bands_v1",
               "specialist_elapsed_ms": body.specialist_elapsed_ms,
               "ai_read_id": body.ai_read_id,
+              "ai_result_elapsed_ms": body.ai_result_elapsed_ms,
+              "ai_timing_basis": "request_to_display" if body.ai_result_elapsed_ms is not None else None,
               "ai_json_elapsed_ms": ai.get("ai_json_elapsed_ms"),
               "ai_percentage": ai.get("ai_percentage"), "ai_grade": ai.get("ai_grade"),
               "request_signature": signature, "dt_created_at": datetime.now(timezone.utc)}
     await repository.insert_one(record)
     await log_audit_event(str_action="pd_l1.comparison_saved", str_user_id=user["_id"],
                           str_resource_type="pd_l1_comparison", str_resource_id=identifier,
-                          str_detail="Specialist assessment and JSON read timing recorded",
+                          str_detail="Specialist assessment and AI result timing recorded",
                           str_ip_address=get_client_ip(request))
     return record
 

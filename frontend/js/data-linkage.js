@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261012-pdl1-03';
+import { api } from './api.js?v=20261012-pdl1-04';
 
 (function () {
     'use strict';

@@ -95,13 +95,18 @@ def test_read_save_reload_and_retry(client):
     result = read_json(client);assert result.status_code == 200, result.text
     ai = result.json();assert ai['ai_json_elapsed_ms'] > 0
     assert ai['ai_percentage'] == 43.2 and ai['ai_grade'] is None
-    body = measurement(ai_read_id=ai['ai_read_id'])
+    assert ai['result']['cells'] == [[1, 2, 3, .9]]
+    body = measurement(ai_read_id=ai['ai_read_id'], ai_result_elapsed_ms=265.75)
     response = client.post('/comparison/records', headers=HEADERS, json=body)
     assert response.status_code == 200, response.text
     record = response.json()
     assert record['project_path'] == 'project-one'
     assert record['specialist_elapsed_ms'] == 120050 and record['ai_json_elapsed_ms'] == ai['ai_json_elapsed_ms']
-    assert record['grade'] == '2'
+    assert record['grade'] == 'CPS ≥ 10'
+    assert record['grade_basis'] == 'score_bands_v1'
+    assert record['ai_result_elapsed_ms'] == 265.75
+    assert record['ai_timing_basis'] == 'request_to_display'
+    assert 'result' not in record
     retry = client.post('/comparison/records', headers=HEADERS, json=body)
     assert retry.json()['_id'] == record['_id']
     listed = client.get('/comparison/records?project_path=project-one').json()['records']
@@ -155,3 +160,43 @@ def test_unauthenticated_reads_and_csrf_boundary(client):
     assert client.get('/comparison/records?project_path=project-one').status_code==401
     client.app_under_test.dependency_overrides[get_current_user]=lambda:{'_id':'doctor-one','str_role':'doctor'}
     assert client.post('/comparison/records',json=measurement()).status_code==403
+
+
+@pytest.mark.parametrize('duration', [0, -1, 86400001, 'NaN', 'Infinity'])
+def test_invalid_display_duration_rejected(client, duration):
+    response = client.post('/comparison/records', headers=HEADERS,
+                           json=measurement(ai_result_elapsed_ms=duration))
+    assert response.status_code == 422
+
+
+def test_display_duration_requires_real_receipt(client):
+    response = client.post('/comparison/records', headers=HEADERS,
+                           json=measurement(ai_result_elapsed_ms=250))
+    assert response.status_code == 400
+
+
+def test_full_result_is_returned_but_not_duplicated_in_storage(client):
+    result = read_json(client).json()
+    assert result['result']['pd_score']['score'] == 43.2
+    response = client.post('/comparison/records', headers=HEADERS,
+                           json=measurement(ai_read_id=result['ai_read_id'], ai_result_elapsed_ms=300))
+    assert response.status_code == 200
+    record = response.json()
+    assert record['ai_json_elapsed_ms'] == result['ai_json_elapsed_ms']
+    assert record['ai_result_elapsed_ms'] == 300
+    # The receipt retains summary metrics rather than all slide cells.
+    assert asyncio.run(routes.store().find_one({'_id': result['ai_read_id']})).get('result') is None
+
+
+@pytest.mark.parametrize('tissue,score,expected', [
+    ('Stomach', 0, 'CPS < 1'), ('Stomach', .9999, 'CPS < 1'),
+    ('Stomach', 1, '1 ≤ CPS < 10'), ('Stomach', 9.9999, '1 ≤ CPS < 10'),
+    ('Stomach', 10, 'CPS ≥ 10'), ('Stomach', 100, 'CPS ≥ 10'),
+    ('Lung', .9999, 'TPS < 1'), ('Lung', 1, '1 ≤ TPS < 50'),
+    ('Lung', 49.9999, '1 ≤ TPS < 50'), ('Lung', 50, 'TPS ≥ 50'),
+])
+def test_grade_derived_from_percentage_not_manual_input(client, tissue, score, expected):
+    response = client.post('/comparison/records', headers=HEADERS,
+                           json=measurement(tissue_type=tissue, percentage=score, grade='arbitrary'))
+    assert response.status_code == 200
+    assert response.json()['grade'] == expected

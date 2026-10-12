@@ -411,17 +411,19 @@
                 <p class="pdl1-slide-name" data-slide>왼쪽 목록에서 슬라이드를 열어주세요.</p>
                 <div class="pdl1-timings">
                     <div><span>전문의 경과 시간</span><strong data-doctor-time>—</strong></div>
-                    <div><span>AI JSON 읽기·파싱</span><strong data-ai-time>—</strong></div>
+                    <div><span>AI result</span><strong data-ai-time>—</strong></div>
                 </div>
+                <p data-ai-result hidden></p>
                 <form class="pdl1-form">
                     <label>판별 유형 <select name="tissue_type"><option value="Stomach">Stomach · CPS</option><option value="Lung">Lung · TPS</option></select></label>
-                    <label>PD-L1 퍼센트 (%) <input name="percentage" type="number" min="0" max="100" step="any" required placeholder="0~100" disabled></label>
-                    <label>Grade <input name="grade" type="text" maxlength="80" required placeholder="Grade 입력" disabled></label>
+                    <label><span data-score-label>CPS (%)</span> <input name="percentage" type="number" min="0" max="100" step="any" required placeholder="0~100" disabled></label>
+                    <label>Grade (점수 구간) <input name="grade" type="text" maxlength="80" readonly placeholder="점수 입력 시 자동 계산" disabled></label>
+                    <small>자동 구간: CPS 1·10 / TPS 1·50 경계값 · Grade는 점수 구간명입니다.</small>
                     <div class="pdl1-buttons"><button type="submit" disabled>확인 · 시간 기록</button><button type="button" data-restart>다시 측정</button></div>
                 </form>
                 <p class="pdl1-message" data-message role="status">슬라이드를 열면 시간이 자동으로 시작됩니다.</p>
                 <p class="pdl1-summary" data-summary hidden></p>
-                <p class="pdl1-timing-note">전문의 시간은 슬라이드를 연 시점부터 확인 버튼을 누른 시점까지입니다. AI 시간은 서버에서 저장된 JSON을 읽고 파싱하는 시간이며, 모델 추론 시간은 포함하지 않습니다.</p>
+                <p class="pdl1-timing-note">전문의 시간은 슬라이드를 연 시점부터 확인 버튼을 누른 시점까지입니다. AI result 시간은 요청 시작부터 전체 JSON을 읽고 전송·처리하여 결과를 화면에 표시할 때까지입니다. 모델 추론 시간은 포함하지 않습니다.</p>
                 <div class="pdl1-history-heading"><h3>프로젝트 비교 기록</h3><button type="button" data-refresh>새로고침</button></div>
                 <div class="pdl1-history" data-history>프로젝트를 선택하면 기록이 표시됩니다.</div>
             </section>
@@ -783,6 +785,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20261012-pdl1-01"></script>
-    <script type="module" src="js/app.js?v=20261012-pdl1-03"></script>
+    <script type="module" src="js/app.js?v=20261012-pdl1-04"></script>
 </body>
 </html>

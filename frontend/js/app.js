@@ -1,4 +1,4 @@
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-03';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261012-pdl1-04';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
@@ -8,8 +8,8 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20261012-pdl1-03';
-import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-03';
+import { api } from './api.js?v=20261012-pdl1-04';
+import { AiViewer } from './ai-viewer.js?v=20261012-pdl1-04';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
@@ -233,7 +233,14 @@ let lastSegData = null;  // segmentation overlay data from epithelial classifica
 
 let viewer = new AiViewer($canvas, $overlay);
 const _primaryViewer = viewer;
-const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison() : null;
+const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison({
+    async displayResult(result, context, signal) {
+        if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
+        const target = viewer;
+        onPdScoreComplete(result, null, context.tissueType);
+        await target.whenRendered(signal);
+    },
+}) : null;
 if (IS_PDL1_COMPARISON) {
     document.body.classList.add('pd-l1-comparison-page');
     const hint = document.querySelector('.project-gate-header p');

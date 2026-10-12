@@ -3,9 +3,9 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20261012-pdl1-03';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261012-pdl1-03';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261012-pdl1-03';
+import { api } from './api.js?v=20261012-pdl1-04';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261012-pdl1-04';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261012-pdl1-04';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
 import { showVisualization } from './visualization.js?v=20260824-07';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';

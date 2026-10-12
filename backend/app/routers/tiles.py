@@ -8,9 +8,10 @@ import asyncio
 import os
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 
-# text TILE_DEBUG=1 text _render_and_save text text wall-time text text
+# TILE_DEBUG=1 prints the requested tile generation duration.
 _BOOL_TILE_DEBUG = os.environ.get("TILE_DEBUG", "").lower() in ("1", "true", "yes")
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -33,14 +34,12 @@ from app.tile_generator import (
     get_tiles_dir_for_path,
     image_to_white_rgb,
     read_region_for_output,
-    is_completed_cache_tile_repair_pending,
-    queue_completed_cache_tile_repair,
     request_priority_tile,
     tiles_marker_matches_file,
 )
 from app.philips_proxy import is_philips_isyntax
 from app.priority import notify_viewer_activity
-from app.cpu_layout import INT_VIEWER, viewer_executor
+from app.cpu_layout import viewer_executor
 from app.slide_identity import slide_cache_key
 from app.thread_slide_pool import get_thread_slide
 
@@ -52,15 +51,8 @@ TILE_SIZE = TILE_SIZE_OUT
 _BLANK_TILE_BYTES: bytes | None = None
 _INLINE_ACTIVE = 0
 _INLINE_ACTIVE_LOCK = threading.Lock()
-_INLINE_MAX_ACTIVE = max(1, int(os.environ.get("MEDIAUTO_TILE_INLINE_MAX_ACTIVE", max(1, min(4, INT_VIEWER // 3)))))
-_INLINE_QUEUE_LIMIT = max(1, int(os.environ.get("MEDIAUTO_TILE_INLINE_QUEUE_LIMIT", max(2, INT_VIEWER // 2))))
-_INLINE_TIMEOUT_MS = {
-    0: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L0_MS", "1400"))),
-    1: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L1_MS", "1000"))),
-    2: max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_TIMEOUT_L2_MS", "700"))),
-}
-_INLINE_PHILIPS_TIMEOUT_MS = max(50, int(os.environ.get("MEDIAUTO_TILE_INLINE_PHILIPS_TIMEOUT_MS", "650")))
-_INLINE_DICOM_TIMEOUT_MS = max(1000, int(os.environ.get("MEDIAUTO_TILE_INLINE_DICOM_TIMEOUT_MS", "8000")))
+_TILE_GENERATIONS: dict[str, Future] = {}
+_TILE_GENERATIONS_LOCK = threading.Lock()
 
 
 def _blank_tile_bytes() -> bytes:
@@ -119,49 +111,54 @@ def _consume_future_exception(fut) -> None:
         pass
 
 
-def _viewer_queue_size() -> int:
-    queue_obj = getattr(viewer_executor, "_work_queue", None)
-    if queue_obj is None:
-        return 0
-    try:
-        return int(queue_obj.qsize())
-    except Exception:
-        return 0
+async def _wait_for_generated_tile(request: Request, tile_path: Path, generate):
+    """Join one generation per missing tile, then serve its completed disk cache.
 
+    Queued or slow generation is not an HTTP error. A departing client must
+    not cancel work that another request shares or make its retry start over.
+    """
+    key = str(tile_path.resolve())
+    def produce():
+        if tile_path.exists() or blank_tile_marker_exists(tile_path):
+            return True
+        started = time.perf_counter()
+        result = generate()
+        if _BOOL_TILE_DEBUG:
+            print(f"[tiles] requested tile generated in {(time.perf_counter() - started) * 1000:.0f}ms")
+        return result
 
-def _inline_active_count() -> int:
-    with _INLINE_ACTIVE_LOCK:
-        return _INLINE_ACTIVE
-
-
-def _tile_inline_timeout_seconds(level: int, bool_philips: bool) -> float:
-    if bool_philips:
-        return _INLINE_PHILIPS_TIMEOUT_MS / 1000.0
-    return _INLINE_TIMEOUT_MS.get(level, _INLINE_TIMEOUT_MS[2]) / 1000.0
-
-
-def _can_inline_generate(level: int, bool_philips: bool) -> bool:
-    if _inline_active_count() >= _INLINE_MAX_ACTIVE:
-        return False
-    if _viewer_queue_size() >= _INLINE_QUEUE_LIMIT:
-        return False
-    # Whole-slide generators now yield between reads while the viewer is
-    # active.  Refusing an inline tile merely because such a generator exists
-    # would leave both sides waiting and cause repeated 503 retries.
-    return True
-
-
-def _pending_tile_response() -> Response:
-    return Response(
-        status_code=503,
-        content=b"",
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-store",
-            "Retry-After": "1",
-            "X-Mediauto-Tile-State": "queued",
-        },
-    )
+    with _TILE_GENERATIONS_LOCK:
+        future = _TILE_GENERATIONS.get(key)
+        if future is None:
+            future = viewer_executor.submit(produce)
+            _TILE_GENERATIONS[key] = future
+            created = True
+        else:
+            created = False
+    if created:
+        def forget(completed):
+            with _TILE_GENERATIONS_LOCK:
+                if _TILE_GENERATIONS.get(key) is completed:
+                    _TILE_GENERATIONS.pop(key, None)
+        future.add_done_callback(forget)
+    wrapped = asyncio.wrap_future(future)
+    wrapped.add_done_callback(_consume_future_exception)
+    while True:
+        done, _ = await asyncio.wait({wrapped}, timeout=0.1)
+        if done:
+            try:
+                wrapped.result()
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(500, "Tile generation failed") from exc
+            if tile_path.exists():
+                return _jpeg_file_response(tile_path)
+            if blank_tile_marker_exists(tile_path):
+                return _blank_tile_response("public, max-age=604800")
+            raise HTTPException(500, "Tile generation did not produce a tile")
+        if request is not None and await request.is_disconnected():
+            raise HTTPException(499, "Client closed request")
 
 
 async def _run_viewer_job(request: Request, fn, *, timeout_seconds: float | None = None):
@@ -229,74 +226,34 @@ async def _ensure_philips_tile(
     tile_x: int,
     tile_y: int,
     tile_path: Path,
-    timeout_seconds: float | None = None,
 ) -> bool:
     if not _tile_intersects_data_envelope(info, level, tile_x, tile_y):
         return False
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
-    try:
-        await _run_viewer_job(
-            request,
-            lambda obj_cancel: generate_priority_single_tile(
-                filename,
-                info.file_path,
-                level,
-                tile_x,
-                tile_y,
-                info.slide,
-                info.apply_icc,
-                cancel_event=obj_cancel,
-            ),
-            timeout_seconds=timeout_seconds,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"[tiles] Philips priority tile failed ({filename} S{level} {tile_x},{tile_y}): {exc}")
-        return False
+    await _wait_for_generated_tile(
+        request, tile_path,
+        lambda: generate_priority_single_tile(
+            filename, info.file_path, level, tile_x, tile_y,
+            info.slide, info.apply_icc,
+        ),
+    )
     return tile_path.exists()
 
 
 async def _missing_philips_tile_response(
-    request: Request,
-    info,
-    filename: str,
-    level: int,
-    tile_x: int,
-    tile_y: int,
-    tile_path: Path,
+    request: Request, info, filename: str, level: int,
+    tile_x: int, tile_y: int, tile_path: Path,
 ) -> Response:
-    bool_intersects_data = _tile_intersects_data_envelope(info, level, tile_x, tile_y)
-    if not bool_intersects_data:
+    if not _tile_intersects_data_envelope(info, level, tile_x, tile_y):
         return _blank_tile_response("public, max-age=604800")
-
-    if is_completed_cache_tile_repair_pending(info.file_path, level, tile_x, tile_y):
-        return _pending_tile_response()
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
-    if not _can_inline_generate(level, True):
-        queue_completed_cache_tile_repair(
-            filename, info.file_path, level, tile_x, tile_y
-        )
-        return _pending_tile_response()
-
-    try:
-        bool_ready = await _ensure_philips_tile(
-            request,
-            info,
-            filename,
-            level,
-            tile_x,
-            tile_y,
-            tile_path,
-            timeout_seconds=_tile_inline_timeout_seconds(level, True),
-        )
-    except HTTPException as exc:
-        if exc.status_code == 503:
-            return _pending_tile_response()
-        raise
-    if bool_ready:
-        return _jpeg_file_response(tile_path)
-    return _pending_tile_response()
+    return await _wait_for_generated_tile(
+        request, tile_path,
+        lambda: generate_priority_single_tile(
+            filename, info.file_path, level, tile_x, tile_y,
+            info.slide, info.apply_icc,
+        ),
+    )
 
 
 # ── LRU text text touch (janitor text) ──
@@ -368,9 +325,11 @@ async def get_tile_ndp(
 
     notify_viewer_activity()
 
-    info = await asyncio.get_running_loop().run_in_executor(
-        viewer_executor, _find_and_open, slide_id
-    )
+    info = slide_manager.get(slide_id)
+    if info is None:
+        info = await asyncio.get_running_loop().run_in_executor(
+            viewer_executor, _find_and_open, slide_id
+        )
     if not info:
         raise HTTPException(404, "text text text text")
     if level < 0 or level >= STAGE_COUNT:
@@ -482,9 +441,11 @@ async def get_tile(
     # text text text — AI text text text text
     notify_viewer_activity()
 
-    info = await asyncio.get_running_loop().run_in_executor(
-        viewer_executor, _find_and_open, slide_id
-    )
+    info = slide_manager.get(slide_id)
+    if info is None:
+        info = await asyncio.get_running_loop().run_in_executor(
+            viewer_executor, _find_and_open, slide_id
+        )
     if not info:
         raise HTTPException(404, "text text text text")
 
@@ -512,100 +473,28 @@ async def get_tile(
     if level < 0 or level >= STAGE_COUNT:
         raise HTTPException(400, f"text stage: {level}")
 
-    int_read_size = STAGE_READ_SIZE[level]  # 1024 / 4096 / 8192
-    int_sx = tile_x * int_read_size
-    int_sy = tile_y * int_read_size
+    if tile_x < 0 or tile_y < 0:
+        raise HTTPException(400, "Invalid tile coordinates")
+    width, height = info.slide.dimensions
+    int_read_size = STAGE_READ_SIZE[level]
+    if tile_x * int_read_size >= width or tile_y * int_read_size >= height:
+        raise HTTPException(400, "Tile coordinates exceed slide dimensions")
     if is_philips_isyntax(info.file_path):
         return await _missing_philips_tile_response(request, info, filename, level, tile_x, tile_y, tile_path)
 
-    if is_completed_cache_tile_repair_pending(info.file_path, level, tile_x, tile_y):
-        return _pending_tile_response()
     request_priority_tile(filename, info.file_path, level, tile_x, tile_y)
-    if not _can_inline_generate(level, False):
-        queue_completed_cache_tile_repair(
-            filename, info.file_path, level, tile_x, tile_y
-        )
-        return _pending_tile_response()
-
-    def _render_and_save(obj_cancel: threading.Event) -> bytes:
-        def _check_cancelled() -> None:
-            if obj_cancel.is_set():
-                raise RuntimeError("Tile request cancelled")
-
-        # thread-local text read — text text text text text text text
-        _check_cancelled()
-        obj_slide = get_thread_slide(slide_id, info.file_path)
-        float_t0 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-        obj_region = None
-        obj_rgb = None
-        try:
-            obj_region = read_region_for_output(
-                obj_slide,
-                (int_sx, int_sy),
-                (int_read_size, int_read_size),
-                (TILE_SIZE, TILE_SIZE),
-            )
-            float_t1 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-            _check_cancelled()
-
-            obj_rgb = image_to_white_rgb(obj_region)
-            _check_cancelled()
-            obj_rgb = info.apply_icc(obj_rgb)
-            if obj_rgb.size != (TILE_SIZE, TILE_SIZE):
-                obj_rgb = obj_rgb.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
-            float_t2 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-            _check_cancelled()
-
-            _save_jpeg_atomic(obj_rgb, tile_path, settings.TILE_QUALITY)
-            float_t3 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-            _check_cancelled()
-
-            buf = io.BytesIO()
-            obj_rgb.save(buf, format="JPEG", quality=settings.TILE_QUALITY)
-            float_t4 = time.perf_counter() if _BOOL_TILE_DEBUG else 0.0
-
-            if _BOOL_TILE_DEBUG:
-                print(
-                    f"[tiles] {threading.current_thread().name} S{level} "
-                    f"read={int((float_t1-float_t0)*1000)}ms "
-                    f"rgb+resize={int((float_t2-float_t1)*1000)}ms "
-                    f"savedisk={int((float_t3-float_t2)*1000)}ms "
-                    f"encode={int((float_t4-float_t3)*1000)}ms "
-                    f"total={int((float_t4-float_t0)*1000)}ms"
-                )
-            return buf.getvalue()
-        finally:
-            if obj_region is not None:
-                obj_region.close()
-            try:
-                if obj_rgb is not None:
-                    obj_rgb.close()
-            except Exception:
-                pass
-
     try:
-        # viewer text pool — viewer cores text text (cpu_layout)
-        content = await _run_viewer_job(
-            request,
-            _render_and_save,
-            timeout_seconds=max(
-                _tile_inline_timeout_seconds(level, False),
-                (_INLINE_DICOM_TIMEOUT_MS / 1000.0)
-                if bool(getattr(info.slide, "is_dicom", False)) else 0.0,
+        return await _wait_for_generated_tile(
+            request, tile_path,
+            lambda: generate_priority_single_tile(
+                filename, info.file_path, level, tile_x, tile_y,
+                get_thread_slide(slide_id, info.file_path), info.apply_icc,
             ),
         )
-        return Response(
-            content=content,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=604800"},
-        )
-    except HTTPException as exc:
-        if exc.status_code == 503:
-            return _pending_tile_response()
+    except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(500, f"text text text: {e}")
+    except Exception as exc:
+        raise HTTPException(500, "Tile generation failed") from exc
 
 
 @router.get("/{slide_id}/stage-level")

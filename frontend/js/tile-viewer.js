@@ -10,7 +10,7 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20261012-pdl1-03';
+import { api } from './api.js?v=20261012-pdl1-04';
 import { fixedAreaCoordinates, annotationAreaLabel } from './annotation-area.js?v=20260914-area-toggle-01';
 
 const TILE_SIZE = 1024;
@@ -1376,6 +1376,28 @@ export class TileViewer {
         requestAnimationFrame(() => {
             this._renderPending = false;
             this._render();
+        });
+    }
+
+    /** Resolve after the queued canvas render and its browser paint opportunity. */
+    whenRendered(signal) {
+        return new Promise((resolve, reject) => {
+            let frame;
+            const abort = () => {
+                cancelAnimationFrame(frame);
+                signal?.removeEventListener('abort', abort);
+                reject(new DOMException('Result display cancelled', 'AbortError'));
+            };
+            if (signal?.aborted) { abort(); return; }
+            signal?.addEventListener('abort', abort, { once: true });
+            this.requestRender();
+            // requestRender's RAF is registered first. The next frame follows its paint.
+            frame = requestAnimationFrame(() => {
+                frame = requestAnimationFrame(() => {
+                    signal?.removeEventListener('abort', abort);
+                    resolve();
+                });
+            });
         });
     }
 
