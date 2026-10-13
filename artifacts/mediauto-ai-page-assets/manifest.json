@@ -1,0 +1,433 @@
+{
+  "product_name": "MeDIAuto AI",
+  "created_at": "2026-10-13T11:51:11.208799+09:00",
+  "provenance": "Existing real product screenshots from figure/manual-redacted; detail PNGs captured by Chromium from those images. Not fresh captures of the running application.",
+  "production_access": false,
+  "source_images_modified": false,
+  "scenes": [
+    {
+      "id": "01-overview",
+      "title": "통합 AI 작업 공간",
+      "subtitle": "슬라이드와 AI 분석 결과를 한 화면에서",
+      "animation": "전체 화면에서 시작해 분석 화면을 확대하고, 케이스 연결 화면으로 전환합니다.",
+      "frames": [
+        {
+          "label": "여러 분석 결과 함께 보기",
+          "source": "figure/manual-redacted/05-ai-viewer/10-analysis-result-multi-view.png",
+          "full": "images/01-overview/01-multi-view-full.png",
+          "source_sha256": "eedb48f1322c5e20353862881ea151d7543c37b43e476d6be03ddf11ef963a11",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/01-overview/01-multi-view-preview.jpg"
+        },
+        {
+          "label": "같은 케이스의 슬라이드 연결",
+          "source": "figure/manual-redacted/05-ai-viewer/07-same-case-slides.png",
+          "full": "images/01-overview/02-same-case-full.png",
+          "source_sha256": "16982e7630974400153dced7491fa885017c0171696bed14a9fc5f66ec9bc7ca",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/01-overview/02-same-case-preview.jpg"
+        },
+        {
+          "label": "다중 화면 비교",
+          "source": "figure/manual-redacted/05-ai-viewer/08-multi-view.png",
+          "full": "images/01-overview/03-viewer-full.png",
+          "source_sha256": "a4300787d1d9ac5f7e343dcaf36984f10d5ec9c3c232fba9599bcc55d5bc4520",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/01-overview/03-viewer-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/01-overview/03-viewer-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "02-quanti-he",
+      "title": "Quanti HE",
+      "subtitle": "H&E 조직·세포 분석과 공간 분포",
+      "animation": "분석 결과를 천천히 확대하고 공간 분포 화면을 이어서 보여줍니다. 서로 다른 캡처를 같은 영역의 전후 결과로 표현하지 않습니다.",
+      "frames": [
+        {
+          "label": "H&E 분석 결과",
+          "source": "figure/manual-redacted/06-ai-analysis/08-quanti-he-results.png",
+          "full": "images/02-quanti-he/01-he-result-full.png",
+          "source_sha256": "c896439caaa9e19ac04441123f934732ba6683f754c2ac10c1b315187b1437f3",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/02-quanti-he/01-he-result-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/02-quanti-he/01-he-result-preview.jpg"
+        },
+        {
+          "label": "공간 분포 확인",
+          "source": "figure/manual-redacted/06-ai-analysis/09-quanti-he-spatial-heatmap.png",
+          "full": "images/02-quanti-he/02-he-spatial-full.png",
+          "source_sha256": "eb411dc70ee2bc0aec92245cf3e6d3c95023684eed1656b32b69178726f4fbea",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/02-quanti-he/02-he-spatial-detail.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "width": 960,
+            "height": 550
+          },
+          "preview": "images/02-quanti-he/02-he-spatial-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "03-quanti-ihc",
+      "title": "Quanti IHC",
+      "subtitle": "마커별 세포 분석과 정량 지표",
+      "animation": "HER2 → ER/PR → Ki-67 탭 전환 형태로 구성합니다. 점수는 실제 화면 값 그대로 사용합니다.",
+      "frames": [
+        {
+          "label": "HER2 세포 분석",
+          "source": "figure/manual-redacted/06-ai-analysis/11-quanti-ihc-her2-results.png",
+          "full": "images/03-quanti-ihc/01-her2-full.png",
+          "source_sha256": "cb54a5dbc0392dc99ae9f865a7481d8850adaec09e5097a96f37164706749ee4",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/03-quanti-ihc/01-her2-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/03-quanti-ihc/01-her2-preview.jpg"
+        },
+        {
+          "label": "ER/PR 세포 분석",
+          "source": "figure/manual-redacted/06-ai-analysis/10-quanti-ihc-erpr-results.png",
+          "full": "images/03-quanti-ihc/02-er-pr-full.png",
+          "source_sha256": "c19ce46cf2c6a2e41c204525028272814275a0ef95c7d30a41316fb084f6e256",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/03-quanti-ihc/02-er-pr-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/03-quanti-ihc/02-er-pr-preview.jpg"
+        },
+        {
+          "label": "Allred 결과 확인",
+          "source": "figure/manual-redacted/06-ai-analysis/04-result-allred-analysis.png",
+          "full": "images/03-quanti-ihc/03-allred-full.png",
+          "source_sha256": "56bd4cf6030027b9c223b4ee616220ce57776fe9b86706406d34ef52e5b728ec",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/03-quanti-ihc/03-allred-detail.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "width": 960,
+            "height": 550
+          },
+          "preview": "images/03-quanti-ihc/03-allred-preview.jpg"
+        },
+        {
+          "label": "Ki-67 결과 확인",
+          "source": "figure/manual-redacted/06-ai-analysis/14-quanti-ihc-ki67-results.png",
+          "full": "images/03-quanti-ihc/04-ki67-full.png",
+          "source_sha256": "75990dfbf61c701ff8fc8a385120c53099200fd842cbb2d2d72c8076d08b9c67",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/03-quanti-ihc/04-ki67-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/03-quanti-ihc/04-ki67-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "04-quanti-pdl1",
+      "title": "Quanti PD-L1",
+      "subtitle": "PD-L1 세포 분류와 CPS·TPS 결과",
+      "animation": "세포 결과에서 점수 화면으로 전환합니다. 최근 공개 평가 문서의 범위와 다르므로 페이지에 포함할지는 별도 결정합니다.",
+      "frames": [
+        {
+          "label": "PD-L1 세포 결과",
+          "source": "figure/manual-redacted/06-ai-analysis/15-quanti-pdl1-results.png",
+          "full": "images/04-quanti-pdl1/01-pdl1-cells-full.png",
+          "source_sha256": "39a42c4f923a57bc987b0ff7faa7c0df044071ab17e658ab5fb8dd53e8e11547",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/04-quanti-pdl1/01-pdl1-cells-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/04-quanti-pdl1/01-pdl1-cells-preview.jpg"
+        },
+        {
+          "label": "CPS·TPS 분석 화면",
+          "source": "figure/manual-redacted/06-ai-analysis/16-quanti-pdl1-cps-tps-analysis.png",
+          "full": "images/04-quanti-pdl1/02-pdl1-score-full.png",
+          "source_sha256": "f27709e741cb40bf470a7b44746e6872866c7d58a657dfc12d600e4cdc7252de",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/04-quanti-pdl1/02-pdl1-score-detail.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "width": 960,
+            "height": 550
+          },
+          "preview": "images/04-quanti-pdl1/02-pdl1-score-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "05-virtual-stain",
+      "title": "VS IHC",
+      "subtitle": "IHC와 Virtual H&E를 같은 위치에서 비교",
+      "animation": "실제 분할 화면을 확대해 두 영상을 강조합니다. 현재 자료는 고정된 분할 화면 한 장이므로 경계를 움직이는 실제 비교 슬라이더에는 동일 위치의 원본·생성 영상 별도 캡처가 필요합니다.",
+      "frames": [
+        {
+          "label": "IHC | Virtual H&E",
+          "source": "figure/manual-redacted/06-ai-analysis/07-virtual-stain-split-view.png",
+          "full": "images/05-virtual-stain/01-split-view-full.png",
+          "source_sha256": "a45f8e85ceb63e694e29d43702f5288ec343c83c28575fa9a6212f11f417a9ba",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/05-virtual-stain/01-split-view-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/05-virtual-stain/01-split-view-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "06-expert-review",
+      "title": "전문가 결과 검토",
+      "subtitle": "세포 단위 확인과 수정",
+      "animation": "전체 결과 → 단일 세포 편집 → 다중 세포 편집 화면으로 전환합니다. 실제 저장 완료·점수 변경을 보여주려면 추가 촬영이 필요합니다.",
+      "frames": [
+        {
+          "label": "분석 결과 확인",
+          "source": "figure/manual-redacted/06-ai-analysis/11-quanti-ihc-her2-results.png",
+          "full": "images/06-expert-review/01-result-full.png",
+          "source_sha256": "cb54a5dbc0392dc99ae9f865a7481d8850adaec09e5097a96f37164706749ee4",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/06-expert-review/01-result-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/06-expert-review/01-result-preview.jpg"
+        },
+        {
+          "label": "세포 하나씩 검토",
+          "source": "figure/manual-redacted/06-ai-analysis/12-quanti-ihc-her2-single-cell-edit.png",
+          "full": "images/06-expert-review/02-single-cell-full.png",
+          "source_sha256": "a9784c0f4e14ed44bb6440bc30672e5895962490b77eb6146dec8c7b1667266a",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/06-expert-review/02-single-cell-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/06-expert-review/02-single-cell-preview.jpg"
+        },
+        {
+          "label": "여러 세포 함께 편집",
+          "source": "figure/manual-redacted/06-ai-analysis/13-quanti-ihc-her2-batch-cell-edit.png",
+          "full": "images/06-expert-review/03-batch-edit-full.png",
+          "source_sha256": "e0ea11bab086e8d8cf2f59d98b4237dd5499a6f7d47ed8e849b953be97f9950c",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/06-expert-review/03-batch-edit-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/06-expert-review/03-batch-edit-preview.jpg"
+        },
+        {
+          "label": "세포 클래스 분포 확인",
+          "source": "figure/manual-redacted/06-ai-analysis/03-result-class-distribution.png",
+          "full": "images/06-expert-review/04-class-distribution-full.png",
+          "source_sha256": "d73fc15bdc9cd542bdbc98684d0f2baf28ec668b7331e78aadc64f2ea845188c",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/06-expert-review/04-class-distribution-detail.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "width": 960,
+            "height": 550
+          },
+          "preview": "images/06-expert-review/04-class-distribution-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "07-ai-annotation",
+      "title": "AI 보조 라벨링과 검수",
+      "subtitle": "조직·세포 주석에서 패치 검수까지",
+      "animation": "조직 주석과 Cell 작업을 별도 단계로 설명합니다. 패치 목록 → BBox → Point 화면으로 전환하고, 작성·검수·종결 상태를 설명합니다. AI 보조 실행 전후는 추가 촬영 대상입니다.",
+      "frames": [
+        {
+          "label": "조직 주석",
+          "source": "figure/manual-redacted/07-tissue-annotation/01-annotation-viewer.png",
+          "full": "images/07-ai-annotation/01-tissue-full.png",
+          "source_sha256": "e8cd55866f5826c1807272108fcaa9dcfb5df7be1ec096e114a99887c64fe0dd",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/07-ai-annotation/01-tissue-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/07-ai-annotation/01-tissue-preview.jpg"
+        },
+        {
+          "label": "라벨링 작업 설정",
+          "source": "figure/manual-redacted/08-cell-annotation/01-annotation-settings.png",
+          "full": "images/07-ai-annotation/02-settings-full.png",
+          "source_sha256": "168f3bdcd1c7aad90fdaf782ed649f3bd36330e2884cb74e1d12a5210f0aadfd",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/07-ai-annotation/02-settings-preview.jpg"
+        },
+        {
+          "label": "패치별 작업 상태",
+          "source": "figure/manual-redacted/08-cell-annotation/02-patch-list.png",
+          "full": "images/07-ai-annotation/03-patch-workflow-full.png",
+          "source_sha256": "92735c7f2700256b7455e1675b88c64c87772a90a700d821f7a6964e12fd118e",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/07-ai-annotation/03-patch-workflow-preview.jpg"
+        },
+        {
+          "label": "세포 Bounding Box 표시",
+          "source": "figure/manual-redacted/08-cell-annotation/03-bounding-box-display.png",
+          "full": "images/07-ai-annotation/04-bbox-full.png",
+          "source_sha256": "ae7b1264953778bf551bb8bcf02a18e08a8f01657eacf178146537c3f9644fb8",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/07-ai-annotation/04-bbox-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/07-ai-annotation/04-bbox-preview.jpg"
+        },
+        {
+          "label": "세포 Point 표시",
+          "source": "figure/manual-redacted/08-cell-annotation/04-point-display.png",
+          "full": "images/07-ai-annotation/05-point-full.png",
+          "source_sha256": "b1ffd44c77132a6422f0891cbcf590a6c8f30f4a0b0d418b8c79461403dfd35b",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/07-ai-annotation/05-point-detail.png",
+          "crop": {
+            "x": 420,
+            "y": 112,
+            "width": 1750,
+            "height": 1150
+          },
+          "preview": "images/07-ai-annotation/05-point-preview.jpg"
+        }
+      ]
+    },
+    {
+      "id": "08-workflow",
+      "title": "프로젝트와 자동화",
+      "subtitle": "분석 설정과 결과 활용",
+      "animation": "프로젝트 설정 → 백그라운드 작업 → 케이스 정보 → 결과 보고서 순서로 설명합니다. 정지 화면을 실제 작업 진행률로 표현하지 않습니다.",
+      "frames": [
+        {
+          "label": "프로젝트 분석 설정",
+          "source": "figure/manual-redacted/03-project/02-edit-project-settings.png",
+          "full": "images/08-workflow/01-project-settings-full.png",
+          "source_sha256": "cd11e81844c800e64cd932e234c437d360b810a6540ace197d3e97e421c71fcc",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/08-workflow/01-project-settings-preview.jpg"
+        },
+        {
+          "label": "백그라운드 작업 설정",
+          "source": "figure/manual-redacted/11-admin/05-system-settings.png",
+          "full": "images/08-workflow/02-background-workers-full.png",
+          "source_sha256": "381d7f3518a0ea6c82469d5f717d1b970e6c8c51b5795c75d9f321d4ca5e6753",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/08-workflow/02-background-workers-preview.jpg"
+        },
+        {
+          "label": "케이스 정보 연결",
+          "source": "figure/manual-redacted/09-data-linkage/01-case-clinical-information.png",
+          "full": "images/08-workflow/03-case-linkage-full.png",
+          "source_sha256": "c1912ff5eff7915270b70a08cb16f8f2cbb400b38bb9f08e72cf16443103ce5f",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "preview": "images/08-workflow/03-case-linkage-preview.jpg"
+        },
+        {
+          "label": "분석 보고서",
+          "source": "figure/manual-redacted/06-ai-analysis/06-pdf-analysis-report.png",
+          "full": "images/08-workflow/04-report-full.png",
+          "source_sha256": "f4917c6949047cd0fe95af95cd7342bb4cdca5c7dfda8bfc4ee4838c5c982111",
+          "hold_ms": 3000,
+          "transition_ms": 500,
+          "detail": "images/08-workflow/04-report-detail.png",
+          "crop": {
+            "x": 520,
+            "y": 0,
+            "width": 1520,
+            "height": 1272
+          },
+          "preview": "images/08-workflow/04-report-preview.jpg"
+        }
+      ]
+    }
+  ],
+  "additional_live_captures_needed": [
+    "동일 시야의 AI overlay OFF / ON: 분석 결과 등장 애니메이션",
+    "동일 시야의 IHC 원본 / Virtual H&E 전체 화면: 진짜 드래그 비교",
+    "단일 세포 수정 전 / 편집 / 저장 후: 점수 반영과 저장 확인",
+    "동일 패치의 AI assistance 실행 전 / 결과 / 전문가 수정 후",
+    "검수 반려 / 재작업 / 검수 완료: 실제 상태 전환",
+    "자동 분석 대기 / 진행 / 완료: 실제 작업 상태 전환"
+  ],
+  "publication_note": "Sources have prior redaction. Filenames, tissue imagery, dataset-use permissions and remaining identifiers still require publication review; no blanket public-release clearance is asserted."
+}
