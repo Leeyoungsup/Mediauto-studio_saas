@@ -48,6 +48,7 @@ _last_scan_summary_log_ts: float = 0.0
 
 _MARKER_CACHE_METADATA_WINDOW_BYTES = 64 * 1024
 _CACHE_METADATA_KEYS = (
+    "source",
     "model_runtime",
     "patch_overlap_um",
     "global_dedup_version",
@@ -467,7 +468,9 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
     try:
         stat = cache_path.stat()
         tuple_runtime_state = tuple(sorted((dict_expected_runtime or {}).items()))
-        tuple_cache_state = (stat.st_mtime_ns, stat.st_size, tuple_runtime_state)
+        source_stat = Path(str_full_path).stat()
+        tuple_cache_state = (stat.st_mtime_ns, stat.st_size, tuple_runtime_state,
+                             source_stat.st_size, source_stat.st_mtime_ns)
         tuple_cache_key = (str(cache_path), str_model, str_variant)
         tuple_cached_quality = _marker_cache_quality_cache.get(tuple_cache_key)
         if tuple_cached_quality and tuple_cached_quality[:-1] == tuple_cache_state:
@@ -484,7 +487,12 @@ def _marker_cache_needs_refresh(str_full_path: str, str_model: str, str_variant:
             _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, bool_needs_refresh)
         return bool_needs_refresh
 
-    bool_needs_refresh = False
+    from app.tile_generator import source_marker_matches_file_stat
+    bool_needs_refresh = not source_marker_matches_file_stat(dict_cached_metadata, str_full_path)
+    if bool_needs_refresh:
+        if tuple_cache_state and tuple_cache_key:
+            _marker_cache_quality_cache[tuple_cache_key] = (*tuple_cache_state, True)
+        return True
     if dict_expected_runtime is not None:
         if dict_cached_metadata.get("model_runtime") != dict_expected_runtime:
             print(f"[auto_ai] stale cache model architecture or weights queued for refresh: {cache_path.name}")
@@ -629,6 +637,51 @@ def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
         return True
 
 
+async def _selected_assistance_index_work(db, dict_slide, dict_config):
+    from app.assistance_index_preparation import selected_patches, needs_preparation
+    full_path = dict_slide["str_full_path"]
+    patches = await selected_patches(db, dict_slide.get("str_slide_id") or slide_cache_key(full_path))
+    if patches and await asyncio.to_thread(needs_preparation, full_path, patches, dict_config):
+        return {**dict_slide, "_index_patches": patches}
+    return None
+
+
+async def _run_auto_assistance_index_prepare(db, dict_slide, dict_config):
+    from app.assistance_index_preparation import (
+        selected_patches, selection_signature, prepare_selection, record_prepared,
+    )
+    from app.ai_pipelines.task_state import update_task
+    from app.cpu_layout import ai_executor
+    full_path = dict_slide["str_full_path"]
+    slide_id = dict_slide.get("str_slide_id") or slide_cache_key(full_path)
+    patches = await selected_patches(db, slide_id)
+    if not patches:
+        return
+    task_id = f"auto_index_{uuid.uuid4().hex[:10]}"
+    if not check_idle_and_reserve(task_id, {
+        "status":"queued", "progress":0, "result":None, "error":None,
+        "status_msg":"Preparing selected patch labels", "slide_filename":Path(full_path).name,
+        "model":"WSI Labeling Assistance", "variant":"Patch index preparation",
+        "created_at":time.time(), "updated_at":time.time(),
+    }):
+        return
+    try:
+        update_task(task_id,status="running",progress=10,status_msg="Preparing selected patch index")
+        expected_source = await asyncio.get_running_loop().run_in_executor(
+            ai_executor, prepare_selection, full_path, patches)
+        current = await selected_patches(db, slide_id)
+        if selection_signature(current) != selection_signature(patches):
+            update_task(task_id,status="completed",progress=100,
+                        status_msg="Patch selection changed; preparation will resume next cycle")
+            return
+        recorded = await asyncio.to_thread(record_prepared,full_path,current,dict_config,expected_source)
+        update_task(task_id,status="completed",progress=100,
+                    status_msg="Selected patch index ready" if recorded else "Result changed; preparation will resume next cycle")
+    except Exception as exc:
+        update_task(task_id,status="error",error=str(exc),status_msg="Patch index preparation failed")
+        raise
+
+
 async def _scan_and_infer_once() -> None:
     """1 text — text text folder config text text text text text text.
 
@@ -742,6 +795,10 @@ async def _scan_and_infer_once() -> None:
                         _assistance_needs_refresh, str_full_path, dict_annotation_ai
                     ):
                         list_candidates.append(dict_slide)
+                    else:
+                        index_work = await _selected_assistance_index_work(db, dict_slide, dict_annotation_ai)
+                        if index_work:
+                            list_candidates.append(index_work)
             elif str_model in ("VS IHC", "VS-IHC"):
                 try:
                     float_target_mpp = float(dict_task.get("target_mpp", 2.0))
@@ -806,7 +863,9 @@ async def _scan_and_infer_once() -> None:
                     continue
 
                 try:
-                    if dict_annotation_ai:
+                    if dict_slide.get("_index_patches") is not None:
+                        await _run_auto_assistance_index_prepare(db, dict_slide, dict_annotation_ai)
+                    elif dict_annotation_ai:
                         await _run_auto_inference(
                             str_full_path, str_model, str_variant, float_target_mpp,
                             dict_annotation_ai=dict_annotation_ai,

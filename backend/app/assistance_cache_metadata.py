@@ -21,7 +21,7 @@ def _summary(payload):
     return result
 
 
-def _prefix_metadata(head):
+def _prefix_metadata(head, full=False):
     decoder = json.JSONDecoder()
     pos = 0
 
@@ -48,11 +48,12 @@ def _prefix_metadata(head):
         if key == 'labels':
             if head[pos:pos + 1] == '[' and all(key in result for key in KEYS if key != 'source_model_runtime'):
                 result.setdefault('source_model_runtime', None)
-                result['labels'] = []
+                if not full:
+                    result['labels'] = []
                 return result
             return None
         value, pos = decoder.raw_decode(head, pos)
-        if key in KEYS:
+        if full or key in KEYS:
             result[key] = value
         whitespace()
         if head[pos:pos + 1] != ',':
@@ -88,6 +89,35 @@ def read_assistance_metadata(path):
     except (subprocess.SubprocessError, OSError) as exc:
         raise ValueError('Unable to inspect assistance cache metadata') from exc
     return json.loads(completed.stdout)
+
+
+def read_assistance_header(path):
+    """Read display metadata without decoding labels or building an index.
+
+    Return None for legacy layouts requiring the compatibility reader.
+    """
+    path = Path(path)
+    try:
+        with path.open('rb') as stream:
+            size = stream.seek(0, 2)
+            stream.seek(0)
+            head = stream.read(WINDOW)
+            if size <= WINDOW:
+                payload = json.loads(head)
+                if not isinstance(payload.get('labels'), list):
+                    return None
+                meta = {k:v for k,v in payload.items() if k != 'labels'}
+                meta['total_labels'] = len(payload['labels'])
+                return meta
+            stream.seek(max(0, size - 128))
+            tail = stream.read(128)
+        meta = _prefix_metadata(head.decode('utf-8',errors='ignore'), full=True)
+        required = ('total_labels','annotation_ai','source_ai_postprocess','assistance_confidence_threshold','label_format')
+        if meta is not None and all(k in meta for k in required) and b''.join(tail.split()).endswith(b']}'):
+            return meta
+    except (OSError, ValueError, TypeError, AttributeError, RecursionError):
+        pass
+    return None
 
 
 if __name__ == '__main__':

@@ -348,9 +348,15 @@ function _updateAiAssistanceToolbarStatus(payload = {}) {
     $aiAssistanceToolbarStatus.classList.toggle('is-error', state === 'error');
     $aiAssistanceToolbarStatus.classList.toggle('is-disabled', state === 'disabled');
     $aiAssistanceToolbarLabel.textContent = label;
-    $aiAssistanceToolbarPercent.textContent = state === 'running' ? `${Math.round(percent)}%` : '';
+    $aiAssistanceToolbarPercent.textContent = ['running', 'ready'].includes(state) ? `${Math.round(percent)}%` : '';
     $aiAssistanceToolbarFill.style.width = `${Math.round(percent)}%`;
     $aiAssistanceToolbarStatus.title = payload.detail ? `${label}: ${payload.detail}` : label;
+    document.getElementById('ai-assistance-progress-track')?.setAttribute('aria-valuenow', String(Math.round(percent)));
+    const detail = document.getElementById('ai-assistance-progress-detail');
+    if (detail) {
+        detail.textContent = String(payload.detail || '');
+        detail.hidden = !payload.detail;
+    }
 }
 
 function _updatePatchAiAssistanceToolbarStatus(payload = {}) {

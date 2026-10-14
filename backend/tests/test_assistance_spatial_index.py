@@ -90,3 +90,30 @@ def test_patch_api_same_cells_as_original_scan(tmp_path,monkeypatch):
     response=json.loads(ca._patch_assistance_response(info,'slide','patch',patch).body)
     assert response['cells']==expected
     assert response['total_labels']==len(labels)
+
+
+def test_status_does_not_build_index_or_parse_large_label_array(tmp_path,monkeypatch):
+    from app.routers import cell_annotation as ca
+    from app import assistance_cache_metadata as metadata
+    labels=[label(i,i) for i in range(10000)]
+    path=tmp_path/'assistance.json'
+    data={'annotation_ai':{},'source_ai_postprocess':{},'assistance_confidence_threshold':.5,
+          'label_format':'bbox_compact_v1','total_labels':len(labels),'classes':[], 'labels':labels}
+    path.write_text(json.dumps(data))
+    sizes=[];original=Path.open
+    class Reader:
+        def __init__(self,file):self.file=file
+        def __enter__(self):return self
+        def __exit__(self,*args):self.file.close()
+        def seek(self,*args):return self.file.seek(*args)
+        def read(self,size=-1):
+            assert size>=0;sizes.append(size);return self.file.read(size)
+    monkeypatch.setattr(Path,'open',lambda *a,**kw:Reader(original(*a,**kw)))
+    monkeypatch.setattr(ca,'_existing_assistance_path',lambda _:path)
+    monkeypatch.setattr(ca,'_validate_assistance_payload',lambda _,p:(p,False))
+    monkeypatch.setattr(ca,'_read_assistance_file',lambda _:pytest.fail('Unexpected full JSON read'))
+    monkeypatch.setattr(spatial,'_build',lambda *a:pytest.fail('Status must not build index'))
+    result=ca._read_assistance_status(object())
+    assert result['total_labels']==10000 and 'labels' not in result
+    assert sizes==[metadata.WINDOW,128]
+    assert not spatial.index_path(path).exists()

@@ -967,6 +967,17 @@ def _validate_assistance_payload(info, compacted):
     return compacted, changed
 
 
+def _read_assistance_status(info):
+    from app.assistance_cache_metadata import read_assistance_header
+    metadata = read_assistance_header(_existing_assistance_path(info))
+    if metadata is None:
+        # Legacy layout fallback may normalize JSON, but never creates an index.
+        payload = _read_assistance_file(info)
+        return _assistance_metadata(payload) if payload else {}
+    metadata, _ = _validate_assistance_payload(info, metadata)
+    return metadata
+
+
 def _read_indexed_assistance(info, patch=None):
     from app.assistance_spatial_index import read
     metadata, labels = read(_existing_assistance_path(info), lambda: _read_assistance_file(info), patch)
@@ -1347,6 +1358,8 @@ def _run_labeling_assistance_task(task_id: str, slide_id: str, file_path: str, c
             error = task.get("error")
         if not result:
             raise ValueError(error or "Labeling assistance model returned no result")
+        update_task(task_id, status="running", progress=90,
+                    status_msg="Preparing patch labels and spatial index")
         payload = _write_assistance_result(slide_id, info, config, result)
         with _tasks_lock:
             if task_id in _tasks:
@@ -1695,7 +1708,7 @@ async def get_wsi_labeling_assistance(
     info = _slide_info(slide_id)
     await _raise_if_disconnected(request)
     def build_response():
-        payload = _read_assistance_file(info) if include_labels else _read_indexed_assistance(info)[0]
+        payload = _read_assistance_file(info) if include_labels else _read_assistance_status(info)
         if not payload:
             return JSONResponse({"slide_id": slide_id, "exists": False, "labels": []})
         if include_labels:

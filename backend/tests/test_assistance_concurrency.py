@@ -52,8 +52,8 @@ def test_assistance_metadata_encoding_in_worker(monkeypatch):
     monkeypatch.setattr(ca, '_slide_info', lambda _: object())
     def read(_):
         assert threading.get_ident() != main_thread
-        return ({'total_labels':2, 'classes': []}, [])
-    monkeypatch.setattr(ca, '_read_indexed_assistance', read)
+        return {'total_labels':2, 'classes': []}
+    monkeypatch.setattr(ca, '_read_assistance_status', read)
     request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
     result = asyncio.run(ca.get_wsi_labeling_assistance(request, 'slide', False))
     assert json.loads(result.body) == {'classes': [], 'total_labels':2, 'total_model_bbox_labels':0, 'exists':True}
