@@ -1,4 +1,5 @@
-import { setQuantiFormula, setQuantiCountFormula } from './quanti-formula.js?v=20261012-02';
+import { cpsCounts } from './pd-score.js?v=20261014-flat5-labels';
+import { setQuantiFormula, setQuantiCountFormula } from './quanti-formula.js?v=20261014-flat5-labels';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
 import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
@@ -8,7 +9,7 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
 
 import { api } from './api.js?v=20260914-01';
 import { AiViewer } from './ai-viewer.js?v=20260914-02';
-import { showVisualization } from './visualization.js?v=20260824-07';
+import { showVisualization } from './visualization.js?v=20261014-flat5-labels';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -1225,9 +1226,7 @@ function _getRegionScoreText(counts) {
     if (_lastDetectionModel === 'Quanti PD-L1' && result.pd_score) {
         const type = result.pd_score.score_type || 'Score';
         if (type === 'CPS') {
-            const positiveTumor = counts[3] || 0;
-            const positiveImmune = (counts[4] || 0) + (counts[5] || 0);
-            const negativeTumor = counts[0] || 0;
+            const { positiveTumor, positiveImmune, negativeTumor } = cpsCounts(counts, result);
             const viableTumor = positiveTumor + negativeTumor;
             const score = viableTumor ? Math.min(100, (positiveTumor + positiveImmune) / viableTumor * 100) : 0;
             return `CPS ${score.toFixed(1)}%`;
@@ -3606,12 +3605,10 @@ function _updatePdScoreDisplay(counts) {
 
     const scoreType = _lastDetectionResult.pd_score.score_type;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
-    setQuantiFormula($pdScoreResult, scoreType, c);
+    setQuantiFormula($pdScoreResult, scoreType, c, _lastDetectionResult);
 
     if (scoreType === 'CPS') {
-        const posTumor = c[3] || 0;
-        const posImmune = (c[4] || 0) + (c[5] || 0);
-        const negTumor = c[0] || 0;
+        const { positiveTumor: posTumor, positiveImmune: posImmune, negativeTumor: negTumor } = cpsCounts(c, _lastDetectionResult);
         const viableTumor = negTumor + posTumor;
         const score = viableTumor === 0
             ? 0
@@ -5905,8 +5902,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     const str_score_type = (result.pd_score && result.pd_score.score_type) || 'Score';
     let float_status_score = 0;
     if (str_score_type === 'CPS') {
-        const pt = dict_counts_status[3] || 0;
-        const pi = (dict_counts_status[4] || 0) + (dict_counts_status[5] || 0);
+        const { positiveTumor: pt, positiveImmune: pi } = cpsCounts(dict_counts_status, result);
         const viable = (dict_counts_status[0] || 0) + pt;
         float_status_score = viable === 0 ? 0 : Math.min(100, (pt + pi) / viable * 100);
     } else if (str_score_type === 'TPS') {

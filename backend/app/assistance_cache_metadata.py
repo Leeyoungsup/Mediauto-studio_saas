@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 WINDOW = 64 * 1024
-KEYS = ('annotation_ai', 'source_ai_postprocess', 'assistance_confidence_threshold')
+KEYS = ('source_model_runtime', 'annotation_ai', 'source_ai_postprocess', 'assistance_confidence_threshold')
 
 
 def _summary(payload):
@@ -46,7 +46,8 @@ def _prefix_metadata(head):
         pos += 1
         whitespace()
         if key == 'labels':
-            if head[pos:pos + 1] == '[' and all(key in result for key in KEYS):
+            if head[pos:pos + 1] == '[' and all(key in result for key in KEYS if key != 'source_model_runtime'):
+                result.setdefault('source_model_runtime', None)
                 result['labels'] = []
                 return result
             return None

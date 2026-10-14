@@ -357,13 +357,14 @@ def _marker_cache_requires_excluded_cells(str_model: str, str_variant: str) -> b
 
 def _expected_marker_model_runtime(str_model: str, str_variant: str) -> Optional[dict]:
     """Return model identity for markers whose architecture must invalidate cache."""
-    if str_model not in ("Quanti IHC", "Precise-IHC"):
+    if str_model not in ("Quanti IHC", "Precise-IHC", "Quanti PD-L1", "PD-Score"):
         return None
     try:
         from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
-        from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG
+        from app.ai_pipelines.scoring import PRECISE_IHC_CONFIG, PD_SCORE_CONFIG
 
-        dict_config = PRECISE_IHC_CONFIG.get(str_variant) or {}
+        dict_configs = PD_SCORE_CONFIG if str_model in ("Quanti PD-L1", "PD-Score") else PRECISE_IHC_CONFIG
+        dict_config = dict_configs.get(str_variant) or {}
         if not dict_config.get("model_arch"):
             return None
         return marker_model_runtime_metadata(dict_config)
@@ -597,8 +598,12 @@ def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
     try:
         stat = path.stat()
         expected_threshold = _expected_assistance_confidence_threshold(dict_config)
+        expected_runtime = _expected_marker_model_runtime(dict_config["base_model"], dict_config["variant"])
+        # Only PD-L1 flat5 adds assistance schema tracking; other markers retain their cache behavior.
+        if not expected_runtime or expected_runtime.get("class_schema") != "pdl1_flat_5class":
+            expected_runtime = None
         state = (stat.st_mtime_ns, stat.st_size, dict_config["key"], expected_threshold,
-                 tuple(sorted(processing_metadata().items())))
+                 tuple(sorted(processing_metadata().items())), tuple(sorted((expected_runtime or {}).items())))
         cached = _assistance_file_checks.get(str(path))
         if cached and cached[0] == state:
             missing = cached[1]
@@ -609,6 +614,8 @@ def _assistance_needs_refresh(str_full_path: str, dict_config: dict) -> bool:
                 or not cache_has_current_detection_postprocess(payload.get("source_ai_postprocess"))
                 or not isinstance(payload.get("labels"), list)
             )
+            if expected_runtime is not None:
+                missing |= payload.get("source_model_runtime") != expected_runtime
             if expected_threshold is not None:
                 try:
                     missing |= abs(float(payload.get("assistance_confidence_threshold")) - expected_threshold) >= 1e-6

@@ -1,4 +1,5 @@
-import { setQuantiFormula, setQuantiCountFormula } from './quanti-formula.js?v=20261012-02';
+import { cpsCounts } from './pd-score.js?v=20261014-flat5-labels';
+import { setQuantiFormula, setQuantiCountFormula } from './quanti-formula.js?v=20261014-flat5-labels';
 import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
  * MeDIAuto Studio SaaS annotation entry point.
@@ -7,8 +8,8 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
 import { api } from './api.js?v=20260914-01';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260914-02';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260914-02';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
-import { showVisualization } from './visualization.js?v=20260824-07';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20261014-patch-load-2';
+import { showVisualization } from './visualization.js?v=20261014-flat5-labels';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -2234,13 +2235,11 @@ const CELL_ANNOTATION_CLASS_PRESETS = {
         { id: '7', name: 'Benign Epithelial', color: [0, 255, 0] },
     ],
     pd_l1_stomach: [
-        { id: '0', name: 'Negative Epithelial', color: [30, 132, 73] },
-        { id: '1', name: 'Negative Lymphocyte', color: [39, 174, 96] },
-        { id: '2', name: 'Negative Macrophage', color: [22, 160, 133] },
-        { id: '3', name: 'Positive Epithelial', color: [146, 43, 33] },
-        { id: '4', name: 'Positive Lymphocyte', color: [231, 76, 60] },
-        { id: '5', name: 'Positive Macrophage', color: [236, 112, 99] },
-        { id: '6', name: 'Other', color: [149, 165, 166] },
+        { id: '0', name: 'Negative Tumor(Epithelial)', color: [31, 119, 180] },
+        { id: '1', name: 'Negative Immune', color: [44, 160, 44] },
+        { id: '2', name: 'Positive Tumor(Epithelial)', color: [214, 39, 40] },
+        { id: '3', name: 'Positive Immune', color: [255, 127, 14] },
+        { id: '4', name: 'Other', color: [127, 127, 127] },
     ],
     pd_l1_lung: [
         { id: '0', name: 'PD-L1 Negative Tumor', color: [52, 152, 219] },
@@ -4687,8 +4686,11 @@ window.addEventListener('keydown', (e) => {
 async function _loadSavedAnnotationsForSlide(slideId) {
     const strSlideId = slideId || currentSlideId;
     if (!strSlideId) return;
-    viewer.clearAnnotations();
-    renderAnnotationPanel();
+    // Cell labels belong to the selected patch, not the slide memo request.
+    if (ANNOTATION_PAGE_KIND !== 'cell') {
+        viewer.clearAnnotations();
+        renderAnnotationPanel();
+    }
     try {
         const payload = await api.loadAnnotations(strSlideId);
         if (currentSlideId !== strSlideId) return;
@@ -4696,7 +4698,8 @@ async function _loadSavedAnnotationsForSlide(slideId) {
         currentSlideMemo = parsed.slideMemo;
         currentSlideMemoHistory = parsed.slideMemoHistory;
         if (ANNOTATION_PAGE_KIND === 'cell') {
-            _applyLoadedAnnotations([], 'saved annotations');
+            _setSlideListMemoIndicator();
+            _syncSlideMemoButton();
             return;
         }
         _applyLoadedAnnotations(parsed.annotations, 'saved annotations');
@@ -5220,12 +5223,10 @@ function _updatePdScoreDisplay(counts) {
 
     const scoreType = _lastDetectionResult.pd_score.score_type;
     const c = counts || _computeFilteredCounts(viewer.detectionCells).counts;
-    setQuantiFormula($pdScoreResult, scoreType, c);
+    setQuantiFormula($pdScoreResult, scoreType, c, _lastDetectionResult);
 
     if (scoreType === 'CPS') {
-        const posTumor = c[3] || 0;
-        const posImmune = (c[4] || 0) + (c[5] || 0);
-        const negTumor = c[0] || 0;
+        const { positiveTumor: posTumor, positiveImmune: posImmune, negativeTumor: negTumor } = cpsCounts(c, _lastDetectionResult);
         const viableTumor = negTumor + posTumor;
         const score = viableTumor === 0
             ? 0
@@ -7593,8 +7594,7 @@ function onPdScoreComplete(result, roiPolygons = null, tissueType = null) {
     const str_score_type = (result.pd_score && result.pd_score.score_type) || 'Score';
     let float_status_score = 0;
     if (str_score_type === 'CPS') {
-        const pt = dict_counts_status[3] || 0;
-        const pi = (dict_counts_status[4] || 0) + (dict_counts_status[5] || 0);
+        const { positiveTumor: pt, positiveImmune: pi } = cpsCounts(dict_counts_status, result);
         const viable = (dict_counts_status[0] || 0) + pt;
         float_status_score = viable === 0 ? 0 : Math.min(100, (pt + pi) / viable * 100);
     } else if (str_score_type === 'TPS') {

@@ -1,3 +1,4 @@
+import { cpsCounts } from './pd-score.js?v=20261014-flat5-labels';
 /** Formula details for the calculations displayed by the Quanti result cards. */
 let active = null;
 let sequence = 0;
@@ -25,8 +26,9 @@ export function formulaDetails(kind, counts = {}, score = null) {
         `${fmt(positive)} / ${fmt(total)} × 100 = ${total ? (positive/total*100).toFixed(1) : '0.0'}%`,
         'Positive cells = N₁ + N₂ + N₃; negative cells = N₀. Displayed interpretation: ≥14% → High; <14% → Low.', population, empty];
     if (kind === 'CPS' || kind === 'TPS') {
-        const pos = Number(counts[kind === 'CPS' ? 3 : 1] || 0);
-        const immune = Number(counts[4] || 0) + Number(counts[5] || 0);
+        const cps = cpsCounts(counts, score || {});
+        const pos = kind === 'CPS' ? cps.positiveTumor : Number(counts[1] || 0);
+        const immune = cps.positiveImmune;
         const denominator = pos + Number(counts[0] || 0);
         return [`PD-L1 · ${kind} formula`, kind === 'CPS'
             ? 'CPS = min(100, (positive tumor + positive immune cells) / viable tumor cells × 100)'
@@ -108,8 +110,9 @@ function calculation(entry, index) {
     if (index === 2 && entry.kind === 'Allred' && total) return row(equals('Positive (%)', fraction(mn(pos), mn(total)), true), result((pos/total*100).toFixed(1)));
     if (index === 4 && entry.kind === 'Allred' && pos) return row(equals('Mean intensity', fraction(weighted, mn(pos))), result(((n[1]+2*n[2]+3*n[3])/pos).toFixed(2)));
     if (index === 2 && ['CPS', 'TPS'].includes(entry.kind)) {
-        const tumor = Number(c[entry.kind === 'CPS' ? 3 : 1] || 0), denominator = tumor + Number(c[0] || 0);
-        const immune = Number(c[4] || 0) + Number(c[5] || 0);
+        const cps = cpsCounts(c, entry.score || {});
+        const tumor = entry.kind === 'CPS' ? cps.positiveTumor : Number(c[1] || 0), denominator = tumor + Number(c[0] || 0);
+        const immune = cps.positiveImmune;
         if (!denominator) return null;
         const top = entry.kind === 'CPS' ? row(mn(tumor), op('+'), mn(immune)) : mn(tumor);
         return row(fraction(top, mn(denominator)), op('×'), mn(100));
