@@ -7,7 +7,7 @@ from app.config import settings
 from app.project_utils import normalize_annotation_ai_config, cell_annotation_classes_for_ai
 
 
-@pytest.mark.parametrize('classes,expected', [([0,0,0,3,4,5,6],75), ([3,4,5],100), ([4,5,6],0), ([],0)])
+@pytest.mark.parametrize('classes,expected', [([0,0,0,2,3,3,4],75), ([2,3,3],100), ([1,3,4],0), ([],0)])
 def test_breast_score_matches_stomach(classes, expected):
     cells = np.array(classes, dtype=int)
     breast = compute_pd_score(cells, 'Breast')
@@ -24,5 +24,5 @@ def test_breast_cache_and_annotation_use_correct_model(monkeypatch, tmp_path):
     assert cell_annotation_classes_for_ai(True, 'quanti_pd_l1_breast') == cell_annotation_classes_for_ai(True, 'quanti_pd_l1_stomach')
     breast = PD_SCORE_CONFIG['Breast']
     assert breast['model_file'] == 'PDL1_BR_CPS_detection.pt'
-    assert breast['num_classes'] == 7 and breast['exclude_classes'] == [6]
+    assert breast['num_classes'] == 5 and breast['exclude_classes'] == [4]
     assert breast['class_names'] is not PD_SCORE_CONFIG['Stomach']['class_names']

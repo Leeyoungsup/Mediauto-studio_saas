@@ -62,13 +62,20 @@ def marker_model_runtime_metadata(dict_config: dict) -> dict:
     int_num_grades = int(dict_config.get("num_grades") or max(1, int_num_classes - 1))
     model_path = Path(settings.MODEL_DIR) / dict_config["model_file"]
     model_stat = model_path.stat()
-    return {
+    dict_runtime = {
         "architecture": str_model_arch,
         "num_grades": int_num_grades if str_model_arch == "yolo_v11_m_hierarchical" else None,
         "filename": model_path.name,
         "size": model_stat.st_size,
         "mtime_ns": model_stat.st_mtime_ns,
     }
+    if dict_config.get("class_schema"):
+        dict_runtime.update({
+            "class_schema": dict_config["class_schema"],
+            "num_classes": int_num_classes,
+            "checkpoint_architecture": dict_config.get("checkpoint_architecture"),
+        })
+    return dict_runtime
 
 
 def _compact_cell(cell: dict) -> dict:
@@ -198,6 +205,11 @@ def run_marker_detection_pipeline(
                 if cached_cells and not _cell_has_bbox(cached_cells[0]):
                     raise ValueError("stale cache missing bbox")
                 bool_rewrite_compact_cache = bool_object_cell_cache
+                if dict_config.get("class_schema") == "pdl1_flat_5class":
+                    display_names = {str(k): v for k, v in dict_class_names.items() if k not in list_exclude}
+                    if cached.get("class_names") != display_names:
+                        cached["class_names"] = display_names
+                        bool_rewrite_compact_cache = True
 
                 # text text(score_conf_threshold text text text text text text)text
                 # cells text text text score text.
@@ -266,6 +278,14 @@ def run_marker_detection_pipeline(
         checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
 
         # PDL1 text DFL text 4 (text 16 text). head text text shape text.
+        str_expected_arch = dict_config.get("checkpoint_architecture")
+        if str_expected_arch:
+            if checkpoint.get("architecture") != str_expected_arch:
+                raise ValueError("PD-L1 checkpoint architecture does not match configured 5flat model")
+            dict_checkpoint_names = {int(k): str(v).lower() for k, v in checkpoint.get("class_names", {}).items()}
+            dict_expected_names = {int(k): str(v).lower() for k, v in dict_config.get("checkpoint_class_names", dict_class_names).items()}
+            if checkpoint.get("num_classes") != int_num_classes or dict_checkpoint_names != dict_expected_names:
+                raise ValueError("PD-L1 checkpoint class order does not match configured 5flat schema")
         state_dict = checkpoint['model_state_dict']
         dfl_weight = state_dict.get('head.dfl.conv.weight')
         if dfl_weight is not None and dfl_weight.shape[1] != model.head.ch:

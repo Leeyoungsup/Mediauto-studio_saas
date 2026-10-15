@@ -1,14 +1,15 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>PD-L1 comparison browser verification</title>
 <link rel="stylesheet" href="/css/shared-header.css?v=20261012-knuch-logo-01">
-<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261012-pdl1-11">
+<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261015-flat5-01">
 <style>body{margin:0;background:#f4f3fa;font-family:Arial,sans-serif}main{display:grid;grid-template-columns:1fr 420px;gap:24px;padding:24px}.test-results{background:white;border-radius:12px;padding:20px}li{margin:14px 0;color:#146c43}.failure{color:#b42318}</style></head>
 <body><div id="shared-header-root"></div><main><section class="test-results"><h1>PD-L1 비교 브라우저 검증</h1><p>실제 화면 모듈 · 테스트 데이터와 시계 사용</p><div id="watch"></div><ol id="results"></ol></section><aside id="fixture"></aside></main>
 <script src="/js/shared-header.js?v=20261012-knuch-logo-01"></script>
 <script type="module">
-import { TileViewer } from '/js/tile-viewer.js?v=20261012-pdl1-11';
-import { api } from '/js/api.js?v=20261012-pdl1-11';
-import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261012-pdl1-11';
+import { TileViewer } from '/js/tile-viewer.js?v=20261015-flat5-01';
+import { cpsCounts } from '/js/pd-score.js?v=20261015-flat5-01';
+import { api } from '/js/api.js?v=20261015-flat5-01';
+import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261015-flat5-01';
 const results=document.getElementById('results');let passed=0;
 function check(condition,text){if(!condition)throw Error(text);const row=document.createElement('li');row.textContent=text;results.append(row);passed++;}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -21,6 +22,9 @@ try{
  check(document.querySelector('a[href="/pd-l1-comparison"]').classList.contains('active'),'새 비교 탭 활성 표시');
  check(getComputedStyle(document.querySelector('.shared-nav-menu')).display==='none','Annotation 메뉴 숨김');
  check(document.querySelector('[data-score-label]').textContent==='CPS (%)'&&document.querySelector('.pdl1-timings').textContent.includes('AI result'),'CPS 입력란과 AI result 표시');
+ check(cpsCounts({0:80,1:700,2:20,3:10,4:900},{class_schema:'pdl1_flat_5class'}).score===30,'새 5클래스 CPS 계산과 Other 제외');
+ check(cpsCounts({0:80,1:500,2:200,3:20,4:5,5:5,6:900},{}).score===30,'기존 7클래스 결과는 기존 클래스 번호로 계산');
+ check(cpsCounts({0:80,2:20,3:10},{class_names:{2:'Positive Tumor(Epithelial)'}}).score===30,'화면 표시 클래스명으로 새 CPS 스키마 인식');
  check(formatStopwatch(3661000)==='01:01:01','시:분:초 표시');
  let now=1000;Object.defineProperty(performance,'now',{value:()=>now,configurable:true});
  const standalone=new AssessmentClock();standalone.start();now+=5000;standalone.stop();now+=2000;

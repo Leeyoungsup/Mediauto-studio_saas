@@ -14,27 +14,25 @@ from copy import deepcopy
 PD_SCORE_CONFIG = {
     "Stomach": {
         "model_file": "PDL1_ST_CPS_detection.pt",
-        "num_classes": 7,
+        "model_arch": "yolo_v11_m",
+        "checkpoint_architecture": "pdl1_flat_5class",
+        "class_schema": "pdl1_flat_5class",
+        "num_classes": 5,
         "class_names": {
-            0: "Negative Epithelial",
-            1: "Negative Lymphocyte",
-            2: "Negative Macrophage",
-            3: "Positive Epithelial",
-            4: "Positive Lymphocyte",
-            5: "Positive Macrophage",
-            6: "Other",
+            0: "Negative Tumor(Epithelial)", 1: "Negative Immune",
+            2: "Positive Tumor(Epithelial)", 3: "Positive Immune", 4: "Other",
+        },
+        # Training metadata stays unchanged when display labels are renamed.
+        "checkpoint_class_names": {
+            0: "Negative Epithelial", 1: "Negative Immune",
+            2: "Positive Epithelial", 3: "Positive Immune", 4: "Other",
         },
         "class_colors": {
-            0: "#1e8449",
-            1: "#27ae60",
-            2: "#16a085",
-            3: "#922b21",
-            4: "#e74c3c",
-            5: "#ec7063",
-            6: "#95a5a6",
+            0: "#1f77b4", 1: "#2ca02c", 2: "#d62728",
+            3: "#ff7f0e", 4: "#7f7f7f",
         },
         "score_type": "CPS",
-        "exclude_classes": [6],
+        "exclude_classes": [4],
     },
     "Lung": {
         "model_file": "PDL1_TPS_detection.pt",
@@ -58,7 +56,6 @@ PD_SCORE_CONFIG = {
 }
 
 
-# Breast CPS uses the same seven classes, exclusions and scoring as Stomach CPS.
 PD_SCORE_CONFIG["Breast"] = {
     **deepcopy(PD_SCORE_CONFIG["Stomach"]),
     "model_file": "PDL1_BR_CPS_detection.pt",
@@ -68,9 +65,9 @@ PD_SCORE_CONFIG["Breast"] = {
 def compute_pd_score(all_cls, tissue_type: str) -> dict:
     """
     CPS (Stomach/Breast): (positive tumor + positive immune) / viable tumor * 100, capped at 100
-                   - positive tumor = cls 3 (positive Epithelial)
-                   - positive immune = cls 4 + cls 5 (positive lymphocyte/macrophage)
-                   - viable tumor = cls 0 + cls 3 (all epithelial)
+                   - positive tumor = cls 2 (positive Epithelial)
+                   - positive immune = cls 3 (merged positive immune)
+                   - viable tumor = cls 0 + cls 2 (all epithelial)
     TPS  (Lung):   positive tumor / (positive + negative tumor) * 100
                    - positive tumor = cls 1
                    - negative tumor = cls 0
@@ -79,15 +76,16 @@ def compute_pd_score(all_cls, tissue_type: str) -> dict:
     int_counts = {int(c): int((all_cls == c).sum()) for c in range(PD_SCORE_CONFIG[tissue_type]["num_classes"])}
 
     if score_type == "CPS":
-        int_pos_tumor = int_counts.get(3, 0)
-        int_pos_immune = int_counts.get(4, 0) + int_counts.get(5, 0)
-        int_viable_tumor = int_counts.get(0, 0) + int_counts.get(3, 0)
+        int_pos_tumor = int_counts.get(2, 0)
+        int_pos_immune = int_counts.get(3, 0)
+        int_viable_tumor = int_counts.get(0, 0) + int_pos_tumor
         if int_viable_tumor == 0:
             float_score = 0.0
         else:
             float_score = min(100.0, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100.0)
         return {
             "score_type": "CPS",
+            "class_schema": "pdl1_flat_5class",
             "score": round(float_score, 2),
             "positive_tumor": int_pos_tumor,
             "positive_immune": int_pos_immune,

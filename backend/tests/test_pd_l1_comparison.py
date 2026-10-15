@@ -86,7 +86,14 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(projects, '_log_event', AsyncMock())
     path = tmp_path / 'results/Quanti PD-L1' / f'{slide_cache_key(str(file))}_Quanti PD-L1_Stomach.json'
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({'cells': [[1, 2, 3, .9]], 'pd_score': {'score_type': 'CPS', 'score': 43.2}}))
+    from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
+    model_dir = tmp_path / 'models';model_dir.mkdir()
+    monkeypatch.setattr(settings, 'MODEL_DIR', str(model_dir))
+    for tissue in ('Stomach', 'Breast'):
+        (model_dir / routes.PD_SCORE_CONFIG[tissue]['model_file']).write_bytes(b'fixture')
+    path.write_text(json.dumps({'cells': [[1, 2, 2, .9]],
+        'model_runtime': marker_model_runtime_metadata(routes.PD_SCORE_CONFIG['Stomach']),
+        'pd_score': {'score_type': 'CPS', 'score': 43.2, 'class_schema':'pdl1_flat_5class'}}))
     app = FastAPI();app.add_middleware(CSRFMiddleware);app.include_router(routes.router, prefix='/comparison');app.include_router(projects.router, prefix='/projects')
     app.dependency_overrides[get_current_user] = lambda: {'_id': 'doctor-one', 'str_role': 'doctor'}
     with TestClient(app) as instance:
@@ -112,7 +119,7 @@ def test_read_save_reload_and_retry(client):
     result = read_json(client);assert result.status_code == 200, result.text
     ai = result.json();assert ai['ai_json_elapsed_ms'] > 0
     assert ai['ai_percentage'] == 43.2 and ai['ai_grade'] is None
-    assert ai['result']['cells'] == [[1, 2, 3, .9]]
+    assert ai['result']['cells'] == [[1, 2, 2, .9]]
     body = measurement(ai_read_id=ai['ai_read_id'], ai_result_elapsed_ms=265.75)
     response = client.post('/comparison/records', headers=HEADERS, json=body)
     assert response.status_code == 200, response.text
@@ -277,7 +284,9 @@ def test_model_setting_reports_unavailable_storage(client, monkeypatch):
 def test_breast_cps_project_model_read_and_record(client):
     stomach = json.loads(client.json_path.read_text())
     breast_path = client.json_path.with_name(client.json_path.name.replace('_Stomach.json', '_Breast.json'))
-    breast_path.write_text(json.dumps({**stomach, 'tissue_type': 'Breast'}))
+    from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
+    breast_path.write_text(json.dumps({**stomach, 'tissue_type': 'Breast',
+        'model_runtime': marker_model_runtime_metadata(routes.PD_SCORE_CONFIG['Breast'])}))
     assert set_model(client, 'Breast').status_code == 200
     assert read_json(client).status_code == 409
     response = read_json(client, tissue_type='Breast')
@@ -380,3 +389,17 @@ def test_completed_list_does_not_require_opening_slides(client, monkeypatch):
     monkeypatch.setattr(routes.slide_manager, 'get', lambda identifier: None)
     assert client.get('/comparison/completed?project_path=project-one').json()['slide_ids'] == ['slide-one']
     assert client.get('/comparison/completed?project_path=../project-one').status_code == 400
+
+
+def test_comparison_rejects_old_model_cache_without_relabeling_it(client):
+    original = {'cells':[[1,2,3,.9]],'pd_score':{'score_type':'CPS','score':43.2}}
+    client.json_path.write_text(json.dumps(original))
+    assert read_json(client).status_code == 409
+    assert json.loads(client.json_path.read_text()) == original
+
+
+def test_comparison_rejects_changed_weights_runtime(client):
+    result = json.loads(client.json_path.read_text())
+    result['model_runtime']['mtime_ns'] -= 1
+    client.json_path.write_text(json.dumps(result))
+    assert read_json(client).status_code == 409

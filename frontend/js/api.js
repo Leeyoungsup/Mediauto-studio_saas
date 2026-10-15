@@ -353,7 +353,9 @@ export const api = {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ slide_id: slideId, tissue_type: tissueType }), signal: options.signal,
         });
-        return _jsonOrThrow(response, 'PD-L1 JSON read failed');
+        const payload = await _jsonOrThrow(response, 'PD-L1 JSON read failed');
+        payload.result = _normalizeAiResultPayload(payload.result);
+        return payload;
     },
 
     async savePdl1Comparison(record) {

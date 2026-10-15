@@ -1,3 +1,4 @@
+import { cpsCounts } from './pd-score.js?v=20261015-flat5-01';
 /**
  * AI Detection Result Visualization
  * text detection_visualization_dialog.pytext text Canvastext text
@@ -616,19 +617,18 @@ function _renderPdScoreAnalysis(countsByClass) {
     const tissue = _activeTissue;
     const scores = [];
 
-    if (tissue === 'Stomach') {
+    if ((tissue === 'Stomach' || tissue === 'Breast')) {
         // CPS: (pos_tumor + pos_immune) / viable_tumor × 100, cap 100
-        const posTumor = countsByClass[3] || 0;
-        const posImmune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
-        const viableTumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+        const { positiveTumor: posTumor, positiveImmune: posImmune, viableTumor,
+            positiveTumorId, positiveImmuneIds } = cpsCounts(countsByClass, { class_names: _activeNames });
         const cps = viableTumor === 0 ? 0 : Math.min(100, (posTumor + posImmune) / viableTumor * 100);
         scores.push({
             label: 'CPS',
             value: cps,
             formula: '(Positive Tumor + Positive Immune) / Viable Tumor × 100',
             detail: [
-                { name: 'Positive Tumor', value: posTumor, color: _getColor(3) },
-                { name: 'Positive Immune', value: posImmune, color: _getColor(4) },
+                { name: 'Positive Tumor', value: posTumor, color: _getColor(positiveTumorId) },
+                { name: 'Positive Immune', value: posImmune, color: _getColor(positiveImmuneIds[0]) },
                 { name: 'Viable Tumor', value: viableTumor, color: _getColor(0) },
             ],
         });
@@ -638,10 +638,10 @@ function _renderPdScoreAnalysis(countsByClass) {
         scores.push({
             label: 'TPS',
             value: tpsStomach,
-            formula: 'Positive Epithelial / (Positive + Negative Epithelial) × 100',
+            formula: 'Positive Tumor(Epithelial) / (Positive + Negative Tumor(Epithelial)) × 100',
             detail: [
-                { name: 'Positive Epithelial', value: posTumor, color: _getColor(3) },
-                { name: 'Negative Epithelial', value: negEpi, color: _getColor(0) },
+                { name: 'Positive Tumor(Epithelial)', value: posTumor, color: _getColor(positiveTumorId) },
+                { name: 'Negative Tumor(Epithelial)', value: negEpi, color: _getColor(0) },
             ],
         });
     } else {
@@ -1716,10 +1716,9 @@ function _pdfDrawCover(state) {
     let str_metric_color = PDF_COL.subtext;
 
     if (str_model_type === 'Quanti PD-L1') {
-        if (str_tissue === 'Stomach') {
-            const int_pos_tumor = countsByClass[3] || 0;
-            const int_pos_immune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
-            const int_viable_tumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+        if ((str_tissue === 'Stomach' || str_tissue === 'Breast')) {
+            const { positiveTumor: int_pos_tumor, positiveImmune: int_pos_immune, viableTumor: int_viable_tumor,
+            positiveTumorId, positiveImmuneIds } = cpsCounts(countsByClass, { class_names: state.classNames });
             const float_cps = int_viable_tumor === 0 ? null
                 : Math.min(100, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100);
             str_metric_label = 'CPS (Combined Positive Score)';
@@ -2112,13 +2111,12 @@ function _pdfDrawPdScoreAnalysis(state) {
     const str_tissue = state.tissue || 'Stomach';
     const c = _pdfNewCanvas();
     const ctx = c.getContext('2d');
-    _pdfHeader(ctx, str_tissue === 'Stomach' ? 'PD-L1 Analysis — CPS & TPS' : 'PD-L1 Analysis — TPS');
+    _pdfHeader(ctx, (str_tissue === 'Stomach' || str_tissue === 'Breast') ? 'PD-L1 Analysis — CPS & TPS' : 'PD-L1 Analysis — TPS');
 
     const list_scores = [];
-    if (str_tissue === 'Stomach') {
-        const int_pos_tumor = countsByClass[3] || 0;
-        const int_pos_immune = (countsByClass[4] || 0) + (countsByClass[5] || 0);
-        const int_viable_tumor = (countsByClass[0] || 0) + (countsByClass[3] || 0);
+    if ((str_tissue === 'Stomach' || str_tissue === 'Breast')) {
+        const { positiveTumor: int_pos_tumor, positiveImmune: int_pos_immune, viableTumor: int_viable_tumor,
+            positiveTumorId, positiveImmuneIds } = cpsCounts(countsByClass, { class_names: state.classNames });
         const float_cps = int_viable_tumor === 0 ? 0
             : Math.min(100, (int_pos_tumor + int_pos_immune) / int_viable_tumor * 100);
         list_scores.push({
@@ -2128,8 +2126,8 @@ function _pdfDrawPdScoreAnalysis(state) {
             valid: int_viable_tumor > 0,
             formula: '(Pos Tumor + Pos Immune) / Viable Tumor × 100',
             rows: [
-                ['Positive Tumor', int_pos_tumor, _getColor(3)],
-                ['Positive Immune', int_pos_immune, _getColor(4)],
+                ['Positive Tumor', int_pos_tumor, _getColor(positiveTumorId)],
+                ['Positive Immune', int_pos_immune, _getColor(positiveImmuneIds[0])],
                 ['Viable Tumor', int_viable_tumor, _getColor(0)],
             ],
         });
@@ -2143,8 +2141,8 @@ function _pdfDrawPdScoreAnalysis(state) {
             valid: int_denom_tps > 0,
             formula: 'Pos Epithelial / (Pos + Neg Epithelial) × 100',
             rows: [
-                ['Positive Epithelial', int_pos_tumor, _getColor(3)],
-                ['Negative Epithelial', int_neg_epi, _getColor(0)],
+                ['Positive Tumor(Epithelial)', int_pos_tumor, _getColor(positiveTumorId)],
+                ['Negative Tumor(Epithelial)', int_neg_epi, _getColor(0)],
             ],
         });
     } else {

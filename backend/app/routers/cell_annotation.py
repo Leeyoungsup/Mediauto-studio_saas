@@ -925,6 +925,11 @@ def _read_assistance_file(info) -> dict:
         preserve_previous_resolution_cache(path)
         return {}
     config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
+    if config.get("base_model") in ("Quanti PD-L1", "PD-Score") and config.get("variant") in ("Stomach", "Breast"):
+        from app.auto_ai import _expected_marker_model_runtime
+        expected_runtime = _expected_marker_model_runtime(config["base_model"], config["variant"])
+        if expected_runtime is None or compacted.get("source_model_runtime") != expected_runtime:
+            return {}
     expected_confidence_threshold = _expected_assistance_confidence_threshold(config)
     if expected_confidence_threshold is not None:
         stored_confidence_threshold = compacted.get("assistance_confidence_threshold")
@@ -1269,6 +1274,7 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "slide_cache_key": slide_cache_key(info.file_path),
         "generated_at": _now().isoformat(),
         "annotation_ai": config,
+        "source_model_runtime": result.get("model_runtime"),
         "source_ai_postprocess": {
             "input_mpp": result.get("input_mpp"),
             "patch_overlap_um": result.get("patch_overlap_um"),

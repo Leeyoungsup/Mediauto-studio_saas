@@ -32,7 +32,7 @@ def write_comparison_json(record: dict, slide_path: str) -> Path:
             measurements = saved["measurements"]
         fields = ("tissue_type", "score_type", "percentage", "grade", "grade_basis",
                   "specialist_elapsed_ms", "ai_result_elapsed_ms", "ai_timing_basis",
-                  "ai_json_elapsed_ms", "ai_percentage", "ai_grade", "dt_created_at")
+                  "ai_json_elapsed_ms", "ai_class_schema", "ai_percentage", "ai_grade", "dt_created_at")
         measurement = {key: record.get(key) for key in fields}
         measurement["measurement_id"] = record["_id"]
         if not any(item["measurement_id"] == record["_id"] for item in measurements):

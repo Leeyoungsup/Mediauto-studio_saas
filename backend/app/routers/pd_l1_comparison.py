@@ -105,10 +105,19 @@ def read_json(path, tissue):
     value = score.get("score")
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
         raise HTTPException(422, "Saved JSON contains an invalid PD-L1 score")
+    if expected == "CPS":
+        from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
+        config = PD_SCORE_CONFIG[tissue]
+        try:
+            runtime = marker_model_runtime_metadata(config)
+        except OSError:
+            raise HTTPException(503, "PD-L1 model weights are unavailable")
+        if score.get("class_schema") != config["class_schema"] or result.get("model_runtime") != runtime:
+            raise HTTPException(409, "Saved PD-L1 result belongs to an older model. Run AI analysis with the current model first.")
     grade = score.get("grade")
     return {"ai_json_elapsed_ms": elapsed, "ai_percentage": value,
             "ai_grade": str(grade)[:80] if grade is not None else None,
-            "score_type": expected, "result": result}
+            "score_type": expected, "ai_class_schema": score.get("class_schema"), "result": result}
 
 
 @router.post("/read-json")
@@ -174,6 +183,7 @@ async def save_comparison(body: ComparisonRequest, request: Request,
               "ai_result_elapsed_ms": body.ai_result_elapsed_ms,
               "ai_timing_basis": body.ai_timing_basis if body.ai_result_elapsed_ms is not None else None,
               "ai_json_elapsed_ms": ai.get("ai_json_elapsed_ms"),
+              "ai_class_schema": ai.get("ai_class_schema"),
               "ai_percentage": ai.get("ai_percentage"), "ai_grade": ai.get("ai_grade"),
               "request_signature": signature, "dt_created_at": datetime.now(timezone.utc)}
     await repository.insert_one(record)
