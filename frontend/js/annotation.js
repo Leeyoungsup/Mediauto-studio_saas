@@ -1642,10 +1642,8 @@ function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
 }
 
-function _isYoungSeopLeeAccount() {
-    return [window.__currentUserLoginId, window.__currentUserName]
-        .map(value => String(value || '').trim().toLowerCase())
-        .includes('youngseoplee');
+function _canDownloadCellPatchExports() {
+    return String(window.__currentUserLoginId || '').trim().toLowerCase() === 'admin';
 }
 
 function _blockClassManageAction() {
@@ -6333,7 +6331,7 @@ function _renderProjectGate(list_projects) {
             ? (ANNOTATION_PAGE_KIND === 'cell' ? 'Manage Cell Annotation settings' : 'Manage classes')
             : 'Doctor/Admin only';
         actionEl.append(openBtn, classBtn);
-        if (ANNOTATION_PAGE_KIND === 'cell' && _isYoungSeopLeeAccount()) {
+        if (ANNOTATION_PAGE_KIND === 'cell' && _canDownloadCellPatchExports()) {
             const exportBtn = document.createElement('button');
             exportBtn.type = 'button';
             exportBtn.className = 'project-gate-action secondary';

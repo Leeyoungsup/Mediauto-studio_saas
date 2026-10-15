@@ -47,7 +47,7 @@ def setup_export(tmp_path, monkeypatch, exists=True):
 def test_selected_ai_exports_pending_patches_with_local_labels(tmp_path, monkeypatch):
     queries = setup_export(tmp_path, monkeypatch)
     response = asyncio.run(ca.download_termination_completed_cell_patches(
-        'project', {'str_login_id': 'youngseoplee'}, 'selected_ai'))
+        'project', {'str_login_id': 'admin'}, 'selected_ai'))
     try:
         with zipfile.ZipFile(response.path) as archive:
             manifest = json.loads(archive.read('manifest.json'))
@@ -71,22 +71,29 @@ def test_missing_ai_fails_without_empty_success_zip(tmp_path, monkeypatch):
     setup_export(tmp_path, monkeypatch, exists=False)
     with pytest.raises(HTTPException) as error:
         asyncio.run(ca.download_termination_completed_cell_patches(
-            'project', {'str_login_id': 'youngseoplee'}, 'selected_ai'))
+            'project', {'str_login_id': 'admin'}, 'selected_ai'))
     assert error.value.status_code == 409
 
 
 def test_completed_export_keeps_completed_filter(tmp_path, monkeypatch):
     queries = setup_export(tmp_path, monkeypatch)
     response = asyncio.run(ca.download_termination_completed_cell_patches(
-        'project', {'str_login_id': 'youngseoplee'}))
+        'project', {'str_login_id': 'admin'}))
     try:
         assert queries[0]['str_termination_status'] == 'completed'
     finally:
         Path(response.path).unlink()
 
 
-def test_ai_export_retains_account_restriction():
+@pytest.mark.parametrize('mode', ['completed', 'selected_ai'])
+@pytest.mark.parametrize('user', [
+    {'str_login_id': 'other', 'str_role': 'admin'},
+    {'str_login_id': 'youngseoplee', 'str_name': 'YoungSeopLee'},
+    {'str_login_id': 'other', 'str_name': 'admin'},
+    {'str_name': 'admin'},
+])
+def test_ai_export_retains_account_restriction(mode, user):
     with pytest.raises(HTTPException) as error:
         asyncio.run(ca.download_termination_completed_cell_patches(
-            'project', {'str_login_id': 'other'}, 'selected_ai'))
+            'project', user, mode))
     assert error.value.status_code == 403

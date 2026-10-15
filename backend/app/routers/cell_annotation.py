@@ -786,14 +786,13 @@ async def download_termination_completed_cell_patches(
 ):
     """Download completed annotations or selected patches with AI-only labels.
 
-    Both modes retain the existing YoungSeopLee account restriction. Selected
+    Both modes are restricted to the admin login ID. Selected
     AI labels are exported without changing saved annotations or review status.
     """
     selected_ai = mode == "selected_ai"
     str_login_id = str(dict_user.get("str_login_id") or "").strip().lower()
-    str_user_name = str(dict_user.get("str_name") or "").strip().lower()
-    if str_login_id != "youngseoplee" and str_user_name != "youngseoplee":
-        raise HTTPException(403, "Termination export is restricted to the YoungSeopLee account")
+    if str_login_id != "admin":
+        raise HTTPException(403, "Patch export is restricted to the admin account")
 
     str_project = _safe_project_name(project_path)
     project_dir = safe_subpath(str_project)
