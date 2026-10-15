@@ -414,9 +414,9 @@ export const api = {
         return res.json();
     },
 
-    async downloadTerminationCompletedCellPatches(projectPath) {
+    async downloadTerminationCompletedCellPatches(projectPath, mode = 'completed') {
         const res = await _authFetch(
-            `${API_BASE}/cell-annotation/projects/${encodeURIComponent(projectPath)}/termination-export`
+            `${API_BASE}/cell-annotation/projects/${encodeURIComponent(projectPath)}/termination-export?mode=${encodeURIComponent(mode)}`
         );
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();

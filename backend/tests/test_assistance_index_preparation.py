@@ -76,7 +76,7 @@ def test_worker_prepares_fresh_assistance_instead_of_inferring(tmp_path,monkeypa
         def __init__(self,items):self.items=items
         async def find(self,*args):
             for item in self.items:yield item
-    db=SimpleNamespace(folder_ai_configs=Collection([]),project_infos=Collection([{'str_project_path':'project','bool_annotation_ai_enabled':True,'str_annotation_ai_key':'quanti_pd_l1_stomach'}]),slides=Collection([doc]))
+    db=SimpleNamespace(folder_ai_configs=Collection([{'str_rel_path':'project','bool_enabled':True,'list_tasks':[{'model':'Quanti HE','variant':'Other'}]}]),project_infos=Collection([{'str_project_path':'project','bool_annotation_ai_enabled':True,'str_annotation_ai_key':'quanti_pd_l1_stomach'}]),slides=Collection([doc]))
     monkeypatch.setattr(database,'is_db_connected',lambda:True);monkeypatch.setattr(database,'get_db',lambda:db)
     monkeypatch.setattr(slide_store,'repair_folder_ai_config_paths',AsyncMock(return_value=0))
     monkeypatch.setattr(slide_store,'list_slides_in_folder',AsyncMock(return_value={'a':doc}))
@@ -88,6 +88,13 @@ def test_worker_prepares_fresh_assistance_instead_of_inferring(tmp_path,monkeypa
     prepare=AsyncMock();inference=AsyncMock()
     monkeypatch.setattr(auto_ai,'_run_auto_assistance_index_prepare',prepare)
     monkeypatch.setattr(auto_ai,'_run_auto_inference',inference)
+    async def missing_variants(*args):
+        # Even an explicit folder task listed first must wait for ready indexes.
+        assert prepare.await_count == 1
+        return []
+    monkeypatch.setattr(slide_store,'list_slides_missing_variant',missing_variants)
+    monkeypatch.setattr(auto_ai,'SCAN_STALE_CACHES',False)
+    monkeypatch.setattr(auto_ai,'_expected_marker_model_runtime',lambda *args:None)
     asyncio.run(auto_ai._scan_and_infer_once())
     assert prepare.await_count==1 and inference.await_count==0
 
@@ -104,3 +111,35 @@ def test_original_slide_change_invalidates_memoized_marker_cache(tmp_path,monkey
     assert not auto_ai._marker_cache_needs_refresh(str(slide),'Quanti PD-L1','Stomach')
     slide.write_bytes(b'replaced source')
     assert auto_ai._marker_cache_needs_refresh(str(slide),'Quanti PD-L1','Stomach')
+
+
+def test_index_priority_pass_skips_inference_and_continues_after_failure(tmp_path, monkeypatch):
+    from app import slide_store
+    docs = []
+    for name in ('first', 'second', 'stale'):
+        path = tmp_path / (name + '.ndpi')
+        path.touch()
+        docs.append({'str_full_path': str(path), 'str_slide_id': name})
+    annotation = {'key': 'model'}
+    configs = [
+        {'str_rel_path': 'ordinary', 'list_tasks': [{'model': 'VS IHC'}]},
+        {'str_rel_path': 'selected', 'list_tasks': [{'annotation_ai': annotation}]},
+    ]
+    listing = AsyncMock(return_value={d['str_slide_id']: d for d in docs})
+    monkeypatch.setattr(slide_store, 'list_slides_in_folder', listing)
+    monkeypatch.setattr(auto_ai, 'is_system_idle', lambda: True)
+    monkeypatch.setattr(auto_ai, '_should_yield_for_active_tile_generation', AsyncMock(return_value=False))
+    monkeypatch.setattr(auto_ai, '_should_defer_slide_for_pending_tiles', AsyncMock(return_value=False))
+    async def selected(db, slide, config):
+        return {**slide, '_index_patches': [{}]}
+    monkeypatch.setattr(auto_ai, '_selected_assistance_index_work', selected)
+    monkeypatch.setattr(auto_ai, '_assistance_needs_refresh', lambda path, config: path.endswith('stale.ndpi'))
+    prepare = AsyncMock(side_effect=[ValueError('invalid source'), None])
+    monkeypatch.setattr(auto_ai, '_run_auto_assistance_index_prepare', prepare)
+    inference = AsyncMock()
+    monkeypatch.setattr(auto_ai, '_run_auto_inference', inference)
+    attempted = asyncio.run(auto_ai._prepare_selected_indexes_first(object(), configs))
+    assert attempted == {(d['str_full_path'], 'model') for d in docs[:2]}
+    assert prepare.await_count == 2
+    listing.assert_awaited_once_with('selected')
+    inference.assert_not_called()

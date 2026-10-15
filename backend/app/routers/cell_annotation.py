@@ -10,7 +10,7 @@ import tempfile
 import threading
 import uuid
 import zipfile
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -782,13 +782,14 @@ def _remove_temporary_export(path: str) -> None:
 async def download_termination_completed_cell_patches(
     project_path: str,
     dict_user: dict = Depends(get_current_user),
+    mode: Literal["completed", "selected_ai"] = "completed",
 ):
-    """Download termination-completed cell patches and their paired JSON labels.
+    """Download completed annotations or selected patches with AI-only labels.
 
-    This export is intentionally restricted to the YoungSeopLee account.  Each
-    ZIP member is grouped by slide and contains only patches whose
-    ``str_termination_status`` is ``completed``.
+    Both modes retain the existing YoungSeopLee account restriction. Selected
+    AI labels are exported without changing saved annotations or review status.
     """
+    selected_ai = mode == "selected_ai"
     str_login_id = str(dict_user.get("str_login_id") or "").strip().lower()
     str_user_name = str(dict_user.get("str_name") or "").strip().lower()
     if str_login_id != "youngseoplee" and str_user_name != "youngseoplee":
@@ -815,7 +816,9 @@ async def download_termination_completed_cell_patches(
     manifest = {
         "project": str_project,
         "generated_at": _now().isoformat(),
-        "termination_status": "completed",
+        "termination_status": None if selected_ai else "completed",
+        "label_source": "ai_assistance" if selected_ai else "saved_annotations",
+        "export_mode": mode,
         "pair_format": "<slide_cache_key>/patch_N.jpeg + <slide_cache_key>/patch_N.json",
         "slides": [],
         "total_patches": 0,
@@ -829,7 +832,7 @@ async def download_termination_completed_cell_patches(
                 patches = await db.patch_annotation_status.find(
                     {
                         "str_slide_id": slide_id,
-                        "str_termination_status": "completed",
+                        **({} if selected_ai else {"str_termination_status": "completed"}),
                         "str_status": {"$ne": "not_required"},
                     },
                     {"_id": 0},
@@ -837,7 +840,8 @@ async def download_termination_completed_cell_patches(
                 if not patches:
                     continue
 
-                info = _slide_info(slide_id)
+                _slide_path_cache[slide_id] = str(slide_path)
+                info = await loop.run_in_executor(patch_executor, _slide_info, slide_id)
                 slide_member = re.sub(r"[^A-Za-z0-9._-]+", "_", slide_id).strip("._") or "slide"
                 slide_manifest = {
                     "slide_id": slide_id,
@@ -861,6 +865,21 @@ async def download_termination_completed_cell_patches(
                             "termination_status": patch.get("str_termination_status", ""),
                             "cells": (cells_doc or {}).get("list_cells", []),
                         }
+                        if selected_ai:
+                            response = await loop.run_in_executor(
+                                patch_executor, _patch_assistance_response, info, slide_id, patch_id, patch)
+                            assistance = json.loads(response.body)
+                            if not assistance.get("exists"):
+                                raise HTTPException(409, f"AI assistance is not ready for {slide_path.name}/{patch_id}")
+                            json_payload.update({
+                                "cells": assistance["cells"],
+                                "classes": assistance.get("classes", []),
+                                "label_source": "ai_assistance",
+                                "reviewed": False,
+                                "coordinate_system": "level0_slide_pixels",
+                                "local_coordinate_system": "patch_image_pixels",
+                                "patch": {key: patch.get(key, 0) for key in ("int_x", "int_y", "int_w", "int_h")},
+                            })
                         image_path = staging / f"{patch_id}.jpeg"
                         cached_image_path = _cell_annotation_slide_dir(info) / "patches" / f"{patch_id}.jpeg"
                         if cached_image_path.is_file() and cached_image_path.stat().st_size > 0:
@@ -868,6 +887,8 @@ async def download_termination_completed_cell_patches(
                         else:
                             await loop.run_in_executor(patch_executor, _write_patch_image, info, patch, image_path)
                         if not image_path.exists() or image_path.stat().st_size <= 0:
+                            if selected_ai:
+                                raise HTTPException(500, f"Patch image export failed: {slide_path.name}/{patch_id}")
                             continue
                         json_path = staging / f"{patch_id}.json"
                         json_path.write_text(
@@ -882,12 +903,15 @@ async def download_termination_completed_cell_patches(
                     manifest["slides"].append(slide_manifest)
                     manifest["total_patches"] += len(slide_manifest["patches"])
 
+            if selected_ai and not manifest["total_patches"]:
+                raise HTTPException(404, "No selected patches to export")
             archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     except Exception:
         _remove_temporary_export(temp_zip_path)
         raise
 
-    filename = f"{str_project}_termination_completed_cell_patches.zip"
+    suffix = "selected_ai_cell_patches" if selected_ai else "termination_completed_cell_patches"
+    filename = f"{str_project}_{suffix}.zip"
     return FileResponse(
         temp_zip_path,
         media_type="application/zip",

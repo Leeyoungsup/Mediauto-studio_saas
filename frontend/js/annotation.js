@@ -6353,6 +6353,25 @@ function _renderProjectGate(list_projects) {
                 }
             });
             actionEl.appendChild(exportBtn);
+            const aiExportBtn = document.createElement('button');
+            aiExportBtn.type = 'button';
+            aiExportBtn.className = 'project-gate-action secondary';
+            aiExportBtn.textContent = 'AI Patches ZIP';
+            aiExportBtn.title = 'Download all selected patch images and unreviewed AI Assistance labels';
+            aiExportBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                aiExportBtn.disabled = true;
+                setStatus('Preparing selected patches and AI Assistance labels...');
+                try {
+                    const result = await api.downloadTerminationCompletedCellPatches(path, 'selected_ai');
+                    setStatus(`Downloaded ${result.filename}`);
+                } catch (err) {
+                    setStatus(`AI patch export failed: ${err.message}`);
+                } finally {
+                    aiExportBtn.disabled = false;
+                }
+            });
+            actionEl.appendChild(aiExportBtn);
         }
         actionEl.addEventListener('click', (e) => e.stopPropagation());
 

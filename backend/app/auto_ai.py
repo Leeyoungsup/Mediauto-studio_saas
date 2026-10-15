@@ -682,6 +682,39 @@ async def _run_auto_assistance_index_prepare(db, dict_slide, dict_config):
         raise
 
 
+async def _prepare_selected_indexes_first(db, list_configs):
+    """Prepare reusable selected-patch results before unrelated inference work."""
+    from app import slide_store
+
+    attempted = set()
+    for config in list_configs:
+        for task in config.get("list_tasks") or []:
+            annotation = task.get("annotation_ai")
+            if not annotation:
+                continue
+            slides = await slide_store.list_slides_in_folder(config.get("str_rel_path", ""))
+            for slide in slides.values():
+                if not is_system_idle() or await _should_yield_for_active_tile_generation():
+                    return attempted
+                path = slide.get("str_full_path") or ""
+                key = (path, annotation["key"])
+                if not path or key in attempted or not Path(path).exists():
+                    continue
+                if await _should_defer_slide_for_pending_tiles(slide):
+                    continue
+                work = await _selected_assistance_index_work(db, slide, annotation)
+                if not work:
+                    continue
+                if await asyncio.to_thread(_assistance_needs_refresh, path, annotation):
+                    continue
+                attempted.add(key)
+                try:
+                    await _run_auto_assistance_index_prepare(db, work, annotation)
+                except Exception as exc:
+                    print(f"[auto_ai] priority index preparation failed ({Path(path).name}): {exc}")
+    return attempted
+
+
 async def _scan_and_infer_once() -> None:
     """1 text — text text folder config text text text text text text.
 
@@ -760,6 +793,8 @@ async def _scan_and_infer_once() -> None:
                 "str_inherited_from_project": str_project_path,
             })
 
+    prepared_indexes = await _prepare_selected_indexes_first(db, list_configs)
+
     int_scanned = 0    # text text text text text (text hit + text + text text)
     int_inferred = 0   # text text text text text
     int_tile_deferred = 0
@@ -797,7 +832,7 @@ async def _scan_and_infer_once() -> None:
                         list_candidates.append(dict_slide)
                     else:
                         index_work = await _selected_assistance_index_work(db, dict_slide, dict_annotation_ai)
-                        if index_work:
+                        if index_work and (str_full_path, dict_annotation_ai["key"]) not in prepared_indexes:
                             list_candidates.append(index_work)
             elif str_model in ("VS IHC", "VS-IHC"):
                 try:

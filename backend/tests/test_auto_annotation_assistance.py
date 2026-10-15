@@ -36,6 +36,7 @@ def test_explicit_folder_scoring_does_not_hide_project_assistance(tmp_path, monk
     monkeypatch.setattr(auto_ai, '_should_yield_for_active_tile_generation', AsyncMock(return_value=False))
     monkeypatch.setattr(auto_ai, '_should_defer_slide_for_pending_tiles', AsyncMock(return_value=False))
     monkeypatch.setattr(auto_ai, '_assistance_needs_refresh', lambda *args: True)
+    monkeypatch.setattr(auto_ai, '_selected_assistance_index_work', AsyncMock(return_value=None))
     run = AsyncMock()
     monkeypatch.setattr(auto_ai, '_run_auto_inference', run)
     asyncio.run(auto_ai._scan_and_infer_once())
