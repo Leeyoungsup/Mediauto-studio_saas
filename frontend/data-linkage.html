@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeDIAuto Studio - Data Linkage</title>
     <link rel="icon" href="assets/app_icon.ico">
-    <link rel="stylesheet" href="css/shared-header.css?v=20261012-knuch-logo-01">
+    <link rel="stylesheet" href="css/shared-header.css?v=20261019-annotation-01">
     <link rel="stylesheet" href="css/style.css?v=20260914-focus-01">
     <script src="/js/security-session.js?v=20261008-01"></script>
 </head>
@@ -19,10 +19,10 @@
                 <nav class="shared-nav" aria-label="Primary">
                     <a href="/home" class="shared-nav-item">Home</a>
                     <a href="/project" class="shared-nav-item">Project</a>
-                    <a href="/data-linkage" class="shared-nav-item active">Data Linkage</a>
+                    <a href="/data-linkage" class="shared-nav-item active" hidden>Data Linkage</a>
                     <a href="/ai" class="shared-nav-item">Viewer</a>
                 <a href="/pd-l1-comparison" class="shared-nav-item">PD-L1 Comparison</a>
-                    <a href="/tissue-annotation" class="shared-nav-item" hidden>Annotation</a>
+                    <a href="/tissue-annotation" class="shared-nav-item">Annotation</a>
                 </nav>
                 <div class="shared-user-info">
                     <button class="shared-logout" type="button" onclick="localStorage.clear(); location.href='/login';">Logout</button>
@@ -107,7 +107,7 @@
         </section>
     </main>
 
-    <script src="js/shared-header.js?v=20261012-knuch-logo-01"></script>
+    <script src="js/shared-header.js?v=20261019-annotation-01"></script>
     <script>
         (function () {
             var user = {};
@@ -119,6 +119,6 @@
             });
         })();
     </script>
-    <script type="module" src="js/data-linkage.js?v=20261015-flat5-01"></script>
+    <script type="module" src="js/data-linkage.js?v=20261019-cell-export-01"></script>
 </body>
 </html>

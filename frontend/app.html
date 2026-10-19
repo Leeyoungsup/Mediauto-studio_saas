@@ -17,9 +17,9 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="css/shared-header.css?v=20261012-knuch-logo-01">
+    <link rel="stylesheet" href="css/shared-header.css?v=20261019-annotation-01">
     <link rel="stylesheet" href="css/style.css?v=20260914-focus-01">
-    <link rel="stylesheet" href="css/pd-l1-comparison.css?v=20261015-flat5-01">
+    <link rel="stylesheet" href="css/pd-l1-comparison.css?v=20261019-cell-export-01">
     <script src="/js/security-session.js?v=20261008-01"></script>
 </head>
 <body>
@@ -62,7 +62,7 @@
                 <a href="/project" class="project-mode-nav-item">Project</a>
                 <a href="/ai" class="project-mode-nav-item active">Viewer</a>
                 <a href="/pd-l1-comparison" class="project-mode-nav-item">PD-L1 Comparison</a>
-                <div class="project-mode-nav-menu" hidden>
+                <div class="project-mode-nav-menu">
                     <button type="button" class="project-mode-nav-item project-mode-nav-parent" aria-haspopup="true" aria-expanded="false">Annotation</button>
                     <div class="project-mode-nav-submenu" role="menu">
                         <a href="/tissue-annotation" class="project-mode-nav-subitem" role="menuitem">Tissue</a>
@@ -423,7 +423,7 @@
                 </form>
                 <p class="pdl1-message" data-message role="status">슬라이드를 열면 시간이 자동으로 시작됩니다.</p>
                 <p class="pdl1-summary" data-summary hidden></p>
-                <p class="pdl1-timing-note">전문의 시간은 슬라이드 입장부터 확인 버튼을 누른 시점까지입니다. AI result 시간은 슬라이드 입장부터 초기 타일 준비를 기다리고, 전체 JSON을 읽고 전송·처리하여 결과를 화면에 표시할 때까지입니다. AI 결과 요청은 초기 타일 표시 완료 후 시작합니다. 모델 추론 시간은 포함하지 않습니다.</p>
+                <p class="pdl1-timing-note">전문의 시간은 슬라이드 입장부터 확인 버튼을 누른 시점까지입니다. AI result 시간은 슬라이드 입장부터 초기 타일 준비를 기다리고, 전체 JSON을 읽고 전송·처리하여 별도 캔버스에 그리기를 완료할 때까지입니다. AI 세포 표시는 뷰어에 나타나지 않습니다. AI 결과 요청은 초기 타일 표시 완료 후 시작합니다. 모델 추론 시간은 포함하지 않습니다.</p>
                 <section data-history-section hidden>
                 <div class="pdl1-history-heading"><h3>이 슬라이드의 계정별 비교 기록</h3><button type="button" data-refresh>새로고침</button></div>
                 <div class="pdl1-history" data-history></div>
@@ -787,7 +787,7 @@
         </div>
     </div>
 
-    <script src="js/shared-header.js?v=20261012-knuch-logo-01"></script>
-    <script type="module" src="js/app.js?v=20261015-flat5-01"></script>
+    <script src="js/shared-header.js?v=20261019-annotation-01"></script>
+    <script type="module" src="js/app.js?v=20261019-cell-export-01"></script>
 </body>
 </html>

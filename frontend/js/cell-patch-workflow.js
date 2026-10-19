@@ -1,7 +1,7 @@
 import { PatchGridLayer } from './patch-grid-layer.js?v=20260527-08';
 import { PatchStatusLayer } from './patch-status-layer.js?v=20260713-01';
 import { WsiRequiredRegionLayer } from './wsi-required-region-layer.js?v=20260528-01';
-import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20260831-01';
+import { CellAnnotationEditor } from './cell-annotation-editor.js?v=20261019-cell-export-01';
 
 class PatchFocusLayer {
     constructor() {
@@ -1711,14 +1711,17 @@ export class CellPatchWorkflow {
         }
         const opened = await this.editor.open(this.slideId, this.selectedPatch, {
             syncViewer,
+            shouldSyncViewer: () => this.patchFocusActive,
             isCurrent: () => (
                 this.slideId === slideId &&
-                this.selectedPatchId() === patchId &&
-                (!syncViewer || this.patchFocusActive)
+                this.selectedPatchId() === patchId
             ),
         });
         if (!opened) return;
         if (this.patchFocusActive) {
+            // Patch view may have opened while the cell request was pending.
+            // In that case editor.open started in WSI mode and did not sync.
+            if (!this.editor.viewerSynced) this.editor.syncViewer?.();
             this.viewer.setViewBounds?.(this.selectedPatch);
             this.focusLayer.setPatch(this.selectedPatch);
             this._fitPatchView(this.selectedPatch);

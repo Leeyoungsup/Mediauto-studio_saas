@@ -116,10 +116,10 @@
                     <nav class="shared-nav" aria-label="Primary">
                         <a href="/home" class="shared-nav-item ${active === 'home' ? 'active' : ''}">Home</a>
                         <a href="/project" class="shared-nav-item ${active === 'project' ? 'active' : ''}">Project</a>
-                        <a href="/data-linkage" class="shared-nav-item ${active === 'data-linkage' ? 'active' : ''}">Data Linkage</a>
+                        <a href="/data-linkage" class="shared-nav-item ${active === 'data-linkage' ? 'active' : ''}" hidden>Data Linkage</a>
                         <a href="/ai" class="shared-nav-item ${active === 'viewer' ? 'active' : ''}">Viewer</a>
                         <a href="/pd-l1-comparison" class="shared-nav-item ${active === 'pd-l1-comparison' ? 'active' : ''}">PD-L1 Comparison</a>
-                        <div class="shared-nav-menu" hidden>
+                        <div class="shared-nav-menu">
                             <button type="button" class="shared-nav-item shared-nav-parent ${annotationActive ? 'active' : ''}" aria-haspopup="true" aria-expanded="false">Annotation</button>
                             <div class="shared-nav-submenu" role="menu">
                                 <a href="/tissue-annotation" class="shared-nav-subitem ${active === 'tissue-annotation' || active === 'annotation' ? 'active' : ''}" role="menuitem">Tissue</a>

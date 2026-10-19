@@ -10,7 +10,7 @@
  *  - text text text text text text → text text text
  */
 
-import { api } from './api.js?v=20261015-flat5-01';
+import { api } from './api.js?v=20261019-cell-export-01';
 import { fixedAreaCoordinates, annotationAreaLabel } from './annotation-area.js?v=20260914-area-toggle-01';
 
 const TILE_SIZE = 1024;

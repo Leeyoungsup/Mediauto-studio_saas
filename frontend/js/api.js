@@ -336,7 +336,7 @@ function _normalizeCellArray(cell) {
     return normalized;
 }
 
-function _normalizeAiResultPayload(result) {
+export function _normalizeAiResultPayload(result) {
     if (!result || typeof result !== 'object') return result;
     for (const key of ['cells', 'excluded_cells']) {
         if (Array.isArray(result[key])) {
@@ -353,9 +353,22 @@ export const api = {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ slide_id: slideId, tissue_type: tissueType }), signal: options.signal,
         });
-        const payload = await _jsonOrThrow(response, 'PD-L1 JSON read failed');
-        payload.result = _normalizeAiResultPayload(payload.result);
-        return payload;
+        if (!response.ok) return _jsonOrThrow(response, 'PD-L1 JSON read failed');
+        const bytes = await response.arrayBuffer();
+        if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        return new Promise((resolve, reject) => {
+            const worker = new Worker(new URL('./pdl1-render-worker.js?v=20261019-cell-export-01', import.meta.url), { type: 'module' });
+            const finish = (error, result) => {
+                options.signal?.removeEventListener('abort', abort);
+                worker.terminate(); error ? reject(error) : resolve(result);
+            };
+            const abort = () => finish(new DOMException('Cancelled', 'AbortError'));
+            options.signal?.addEventListener('abort', abort, { once: true });
+            worker.onmessage = event => event.data.error
+                ? finish(new Error(event.data.error)) : finish(null, event.data);
+            worker.onerror = () => finish(new Error('AI 결과의 백그라운드 그리기에 실패했습니다.'));
+            worker.postMessage({ bytes, viewport: options.viewport }, [bytes]);
+        });
     },
 
     async savePdl1Comparison(record) {
@@ -363,6 +376,29 @@ export const api = {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record),
         });
         return _jsonOrThrow(response, 'Comparison save failed');
+    },
+
+    async downloadPdl1Comparisons(projectPath) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/export?project_path=${encodeURIComponent(projectPath)}`);
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(typeof error.detail === 'string' ? error.detail : '비교 결과를 다운로드하지 못했습니다.');
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        const filename = encoded ? decodeURIComponent(encoded[1]) : 'PD-L1_comparison.zip';
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = filename;
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { filename };
+    },
+
+    async pdl1ComparisonProgress(options = {}) {
+        const response = await _authFetch(`${API_BASE}/pd-l1-comparison/progress`, { signal: options.signal });
+        return _jsonOrThrow(response, 'Comparison progress unavailable');
     },
 
     async listCompletedPdl1Slides(projectPath, options = {}) {

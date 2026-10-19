@@ -1,4 +1,4 @@
-import { cpsCounts } from './pd-score.js?v=20261015-flat5-01';
+import { cpsCounts } from './pd-score.js?v=20261019-cell-export-01';
 /**
  * AI Detection Result Visualization
  * text detection_visualization_dialog.pytext text Canvastext text

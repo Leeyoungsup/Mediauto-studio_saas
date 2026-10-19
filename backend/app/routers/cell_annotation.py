@@ -787,14 +787,13 @@ async def download_termination_completed_cell_patches(
 ):
     """Download termination-completed cell patches and their paired JSON labels.
 
-    This export is intentionally restricted to the YoungSeopLee account.  Each
+    This export is restricted to the admin login ID.  Each
     ZIP member is grouped by slide and contains only patches whose
     ``str_termination_status`` is ``completed``.
     """
     str_login_id = str(dict_user.get("str_login_id") or "").strip().lower()
-    str_user_name = str(dict_user.get("str_name") or "").strip().lower()
-    if str_login_id != "youngseoplee" and str_user_name != "youngseoplee":
-        raise HTTPException(403, "Termination export is restricted to the YoungSeopLee account")
+    if str_login_id != "admin":
+        raise HTTPException(403, "Termination export is restricted to the admin account")
 
     from app.download_security import record_download
     await record_download(request, dict_user, project_path, reason)
@@ -920,16 +919,31 @@ def _read_assistance_file(info) -> dict:
     except Exception:
         return {}
     compacted, changed = _compact_assistance_payload(payload)
+    compacted, validated_changed = _validate_assistance_payload(info, compacted)
+    if not compacted:
+        return {}
+    changed |= validated_changed
+    if changed:
+        try:
+            _write_compact_json(path, compacted)
+        except Exception as exc:
+            print(f"[cell_annotation] assistance compact rewrite failed: {exc}")
+    return compacted
+
+
+def _validate_assistance_payload(info, compacted):
+    path = _existing_assistance_path(info)
+    changed = False
     source_postprocess = compacted.get("source_ai_postprocess")
     if not cache_has_current_detection_postprocess(source_postprocess):
         preserve_previous_resolution_cache(path)
-        return {}
+        return {}, False
     config = compacted.get("annotation_ai") if isinstance(compacted.get("annotation_ai"), dict) else {}
     if config.get("base_model") in ("Quanti PD-L1", "PD-Score") and config.get("variant") in ("Stomach", "Breast"):
         from app.auto_ai import _expected_marker_model_runtime
         expected_runtime = _expected_marker_model_runtime(config["base_model"], config["variant"])
         if expected_runtime is None or compacted.get("source_model_runtime") != expected_runtime:
-            return {}
+            return {}, False
     expected_confidence_threshold = _expected_assistance_confidence_threshold(config)
     if expected_confidence_threshold is not None:
         stored_confidence_threshold = compacted.get("assistance_confidence_threshold")
@@ -942,7 +956,7 @@ def _read_assistance_file(info) -> dict:
                 path.unlink()
             except Exception as exc:
                 print(f"[cell_annotation] stale assistance threshold cleanup failed: {exc}")
-            return {}
+            return {}, False
     if config.get("enabled"):
         project_classes = _load_cell_classes_for_project(_slide_project_path(info))
         default_classes = cell_annotation_classes_for_ai(True, str(config.get("key", "")))
@@ -952,12 +966,27 @@ def _read_assistance_file(info) -> dict:
             compacted = dict(compacted)
             compacted["classes"] = merged_classes
             changed = True
-    if changed:
-        try:
-            _write_compact_json(path, compacted)
-        except Exception as exc:
-            print(f"[cell_annotation] assistance compact rewrite failed: {exc}")
-    return compacted
+    return compacted, changed
+
+
+def _read_assistance_status(info):
+    from app.assistance_cache_metadata import read_assistance_header
+    metadata = read_assistance_header(_existing_assistance_path(info))
+    if metadata is None:
+        # Legacy layout fallback may normalize JSON, but never creates an index.
+        payload = _read_assistance_file(info)
+        return _assistance_metadata(payload) if payload else {}
+    metadata, _ = _validate_assistance_payload(info, metadata)
+    return metadata
+
+
+def _read_indexed_assistance(info, patch=None):
+    from app.assistance_spatial_index import read
+    metadata, labels = read(_existing_assistance_path(info), lambda: _read_assistance_file(info), patch)
+    if not metadata:
+        return {}, []
+    metadata, _ = _validate_assistance_payload(info, metadata)
+    return (metadata, labels) if metadata else ({}, [])
 
 
 def _compact_assistance_label(label: Any) -> Optional[list]:
@@ -1298,6 +1327,9 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
     if assistance_path.exists():
         preserve_previous_resolution_cache(assistance_path)
     _write_compact_json(assistance_path, payload)
+    # Reuse in-memory labels to prepare patch reads before reporting readiness.
+    from app.assistance_spatial_index import prepare, signature
+    prepare(assistance_path, payload, signature(assistance_path))
     return payload
 
 
@@ -1327,6 +1359,8 @@ def _run_labeling_assistance_task(task_id: str, slide_id: str, file_path: str, c
             error = task.get("error")
         if not result:
             raise ValueError(error or "Labeling assistance model returned no result")
+        update_task(task_id, status="running", progress=90,
+                    status_msg="Preparing patch labels and spatial index")
         payload = _write_assistance_result(slide_id, info, config, result)
         with _tasks_lock:
             if task_id in _tasks:
@@ -1675,7 +1709,7 @@ async def get_wsi_labeling_assistance(
     info = _slide_info(slide_id)
     await _raise_if_disconnected(request)
     def build_response():
-        payload = _read_assistance_file(info)
+        payload = _read_assistance_file(info) if include_labels else _read_assistance_status(info)
         if not payload:
             return JSONResponse({"slide_id": slide_id, "exists": False, "labels": []})
         if include_labels:
@@ -1782,9 +1816,8 @@ async def get_patch_labeling_assistance_cells(request: Request, slide_id: str, p
 
 def _patch_assistance_response(info, slide_id: str, patch_id: str, patch: dict, cancelled=None):
     """Read, filter and encode outside the tile-serving event loop."""
-    payload = _read_assistance_file(info)
-    labels = payload.get("labels") if isinstance(payload, dict) else None
-    if not isinstance(labels, list):
+    payload, labels = _read_indexed_assistance(info, patch)
+    if not payload:
         return JSONResponse({
             "slide_id": slide_id,
             "patch_id": patch_id,
@@ -1794,8 +1827,8 @@ def _patch_assistance_response(info, slide_id: str, patch_id: str, patch: dict, 
         })
     class_lookup = _assistance_class_lookup(info, payload)
     cells = []
-    for idx, label in enumerate(labels, start=1):
-        if cancelled is not None and (idx == 1 or idx % 1000 == 0) and cancelled.is_set():
+    for position, (idx, label) in enumerate(labels, start=1):
+        if cancelled is not None and (position == 1 or position % 1000 == 0) and cancelled.is_set():
             raise HTTPException(status_code=499, detail="Client closed request")
         cell = _assistance_label_to_cell(label, patch, idx, class_lookup)
         if cell is not None:
@@ -1804,7 +1837,7 @@ def _patch_assistance_response(info, slide_id: str, patch_id: str, patch: dict, 
         "slide_id": slide_id,
         "patch_id": patch_id,
         "exists": True,
-        "total_labels": len(labels),
+        "total_labels": int(payload.get("total_labels", len(labels))),
         "cell_count": len(cells),
         "classes": _assistance_metadata(payload).get("classes") or _load_cell_classes_for_project(_slide_project_path(info)),
         "cells": cells,

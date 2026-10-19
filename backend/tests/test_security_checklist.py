@@ -288,7 +288,7 @@ def test_zip_export_audit_failure_prevents_filesystem_work(security_client, monk
     client = security_client
     client.app.include_router(cell_annotation.router, prefix='/api/cell-annotation')
     tokens = login(client)
-    asyncio.run(get_user_store().update_by_id(USER, {'str_login_id': 'youngseoplee'}))
+    asyncio.run(get_user_store().update_by_id(USER, {'str_login_id': 'admin'}))
     monkeypatch.setattr(download_security, 'log_audit_event', AsyncMock(return_value=None))
     from unittest.mock import Mock
     filesystem = Mock(side_effect=AssertionError('No file generation before audit'))
@@ -310,3 +310,16 @@ def test_registration_and_admin_creation_enforce_nine_characters(security_client
     assert client.post('/api/users/create', json=body, headers=headers(tokens)).status_code == 422
     body['str_password'] = 'Abc12!xyz'
     assert client.post('/api/users/create', json=body, headers=headers(tokens)).status_code == 200
+
+
+@pytest.mark.parametrize('login_id,name', [('doctor01','admin'), ('doctor01','youngseoplee'), ('youngseoplee','Test Doctor')])
+def test_cell_patch_download_requires_admin_login_id(security_client, login_id, name):
+    from app.routers import cell_annotation
+    client = security_client
+    client.app.include_router(cell_annotation.router, prefix='/api/cell-annotation')
+    tokens = login(client)
+    asyncio.run(get_user_store().update_by_id(USER, {'str_login_id':login_id,'str_name':name,'str_role':'admin'}))
+    auth.invalidate_user_cache()
+    response = client.get('/api/cell-annotation/projects/test/termination-export', params={'reason':'연구 검토'}, headers=headers(tokens))
+    assert response.status_code == 403
+    download_security.log_audit_event.assert_not_awaited()

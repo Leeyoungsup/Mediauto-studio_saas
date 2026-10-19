@@ -6036,3 +6036,48 @@ dialog::backdrop { background: rgba(45, 45, 95, 0.35); backdrop-filter: blur(2px
 .fixed-area-menu button:hover, .fixed-area-menu button:focus-visible { background: #475569; }
 .fixed-area-menu button[aria-checked="true"] { background: #2563eb; }
 .ann-area { grid-column: 1 / -1; font-size: 11px; color: #64748b; white-space: nowrap; }
+
+/* Full-width assistance progress, immediately above the VS IHC controls. */
+body.annotation-page #right-panel > .ai-assistance-sidebar-status {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    flex: 0 0 auto;
+    gap: 9px;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    white-space: normal;
+    overflow: visible;
+}
+body.annotation-page #right-panel > .ai-assistance-sidebar-status[hidden] { display: none; }
+.ai-assistance-sidebar-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 700;
+}
+.ai-assistance-sidebar-status .ai-assistance-toolbar-percent { font-size: 16px; }
+.ai-assistance-sidebar-status .ai-assistance-toolbar-label {
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+.ai-assistance-sidebar-status .ai-assistance-toolbar-track {
+    width: 100%;
+    height: 9px;
+    flex: 0 0 9px;
+}
+.ai-assistance-sidebar-detail {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}

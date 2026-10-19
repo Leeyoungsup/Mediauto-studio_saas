@@ -1,14 +1,14 @@
-import { cpsCounts } from './pd-score.js?v=20261015-flat5-01';
+import { cpsCounts } from './pd-score.js?v=20261019-cell-export-01';
 import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-01';
 /**
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20261015-flat5-01';
-import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261015-flat5-01';
-import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261015-flat5-01';
-import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20260831-01';
-import { showVisualization } from './visualization.js?v=20261015-flat5-01';
+import { api } from './api.js?v=20261019-cell-export-01';
+import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20261019-cell-export-01';
+import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20261019-cell-export-01';
+import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20261019-cell-export-01';
+import { showVisualization } from './visualization.js?v=20261019-cell-export-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -347,9 +347,15 @@ function _updateAiAssistanceToolbarStatus(payload = {}) {
     $aiAssistanceToolbarStatus.classList.toggle('is-error', state === 'error');
     $aiAssistanceToolbarStatus.classList.toggle('is-disabled', state === 'disabled');
     $aiAssistanceToolbarLabel.textContent = label;
-    $aiAssistanceToolbarPercent.textContent = state === 'running' ? `${Math.round(percent)}%` : '';
+    $aiAssistanceToolbarPercent.textContent = ['running', 'ready'].includes(state) ? `${Math.round(percent)}%` : '';
     $aiAssistanceToolbarFill.style.width = `${Math.round(percent)}%`;
     $aiAssistanceToolbarStatus.title = payload.detail ? `${label}: ${payload.detail}` : label;
+    document.getElementById('ai-assistance-progress-track')?.setAttribute('aria-valuenow', String(Math.round(percent)));
+    const detail = document.getElementById('ai-assistance-progress-detail');
+    if (detail) {
+        detail.textContent = String(payload.detail || '');
+        detail.hidden = !payload.detail;
+    }
 }
 
 function _updatePatchAiAssistanceToolbarStatus(payload = {}) {
@@ -1635,10 +1641,8 @@ function _canManageAnnotationClasses() {
     return window.__currentUserRole === 'doctor' || window.__currentUserRole === 'admin';
 }
 
-function _isYoungSeopLeeAccount() {
-    return [window.__currentUserLoginId, window.__currentUserName]
-        .map(value => String(value || '').trim().toLowerCase())
-        .includes('youngseoplee');
+function _canDownloadCellPatchExports() {
+    return String(window.__currentUserLoginId || '').trim().toLowerCase() === 'admin';
 }
 
 function _blockClassManageAction() {
@@ -4686,8 +4690,11 @@ window.addEventListener('keydown', (e) => {
 async function _loadSavedAnnotationsForSlide(slideId) {
     const strSlideId = slideId || currentSlideId;
     if (!strSlideId) return;
-    viewer.clearAnnotations();
-    renderAnnotationPanel();
+    // Cell labels belong to the selected patch, not the slide memo request.
+    if (ANNOTATION_PAGE_KIND !== 'cell') {
+        viewer.clearAnnotations();
+        renderAnnotationPanel();
+    }
     try {
         const payload = await api.loadAnnotations(strSlideId);
         if (currentSlideId !== strSlideId) return;
@@ -4695,7 +4702,8 @@ async function _loadSavedAnnotationsForSlide(slideId) {
         currentSlideMemo = parsed.slideMemo;
         currentSlideMemoHistory = parsed.slideMemoHistory;
         if (ANNOTATION_PAGE_KIND === 'cell') {
-            _applyLoadedAnnotations([], 'saved annotations');
+            _setSlideListMemoIndicator();
+            _syncSlideMemoButton();
             return;
         }
         _applyLoadedAnnotations(parsed.annotations, 'saved annotations');
@@ -6318,7 +6326,7 @@ function _renderProjectGate(list_projects) {
             ? (ANNOTATION_PAGE_KIND === 'cell' ? 'Manage Cell Annotation settings' : 'Manage classes')
             : 'Doctor/Admin only';
         actionEl.append(openBtn, classBtn);
-        if (ANNOTATION_PAGE_KIND === 'cell' && _isYoungSeopLeeAccount()) {
+        if (ANNOTATION_PAGE_KIND === 'cell' && _canDownloadCellPatchExports()) {
             const exportBtn = document.createElement('button');
             exportBtn.type = 'button';
             exportBtn.className = 'project-gate-action secondary';

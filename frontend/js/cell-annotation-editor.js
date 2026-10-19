@@ -28,6 +28,9 @@ export class CellAnnotationEditor {
     }
 
     async open(slideId, patch, options = {}) {
+        const requestId = this._openRequestId = (this._openRequestId || 0) + 1;
+        const isCurrent = () => requestId === this._openRequestId &&
+            (typeof options.isCurrent !== 'function' || options.isCurrent());
         this.slideId = slideId;
         this.patch = patch;
         this.cells = [];
@@ -41,14 +44,16 @@ export class CellAnnotationEditor {
         this.render();
         try {
             const payload = await this.api.getPatchCells(slideId, this.patch.patch_id);
-            if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;
+            if (!isCurrent()) return false;
             this.cells = payload.cells || [];
         } catch (err) {
-            if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;
+            if (!isCurrent()) return false;
             this.cells = [];
             this.onStatus(`Patch cells unavailable: ${err.message}`);
         }
-        if (options.syncViewer !== false) this.syncViewer();
+        const shouldSync = typeof options.shouldSyncViewer === 'function'
+            ? options.shouldSyncViewer() : options.syncViewer !== false;
+        if (shouldSync) this.syncViewer();
         else this.viewerSynced = false;
         this.viewer.requestRender();
         this.render();

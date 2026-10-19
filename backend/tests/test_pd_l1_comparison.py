@@ -403,3 +403,77 @@ def test_comparison_rejects_changed_weights_runtime(client):
     result['model_runtime']['mtime_ns'] -= 1
     client.json_path.write_text(json.dumps(result))
     assert read_json(client).status_code == 409
+
+
+@pytest.mark.parametrize('role', ['admin','doctor','labeler','viewer'])
+def test_all_authenticated_roles_can_export_project_measurements(client, role):
+    import csv, io, zipfile
+    body = measurement()
+    assert client.post('/comparison/records', headers=HEADERS, json=body).status_code == 200
+    client.app_under_test.dependency_overrides[get_current_user] = lambda: {
+        '_id':'another-account', 'str_role':role}
+    response = client.get('/comparison/export?project_path=project-one')
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'] == 'application/zip'
+    assert response.headers['cache-control'] == 'no-store'
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert len(archive.namelist()) == 3
+        raw = archive.read('전체_비교결과.csv')
+        assert raw.startswith(b'\xef\xbb\xbf')
+        rows = list(csv.DictReader(io.StringIO(raw.decode('utf-8-sig'))))
+        assert len(rows)==1 and rows[0]['CPS (%)']=='45.5'
+        assert rows[0]['CPS Grade']=='CPS ≥ 10'
+        assert float(rows[0]['전문의 판독시간(초)'])==120.05
+        assert rows[0]['AI 판독시간(초)']==''
+        account_json = next(path for path in archive.namelist() if path.endswith('.json'))
+        exported = json.loads(archive.read(account_json))['measurements']
+        assert exported[0]['user_id']=='doctor-one'
+        assert exported[0]['ai_elapsed_seconds']==''
+        assert 'request_signature' not in exported[0]
+
+
+def test_export_scopes_project_preserves_accounts_and_repeat_measurements(client, monkeypatch):
+    import io,zipfile,csv
+    assert client.post('/comparison/records',headers=HEADERS,json=measurement()).status_code==200
+    assert client.post('/comparison/records',headers=HEADERS,json=measurement()).status_code==200
+    client.app_under_test.dependency_overrides[get_current_user] = lambda: {
+        '_id':'doctor-two','str_login_id':'reader_b','str_name':'전문의 B','str_role':'doctor'}
+    assert client.post('/comparison/records',headers=HEADERS,json=measurement()).status_code==200
+    repository=routes.store()
+    asyncio.run(repository.insert_one({'_id':'other-project','kind':'comparison','project_path':'other-project'}))
+    asyncio.run(repository.insert_one({'_id':'receipt-only','kind':'json_read','project_path':'project-one'}))
+    monkeypatch.setattr(routes.slide_manager,'get',lambda identifier:None)
+    response=client.get('/comparison/export?project_path=project-one')
+    assert response.status_code==200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        rows=list(csv.DictReader(io.StringIO(archive.read('전체_비교결과.csv').decode('utf-8-sig'))))
+        assert len(rows)==3
+        assert {row['계정 ID'] for row in rows}=={'doctor-one','doctor-two'}
+        assert next(row for row in rows if row['계정 ID']=='doctor-two')['로그인 ID']=='reader_b'
+        assert len([name for name in archive.namelist() if name.endswith('.json')])==2
+
+
+def test_export_rejects_empty_project_invalid_path_and_anonymous(client):
+    assert client.get('/comparison/export?project_path=project-one').status_code==404
+    assert client.get('/comparison/export?project_path=../project-one').status_code==400
+    client.app_under_test.dependency_overrides.clear()
+    assert client.get('/comparison/export?project_path=project-one').status_code==401
+
+
+@pytest.mark.parametrize('role', ['admin','doctor','labeler','viewer'])
+def test_project_progress_counts_unique_slides_for_current_account(client, monkeypatch, role):
+    assert client.get('/comparison/progress').json() == {'user_id':'doctor-one','projects':{}}
+    for _ in range(2):
+        assert client.post('/comparison/records', headers=HEADERS, json=measurement()).status_code == 200
+    repository = routes.store()
+    for record in [
+        {'_id':'other-account-progress','kind':'comparison','user_id':'someone-else','project_path':'project-one','slide_id':'slide-two'},
+        {'_id':'other-project-progress','kind':'comparison','user_id':'doctor-one','project_path':'project-two','slide_id':'slide-three'},
+        {'_id':'receipt-progress','kind':'json_read','user_id':'doctor-one','project_path':'project-one','slide_id':'slide-four'},
+    ]:
+        asyncio.run(repository.insert_one(record))
+    client.app_under_test.dependency_overrides[get_current_user] = lambda: {'_id':'doctor-one','str_role':role}
+    monkeypatch.setattr(routes.slide_manager,'get',lambda identifier:None)
+    response = client.get('/comparison/progress')
+    assert response.status_code == 200
+    assert response.json() == {'user_id':'doctor-one','projects':{'project-one':['slide-one'],'project-two':['slide-three']}}

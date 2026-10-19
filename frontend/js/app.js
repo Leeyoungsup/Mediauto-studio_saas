@@ -1,5 +1,5 @@
-import { cpsCounts } from './pd-score.js?v=20261015-flat5-01';
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261015-flat5-01';
+import { cpsCounts } from './pd-score.js?v=20261019-cell-export-01';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261019-cell-export-01';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';
@@ -9,9 +9,9 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * Handles project selection, slide browsing, annotation tools, and AI analysis workflows.
  */
 
-import { api } from './api.js?v=20261015-flat5-01';
-import { AiViewer } from './ai-viewer.js?v=20261015-flat5-01';
-import { showVisualization } from './visualization.js?v=20261015-flat5-01';
+import { api } from './api.js?v=20261019-cell-export-01';
+import { AiViewer } from './ai-viewer.js?v=20261019-cell-export-01';
+import { showVisualization } from './visualization.js?v=20261019-cell-export-01';
 import { $, esc as _esc, normalizeUserRole as _normalizeUserRole, roleLabel as _roleLabel } from './common-utils.js?v=20260604-01';
 
 if (!localStorage.getItem('access_token')) {
@@ -238,17 +238,25 @@ const pdl1Comparison = IS_PDL1_COMPARISON ? createPdl1Comparison({
     onSaved(record) {
         if (record.user_id !== window.__currentUserId || record.project_path !== _getCurrentProjectName()) return;
         _pdl1CompletedSlideIds.add(record.slide_id);
+        if (_pdl1ProjectCompletions) {
+            const completed = _pdl1ProjectCompletions.get(record.project_path) || new Set();
+            completed.add(record.slide_id); _pdl1ProjectCompletions.set(record.project_path, completed);
+        }
         _pdl1CompletionVersion++;
         $slideList.querySelectorAll('.slide-list-item[data-slide-id]').forEach(_updateComparisonBadge);
     },
     async waitForOverview(context, signal) {
         if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
         await viewer.whenOverviewReady(signal);
+        context.renderViewport = {
+            width:viewer._viewW,height:viewer._viewH,dpr:viewer._dpr||1,
+            zoom:viewer.zoom,centerX:viewer.viewCenterX,centerY:viewer.viewCenterY,
+            mpp:viewer.slideInfo.mpp,
+        };
     },
     async displayResult(result, context, signal) {
         if (currentSlideId !== context.slideId) throw new Error('슬라이드가 변경되었습니다.');
         const target = viewer;
-        onPdScoreComplete(result, null, context.tissueType);
         await target.whenRendered(signal);
     },
 }) : null;
@@ -4435,6 +4443,7 @@ if ($rightResizer && $rightPanel) {
 let currentBrowsePath = '';
 let _projectListCache = [];
 let _pdl1CompletedSlideIds = new Set();
+let _pdl1ProjectCompletions = null;
 let _pdl1CompletionVersion = 0;
 let _projectGatePage = 1;
 let _projectGateSort = { key: 'name', dir: 'asc' };
@@ -4484,7 +4493,15 @@ async function loadProjectList() {
     if (!$projectSelect) return [];
     const controller = _beginLatestRead('project-list');
     try {
-        const data = await api.listProjects({ signal: controller.signal });
+        const [data, progress] = await Promise.all([
+            api.listProjects({ signal: controller.signal }),
+            IS_PDL1_COMPARISON ? api.pdl1ComparisonProgress({ signal: controller.signal }).catch(() => null) : Promise.resolve(null),
+        ]);
+        if (controller.signal.aborted) return [];
+        if (IS_PDL1_COMPARISON) {
+            _pdl1ProjectCompletions = progress?.user_id === window.__currentUserId
+                ? new Map(Object.entries(progress.projects).map(([path, ids]) => [path, new Set(ids)])) : null;
+        }
         const list_projects = data.projects || [];
         _projectListCache = list_projects;
         const currentProject = _getCurrentProjectName();
@@ -4527,8 +4544,12 @@ function _projectGateValue(project, key) {
     if (key === 'slides') return Number(project.slide_count || 0);
     if (key === 'reviewed') return Number(project.reviewed_count || 0);
     if (key === 'progress') return Number(project.in_progress_count || 0);
-    if (key === 'ai') return Number(project.ai_analyzed_count || 0);
-    if (key === 'folders') return Number(project.folder_count || 0);
+    if (key === 'ai') return IS_PDL1_COMPARISON
+        ? Math.min(_pdl1ProjectCompletions?.get(project.path || project.name)?.size || 0, Number(project.slide_count || 0))
+        : Number(project.ai_analyzed_count || 0);
+    if (key === 'folders') return IS_PDL1_COMPARISON
+        ? (Number(project.slide_count) > 0 ? _projectGateValue(project, 'ai') / Number(project.slide_count) * 100 : 0)
+        : Number(project.folder_count || 0);
     if (key === 'status') return info.status || 'active';
     return '';
 }
@@ -4714,8 +4735,8 @@ function _renderProjectGate(list_projects) {
         { label: 'Hospital', key: 'hospital' },
         { label: 'Owner', key: 'owner' },
         { label: 'Slides', key: 'slides' },
-        { label: 'AI Analyzed', key: 'ai' },
-        { label: 'Folders', key: 'folders' },
+        { label: IS_PDL1_COMPARISON ? '내 평가 (완료)' : 'AI Analyzed', key: 'ai' },
+        { label: IS_PDL1_COMPARISON ? '완료율' : 'Folders', key: 'folders' },
         { label: 'Status', key: 'status' },
         { label: '', key: '' },
     ].forEach((col) => {
@@ -4799,7 +4820,23 @@ function _renderProjectGate(list_projects) {
                     delete row.dataset.modelSaving;
                 }
             });
-            controls.append(model, feedback);
+            const download = document.createElement('button');
+            download.type = 'button';
+            download.className = 'pdl1-export-button';
+            download.textContent = '비교 결과 ZIP 다운로드';
+            download.setAttribute('aria-label', `${title} 계정별 비교 결과 ZIP 다운로드`);
+            const exportStatus = document.createElement('span');
+            exportStatus.setAttribute('role', 'status');
+            download.addEventListener('click', async () => {
+                download.disabled = true; exportStatus.textContent = '다운로드 준비 중…';
+                try {
+                    await api.downloadPdl1Comparisons(path);
+                    exportStatus.textContent = '다운로드했습니다.';
+                } catch (error) {
+                    exportStatus.textContent = `다운로드 실패: ${error.message}`;
+                } finally { download.disabled = false; }
+            });
+            controls.append(model, feedback, download, exportStatus);
             projectEl.appendChild(controls);
         }
 
@@ -4817,11 +4854,18 @@ function _renderProjectGate(list_projects) {
 
         const aiEl = document.createElement('div');
         aiEl.className = 'project-gate-cell project-gate-number';
-        aiEl.textContent = project.ai_analyzed_count || 0;
+        if (IS_PDL1_COMPARISON) {
+            aiEl.classList.add('pdl1-project-progress');
+            aiEl.textContent = _pdl1ProjectCompletions ? _projectGateValue(project, 'ai') : '—';
+            aiEl.title = _pdl1ProjectCompletions ? '로그인한 계정의 평가 완료 슬라이드 수' : '내 평가 확인 불가';
+        } else aiEl.textContent = project.ai_analyzed_count || 0;
 
         const foldersEl = document.createElement('div');
         foldersEl.className = 'project-gate-cell project-gate-number';
-        foldersEl.textContent = project.folder_count || 0;
+        foldersEl.textContent = IS_PDL1_COMPARISON
+            ? (_pdl1ProjectCompletions ? `${Number(_projectGateValue(project, 'folders').toFixed(1))}%` : '—')
+            : project.folder_count || 0;
+        if (IS_PDL1_COMPARISON) foldersEl.title = '내 평가 완료 수 / 전체 슬라이드 수 × 100';
 
         const statusEl = document.createElement('div');
         statusEl.className = 'project-gate-cell';
@@ -6274,7 +6318,8 @@ $btnVsSplit?.addEventListener('click', () => {
     // the authentication request is in flight instead of waiting for /me.
     // api._authFetch serializes the initial media-ticket request, then both
     // authenticated API requests can complete in parallel.
-    const _projectListPromise = loadProjectList();
+    // Comparison progress is account-specific; wait for the verified profile below.
+    const _projectListPromise = IS_PDL1_COMPARISON ? null : loadProjectList();
 
     try {
         const dict_me = await api.me();
@@ -6319,7 +6364,7 @@ $btnVsSplit?.addEventListener('click', () => {
         return;
     }
 
-    const list_projects = await _projectListPromise;
+    const list_projects = await (_projectListPromise || loadProjectList());
     if (bool_show_project_gate) {
         _showProjectGate(list_projects);
         return;

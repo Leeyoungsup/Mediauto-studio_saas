@@ -15,7 +15,7 @@ def test_assistance_filter_and_encoding_leave_event_loop_and_viewer_free(monkeyp
     monkeypatch.setattr(ca, '_slide_info', lambda _: SimpleNamespace(file_path='slide.ndpi'))
     monkeypatch.setattr(ca, '_require_db', lambda: SimpleNamespace(patch_annotation_status=SimpleNamespace(
         find_one=AsyncMock(return_value={'str_status':'required'}))))
-    monkeypatch.setattr(ca, '_read_assistance_file', lambda _: {'labels':[1,2], 'classes':[{'id':'tumor'}]})
+    monkeypatch.setattr(ca, '_read_indexed_assistance', lambda *args: ({'total_labels':2, 'classes':[{'id':'tumor'}]}, [(1,1),(2,2)]))
     monkeypatch.setattr(ca, '_assistance_class_lookup', lambda *args: {})
     def convert(label, patch, idx, classes):
         assert threading.get_ident() != main_thread
@@ -52,8 +52,8 @@ def test_assistance_metadata_encoding_in_worker(monkeypatch):
     monkeypatch.setattr(ca, '_slide_info', lambda _: object())
     def read(_):
         assert threading.get_ident() != main_thread
-        return {'labels': [1,2], 'classes': []}
-    monkeypatch.setattr(ca, '_read_assistance_file', read)
+        return {'total_labels':2, 'classes': []}
+    monkeypatch.setattr(ca, '_read_assistance_status', read)
     request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
     result = asyncio.run(ca.get_wsi_labeling_assistance(request, 'slide', False))
     assert json.loads(result.body) == {'classes': [], 'total_labels':2, 'total_model_bbox_labels':0, 'exists':True}

@@ -13,8 +13,8 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="css/shared-header.css?v=20261012-knuch-logo-01">
-    <link rel="stylesheet" href="css/style.css?v=20260914-focus-01">
+    <link rel="stylesheet" href="css/shared-header.css?v=20261019-annotation-01">
+    <link rel="stylesheet" href="css/style.css?v=20261019-cell-export-01">
     <script src="/js/security-session.js?v=20261008-01"></script>
 </head>
 <body class="annotation-page">
@@ -33,13 +33,6 @@
         </div>
         <div class="menu-right">
             <span id="status-text" class="status-text">Ready</span>
-            <div id="ai-assistance-toolbar-status" class="ai-assistance-toolbar-status" role="status" aria-live="polite" hidden>
-                <span id="ai-assistance-toolbar-label" class="ai-assistance-toolbar-label"></span>
-                <span id="ai-assistance-toolbar-percent" class="ai-assistance-toolbar-percent"></span>
-                <div class="ai-assistance-toolbar-track" aria-hidden="true">
-                    <div id="ai-assistance-toolbar-fill" class="ai-assistance-toolbar-fill"></div>
-                </div>
-            </div>
             <span class="toolbar-separator" style="height:20px;"></span>
             <span id="user-name" class="user-name-text"></span>
             <a id="link-admin" class="btn-admin" href="/admin" title="Admin" hidden>Admin</a>
@@ -63,7 +56,7 @@
                 <a href="/project" class="project-mode-nav-item">Project</a>
                 <a href="/ai" class="project-mode-nav-item">Viewer</a>
                 <a href="/pd-l1-comparison" class="project-mode-nav-item">PD-L1 Comparison</a>
-                <div class="project-mode-nav-menu" hidden>
+                <div class="project-mode-nav-menu">
                     <button type="button" class="project-mode-nav-item project-mode-nav-parent active" aria-haspopup="true" aria-expanded="false">Annotation</button>
                     <div class="project-mode-nav-submenu" role="menu">
                         <a href="/tissue-annotation" class="project-mode-nav-subitem" role="menuitem">Tissue</a>
@@ -402,6 +395,14 @@
         <div id="right-panel-resizer" class="panel-resizer"></div>
         <aside id="right-panel">
             <!-- AI Analysis text -->
+            <section id="ai-assistance-toolbar-status" class="ai-assistance-toolbar-status ai-assistance-sidebar-status" role="status" aria-live="polite" hidden>
+                <div class="ai-assistance-sidebar-heading">AI Assistance <span id="ai-assistance-toolbar-percent" class="ai-assistance-toolbar-percent"></span></div>
+                <div id="ai-assistance-toolbar-label" class="ai-assistance-toolbar-label"></div>
+                <div id="ai-assistance-progress-track" class="ai-assistance-toolbar-track" role="progressbar" aria-label="AI Assistance progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="ai-assistance-toolbar-fill" class="ai-assistance-toolbar-fill"></div>
+                </div>
+                <div id="ai-assistance-progress-detail" class="ai-assistance-sidebar-detail" hidden></div>
+            </section>
             <div class="panel-group ai-analysis-group">
                 <div class="panel-header">
                     <span>VS IHC</span>
@@ -710,7 +711,7 @@
         </div>
     </div>
 
-    <script src="js/shared-header.js?v=20261012-knuch-logo-01"></script>
-    <script type="module" src="js/annotation.js?v=20261015-flat5-01"></script>
+    <script src="js/shared-header.js?v=20261019-annotation-01"></script>
+    <script type="module" src="js/annotation.js?v=20261019-cell-export-01"></script>
 </body>
 </html>

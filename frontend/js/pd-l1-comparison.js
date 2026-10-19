@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20261015-flat5-01';
+import { api } from './api.js?v=20261019-cell-export-01';
 import { esc } from './common-utils.js?v=20260604-01';
 
 export function formatStopwatch(ms) {
@@ -123,15 +123,15 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
             preparing = false;
             render(); setMessage('초기 화면 준비 완료. 점수를 입력한 뒤 확인을 눌러주세요. 시간은 슬라이드 입장부터 측정 중입니다.');
             timeout = setTimeout(() => activeController.abort(), 30000);
-            return api.readPdl1Json(context.slideId, context.tissueType, { signal: activeController.signal });
+            return api.readPdl1Json(context.slideId, context.tissueType, { signal: activeController.signal, viewport: context.renderViewport });
         })
             .then(async result => {
                 if (version !== generation || !result) return;
-                if (!displayResult || !result.result) throw new Error('AI result 표시 데이터가 없습니다.');
+                if (!displayResult || !result.rendered) throw new Error('AI result 표시 데이터가 없습니다.');
                 aiResult.textContent = `AI result · ${result.score_type} ${result.ai_percentage}%`
                     + (result.ai_grade == null ? '' : ` · Grade ${result.ai_grade}`);
                 aiResult.hidden = false;
-                await displayResult(result.result, context, activeController.signal);
+                await displayResult(result, context, activeController.signal);
                 if (version !== generation || activeController.signal.aborted) return;
                 ai = { ...result, ai_result_elapsed_ms: Math.max(0.001, performance.now() - started) };
                 render();

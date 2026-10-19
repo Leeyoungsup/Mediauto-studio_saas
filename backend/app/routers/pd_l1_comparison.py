@@ -2,13 +2,14 @@
 import asyncio
 import hashlib
 import json
-import math
-import time
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
+from fastapi.responses import Response
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -16,6 +17,7 @@ from app.auth import get_current_user, require_capability
 from app.audit import get_client_ip, log_audit_event
 from app.config import settings
 from app.comparison_files import write_comparison_json
+from app.comparison_export import build_comparison_zip
 from app.ai_pipelines.scoring import PD_SCORE_CONFIG
 from app.database import get_db, is_db_connected
 from app.path_utils import rel_path_for, safe_filename
@@ -87,41 +89,49 @@ async def check_project_model(project, tissue):
         raise HTTPException(409, "The project comparison model has changed. Reopen the project to use its fixed model.")
 
 
-def read_json(path, tissue):
-    # This interval contains file read and JSON parsing only, never model inference.
-    started = time.perf_counter()
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            result = json.load(file)
-    except FileNotFoundError:
-        raise HTTPException(404, "No saved PD-L1 JSON for this slide and tissue")
-    except (OSError, ValueError):
-        raise HTTPException(422, "Saved PD-L1 JSON could not be read")
-    elapsed = (time.perf_counter() - started) * 1000
-    score = result.get("pd_score") if isinstance(result, dict) else None
-    expected = PD_SCORE_CONFIG[tissue]["score_type"]
-    if not isinstance(score, dict) or score.get("score_type") != expected:
-        raise HTTPException(422, "Saved JSON does not contain the selected PD-L1 score")
-    value = score.get("score")
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
-        raise HTTPException(422, "Saved JSON contains an invalid PD-L1 score")
-    if expected == "CPS":
+_JSON_READ_SLOTS = asyncio.Semaphore(2)
+
+
+async def read_json(path, tissue, receipt, request=None):
+    config = PD_SCORE_CONFIG[tissue]
+    validation = {"score_type": config["score_type"]}
+    if config["score_type"] == "CPS":
         from app.ai_pipelines.marker_pipeline import marker_model_runtime_metadata
-        config = PD_SCORE_CONFIG[tissue]
         try:
-            runtime = marker_model_runtime_metadata(config)
+            validation.update(class_schema=config["class_schema"], runtime=marker_model_runtime_metadata(config))
         except OSError:
             raise HTTPException(503, "PD-L1 model weights are unavailable")
-        if score.get("class_schema") != config["class_schema"] or result.get("model_runtime") != runtime:
-            raise HTTPException(409, "Saved PD-L1 result belongs to an older model. Run AI analysis with the current model first.")
-    grade = score.get("grade")
-    return {"ai_json_elapsed_ms": elapsed, "ai_percentage": value,
-            "ai_grade": str(grade)[:80] if grade is not None else None,
-            "score_type": expected, "ai_class_schema": score.get("class_schema"), "result": result}
+    async with _JSON_READ_SLOTS:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, str(Path(__file__).resolve().parents[1]/"pdl1_json_reader.py"),
+            str(path), json.dumps(validation), receipt,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        communication = asyncio.create_task(process.communicate())
+        try:
+            while not communication.done():
+                await asyncio.wait({communication}, timeout=.1)
+                if request is not None and await request.is_disconnected():
+                    raise HTTPException(499, "Comparison read cancelled")
+            payload, stderr = await communication
+        finally:
+            if not communication.done():
+                communication.cancel()
+                await asyncio.gather(communication, return_exceptions=True)
+            if process.returncode is None:
+                process.kill(); await process.wait()
+    try:
+        metadata = json.loads(stderr)
+    except ValueError:
+        raise HTTPException(503, "PD-L1 JSON reader failed")
+    if metadata.get("status"):
+        raise HTTPException(metadata["status"], metadata["detail"])
+    if process.returncode != 0 or not payload:
+        raise HTTPException(503, "PD-L1 JSON reader failed")
+    return payload, metadata
 
 
 @router.post("/read-json")
-async def read_saved_json(body: JsonReadRequest, user=Depends(get_current_user)):
+async def read_saved_json(body: JsonReadRequest, request: Request, user=Depends(get_current_user)):
     repository = store()
     info, project = slide_context(body.slide_id)
     await check_project_model(project, body.tissue_type)
@@ -130,14 +140,14 @@ async def read_saved_json(body: JsonReadRequest, user=Depends(get_current_user))
     path = directory / f"{key}_Quanti PD-L1_{body.tissue_type}.json"
     if path.is_symlink():
         raise HTTPException(422, "Saved JSON must be a regular cache file")
-    result = await asyncio.to_thread(read_json, path, body.tissue_type)
-    payload = result.pop("result")
-    record = {"_id": uuid.uuid4().hex, "kind": "json_read", "project_path": project,
+    receipt = uuid.uuid4().hex
+    payload, result = await read_json(path, body.tissue_type, receipt, request)
+    record = {"_id": receipt, "kind": "json_read", "project_path": project,
               "slide_id": body.slide_id, "filename": Path(info.file_path).name,
               "tissue_type": body.tissue_type, "user_id": user["_id"],
               "dt_created_at": datetime.now(timezone.utc), **result}
     await repository.insert_one(record)
-    return {"ai_read_id": record["_id"], **result, "result": payload}
+    return Response(content=payload, media_type="application/json")
 
 
 async def export_comparison(record, slide_path):
@@ -174,7 +184,7 @@ async def save_comparison(body: ComparisonRequest, request: Request,
     record = {"_id": identifier, "kind": "comparison", "project_path": project,
               "slide_id": body.slide_id, "filename": Path(info.file_path).name,
               "user_id": user["_id"], "user_name": user.get("str_name", ""),
-              "username": user.get("str_username", ""), "tissue_type": body.tissue_type,
+              "username": user.get("str_login_id") or user.get("str_username", ""), "tissue_type": body.tissue_type,
               "score_type": PD_SCORE_CONFIG[body.tissue_type]["score_type"],
               "percentage": body.percentage, "grade": score_grade(body.percentage, body.tissue_type),
               "grade_basis": "score_bands_v1",
@@ -216,3 +226,33 @@ async def completed_slides(project_path: str = Query(min_length=1, max_length=25
                                   "user_id": user["_id"]}).to_list(length=None)
     return {"user_id": user["_id"],
             "slide_ids": sorted({record["slide_id"] for record in records})}
+
+
+@router.get("/export")
+async def download_comparisons(request: Request,
+                               project_path: str = Query(min_length=1, max_length=256),
+                               user=Depends(get_current_user)):
+    project = safe_filename(project_path)
+    records = await store().find({"kind": "comparison", "project_path": project}).sort("dt_created_at", 1).to_list(length=None)
+    if not records:
+        raise HTTPException(404, "이 프로젝트에는 측정 완료된 비교 기록이 없습니다.")
+    payload = await asyncio.to_thread(build_comparison_zip, records)
+    await log_audit_event(str_action="pd_l1.comparison_exported", str_user_id=user["_id"],
+                          str_resource_type="project", str_resource_id=project,
+                          str_detail=f"Exported {len(records)} completed PD-L1 measurements",
+                          str_ip_address=get_client_ip(request))
+    filename = f"{project}_PD-L1_comparison.zip"
+    return Response(content=payload, media_type="application/zip", headers={
+        "Content-Disposition": "attachment; filename=\"PD-L1_comparison.zip\"; filename*=UTF-8''" + quote(filename, safe=""),
+        "Cache-Control": "no-store",
+    })
+
+
+@router.get("/progress")
+async def comparison_progress(user=Depends(get_current_user)):
+    records = await store().find({"kind": "comparison", "user_id": user["_id"]}).to_list(length=None)
+    projects = {}
+    for record in records:
+        projects.setdefault(record["project_path"], set()).add(record["slide_id"])
+    return {"user_id": user["_id"],
+            "projects": {project: sorted(slides) for project, slides in projects.items()}}
