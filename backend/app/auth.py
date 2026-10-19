@@ -12,7 +12,8 @@ from datetime import datetime, timedelta, timezone
 from app.security_policy import check_session, password_change_required
 
 from fastapi import Depends, HTTPException, Request, status
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError as JWTError
 
 from app.config import settings
 from app.models import UserRole

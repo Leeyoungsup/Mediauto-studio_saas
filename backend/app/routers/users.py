@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from app.audit import get_client_ip, log_audit_event
 from app.activity_audit import ANNOTATION_LOG_ACTIONS
@@ -985,3 +985,43 @@ async def verify_audit_chain(
         ),
         "list_broken_ids": list_broken_ids[:20],
     }
+
+
+class AuditArchiveRequest(BaseModel):
+    passphrase: SecretStr = Field(min_length=12, max_length=256)
+
+
+@router.post('/audit-logs/archive')
+async def export_encrypted_audit_history(
+    body: AuditArchiveRequest,
+    request: Request,
+    user: dict = Depends(require_capability('accounts.manage')),
+):
+    """Export complete history without the display pagination limit."""
+    import asyncio
+    from starlette.background import BackgroundTask
+    from starlette.responses import FileResponse
+    from app.audit_archive import AuditArchive
+    archive = await asyncio.to_thread(AuditArchive, body.passphrase.get_secret_value())
+    cutoff = datetime.now(timezone.utc)
+    offset = 0
+    try:
+        while True:
+            if await request.is_disconnected():
+                raise HTTPException(499, 'Client disconnected')
+            rows = await get_audit_store().list(int_skip=offset, int_limit=1000,
+                                               bool_ascending=True, dt_end=cutoff)
+            if not rows:
+                break
+            await asyncio.to_thread(archive.append, rows)
+            offset += len(rows)
+        path = await asyncio.to_thread(archive.finish)
+        await log_audit_event(str_action='admin.audit_history_exported', str_user_id=user['_id'],
+                              str_resource_type='audit_history', str_detail=f'Encrypted archive of {archive.count} records',
+                              str_ip_address=get_client_ip(request))
+        return FileResponse(path, media_type='application/octet-stream',
+                            filename='MeDIAuto_audit_'+cutoff.strftime('%Y%m%dT%H%M%SZ')+'.audit.enc',
+                            headers={'Cache-Control':'no-store'}, background=BackgroundTask(path.unlink, missing_ok=True))
+    except BaseException:
+        await asyncio.to_thread(archive.cleanup)
+        raise

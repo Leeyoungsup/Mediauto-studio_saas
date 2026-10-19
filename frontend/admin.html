@@ -118,9 +118,9 @@
                 <div class="form-row">
                     <label for="new-password">Password *</label>
                     <input type="password" id="new-password" required minlength="9"
-                           pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
-                           placeholder="8+ chars with upper/lowercase, number, and special character"
-                           title="Use at least 8 characters with uppercase, lowercase, number, and special character">
+                           pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{9,}"
+                           placeholder="9+ chars with upper/lowercase, number, and special character"
+                           title="Use at least 9 characters with uppercase, lowercase, number, and special character">
                 </div>
                 <div class="form-row">
                     <label for="new-name">Name *</label>
@@ -152,6 +152,7 @@
                 <div class="toolbar-group">
                     <input type="text" id="activity-filter-user" class="admin-input"
                            placeholder="Filter by login or name">
+                    <button id="btn-export-audit" type="button" class="admin-btn-secondary">권한·감사 이력 암호화 보관</button>
                     <button id="btn-refresh-activity" class="admin-btn-secondary">Refresh</button>
                 </div>
             </div>
@@ -252,6 +253,18 @@
         </div>
     </dialog>
 
+    <dialog id="audit-archive-dialog" class="admin-dialog">
+        <form id="audit-archive-form">
+            <h3>권한·감사 이력 보관</h3>
+            <p>권한 변경·말소를 포함한 전체 감사 이력을 암호화하여 내려받습니다. 기록은 최소 3년간 보관하며, 서버 포맷 전에 별도 보관처로 인계해주세요.</p>
+            <div class="form-row"><label for="audit-passphrase">보관본 암호 (12자리 이상)</label><input id="audit-passphrase" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></div>
+            <div class="form-row"><label for="audit-passphrase-confirm">암호 확인</label><input id="audit-passphrase-confirm" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></div>
+            <p>이 암호는 서버에 저장되지 않습니다. 보관본과 암호를 분리해 보관해주세요.</p>
+            <p id="audit-archive-status" role="status"></p>
+            <div class="form-actions"><button id="audit-archive-download" class="admin-btn-primary" type="submit">암호화하여 다운로드</button><button id="audit-archive-cancel" class="admin-btn-secondary" type="button">닫기</button></div>
+        </form>
+    </dialog>
+
     <dialog id="edit-dialog" class="admin-dialog">
         <form method="dialog" id="edit-form">
             <h3>Edit User</h3>
@@ -271,9 +284,9 @@
             <div class="form-row">
                 <label for="edit-password">New Password</label>
                 <input type="password" id="edit-password" minlength="9"
-                       pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{8,}"
-                       placeholder="Leave blank, or use 8+ chars with upper/lowercase, number, special"
-                       title="Leave blank to keep current password, or use at least 8 characters with uppercase, lowercase, number, and special character">
+                       pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&amp;*()_+\-=\[\]{};':&quot;\\|,.&lt;&gt;\/?]).{9,}"
+                       placeholder="Leave blank, or use 9+ chars with upper/lowercase, number, special"
+                       title="Leave blank to keep current password, or use at least 9 characters with uppercase, lowercase, number, and special character">
             </div>
             <div class="form-actions">
                 <button type="button" id="btn-edit-save" class="admin-btn-primary">Save</button>
@@ -283,6 +296,6 @@
     </dialog>
 
     <script src="js/shared-header.js?v=20261019-annotation-01"></script>
-    <script src="js/admin.js?v=20260914-audit-01"></script>
+    <script src="js/admin.js?v=20261019-security-01"></script>
 </body>
 </html>

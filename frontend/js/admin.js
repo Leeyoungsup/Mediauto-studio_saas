@@ -892,3 +892,42 @@ document.getElementById('setting-ai-worker')?.addEventListener('change', saveWor
 document.getElementById('setting-tile-worker')?.addEventListener('change', saveWorkerSettings);
 
 loadPending();
+
+
+const auditDialog = document.getElementById('audit-archive-dialog');
+const auditPassphrase = document.getElementById('audit-passphrase');
+const auditConfirm = document.getElementById('audit-passphrase-confirm');
+const auditStatus = document.getElementById('audit-archive-status');
+document.getElementById('btn-export-audit').addEventListener('click', () => {
+    document.getElementById('audit-archive-form').reset();
+    auditStatus.textContent = '';
+    auditDialog.showModal();
+});
+document.getElementById('audit-archive-cancel').addEventListener('click', () => auditDialog.close());
+auditDialog.addEventListener('close', () => { auditPassphrase.value = ''; auditConfirm.value = ''; });
+document.getElementById('audit-archive-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (auditPassphrase.value !== auditConfirm.value) { auditStatus.textContent = '암호가 일치하지 않습니다.'; return; }
+    const button = document.getElementById('audit-archive-download');
+    button.disabled = true;
+    auditStatus.textContent = '전체 감사 이력을 암호화하고 있습니다.';
+    try {
+        const response = await authFetch('/users/audit-logs/archive', {
+            method: 'POST', body: JSON.stringify({ passphrase: auditPassphrase.value }),
+        });
+        if (!response) return;
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(typeof error.detail === 'string' ? error.detail : '보관본 생성에 실패했습니다.');
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = 'MeDIAuto_audit_' + new Date().toISOString().slice(0,10) + '.audit.enc';
+        document.body.append(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        auditStatus.textContent = '다운로드했습니다. 별도 보관처 인계와 보관본 복구 확인을 진행해주세요.';
+        auditPassphrase.value = ''; auditConfirm.value = '';
+    } catch (error) { auditStatus.textContent = error.message; }
+    finally { button.disabled = false; }
+});
