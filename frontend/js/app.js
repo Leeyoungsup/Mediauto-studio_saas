@@ -1,5 +1,5 @@
 import { cpsCounts } from './pd-score.js?v=20261019-cell-export-01';
-import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261019-cell-export-01';
+import { createPdl1Comparison } from './pd-l1-comparison.js?v=20261020-hide-ai-score-01';
 const IS_PDL1_COMPARISON = location.pathname === '/pd-l1-comparison';
 const VIEWER_ROUTE = IS_PDL1_COMPARISON ? '/pd-l1-comparison' : '/ai';
 import { MultiViewFocus } from './multi-view-focus.js?v=20260914-focus-dblclick-02';

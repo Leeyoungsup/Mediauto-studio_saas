@@ -48,7 +48,6 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
     const historySection = root.querySelector('[data-history-section]');
     const aiTime = root.querySelector('[data-ai-time]');
     const doctorTime = root.querySelector('[data-doctor-time]');
-    const aiResult = root.querySelector("[data-ai-result]");
     const summary = root.querySelector('[data-summary]');
     let slide = null, project = '', role = '', run = null, ai = null, readPromise = null;
     let controller = null, saving = false, saved = false, generation = 0, frozenInput = null;
@@ -108,7 +107,7 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
     });
 
     function loadJson() {
-        controller?.abort(); ai = null; aiResult.hidden = true; preparing = true; render();
+        controller?.abort(); ai = null; preparing = true; render();
         setMessage('초기 전체 화면의 타일을 준비하는 중…');
         const version = generation;
         const context = { ...slide, tissueType: tissue.value };
@@ -128,9 +127,6 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
             .then(async result => {
                 if (version !== generation || !result) return;
                 if (!displayResult || !result.rendered) throw new Error('AI result 표시 데이터가 없습니다.');
-                aiResult.textContent = `AI result · ${result.score_type} ${result.ai_percentage}%`
-                    + (result.ai_grade == null ? '' : ` · Grade ${result.ai_grade}`);
-                aiResult.hidden = false;
                 await displayResult(result, context, activeController.signal);
                 if (version !== generation || activeController.signal.aborted) return;
                 ai = { ...result, ai_result_elapsed_ms: Math.max(0.001, performance.now() - started) };
@@ -138,7 +134,6 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
             }).catch(error => {
                 if (version !== generation) return;
                 ai = null;
-                aiResult.hidden = true;
                 aiTime.textContent = 'AI result 없음 / 표시 실패';
                 if (!saving && !saved) setMessage(`AI result를 표시하지 못했습니다. 전문의 결과는 기록할 수 있습니다. ${error.message}`);
             }).finally(() => {
@@ -218,7 +213,7 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
             fixedTissue = fixed; tissue.value = fixed || 'Stomach'; syncScoreLabel();
             project = next; controller?.abort(); generation++; historyGeneration++;
             slide = null; preparing = false; clock.reset(); ai = null; frozenInput = null; saving = saved = false;
-            summary.hidden = true; aiResult.hidden = true; percent.value = ''; grade.value = '';
+            summary.hidden = true; percent.value = ''; grade.value = '';
             root.querySelector('[data-slide]').textContent = '왼쪽 목록에서 슬라이드를 열어주세요.';
             setMessage('슬라이드를 열면 시간이 자동으로 시작됩니다.'); render(); refreshHistory();
         },

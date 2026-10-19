@@ -413,7 +413,6 @@
                     <div><span>전문의 경과 시간</span><strong data-doctor-time>—</strong></div>
                     <div><span>AI result</span><strong data-ai-time>—</strong></div>
                 </div>
-                <p data-ai-result hidden></p>
                 <form class="pdl1-form">
                     <label>판별 유형 <select name="tissue_type"><option value="Stomach">Stomach · CPS</option><option value="Breast">Breast · CPS</option><option value="Lung">Lung · TPS</option></select></label>
                     <label><span data-score-label>CPS (%)</span> <input name="percentage" type="number" min="0" max="100" step="any" required placeholder="0~100" disabled></label>
@@ -788,6 +787,6 @@
     </div>
 
     <script src="js/shared-header.js?v=20261019-annotation-01"></script>
-    <script type="module" src="js/app.js?v=20261019-cell-export-01"></script>
+    <script type="module" src="js/app.js?v=20261020-hide-ai-score-01"></script>
 </body>
 </html>
