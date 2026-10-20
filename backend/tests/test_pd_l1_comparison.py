@@ -417,7 +417,7 @@ def test_all_authenticated_roles_can_export_project_measurements(client, role):
     assert response.headers['content-type'] == 'application/zip'
     assert response.headers['cache-control'] == 'no-store'
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        assert len(archive.namelist()) == 3
+        assert len(archive.namelist()) == 8
         raw = archive.read('전체_비교결과.csv')
         assert raw.startswith(b'\xef\xbb\xbf')
         rows = list(csv.DictReader(io.StringIO(raw.decode('utf-8-sig'))))
@@ -430,6 +430,32 @@ def test_all_authenticated_roles_can_export_project_measurements(client, role):
         assert exported[0]['user_id']=='doctor-one'
         assert exported[0]['ai_elapsed_seconds']==''
         assert 'request_signature' not in exported[0]
+
+
+def test_export_includes_saved_ai_score_grade_and_full_display_time(client):
+    import csv, io, zipfile
+    receipt = read_json(client).json()
+    body = measurement(ai_read_id=receipt['ai_read_id'], ai_result_elapsed_ms=2401,
+                       ai_timing_basis='slide_entry_to_display')
+    assert client.post('/comparison/records', headers=HEADERS, json=body).status_code == 200
+    response = client.get('/comparison/export?project_path=project-one')
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        def rows(name):
+            return list(csv.DictReader(io.StringIO(archive.read(name).decode('utf-8-sig'))))
+        raw = rows('전체_비교결과.csv')[0]
+        assert raw['AI CPS (%)'] == '43.2'
+        assert raw['AI CPS Grade'] == 'CPS ≥ 10'
+        assert float(raw['AI 판독시간(초)']) == 2.401
+        slide = rows('슬라이드별_종합결과.csv')[0]
+        assert slide['AI CPS (%)'] == '43.2'
+        assert float(slide['A 전문의 판독시간(초)']) == 120.05
+        total = rows('판독시간_성능지표.csv')[0]
+        assert float(total['전체 판독시간 상승률(요청식, %)']) == 2
+        individual = next(row for row in rows('PCC_CCC_성능지표.csv')
+                          if row['계정 ID'] == 'doctor-one')
+        assert individual['대응 슬라이드 수'] == '1'
+        assert individual['PCC'] == ''
 
 
 def test_export_scopes_project_preserves_accounts_and_repeat_measurements(client, monkeypatch):
