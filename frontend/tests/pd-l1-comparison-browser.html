@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>PD-L1 comparison browser verification</title>
 <link rel="stylesheet" href="/css/shared-header.css?v=20261019-annotation-01">
-<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261019-cell-export-01">
+<link rel="stylesheet" href="/css/pd-l1-comparison.css?v=20261020-comparison-no-history-01">
 <style>body{margin:0;background:#f4f3fa;font-family:Arial,sans-serif}main{display:grid;grid-template-columns:1fr 420px;gap:24px;padding:24px}.test-results{background:white;border-radius:12px;padding:20px}li{margin:14px 0;color:#146c43}.failure{color:#b42318}</style></head>
 <body><div id="shared-header-root"></div><main><section class="test-results"><h1>PD-L1 비교 브라우저 검증</h1><p>실제 화면 모듈 · 테스트 데이터와 시계 사용</p><div id="watch"></div><ol id="results"></ol></section><aside id="fixture"></aside></main>
 <script src="/js/shared-header.js?v=20261019-annotation-01"></script>
@@ -9,12 +9,14 @@
 import { TileViewer } from '/js/tile-viewer.js?v=20261019-cell-export-01';
 import { cpsCounts } from '/js/pd-score.js?v=20261019-cell-export-01';
 import { api } from '/js/api.js?v=20261019-cell-export-01';
-import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261020-hide-ai-score-01';
+import { AssessmentClock, formatStopwatch, scoreGrade, createPdl1Comparison } from '/js/pd-l1-comparison.js?v=20261020-comparison-no-history-01';
 const results=document.getElementById('results');let passed=0;
 function check(condition,text){if(!condition)throw Error(text);const row=document.createElement('li');row.textContent=text;results.append(row);passed++;}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(predicate){for(let i=0;i<100;i++){if(predicate())return;await wait(20);}throw Error('Browser wait timed out');}
 try{
+ // Reproduce a hospital LAN HTTP browser without the secure-context UUID API.
+ Object.defineProperty(window.crypto,'randomUUID',{value:undefined,configurable:true});
  const html=new DOMParser().parseFromString(await(await fetch('/app.html')).text(),'text/html');
  document.getElementById('fixture').append(html.getElementById('pdl1-comparison-panel'));
  document.getElementById('watch').append(html.getElementById('pdl1-stopwatch'));
@@ -41,8 +43,8 @@ try{
  })});comparison.setUser({str_role:'doctor'});
  comparison.openSlide({slideId:'slide-one',project:'project-one',filename:'anonymous.svs'});
  await until(()=>overviewResolve);
- check(document.querySelector('[data-history-section]').hidden&&historyCalls.at(-1)==='slide-one','현재 슬라이드만 조회·기록 없으면 영역 숨김');
- check(getComputedStyle(document.querySelector('[data-history-section]')).display==='none'&&document.querySelector('[data-history-section]').getBoundingClientRect().height===0,'빈 기록 영역은 실제 화면 높이와 흰 박스를 남기지 않음');
+ check(!document.querySelector('[data-history-section]'),'Comparison 계정별 기록 영역 제거');
+ check(historyCalls.length===0,'슬라이드 입장 시 계정별 기록 조회 없음');
  now+=9000;await wait(280);
  check(readResolvers.length===0&&document.querySelector('#pdl1-stopwatch output').textContent==='00:00:09','슬라이드 입장부터 시계 시작·초기 타일 준비 중 AI 요청 대기');
  check(document.querySelector('.pdl1-form [type=submit]').disabled,'초기 타일 준비 중 평가 입력·확인 차단');
@@ -69,9 +71,8 @@ try{
  now+=7000;form.requestSubmit();await until(()=>document.querySelector('[data-message]').textContent.startsWith('저장했습니다'));
  check(calls.length===2&&calls[1].run_id===calls[0].run_id&&calls[1].specialist_elapsed_ms===70000,'저장 실패 재시도에 같은 측정 ID·시간 유지');
  check(savedEvents.length===1&&savedEvents[0].user_id==='doctor-one','서버 저장 성공 시 해당 계정의 완료 이벤트 발생');
- await until(()=>document.querySelector('.pdl1-history-record'));
- check(document.querySelector('.pdl1-history-record').textContent.includes('anonymous.svs'),'서버 기록 재조회 표시');
- check(!document.querySelector('[data-history-section]').hidden&&document.querySelector('.pdl1-history-record strong').textContent==='Specialist A','기록 저장 후 계정명과 함께 표시');
+ check(!document.querySelector('.pdl1-history-record'),'저장 후에도 계정별 기록 목록을 표시하지 않음');
+ check(historyCalls.length===0,'저장 성공 후 기록 재조회 없음');
  comparison.openSlide({slideId:'slide-old',project:'project-one',filename:'old.svs'});
  await until(()=>readResolvers.length===1);const old=readResolvers.shift();comparison.openSlide({slideId:'slide-new',project:'project-one',filename:'new.svs'});
  await until(()=>readResolvers.length===1);const latest=readResolvers.shift();now+=12;latest.resolve({ai_read_id:'new',ai_json_elapsed_ms:1,rendered:true,result:{cells:[]}});old.resolve({ai_read_id:'old',ai_json_elapsed_ms:999,rendered:true,result:{cells:[]}});await until(()=>displayResolvers.length===1);displayResolvers.shift()();await wait(50);
@@ -100,9 +101,7 @@ try{
  check(grade.value==='CPS ≥ 10','Breast CPS 점수 구간 자동 계산');
  comparison.setUser({str_role:'viewer'});
  check(form.querySelector('[type=submit]').disabled,'조회 역할의 전문의 결과 저장 차단');
- records=[{filename:'<img src=x onerror=alert(1)>',score_type:'TPS',percentage:3,grade:'<script>bad<\/script>',specialist_elapsed_ms:1000,ai_json_elapsed_ms:null,dt_created_at:new Date().toISOString()}];
- document.querySelector('[data-refresh]').click();await wait(50);
- check(!document.querySelector('[data-history] img')&&!document.querySelector('[data-history] script'),'기록 문자열 안전 출력');
+ check(!document.querySelector('[data-refresh]')&&historyCalls.length===0,'프로젝트·슬라이드 전환 후에도 기록 새로고침 버튼과 조회 없음');
  // Verify actual TileViewer readiness logic with controlled tile completions.
  let painted=false;
  const tileFixture=()=>({slideInfo:{},zoom:1,_viewW:2048,_viewH:1024,viewCenterX:1024,viewCenterY:512,

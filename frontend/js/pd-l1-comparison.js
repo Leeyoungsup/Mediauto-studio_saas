@@ -1,5 +1,17 @@
 import { api } from './api.js?v=20261019-cell-export-01';
-import { esc } from './common-utils.js?v=20260604-01';
+
+export function createComparisonRunId(cryptoProvider = globalThis.crypto) {
+    if (typeof cryptoProvider?.randomUUID === 'function') return cryptoProvider.randomUUID();
+    // Internal HTTP deployments expose getRandomValues without randomUUID.
+    if (typeof cryptoProvider?.getRandomValues !== 'function') {
+        throw new Error('이 브라우저에서는 측정 ID를 생성할 수 없습니다. 최신 브라우저를 사용해주세요.');
+    }
+    const bytes = cryptoProvider.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export function formatStopwatch(ms) {
     const seconds = Math.floor(Math.max(0, ms) / 1000);
@@ -44,14 +56,12 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
     percent.addEventListener('input', updateGrade);
     const submit = root.querySelector('[type="submit"]');
     const message = root.querySelector('[data-message]');
-    const history = root.querySelector('[data-history]');
-    const historySection = root.querySelector('[data-history-section]');
     const aiTime = root.querySelector('[data-ai-time]');
     const doctorTime = root.querySelector('[data-doctor-time]');
     const summary = root.querySelector('[data-summary]');
     let slide = null, project = '', role = '', run = null, ai = null, readPromise = null;
     let controller = null, saving = false, saved = false, generation = 0, frozenInput = null;
-    let historyGeneration = 0, fixedTissue = '', preparing = false;
+    let fixedTissue = '', preparing = false;
     const syncScoreLabel = () => {
         root.querySelector('[data-score-label]').textContent = tissue.value === 'Lung' ? 'TPS (%)' : 'CPS (%)';
         tissue.title = fixedTissue ? '프로젝트 선택 화면에서 고정한 모델입니다.' : '';
@@ -61,9 +71,6 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
         message.textContent = text; message.classList.toggle('error', error);
     };
     const duration = ms => ms == null ? '—' : ms < 1000 ? `${ms.toFixed(3)} ms` : `${(ms / 1000).toFixed(3)}초`;
-    const aiTimingLabel = record => record.ai_result_elapsed_ms == null
-        ? (record.ai_json_elapsed_ms == null ? 'AI result' : '이전 JSON 읽기 시간')
-        : (record.ai_timing_basis === 'slide_entry_to_display' ? 'AI result' : 'AI result (이전 요청 기준)');
     function render() {
         watch.querySelector('output').textContent = formatStopwatch(clock.elapsed());
         watch.classList.toggle('running', !!slide && clock.started !== null && clock.fixed === null);
@@ -76,30 +83,6 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
     const interval = setInterval(render, 250);
     window.addEventListener('pagehide', () => { clearInterval(interval); controller?.abort(); }, { once: true });
 
-    async function refreshHistory() {
-        const version = ++historyGeneration;
-        historySection.hidden = true; history.textContent = '';
-        if (!slide) return;
-        const requested = slide.slideId;
-        try {
-            const data = await api.listPdl1Comparisons(requested);
-            if (version !== historyGeneration || requested !== slide?.slideId) return;
-            if (!data.records.length) return;
-            history.innerHTML = data.records.map(record => `<article class="pdl1-history-record">
-                <strong>${esc(record.user_name || record.username || record.user_id || "계정")}</strong>
-                <span>${esc(record.filename)}</span>
-                <span>${esc(record.score_type)} · 전문의 ${esc(record.percentage)}% · Grade ${esc(record.grade)}</span>
-                <span>전문의 ${esc(duration(record.specialist_elapsed_ms))} / ${aiTimingLabel(record)} ${esc(duration(record.ai_result_elapsed_ms ?? record.ai_json_elapsed_ms))}</span>
-                <small>${esc(new Date(record.dt_created_at).toLocaleString())}</small>
-            </article>`).join('');
-            historySection.hidden = !history.childElementCount;
-        } catch (error) {
-            if (version === historyGeneration && requested === slide?.slideId) {
-                historySection.hidden = false; history.textContent = `기록 조회 실패: ${error.message}`;
-            }
-        }
-    }
-    root.querySelector('[data-refresh]').addEventListener('click', refreshHistory);
     root.querySelector('[data-restart]').addEventListener('click', () => {
         if (!slide || saving || !canWrite()) return;
         if (clock.fixed === null && !window.confirm('현재 측정을 버리고 시간을 다시 시작할까요?')) return;
@@ -149,13 +132,12 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
     function openSlide(context) {
         generation++;
         slide = { ...context }; project = context.project;
-        run = crypto.randomUUID(); saved = false; saving = false; frozenInput = null; ai = null;
+        run = createComparisonRunId(); saved = false; saving = false; frozenInput = null; ai = null;
         percent.value = ''; grade.value = ''; summary.hidden = true;
         clock.start(); render();
         root.querySelector('[data-slide]').textContent = context.filename;
         setMessage(canWrite() ? 'CPS/TPS를 입력하면 Grade 구간이 자동 표시됩니다. 확인을 누르면 시간이 확정됩니다.' : '기록을 조회할 수 있습니다. 측정 저장은 전문의·관리자 계정에서 가능합니다.');
         loadJson();
-        refreshHistory();
     }
 
     tissue.addEventListener('change', () => {
@@ -194,8 +176,7 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
                 + (ratio == null ? '' : ` · 시간 비율 ${ratio.toFixed(1)}배`)
                 + (record.ai_percentage == null ? '' : ` · AI ${record.ai_percentage}%`)
                 + (record.ai_grade == null ? '' : ` · AI Grade ${record.ai_grade}`);
-            setMessage('저장했습니다. 이 슬라이드의 계정별 비교 기록에서 다시 확인할 수 있습니다.');
-            refreshHistory();
+            setMessage('저장했습니다. 프로젝트 선택 화면에서 비교 결과를 다운로드할 수 있습니다.');
         } catch (error) {
             if (version === generation) setMessage(`저장 실패: ${error.message} 같은 확정 시간으로 다시 확인할 수 있습니다.`, true);
         } finally {
@@ -211,11 +192,11 @@ export function createPdl1Comparison({ displayResult, waitForOverview, onSaved }
             const fixed = ['Stomach', 'Breast', 'Lung'].includes(tissueType) ? tissueType : '';
             if (project === next && fixedTissue === fixed) return;
             fixedTissue = fixed; tissue.value = fixed || 'Stomach'; syncScoreLabel();
-            project = next; controller?.abort(); generation++; historyGeneration++;
+            project = next; controller?.abort(); generation++;
             slide = null; preparing = false; clock.reset(); ai = null; frozenInput = null; saving = saved = false;
             summary.hidden = true; percent.value = ''; grade.value = '';
             root.querySelector('[data-slide]').textContent = '왼쪽 목록에서 슬라이드를 열어주세요.';
-            setMessage('슬라이드를 열면 시간이 자동으로 시작됩니다.'); render(); refreshHistory();
+            setMessage('슬라이드를 열면 시간이 자동으로 시작됩니다.'); render();
         },
     };
 }
