@@ -786,12 +786,15 @@ async def download_termination_completed_cell_patches(
 ):
     """Download completed annotations or selected patches with AI-only labels.
 
-    Both modes are restricted to the admin login ID. Selected
-    AI labels are exported without changing saved annotations or review status.
+    AI patch exports require the admin role; completed exports retain the
+    admin login ID restriction. Saved annotations and review status are unchanged.
     """
     selected_ai = mode == "selected_ai"
     str_login_id = str(dict_user.get("str_login_id") or "").strip().lower()
-    if str_login_id != "admin":
+    if selected_ai:
+        if dict_user.get("str_role") != UserRole.ADMIN.value:
+            raise HTTPException(403, "AI patch export requires administrator privileges")
+    elif str_login_id != "admin":
         raise HTTPException(403, "Patch export is restricted to the admin account")
 
     str_project = _safe_project_name(project_path)

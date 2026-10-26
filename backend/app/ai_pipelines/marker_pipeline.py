@@ -52,7 +52,7 @@ from app.ai_pipelines.task_state import (
 from app.ai_pipelines.tissue_mask import build_valid_patch_list
 from app.config import settings
 from app.slide_manager import slide_manager
-from app.tile_generator import slide_source_signature, source_signature_matches
+from app.tile_generator import slide_source_signature, source_marker_matches_file_stat
 
 
 def marker_model_runtime_metadata(dict_config: dict) -> dict:
@@ -135,6 +135,19 @@ def _cell_confidence(cell) -> float:
     return 0.0
 
 
+def _capture_marker_source(info) -> dict:
+    """Capture metadata before a long job can outlive the shared viewer handle."""
+    source = slide_source_signature(info.slide, info.file_path)
+    if not source.get("level_dimensions") or any(v <= 0 for v in source["dimensions"]):
+        raise ValueError("Cannot read source slide metadata; reopen the slide before analysis")
+    return source
+
+
+def _validate_marker_source_unchanged(source: dict, file_path: str) -> None:
+    if not source_marker_matches_file_stat({"source": source}, file_path):
+        raise ValueError("Source slide changed during analysis; result was not cached")
+
+
 def run_marker_detection_pipeline(
     task_id, slide_id, roi_polygons,
     dict_config, cache_path,
@@ -162,6 +175,8 @@ def run_marker_detection_pipeline(
             update_task(task_id, status="error", error="Slide is not open")
             return
 
+        dict_source = _capture_marker_source(info)
+
         dict_class_names = dict_config["class_names"]
         dict_class_colors = dict_config["class_colors"]
         int_num_classes = dict_config["num_classes"]
@@ -184,7 +199,7 @@ def run_marker_detection_pipeline(
                     cached = json.load(f)
 
                 validate_patch_coordinate_cache(cached, info.file_path, cache_path)
-                if not source_signature_matches(cached, info.slide, info.file_path):
+                if any((cached.get("source") or {}).get(key) != value for key, value in dict_source.items()):
                     raise ValueError("stale cache source mismatch")
                 if list_exclude and "excluded_cells" not in cached:
                     raise ValueError("stale cache missing excluded_cells")
@@ -611,6 +626,7 @@ def run_marker_detection_pipeline(
             cls_for_score = all_cls
         score_dict = score_fn(cls_for_score)
 
+        _validate_marker_source_unchanged(dict_source, info.file_path)
         result = {
             "total_cells": n_cells,
             "cells": all_cells,
@@ -620,7 +636,7 @@ def run_marker_detection_pipeline(
             "score_conf_threshold": float_score_conf_threshold,
             "model_runtime": dict_model_runtime,
             score_key: score_dict,
-            "source": slide_source_signature(info.slide, info.file_path),
+            "source": dict_source,
             **patch_coordinate_metadata(info.file_path),
             **processing_metadata(),
             **(extra_fields or {}),

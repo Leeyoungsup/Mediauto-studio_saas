@@ -5,7 +5,7 @@ import { bindFixedAreaTools } from './annotation-area.js?v=20260914-area-toggle-
  * MeDIAuto Studio SaaS annotation entry point.
  */
 
-import { api } from './api.js?v=20260914-01';
+import { api } from './api.js?v=20261023-ai-export';
 import { TissueAnnotationViewer } from './tissue-annotation-viewer.js?v=20260914-02';
 import { CellAnnotationViewer } from './cell-annotation-viewer.js?v=20260914-02';
 import { CellPatchWorkflow } from './cell-patch-workflow.js?v=20261014-patch-load-2';
@@ -6351,6 +6351,8 @@ function _renderProjectGate(list_projects) {
                 }
             });
             actionEl.appendChild(exportBtn);
+        }
+        if (ANNOTATION_PAGE_KIND === 'cell' && window.__currentUserRole === 'admin') {
             const aiExportBtn = document.createElement('button');
             aiExportBtn.type = 'button';
             aiExportBtn.className = 'project-gate-action secondary';
