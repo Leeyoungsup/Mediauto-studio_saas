@@ -84,6 +84,17 @@ def test_media_ticket_cannot_cache_locked_user(monkeypatch):
     assert auth._get_cached_user("locked") is None
 
 
+def test_admin_account_bypasses_state_restrictions():
+    user = {
+        "_id": "admin",
+        "str_role": "admin",
+        "bool_is_active": False,
+        "bool_is_locked": True,
+        "dt_locked_until": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    assert auth._check_user_state(user) is None
+
+
 def test_annotation_conflict_preserves_first_writer(app, monkeypatch, tmp_path):
     app.dependency_overrides[auth.get_current_user] = lambda: {"str_role": "doctor"}
     monkeypatch.setattr(annotation_storage.slide_manager, "get",

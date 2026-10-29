@@ -186,9 +186,10 @@ async def login(body: LoginRequest, request: Request):
         )
 
     str_user_id = str(dict_user["_id"])
+    bool_is_admin = str(dict_user.get("str_role") or "").lower() == UserRole.ADMIN.value
 
     # text text text
-    if dict_user.get("bool_is_locked", False):
+    if not bool_is_admin and dict_user.get("bool_is_locked", False):
         dt_locked_until = dict_user.get("dt_locked_until")
         if dt_locked_until and dt_locked_until > datetime.now(timezone.utc):
             int_remaining_minutes = int(
@@ -214,7 +215,7 @@ async def login(body: LoginRequest, request: Request):
             )
 
     # text text
-    if not dict_user.get("bool_is_active", True):
+    if not bool_is_admin and not dict_user.get("bool_is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated. Contact administrator.",
@@ -251,7 +252,7 @@ async def login(body: LoginRequest, request: Request):
 
     # text text text (text text text — text text text)
     str_approval = dict_user.get("str_approval_status", ApprovalStatus.APPROVED)
-    if str_approval == ApprovalStatus.PENDING:
+    if not bool_is_admin and str_approval == ApprovalStatus.PENDING:
         await log_audit_event(
             str_action="user.login_pending",
             str_user_id=str_user_id,
@@ -264,7 +265,7 @@ async def login(body: LoginRequest, request: Request):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account approval is pending. Please wait for administrator approval.",
         )
-    if str_approval == ApprovalStatus.REJECTED:
+    if not bool_is_admin and str_approval == ApprovalStatus.REJECTED:
         await log_audit_event(
             str_action="user.login_rejected",
             str_user_id=str_user_id,

@@ -137,6 +137,9 @@ def _extract_bearer_token(request: Request) -> str:
 
 # ── FastAPI text: text text ──
 def _check_user_state(user: dict) -> None:
+    str_role = str(user.get("str_role") or "").lower()
+    if str_role == UserRole.ADMIN.value:
+        return
     if not user.get("bool_is_active", False):
         raise HTTPException(403, "Account is deactivated")
     if user.get("bool_is_locked", False):
