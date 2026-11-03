@@ -1,0 +1,5 @@
+__pycache__/
+.ipynb_checkpoints/
+results/
+
+examples/previous_synthetic_results/

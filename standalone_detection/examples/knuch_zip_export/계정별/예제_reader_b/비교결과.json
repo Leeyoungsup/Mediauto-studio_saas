@@ -1,0 +1,62 @@
+{
+  "schema_version": 2,
+  "measurements": [
+    {
+      "measurement_id": "예제_reader_b0",
+      "project_path": "IHC(PD-L1)",
+      "slide_id": "CODIPAI-STBX-SS-04326-I-PD-22.ndpi__74fce2ff798a",
+      "filename": "CODIPAI-STBX-SS-04326-I-PD-22.ndpi",
+      "tissue_type": "Stomach",
+      "score_type": "CPS",
+      "user_id": "예제_reader_b",
+      "username": "예제_reader_b",
+      "user_name": "",
+      "percentage": 0,
+      "grade": "CPS < 1",
+      "ai_percentage": 99,
+      "ai_grade": "CPS ≥ 10",
+      "specialist_elapsed_seconds": 120.0,
+      "ai_elapsed_seconds": 40.0,
+      "ai_timing_basis": "slide_entry_to_display",
+      "measured_at": "2026-11-03T09:00:00+09:00"
+    },
+    {
+      "measurement_id": "예제_reader_b1",
+      "project_path": "IHC(PD-L1)",
+      "slide_id": "CODIPAI-STBX-SS-04358-I-PD-22.ndpi__0d563cbfa13e",
+      "filename": "CODIPAI-STBX-SS-04358-I-PD-22.ndpi",
+      "tissue_type": "Stomach",
+      "score_type": "CPS",
+      "user_id": "예제_reader_b",
+      "username": "예제_reader_b",
+      "user_name": "",
+      "percentage": 5,
+      "grade": "1 ≤ CPS < 10",
+      "ai_percentage": 99,
+      "ai_grade": "CPS ≥ 10",
+      "specialist_elapsed_seconds": 150.0,
+      "ai_elapsed_seconds": 50.0,
+      "ai_timing_basis": "slide_entry_to_display",
+      "measured_at": "2026-11-03T09:00:00+09:00"
+    },
+    {
+      "measurement_id": "예제_reader_b2",
+      "project_path": "IHC(PD-L1)",
+      "slide_id": "CODIPAI-STBX-SS-04354-I-PD-22.ndpi__54135e149f97",
+      "filename": "CODIPAI-STBX-SS-04354-I-PD-22.ndpi",
+      "tissue_type": "Stomach",
+      "score_type": "CPS",
+      "user_id": "예제_reader_b",
+      "username": "예제_reader_b",
+      "user_name": "",
+      "percentage": 5,
+      "grade": "1 ≤ CPS < 10",
+      "ai_percentage": 99,
+      "ai_grade": "CPS ≥ 10",
+      "specialist_elapsed_seconds": 180.0,
+      "ai_elapsed_seconds": 60.0,
+      "ai_timing_basis": "slide_entry_to_display",
+      "measured_at": "2026-11-03T09:00:00+09:00"
+    }
+  ]
+}

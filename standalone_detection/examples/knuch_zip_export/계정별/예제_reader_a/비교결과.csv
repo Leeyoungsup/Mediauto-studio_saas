@@ -1,0 +1,4 @@
+﻿프로젝트,슬라이드,슬라이드 ID,판별 모델,계정 ID,로그인 ID,계정명,CPS (%),CPS Grade,AI CPS (%),AI CPS Grade,TPS (%),TPS Grade,AI TPS (%),AI TPS Grade,전문의 판독시간(초),AI 판독시간(초),AI 시간 측정 기준,측정 시각(KST),측정 ID
+IHC(PD-L1),CODIPAI-STBX-SS-04326-I-PD-22.ndpi,CODIPAI-STBX-SS-04326-I-PD-22.ndpi__74fce2ff798a,Stomach,예제_reader_a,예제_reader_a,,0,CPS < 1,99,CPS ≥ 10,,,,,120.0,40.0,슬라이드 입장부터 그리기 완료,2026-11-03T09:00:00+09:00,예제_reader_a0
+IHC(PD-L1),CODIPAI-STBX-SS-04358-I-PD-22.ndpi,CODIPAI-STBX-SS-04358-I-PD-22.ndpi__0d563cbfa13e,Stomach,예제_reader_a,예제_reader_a,,5,1 ≤ CPS < 10,99,CPS ≥ 10,,,,,150.0,50.0,슬라이드 입장부터 그리기 완료,2026-11-03T09:00:00+09:00,예제_reader_a1
+IHC(PD-L1),CODIPAI-STBX-SS-04354-I-PD-22.ndpi,CODIPAI-STBX-SS-04354-I-PD-22.ndpi__54135e149f97,Stomach,예제_reader_a,예제_reader_a,,20,CPS ≥ 10,99,CPS ≥ 10,,,,,180.0,60.0,슬라이드 입장부터 그리기 완료,2026-11-03T09:00:00+09:00,예제_reader_a2
