@@ -23,6 +23,7 @@ KNUCH 원본 CSV를 변환할 필요가 없습니다.
 backend 의존성이 설치된 커널에서 노트북을 위에서부터 실행하세요.
 
 - `PROJECT_DIR`: 화면 제목 PD-L1(ST)의 로컬 경로 `backend/uploads/IHC(PD-L1)`.
+- `DEVICE='cuda:0'`: CUDA GPU로 추론합니다. CUDA를 사용할 수 없으면 오류를 내며 CPU로 자동 전환하지 않습니다. GPU 번호는 노트북에서 변경할 수 있습니다.
 - `CHECKPOINT`: `backend/model/PDL1_ST_CPS_detection.pt`.
 - `MAX_PATCHES=None`: 전체 조직 영역의 패치 추론. 일부 패치 결과는 PCC/CCC에서 차단합니다.
 - WSI 영역 선택 → 패치 추론/NMS → level-0 좌표 병합 → 전역 NMS → CPS/Grade → 계정별·과반 합의 PCC/CCC.

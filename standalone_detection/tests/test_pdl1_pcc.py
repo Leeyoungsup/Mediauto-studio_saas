@@ -101,8 +101,9 @@ def test_notebook_executes_against_account_fixture(tmp_path, monkeypatch):
             writer.writerow(['IHC(PD-L1)', str(i), 'a', ['CPS < 1', '1 ≤ CPS < 10', 'CPS ≥ 10'][i], 120, 40, 'Stomach', '2026-11-03T10:00:00+09:00', str(i)])
     calls = []
     class FakeInference:
-        def __init__(self, checkpoint):
-            pass
+        def __init__(self, checkpoint, device):
+            assert device == 'cuda:0'
+            self.device = device
         def predict(self, path, **kwargs):
             calls.append(path)
             i = int(path)

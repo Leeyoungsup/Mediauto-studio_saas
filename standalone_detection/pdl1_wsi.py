@@ -89,11 +89,13 @@ def project_slide_manifest(project_dir):
 
 
 class WSIInference:
-    def __init__(self, checkpoint, device=None):
+    def __init__(self, checkpoint, device='cuda:0'):
         import torch
         from ai.nets import nn
         from app.ai_pipelines.scoring import PD_SCORE_CONFIG
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(device)
+        if self.device.type == 'cuda' and not torch.cuda.is_available():
+            raise RuntimeError('CUDA를 사용할 수 없습니다. GPU가 연결된 커널과 PyTorch CUDA 환경을 확인하세요. CPU로 자동 전환하지 않습니다.')
         self.checkpoint = Path(checkpoint).resolve()
         config = PD_SCORE_CONFIG['Stomach']
         payload = torch.load(str(self.checkpoint), map_location='cpu', weights_only=False)
