@@ -19,7 +19,7 @@ def write_csv(root, rows):
 
 
 def record(slide='s1', grade='1 ≤ CPS < 10'):
-    return {'프로젝트': 'PD-L1(ST)', '슬라이드 ID': slide, '계정 ID': 'a',
+    return {'프로젝트': 'PD-L1(ST)', '슬라이드': slide + '.ndpi', '슬라이드 ID': slide, '계정 ID': 'a',
             'CPS Grade': grade, '전문의 판독시간(초)': '123', 'AI 판독시간(초)': '45',
             'AI CPS (%)': '999999', '판별 모델': 'Stomach',
             '측정 시각(KST)': '2026-11-03T10:00:00+09:00', '측정 ID': 'm1'}
@@ -108,3 +108,30 @@ def test_missing_grade_not_derived_from_score_and_other_models_skipped(tmp_path)
     rows = load_reader_csvs(tmp_path)
     assert len(rows) == 1
     assert rows[0]['grade'] is None
+
+
+def test_resolve_changed_hash_keeps_csv_id():
+    from pdl1_wsi import resolve_slide_manifest
+    rows = [{'slide': 'sample.ndpi__old', 'filename': 'sample.ndpi'}] * 2
+    local = {'sample.ndpi__new': Path('/offline/sample.ndpi')}
+    assert resolve_slide_manifest(rows, local) == {'sample.ndpi__old': Path('/offline/sample.ndpi')}
+
+
+def test_resolve_exact_id_before_duplicate_names():
+    from pdl1_wsi import resolve_slide_manifest
+    local = {'id1': Path('/a/sample.ndpi'), 'id2': Path('/b/sample.ndpi')}
+    assert resolve_slide_manifest([{'slide': 'id1', 'filename': 'sample.ndpi'}], local)['id1'] == local['id1']
+    with pytest.raises(ValueError, match='일치 파일 2개'):
+        resolve_slide_manifest([{'slide': 'old', 'filename': 'sample.ndpi'}], local)
+
+
+def test_resolve_missing_and_inconsistent_names():
+    from pdl1_wsi import resolve_slide_manifest
+    local = {'new': Path('/offline/sample.ndpi')}
+    with pytest.raises(ValueError, match='일치 파일 0개'):
+        resolve_slide_manifest([{'slide': 'old', 'filename': 'sample.svs'}], local)
+    with pytest.raises(ValueError, match='서로 다릅니다'):
+        resolve_slide_manifest([{'slide': 'old', 'filename': 'sample.ndpi'},
+                                {'slide': 'old', 'filename': 'other.ndpi'}], local)
+    with pytest.raises(ValueError, match='일치하지 않습니다'):
+        resolve_slide_manifest([{'slide': 'new', 'filename': 'other.ndpi'}], local)

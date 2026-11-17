@@ -22,7 +22,7 @@ KNUCH 원본 CSV를 변환할 필요가 없습니다.
 
 backend 의존성이 설치된 커널에서 노트북을 위에서부터 실행하세요.
 
-- `PROJECT_DIR`: 화면 제목 PD-L1(ST)의 로컬 경로 `backend/uploads/IHC(PD-L1)`.
+- `PROJECT_DIR`: 오프라인 서버의 실제 WSI 폴더로 지정하세요. 기본값은 `backend/uploads/IHC(PD-L1)`입니다. CSV ID와 로컬 ID가 다르면 CSV `슬라이드` 원본 파일명이 정확히 일치하는 파일 하나에 연결합니다. 없거나 중복이면 중단합니다. CSV ID는 결과 연결 키로 유지합니다.
 - `DEVICE='cuda:0'`: CUDA GPU로 추론합니다. CUDA를 사용할 수 없으면 오류를 내며 CPU로 자동 전환하지 않습니다. GPU 번호는 노트북에서 변경할 수 있습니다.
 - `CHECKPOINT`: `backend/model/PDL1_ST_CPS_detection.pt`.
 - `MAX_PATCHES=None`: 전체 조직 영역의 패치 추론. 일부 패치 결과는 PCC/CCC에서 차단합니다.
@@ -36,7 +36,7 @@ backend 의존성이 설치된 커널에서 노트북을 위에서부터 실행�
 
 2026-11-03 실제 WSI 3장의 전체 조직 패치 183개를 CPU로 추론했고 전역 NMS로 1,356개 중복 검출을 제거했습니다. 이는 WSI 처리 검증이며 실제 계정별 ZIP에 대한 성능 평가를 의미하지 않습니다.
 
-입력 수정 후 테스트: **34 passed, 2 skipped**. 실제 KNUCH ZIP 생성 함수로 만든 CSV 읽기, 최신 판독 선택, 저장된 AI 점수 무시, 결측 Grade, 다른 모델 제외, 노트북 실행 등을 검증했습니다. 제외한 2개는 main에 없는 KNUCH 전용 exporter와의 기존 비교 테스트입니다.
+입력 수정 후 테스트: **37 passed, 2 skipped**. 실제 KNUCH ZIP 생성 함수로 만든 CSV 읽기, 최신 판독 선택, 저장된 AI 점수 무시, 결측 Grade, 다른 모델 제외, 노트북 실행 등을 검증했습니다. 제외한 2개는 main에 없는 KNUCH 전용 exporter와의 기존 비교 테스트입니다.
 
 ```bash
 PYTHONPATH=backend:standalone_detection /home/user/anaconda3/envs/medicus-saas/bin/python -m pytest standalone_detection/tests -q

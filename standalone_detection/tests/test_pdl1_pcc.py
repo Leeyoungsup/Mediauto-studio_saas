@@ -96,17 +96,17 @@ def test_notebook_executes_against_account_fixture(tmp_path, monkeypatch):
     with (account / '비교결과.csv').open('w', encoding='utf-8-sig', newline='') as stream:
         writer = csv.writer(stream)
         writer.writerow(['프로젝트', '슬라이드 ID', '계정 ID', 'CPS Grade',
-                         '전문의 판독시간(초)', 'AI 판독시간(초)', '판별 모델', '측정 시각(KST)', '측정 ID'])
+                         '전문의 판독시간(초)', 'AI 판독시간(초)', '판별 모델', '측정 시각(KST)', '측정 ID', '슬라이드'])
         for i in range(3):
-            writer.writerow(['IHC(PD-L1)', str(i), 'a', ['CPS < 1', '1 ≤ CPS < 10', 'CPS ≥ 10'][i], 120, 40, 'Stomach', '2026-11-03T10:00:00+09:00', str(i)])
+            writer.writerow(['IHC(PD-L1)', str(i), 'a', ['CPS < 1', '1 ≤ CPS < 10', 'CPS ≥ 10'][i], 120, 40, 'Stomach', '2026-11-03T10:00:00+09:00', str(i), str(i)])
     calls = []
     class FakeInference:
         def __init__(self, checkpoint, device):
             assert device == 'cuda:0'
             self.device = device
         def predict(self, path, **kwargs):
-            calls.append(path)
-            i = int(path)
+            calls.append(str(path))
+            i = int(str(path))
             return {'complete': True, 'cps': [0,5,20][i], 'grade': i,
                     'inference_seconds': 2, 'status': 'ok'}
     monkeypatch.setattr(pdl1_wsi, 'WSIInference', FakeInference)

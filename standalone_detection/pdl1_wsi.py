@@ -13,6 +13,7 @@ from pdl1_pcc import pearson_pcc, lin_ccc, score_to_grade_code
 
 DEFAULT_COLUMNS = {
     'project': '프로젝트', 'slide': '슬라이드 ID', 'account': '계정 ID',
+    'filename': '슬라이드',
     'grade': 'CPS Grade', 'reader_seconds': '전문의 판독시간(초)',
     'ai_seconds': 'AI 판독시간(초)', 'tissue_type': '판별 모델',
     'measured_at': '측정 시각(KST)', 'measurement_id': '측정 ID',
@@ -86,6 +87,38 @@ def project_slide_manifest(project_dir):
     extensions = {'.ndpi', '.svs', '.tif', '.tiff', '.mrxs', '.isyntax', '.scn'}
     return {slide_cache_key(str(p)): p for p in sorted(root.iterdir())
             if p.is_file() and p.suffix.lower() in extensions}
+
+
+def resolve_slide_manifest(records, local_manifest):
+    """Map CSV IDs to local WSI paths, falling back to exact exported filenames.
+
+    Keep CSV IDs as keys so reader measurements and predictions still join.
+    Reject ambiguous names and inconsistent account exports before inference.
+    """
+    names = defaultdict(set)
+    for path in local_manifest.values():
+        path = Path(path)
+        names[path.name].add(path)
+    exported = defaultdict(set)
+    for record in records:
+        exported[record['slide']].add(record.get('filename', ''))
+    resolved = {}
+    for sid, filenames in sorted(exported.items()):
+        if len(filenames) != 1:
+            raise ValueError(f'계정별 원본 파일명이 서로 다릅니다: {sid}: {sorted(filenames)}')
+        filename = next(iter(filenames))
+        if sid in local_manifest:
+            path = Path(local_manifest[sid])
+            if filename and path.name != filename:
+                raise ValueError(f'슬라이드 ID와 원본 파일명이 일치하지 않습니다: {sid}: {filename}')
+        else:
+            candidates = names.get(filename, set())
+            if len(candidates) != 1:
+                raise ValueError(f'원본 파일명으로 연결할 수 없습니다: {sid}: {filename!r} '
+                                 f'(일치 파일 {len(candidates)}개). PROJECT_DIR를 확인하세요.')
+            path = next(iter(candidates))
+        resolved[sid] = path
+    return resolved
 
 
 class WSIInference:
