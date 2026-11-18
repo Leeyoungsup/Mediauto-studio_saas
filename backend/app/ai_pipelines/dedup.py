@@ -12,6 +12,7 @@ from app.ai_pipelines.resolution import QUANTI_INPUT_MPP
 DETECTION_PATCH_OVERLAP_UM = 10.0
 DETECTION_EDGE_IGNORE_UM = 3.0
 GLOBAL_DEDUP_VERSION = "quanti-mpp05-overlap-10um-edge3um-spatial-nms-v10"
+PATCH_READER_VERSION = "level0-cache-display-color-v1"
 PATCH_SELECTION_VERSION = "envelope-then-tissue-mask-v1"
 GLOBAL_NMS_IOU_THRESHOLD = 0.3
 EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD = 0.3
@@ -26,6 +27,7 @@ def processing_metadata() -> dict:
         "patch_edge_ignore_um": DETECTION_EDGE_IGNORE_UM,
         "global_dedup_version": GLOBAL_DEDUP_VERSION,
         "patch_selection_version": PATCH_SELECTION_VERSION,
+        "patch_reader_version": PATCH_READER_VERSION,
         "global_nms_iou_threshold": GLOBAL_NMS_IOU_THRESHOLD,
         "global_dedup_match_rule": "spatial_cross_class_iou_nms_visible_priority",
         "excluded_class_suppression_iou_threshold": EXCLUDED_CLASS_SUPPRESSION_IOU_THRESHOLD,
@@ -40,6 +42,7 @@ def cache_has_current_detection_postprocess(result: dict) -> bool:
         result.get("patch_overlap_um") == DETECTION_PATCH_OVERLAP_UM
         and result.get("global_dedup_version") == GLOBAL_DEDUP_VERSION
         and result.get("patch_selection_version") == PATCH_SELECTION_VERSION
+        and result.get("patch_reader_version") == PATCH_READER_VERSION
     )
 
 

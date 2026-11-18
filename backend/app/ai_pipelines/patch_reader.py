@@ -1,9 +1,10 @@
-"""Shared AI patch reading helpers.
+"""Read AI patches from valid level-0 viewer tiles, falling back to the source.
 
-The AI pipelines should not care whether a slide is backed by OpenSlide or the
-Philips Python 3.7 bridge.  This module keeps that difference in one place:
-normal slides use the thread-local slide pool, while Philips slides reuse the
-generated level-0 tile cache and only generate a missing 8192 block when needed.
+Both paths use the base viewer color transform (ICC or Hamamatsu NDP LUT).
+Only tiles/<slide>/0 is used, never the extra NDP-fit variant ndpmatch/0.
+Existing
+Philips missing-tile generation is preserved; OpenSlide sources never generate
+viewer tiles on the inference path.
 """
 
 from __future__ import annotations
@@ -16,9 +17,13 @@ import torch
 
 from app.philips_proxy import is_philips_isyntax
 from app.priority import wait_if_viewer_busy
-from app.tile_generator import generate_priority_tile_block, get_tiles_dir_for_path, image_to_white_rgb
+from app.tile_generator import (
+    generate_priority_tile_block, get_tiles_dir_for_path, image_to_white_rgb,
+    read_complete_marker, source_signature_matches, COMPLETE_MARKER_VERSION,
+    _slide_icc_hash,
+)
 from app.thread_slide_pool import get_thread_slide
-from app.slide_manager import STAGE_READ_SIZE, TILE_SIZE_OUT
+from app.slide_manager import STAGE_READ_SIZE, TILE_SIZE_OUT, build_color_corrector
 
 
 class AIPatchReader:
@@ -38,14 +43,35 @@ class AIPatchReader:
         self.icc_transform = icc_transform
         self.wait_for_viewer = wait_for_viewer
         self.is_philips = is_philips_isyntax(slide_path)
-        self.level0_tiles = get_tiles_dir_for_path(slide_path) / "0" if self.is_philips else None
+        self.level0_tiles = get_tiles_dir_for_path(slide_path) / "0"
+        self._tile_cache_valid = None
+        self._source_color_apply = None
 
     def read_tensor(self, patch_x: int, patch_y: int):
-        if self.is_philips:
-            tensor = self._read_philips_tile_tensor(patch_x, patch_y)
+        if self.is_philips or self._has_valid_openslide_tiles():
+            tensor = self._read_cached_tile_tensor(patch_x, patch_y)
             if tensor is not None:
                 return tensor
         return self._read_direct_tensor(patch_x, patch_y)
+
+    def _has_valid_openslide_tiles(self):
+        # Validate once per inference reader, not once per patch. Missing or old
+        # metadata means a direct read; never trust a filename alone.
+        if self._tile_cache_valid is None:
+            self._tile_cache_valid = False
+            try:
+                marker = read_complete_marker(Path(self.slide_path).name, self.slide_path)
+                if marker and marker.get("version") == COMPLETE_MARKER_VERSION:
+                    slide = get_thread_slide(self.slide_id, self.slide_path)
+                    icc_hash = _slide_icc_hash(slide)
+                    self._tile_cache_valid = (
+                        source_signature_matches(marker, slide, self.slide_path)
+                        and marker.get("icc_hash") == icc_hash
+                        and (icc_hash is None or marker.get("icc_applied") is True)
+                    )
+            except Exception:
+                self._tile_cache_valid = False
+        return self._tile_cache_valid
 
     def _to_tensor(self, obj_rgb):
         patch_np = np.asarray(obj_rgb)
@@ -53,6 +79,10 @@ class AIPatchReader:
         return torch.from_numpy(patch_resized.copy()).permute(2, 0, 1).float() / 255.0
 
     def _read_philips_tile_tensor(self, patch_x: int, patch_y: int):
+        # Compatibility for the benchmark and existing callers.
+        return self._read_cached_tile_tensor(patch_x, patch_y)
+
+    def _read_cached_tile_tensor(self, patch_x: int, patch_y: int):
         if self.level0_tiles is None:
             return None
         # Patch origins include overlap and an edge-aligned final patch. They
@@ -70,6 +100,8 @@ class AIPatchReader:
                 for tile_x in range(left // tile_span, (right - 1) // tile_span + 1):
                     path_tile = self.level0_tiles / f"{tile_x}_{tile_y}.jpeg"
                     if not path_tile.exists():
+                        if not self.is_philips:
+                            return None
                         if self.wait_for_viewer:
                             wait_if_viewer_busy()
                         generate_priority_tile_block(
@@ -92,8 +124,11 @@ class AIPatchReader:
                                 crop.close()
                         finally:
                             rgb.close()
-            # Cached tiles already have display ICC correction applied.
+            # Cached tiles already have ICC/NDP correction; do not apply twice.
             return self._to_tensor(canvas)
+        except (OSError, ValueError):
+            # Invalid/partially written JPEGs must not abort a whole batch.
+            return None
         finally:
             canvas.close()
 
@@ -110,10 +145,17 @@ class AIPatchReader:
                 (self.image_size, self.image_size),
             )
             patch_rgb = image_to_white_rgb(patch)
-            if self.icc_transform is not None:
-                from PIL import ImageCms
-
-                ImageCms.applyTransform(patch_rgb, self.icc_transform, inPlace=True)
+            if self.is_philips:
+                if self.icc_transform is not None:
+                    from PIL import ImageCms
+                    ImageCms.applyTransform(patch_rgb, self.icc_transform, inPlace=True)
+            else:
+                if self._source_color_apply is None:
+                    self._source_color_apply, _ = build_color_corrector(local_slide)
+                corrected = self._source_color_apply(patch_rgb)
+                if corrected is not patch_rgb:
+                    patch_rgb.close()
+                    patch_rgb = corrected
             return self._to_tensor(patch_rgb)
         except Exception:
             return None
