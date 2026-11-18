@@ -36,13 +36,17 @@ def processing_metadata() -> dict:
 
 
 def cache_has_current_detection_postprocess(result: dict) -> bool:
+    """Accept saved detections with compatible coordinates/NMS metadata.
+
+    Patch selection and reader versions describe how a result was produced;
+    they must not hide existing results or trigger automatic reinference.
+    Keep that provenance unchanged when loading older saved results.
+    """
     if not isinstance(result, dict):
         return False
     return (
         result.get("patch_overlap_um") == DETECTION_PATCH_OVERLAP_UM
         and result.get("global_dedup_version") == GLOBAL_DEDUP_VERSION
-        and result.get("patch_selection_version") == PATCH_SELECTION_VERSION
-        and result.get("patch_reader_version") == PATCH_READER_VERSION
     )
 
 

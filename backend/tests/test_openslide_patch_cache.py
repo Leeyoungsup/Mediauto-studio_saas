@@ -75,11 +75,11 @@ def test_ndpi_fallback_and_tiles_use_same_color_transform(tmp_path, monkeypatch)
     np.testing.assert_array_equal(cached.numpy(),direct.numpy())
 
 
-def test_previous_reader_results_are_invalidated():
+def test_previous_reader_results_remain_readable_without_reinference():
     payload = processing_metadata()
     assert cache_has_current_detection_postprocess(payload)
     del payload['patch_reader_version']
-    assert not cache_has_current_detection_postprocess(payload)
+    assert cache_has_current_detection_postprocess(payload)
 
 
 def test_base_tiles_not_ndpmatch_variant(tmp_path, monkeypatch):

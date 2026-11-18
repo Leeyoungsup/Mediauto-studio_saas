@@ -53,8 +53,8 @@ def test_failed_mask_retains_candidates_and_logs(monkeypatch, caplog):
     assert 'Tissue mask failed' in caplog.text
 
 
-def test_old_selection_cache_not_reused():
+def test_old_selection_cache_remains_readable_without_reinference():
     current = processing_metadata()
     assert cache_has_current_detection_postprocess(current)
     del current['patch_selection_version']
-    assert not cache_has_current_detection_postprocess(current)
+    assert cache_has_current_detection_postprocess(current)

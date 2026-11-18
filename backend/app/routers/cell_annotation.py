@@ -1329,6 +1329,7 @@ def _write_assistance_result(slide_id: str, info, config: dict, result: dict) ->
         "annotation_ai": config,
         "source_model_runtime": result.get("model_runtime"),
         "source_ai_postprocess": {
+            **{key: result[key] for key in ("patch_selection_version", "patch_reader_version") if key in result},
             "input_mpp": result.get("input_mpp"),
             "patch_overlap_um": result.get("patch_overlap_um"),
             "global_dedup_version": result.get("global_dedup_version"),
