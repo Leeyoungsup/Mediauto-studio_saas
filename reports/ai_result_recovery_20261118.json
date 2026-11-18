@@ -1,0 +1,15 @@
+{
+  "date": "2026-11-18",
+  "counts": {
+    "ai_accepted": 477,
+    "ai_restored_by_compatibility": 420,
+    "assistance_accepted": 258,
+    "assistance_restored_by_compatibility": 258
+  },
+  "audited_result_files": 1507,
+  "files_changed_during_recovery": [],
+  "inference_executed": false,
+  "result_data_rewritten": false,
+  "old_orphan_backup": "One Oct 6 v9 HER2 backup has no primary; left untouched because it predates this incident and uses an older resolution/postprocess schema.",
+  "runtime_status": "No running uvicorn/main:app process found in this execution environment; backend restart/reload required to apply code in an existing server."
+}
