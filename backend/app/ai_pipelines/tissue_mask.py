@@ -4,9 +4,13 @@ routers/ai.py text _run_detection / _run_marker_detection_pipeline text text.
 text text text text text text GPU text text text.
 """
 
+import logging
+
 import numpy as np
 
 from app.tile_generator import render_pyramid_thumbnail
+
+logger = logging.getLogger(__name__)
 
 # ── tissue_mask text text text ──
 # text v_out = 255 * (v_in/255) ^ γ text text text H-DAB/Otsu/text text text.
@@ -123,13 +127,14 @@ def create_tissue_mask(slide, icc_transform=None):
             cv2.drawContours(filled, [cnt], -1, 255, thickness=cv2.FILLED)
         mask = filled
 
-        target_w = slide.dimensions[0] // 64
-        target_h = slide.dimensions[1] // 64
+        target_w = max(1, slide.dimensions[0] // 64)
+        target_h = max(1, slide.dimensions[1] // 64)
         mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
         return mask
     except Exception:
+        logger.warning("Tissue mask failed; retaining candidate patches", exc_info=True)
         w, h = slide.dimensions
-        return np.ones((h // 64, w // 64), dtype=np.uint8) * 255
+        return np.ones((max(1, h // 64), max(1, w // 64)), dtype=np.uint8) * 255
 
 
 def _rects_intersect(rect_a, rect_b) -> bool:
@@ -163,7 +168,11 @@ def build_valid_patch_list(slide, width: int, height: int, image_size: int,
                            roi_polygons=None, icc_transform=None,
                            mpp=None,
                            overlap_um: float = 0.0):
-    """Return AI patch origins, using Philips data envelopes when available."""
+    """Select envelope/ROI candidates, then reject tissue-mask-empty patches.
+
+    Philips envelopes bound acquired data, not tissue. They must not bypass
+    background filtering. Keep any mask overlap to preserve tissue boundaries.
+    """
     float_mpp_safe = float(mpp) if mpp and mpp > 0 else 0.25
     overlap_px = int(round(max(0.0, float(overlap_um or 0.0)) / float_mpp_safe))
     overlap_px = min(overlap_px, max(0, image_size // 2))
@@ -176,28 +185,31 @@ def build_valid_patch_list(slide, width: int, height: int, image_size: int,
         for rect in getattr(slide, "data_envelope_rectangles", [])
         if len(rect) == 4
     ]
-    valid_patch_list = []
-
-    if rects:
-        for px in x_starts:
-            for py in y_starts:
+    candidates = []
+    for px in x_starts:
+        for py in y_starts:
+            if rects:
                 patch_rect = (px, px + image_size - 1, py, py + image_size - 1)
                 if not any(_rects_intersect(patch_rect, rect) for rect in rects):
                     continue
-                if not _patch_in_roi(px, py, image_size, roi_polygons):
-                    continue
-                valid_patch_list.append((px, py))
-        return valid_patch_list, "data_envelope"
+            if _patch_in_roi(px, py, image_size, roi_polygons):
+                candidates.append((px, py))
 
+    source = "data_envelope+tissue_mask" if rects else "tissue_mask"
+    if not candidates:
+        return [], source
     thumb_mask = create_tissue_mask(slide, icc_transform=icc_transform)
-    for px in x_starts:
-        for py in y_starts:
-            mx = px // 64
-            my = py // 64
-            if np.sum(thumb_mask[my:my + image_size // 64,
-                                 mx:mx + image_size // 64]) == 0:
-                continue
-            if not _patch_in_roi(px, py, image_size, roi_polygons):
-                continue
+    mask_h, mask_w = thumb_mask.shape[:2]
+    valid_patch_list = []
+    for px, py in candidates:
+        # Map level-0 coordinates to the actual mask shape. Floor the start and
+        # ceil the end so partial mask pixels and the final slide edge survive.
+        x0 = max(0, px * mask_w // width)
+        y0 = max(0, py * mask_h // height)
+        x1 = min(mask_w, ((px + image_size) * mask_w + width - 1) // width)
+        y1 = min(mask_h, ((py + image_size) * mask_h + height - 1) // height)
+        if np.any(thumb_mask[y0:y1, x0:x1]):
             valid_patch_list.append((px, py))
-    return valid_patch_list, "tissue_mask"
+    logger.info("AI patch selection: %s candidates=%d tissue=%d background_removed=%d",
+                source, len(candidates), len(valid_patch_list), len(candidates)-len(valid_patch_list))
+    return valid_patch_list, source

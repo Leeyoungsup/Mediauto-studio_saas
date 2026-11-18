@@ -254,7 +254,7 @@ def run_detection(task_id: str, slide_id: str, roi_polygons: Optional[list], tis
         update_task(
             task_id,
             progress=4,
-            status_msg="Using slide data envelopes..." if has_envelope else "Creating tissue mask...",
+            status_msg="Filtering slide data envelopes with tissue mask..." if has_envelope else "Creating tissue mask...",
         )
         valid_patch_list, patch_source = build_valid_patch_list(
             slide,
